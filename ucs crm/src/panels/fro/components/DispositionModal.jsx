@@ -43,7 +43,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [profile, setProfile] = useState(null);
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
-
+  const [leadAmount, setLeadAmount] = useState('');
   const [selected, setSelected] = useState(null);
   const [notes, setNotes] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
@@ -150,6 +150,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       setPanError('');
       setLeadDob('');
       setProjectName('');
+      setLeadAmount('');
     }
   };
 
@@ -291,6 +292,13 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                             </select>
                           </div>
                         </div>
+                          <div className="detail-field-row">
+                    <div className="fld">
+                      <label>Amount Collected</label>
+                      <input type="number" min="0" value={leadAmount}
+                        onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
+                    </div>
+                  </div>
                         <div className="detail-field-row">
                           <div className="fld">
                             <label>Screenshot</label>

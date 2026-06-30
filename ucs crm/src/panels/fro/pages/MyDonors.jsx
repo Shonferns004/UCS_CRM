@@ -51,7 +51,7 @@ export default function MyDonors() {
   const [index, setIndex] = useState(0);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
-
+  const [leadAmount, setLeadAmount] = useState('');
   const [selected, setSelected] = useState(null);
   const [notes, setNotes] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
@@ -83,7 +83,7 @@ export default function MyDonors() {
           const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
           if (found >= 0) { setIndex(found); return; }
           if (typeof idx === 'number' && idx < r.length) { setIndex(idx); return; }
-        } catch {}
+        } catch { }
       }
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
@@ -140,6 +140,7 @@ export default function MyDonors() {
       setPanError('');
       setLeadDob('');
       setProjectName('');
+      setLeadAmount('');
     }
   };
 
@@ -212,6 +213,7 @@ export default function MyDonors() {
         logData.donor_pan = leadPan || null;
         logData.donor_dob = leadDob || null;
         logData.project_name = projectName || null;
+        logData.amount_collected = leadAmount ? Number(leadAmount) : null;
       }
       await addDonorLog(donor.id, logData);
       setDonors(prev => prev.map(d =>
@@ -268,11 +270,11 @@ export default function MyDonors() {
         <div className="detail-left" style={{ padding: 12 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Profile header */}
-            <div style={{ textAlign:'center', paddingBottom:10, borderBottom:'1px solid var(--line)', flexShrink:0 }}>
+            <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div className="detail-avatar">{initials(donor.donor_name)}</div>
               <div className="detail-name">{donor.donor_name}</div>
               <div className="detail-phone">{donor.donor_mobile || '—'}</div>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, flexWrap:'wrap', marginTop:4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                 {donor.is_new && (
                   <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
                 )}
@@ -302,12 +304,12 @@ export default function MyDonors() {
                 </div>
               </div>
               <div className="detail-field-row">
-                <div className="fld" onClick={openDonationModal} style={{ cursor:'pointer' }}>
+                <div className="fld" onClick={openDonationModal} style={{ cursor: 'pointer' }}>
                   <label>Donations
-                    <span style={{ fontSize:9, marginLeft:4, opacity:.5 }}>↗</span>
+                    <span style={{ fontSize: 9, marginLeft: 4, opacity: .5 }}>↗</span>
                   </label>
-                  <div style={{ color:'var(--sage)', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:13, color:'var(--sage)' }}>payments</span>
+                  <div style={{ color: 'var(--sage)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--sage)' }}>payments</span>
                     {donor.donation_count || 0} time{donor.donation_count !== 1 ? 's' : ''} (₹{Number(donor.total_donated || 0).toLocaleString('en-IN')})
                   </div>
                 </div>
@@ -417,7 +419,7 @@ export default function MyDonors() {
               )}
 
               {selected === 'lead_done' && (
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Project</label>
@@ -429,14 +431,21 @@ export default function MyDonors() {
                   </div>
                   <div className="detail-field-row">
                     <div className="fld">
+                      <label>Amount Collected</label>
+                      <input type="number" min="0" value={leadAmount}
+                        onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
+                    </div>
+                  </div>
+                  <div className="detail-field-row">
+                    <div className="fld">
                       <label>Screenshot</label>
                       <label htmlFor="ss-input" className="ss-upload">
                         {screenshotPreview ? (
-                          <div style={{ position:'relative' }}>
+                          <div style={{ position: 'relative' }}>
                             <img src={screenshotPreview} alt="preview" className="ss-preview"
                               onClick={e => { e.preventDefault(); window.open(screenshotPreview, '_blank'); }} />
                             <span className="ss-remove"
-                              onClick={e => { e.preventDefault(); setLeadScreenshot(null); setScreenshotPreview(null); document.getElementById('ss-input').value=''; }}>close</span>
+                              onClick={e => { e.preventDefault(); setLeadScreenshot(null); setScreenshotPreview(null); document.getElementById('ss-input').value = ''; }}>close</span>
                           </div>
                         ) : (
                           <div className="ss-placeholder">
@@ -470,7 +479,7 @@ export default function MyDonors() {
                           setPanError('');
                         }
                       }} placeholder="e.g. ABCDE1234F" maxLength={10} style={{ borderColor: panError ? '#dc2626' : undefined }} />
-                      {leadPan.length > 0 && panError && <span style={{ fontSize:9, color:'#dc2626', marginTop:1, display:'block' }}>{panError}</span>}
+                      {leadPan.length > 0 && panError && <span style={{ fontSize: 9, color: '#dc2626', marginTop: 1, display: 'block' }}>{panError}</span>}
                     </div>
                     <div className="fld">
                       <label>DOB</label>
@@ -540,7 +549,7 @@ export default function MyDonors() {
     </div>
 
     <div className="detail-action-outer">
-      <button className="btn-next" disabled={index === 0} onClick={() => setIndex(i => i - 1)} style={{ background:'transparent', color:'var(--sage)', border:'1px solid var(--line)' }}>← Prev</button>
+      <button className="btn-next" disabled={index === 0} onClick={() => setIndex(i => i - 1)} style={{ background: 'transparent', color: 'var(--sage)', border: '1px solid var(--line)' }}>← Prev</button>
       <span className="counter">{index + 1} of {donors.length}</span>
       <button className="btn-next"
         disabled={saving}
@@ -551,50 +560,50 @@ export default function MyDonors() {
 
     {/* Donation Modal */}
     {showDonationModal && (
-      <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => setShowDonationModal(false)}>
-        <div style={{ background:'#fff', borderRadius:12, width:520, maxHeight:'80vh', display:'flex', flexDirection:'column', boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', borderBottom:'1px solid var(--line)' }}>
-            <span style={{ fontSize:13, fontWeight:700 }}>Donations — {donor.donor_name}</span>
-            <span className="material-symbols-outlined" style={{ fontSize:18, cursor:'pointer', color:'var(--ink-soft)' }} onClick={() => setShowDonationModal(false)}>close</span>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }} onClick={() => setShowDonationModal(false)}>
+        <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>Donations — {donor.donor_name}</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => setShowDonationModal(false)}>close</span>
           </div>
-          <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--line)', display:'flex', gap:6, alignItems:'center' }}>
-            <span style={{ fontSize:10, fontWeight:600, color:'var(--ink-soft)', whiteSpace:'nowrap' }}>Show:</span>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Show:</span>
             {['this_year', 'fy_2025_26', 'fy_2024_25', 'fy_2023_24'].map(y => (
               <button key={y} onClick={() => handleDonationYearChange(y)}
-                style={{ padding:'4px 10px', border:`1px solid ${donationYear === y ? 'var(--sage)' : 'var(--line)'}`, borderRadius:6, background: donationYear === y ? 'var(--sage)' : '#fff', color: donationYear === y ? '#fff' : 'var(--ink)', fontSize:10, fontWeight:600, fontFamily:'inherit', cursor:'pointer', transition:'all .12s' }}>
+                style={{ padding: '4px 10px', border: `1px solid ${donationYear === y ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 6, background: donationYear === y ? 'var(--sage)' : '#fff', color: donationYear === y ? '#fff' : 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .12s' }}>
                 {y === 'this_year' ? 'This Year' : y.replace(/fy_(\d{4})_(\d{2})/, 'FY $1\u2013$2')}
               </button>
             ))}
           </div>
-          <div style={{ flex:1, overflowY:'auto', padding:12 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
             {donationLoading ? (
-              <div style={{ textAlign:'center', padding:20, fontSize:11, color:'var(--ink-soft)' }}>Loading...</div>
+              <div style={{ textAlign: 'center', padding: 20, fontSize: 11, color: 'var(--ink-soft)' }}>Loading...</div>
             ) : donations.length === 0 ? (
-              <div style={{ textAlign:'center', padding:20, fontSize:11, color:'var(--ink-soft)' }}>No donations for this period.</div>
+              <div style={{ textAlign: 'center', padding: 20, fontSize: 11, color: 'var(--ink-soft)' }}>No donations for this period.</div>
             ) : (
-              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead>
-                  <tr style={{ borderBottom:'1px solid var(--line)' }}>
-                    <th style={{ textAlign:'left', padding:'5px 6px', fontSize:9, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Date</th>
-                    <th style={{ textAlign:'left', padding:'5px 6px', fontSize:9, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Amount</th>
-                    <th style={{ textAlign:'left', padding:'5px 6px', fontSize:9, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Mode</th>
-                    <th style={{ textAlign:'left', padding:'5px 6px', fontSize:9, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Status</th>
+                  <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                    <th style={{ textAlign: 'left', padding: '5px 6px', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Date</th>
+                    <th style={{ textAlign: 'left', padding: '5px 6px', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Amount</th>
+                    <th style={{ textAlign: 'left', padding: '5px 6px', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Mode</th>
+                    <th style={{ textAlign: 'left', padding: '5px 6px', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {donations.map((d, i) => (
-                    <tr key={i} style={{ borderBottom:'1px solid var(--line)' }}>
-                      <td style={{ padding:'5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '—'}</td>
-                      <td style={{ padding:'5px 6px', fontWeight:600 }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ padding:'5px 6px' }}>{d.mode || '—'}</td>
-                      <td style={{ padding:'5px 6px' }}><span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`}>{d.status || '—'}</span></td>
+                    <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ padding: '5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '—'}</td>
+                      <td style={{ padding: '5px 6px', fontWeight: 600 }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '5px 6px' }}>{d.mode || '—'}</td>
+                      <td style={{ padding: '5px 6px' }}><span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`}>{d.status || '—'}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
           </div>
-          <div style={{ padding:'10px 16px', borderTop:'1px solid var(--line)', textAlign:'right', fontSize:10, color:'var(--ink-soft)' }}>
+          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
             Total: ₹{donations.reduce((s, d) => s + Number(d.amount || 0), 0).toLocaleString('en-IN')}
           </div>
         </div>
