@@ -329,13 +329,16 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     (a.status === 'present' || a.status === 'late') && (!joinedThisMonth || a.date >= joinCutoff)
   ).length;
   const presentDays = daysWorked;
+  const halfDayCount = monthAttendance.filter(a =>
+    a.status === 'half-day' && (!joinedThisMonth || a.date >= joinCutoff)
+  ).length;
   const sundayCount = Array.from({ length: daysInMonth }, (_, i) => {
     if (joinedThisMonth && i + 1 < joinDayNum) return 0;
     return new Date(yr, mo - 1, i + 1).getDay() === 0 ? 1 : 0;
   }).reduce((a, b) => a + b, 0);
-  let paidDays = noAttendanceData ? 0 : presentDays + sundayCount;
-  if (paidDays < 0) paidDays = 0;
   const sundayDeductions = [...deducted].filter(d => new Date(d).getDay() === 0).length;
+  let paidDays = noAttendanceData ? 0 : presentDays + (halfDayCount * 0.5) + Math.max(0, sundayCount - sundayDeductions);
+  if (paidDays < 0) paidDays = 0;
   const JOINING_DEDUCTION = 1.5;
   const joiningDeduction = (joinedThisMonth && monthsEmployed <= 3) ? JOINING_DEDUCTION : 0;
   const perDay = activeSalary ? parseFloat(activeSalary.salary) / daysInMonth : 0;
@@ -931,13 +934,14 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           if (joinedThisMonth && md.date < joinCutoff) { cats.empty++; }
                           else if (deducted.has(md.date)) { cats.deducted++; }
                           else if (md.status === 'present' || md.status === 'late') { cats.present++; }
+                          else if (md.status === 'half-day') { cats.present += 0.5; }
                           else if (md.dayName === 'Sun') { cats.sunday++; }
                         }
                         return (
                           <div>
                             <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'var(--ink-soft)', marginBottom:4 }}>
                               <span>Available: {availableDays}d</span>
-                              <span>Present: {presentDays}d</span>
+                              <span>Present: {(presentDays + halfDayCount * 0.5).toFixed(1)}d</span>
                               <span>Sundays: {sundayCount}d</span>
                               <span>Deducted: {ded}d</span>
                             </div>
@@ -1038,7 +1042,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
                         <Box num={availableDays} label={joinedThisMonth ? 'Available\nDays' : 'Days in\nMonth'} color="#5B6B4E" />
                         <Arrow />
-                        <Box num={deducted.size} label={'Deducted\nDays'} color="#d9534f" />
+                         <Box num={availableDays - paidDays} label={'Deducted\nDays'} color="#d9534f" />
                         <Equals />
                         <Box num={paidDays} label={'Paid\nDays'} color="#5B6B4E" />
                         <Times />
