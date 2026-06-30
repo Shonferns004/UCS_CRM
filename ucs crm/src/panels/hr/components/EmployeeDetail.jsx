@@ -307,7 +307,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     return { date: dateStr, day: d, dayName, att, status: att?.status || null };
   });
 
-  let paidDays = noAttendanceData ? 0 : availableDays - deducted.size;
+  let paidDays = noAttendanceData ? 0 : Math.max(0, presentDays + sundayCount);
   if (paidDays < 0) paidDays = 0;
   const daysWorked = monthAttendance.filter(a =>
     (a.status === 'present' || a.status === 'late') && (!joinedThisMonth || a.date >= joinCutoff)
@@ -1020,9 +1020,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
                         <Box num={availableDays} label={joinedThisMonth ? 'Available\nDays' : 'Days in\nMonth'} color="#5B6B4E" />
                         <Arrow />
-                        <Box num={presentDays} label={'Present\nDays'} color="#5B6B4E" />
-                        <Plus />
-                        <Box num={sundayCount} label={'Sundays'} color="#f59e0b" />
+                        <Box num={presentDays} label={`Present\n( + ${sundayCount} Sun )`} color="#5B6B4E" />
                         <Equals />
                         <Box num={paidDays} label={'Paid\nDays'} color="#5B6B4E" />
                         <Times />
@@ -2082,9 +2080,6 @@ function Arrow() {
 
 function Equals() {
   return <span style={{ fontSize:20, color:'var(--ink-soft)', fontWeight:300 }}>=</span>;
-}
-function Plus() {
-  return <span style={{ fontSize:20, color:'var(--ink-soft)', fontWeight:300 }}>+</span>;
 }
 
 function Times() {
