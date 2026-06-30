@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../store'
 
@@ -13,13 +13,19 @@ export default function Layout() {
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
   const [showLogout, setShowLogout] = useState(false)
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const handleLogout = () => {
     logout()
     navigate('/login')
   }
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const showTabBar = ['/home', '/profile'].includes(location.pathname)
 
   const sidebarLinks = [

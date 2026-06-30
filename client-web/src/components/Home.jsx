@@ -128,10 +128,10 @@ export default function Home() {
 
           <div className="mt-6 flex justify-center">
             <button onClick={handlePunch}
-              className={`w-44 h-44 rounded-full flex items-center justify-center text-white font-bold text-lg transition-all duration-300 animate-pulse-ring ${
+              className={`w-44 h-44 rounded-full flex items-center justify-center text-white font-bold text-lg transition-all duration-300 animate-pulse-ring aspect-square shrink-0 ${
                 punched ? 'bg-gradient-to-br from-blue-600 to-blue-800' : 'bg-gradient-to-br from-slate-800 to-slate-900'
               }`}>
-              <div className="text-center text-xl">{punched ? 'Punch\nOut' : 'Punch\nIn'}</div>
+              <div className="text-center text-xl leading-tight">{punched ? <>Punch<br />Out</> : <>Punch<br />In</>}</div>
             </button>
           </div>
 
