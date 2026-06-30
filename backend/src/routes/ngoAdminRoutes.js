@@ -11,6 +11,7 @@ import {
   getDashboard,
   getFroWiseCollection,
   setAchievedTarget,
+  setIncentive,
   getAccountsPending,
   verifyLeadDone,
   getStations,
@@ -52,6 +53,7 @@ router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
 router.post('/achieved-target', setAchievedTarget);
 router.get('/incentives', getIncentives);
+router.post('/incentive', setIncentive);
 router.get('/accounts/pending', getAccountsPending);
 router.post('/accounts/:logId/verify', verifyLeadDone);
 

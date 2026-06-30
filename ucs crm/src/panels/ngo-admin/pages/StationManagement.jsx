@@ -138,6 +138,8 @@ export default function StationManagement() {
   const [editAchieved, setEditAchieved] = useState(null);
   const [achievedAmount, setAchievedAmount] = useState('');
   const [incentives, setIncentives] = useState([]);
+  const [editIncentive, setEditIncentive] = useState(null);
+  const [incentiveAmount, setIncentiveAmount] = useState('');
 
   useEffect(() => {
     if (!msg) return;
@@ -427,12 +429,21 @@ export default function StationManagement() {
                       {(() => {
                         const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
                         if (!w) return <span style={{ color: '#9ca3af' }}>—</span>;
+                        const t = targets.find(tg => tg.id === w.id);
+                        const manualInc = t?.incentive;
                         const inc = incentives.find(i => i.worker_id === w.id);
-                        if (!inc || !inc.hasTarget) return <span style={{ color: '#9ca3af' }}>—</span>;
-                        if (inc.totalIncentive > 0) {
-                          return <strong style={{ color: '#059669' }}>₹{Number(inc.totalIncentive).toLocaleString('en-IN')}</strong>;
+                        const autoInc = inc?.hasTarget ? inc.totalIncentive : null;
+                        const displayVal = manualInc != null ? manualInc : autoInc;
+                        const isManual = manualInc != null;
+                        if (displayVal != null && displayVal > 0) {
+                          return (
+                            <strong style={{ color: isManual ? '#7c3aed' : '#059669' }}>
+                              ₹{Number(displayVal).toLocaleString('en-IN')}
+                              {isManual && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 4, color: '#7c3aed' }}>M</span>}
+                            </strong>
+                          );
                         }
-                        return <span style={{ color: '#9ca3af' }}>0</span>;
+                        return <span style={{ color: '#9ca3af' }}>{manualInc != null ? '0' : '—'}</span>;
                       })()}
                     </td>
                     <td>
@@ -468,6 +479,21 @@ export default function StationManagement() {
                           return (
                             <button className="btn btn-sm btn-outline" onClick={() => { setEditAchieved(w); setAchievedAmount(String(t?.achieved_target || '')); }}>
                               {t?.achieved_target != null && t.achieved_target > 0 ? 'Edit Achv' : 'Set Achv'}
+                            </button>
+                          );
+                        })()}
+                        {(() => {
+                          const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                          if (!w) return null;
+                          const t = targets.find(tg => tg.id === w.id);
+                          const inc = incentives.find(i => i.worker_id === w.id);
+                          const autoVal = inc?.hasTarget ? inc.totalIncentive : 0;
+                          return (
+                            <button className="btn btn-sm btn-outline" onClick={() => {
+                              setEditIncentive(w);
+                              setIncentiveAmount(String(t?.incentive != null ? t.incentive : autoVal || ''));
+                            }} style={{ color: '#7c3aed' }}>
+                              {t?.incentive != null ? 'Edit Incent' : 'Set Incent'}
                             </button>
                           );
                         })()}
@@ -553,6 +579,62 @@ export default function StationManagement() {
                       achieved_amount: parseFloat(achievedAmount) || 0,
                     });
                     setEditAchieved(null);
+                    loadTargets();
+                  } catch (err) { alert(err.message); }
+                }}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editIncentive && (
+        <div className="modal-overlay" onClick={() => setEditIncentive(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Set Incentive — {editIncentive.name}</h3>
+              <button className="btn btn-sm btn-outline" onClick={() => setEditIncentive(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label>Incentive Amount (₹)</label>
+                <input type="number" value={incentiveAmount} onChange={e => setIncentiveAmount(e.target.value)} min="0" />
+              </div>
+              {(() => {
+                const inc = incentives.find(i => i.worker_id === editIncentive.id);
+                if (inc?.hasTarget && inc.totalIncentive > 0) {
+                  return <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    Auto-calculated: ₹{Number(inc.totalIncentive).toLocaleString('en-IN')}
+                    &nbsp;(AKI: ₹{Number(inc.akiPayout).toLocaleString('en-IN')} + 10%: ₹{Number(inc.monthlyIncentive).toLocaleString('en-IN')})
+                  </div>;
+                }
+                return null;
+              })()}
+              <div className="modal-actions" style={{ marginTop: 16 }}>
+                <button className="btn btn-outline" onClick={async () => {
+                  try {
+                    const now = new Date();
+                    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    await apiPost('/ngo-admin/incentive', {
+                      fro_worker_id: editIncentive.id,
+                      month,
+                      incentive_amount: '',
+                    });
+                    setEditIncentive(null);
+                    loadTargets();
+                  } catch (err) { alert(err.message); }
+                }}>Clear</button>
+                <button className="btn btn-outline" onClick={() => setEditIncentive(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={async () => {
+                  try {
+                    const now = new Date();
+                    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    await apiPost('/ngo-admin/incentive', {
+                      fro_worker_id: editIncentive.id,
+                      month,
+                      incentive_amount: parseFloat(incentiveAmount) || 0,
+                    });
+                    setEditIncentive(null);
                     loadTargets();
                   } catch (err) { alert(err.message); }
                 }}>Save</button>

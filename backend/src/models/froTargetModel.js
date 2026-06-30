@@ -63,6 +63,34 @@ export const updateAchievedTarget = async (workerId, ngoId, month, achievedAmoun
   return data;
 };
 
+export const updateIncentive = async (workerId, ngoId, month, amount) => {
+  const { data: existing } = await supabase
+    .from('fro_monthly_targets')
+    .select('id')
+    .eq('fro_worker_id', workerId)
+    .eq('month', month)
+    .maybeSingle();
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from('fro_monthly_targets')
+      .update({ incentive: amount })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from('fro_monthly_targets')
+    .insert({ fro_worker_id: workerId, ngo_id: ngoId, month, incentive: amount, target_amount: 0 })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const getAllTargetsForNgo = async (ngoId) => {
   const { data, error } = await supabase
     .from('fro_monthly_targets')
