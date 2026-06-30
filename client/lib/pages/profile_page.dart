@@ -28,6 +28,8 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loading = true;
   List<dynamic> _loans = [];
   bool _loadingLoans = false;
+  List<dynamic> _tickets = [];
+  bool _loadingTickets = false;
 
   int _present = 0, _absent = 0, _late = 0, _leave = 0, _lateUsed = 0;
   Map<String, String> _statusByDate = {};
@@ -90,6 +92,7 @@ class _ProfilePageState extends State<ProfilePage> {
     await _refreshHistoryFromNetwork();
     _fetchCalendar();
     _fetchLoans();
+    _fetchTickets();
 
     // Subscribe to realtime updates
     if (_workerId != null && _workerId!.isNotEmpty) {
@@ -111,6 +114,15 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) setState(() => _loans = loans);
     } catch (_) {}
     if (mounted) setState(() => _loadingLoans = false);
+  }
+
+  Future<void> _fetchTickets() async {
+    setState(() => _loadingTickets = true);
+    try {
+      final tickets = await ApiService.getMyCorrectionTickets();
+      if (mounted) setState(() => _tickets = tickets);
+    } catch (_) {}
+    if (mounted) setState(() => _loadingTickets = false);
   }
 
   Future<void> _applyCachedHistory(Future<List<dynamic>?> future) async {
@@ -280,6 +292,8 @@ class _ProfilePageState extends State<ProfilePage> {
         _loansCard(colors, scheme, tt),
         const SizedBox(height: 24),
         _raiseTicketCard(scheme, colors),
+        const SizedBox(height: 24),
+        _ticketStatusCard(scheme, colors, tt),
         const SizedBox(height: 24),
         _accountManagement(colors, scheme, tt),
           ],
@@ -987,6 +1001,108 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _ticketStatusCard(ColorScheme scheme, AppColors colors, TextTheme tt) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.confirmation_number, size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text('Correction Tickets',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 18, fontWeight: FontWeight.w600, color: scheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_loadingTickets)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else if (_tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text('No pending tickets', style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+              ),
+            )
+          else
+            ..._tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').take(3).map((t) => _ticketItem(t, scheme, colors)),
+          if (_tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').length > 3)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Center(
+                child: Text('+${_tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').length - 3} more', style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ticketItem(dynamic t, ColorScheme scheme, AppColors colors) {
+    final status = t['status']?.toString() ?? 'pending';
+    final field = t['field'] == 'punch_in' ? 'Punch In' : 'Punch Out';
+    final date = t['date']?.toString() ?? '';
+    final Color statusColor;
+    final String statusLabel;
+    switch (status) {
+      case 'pending': statusColor = const Color(0xFFc28228); statusLabel = 'Pending'; break;
+      case 'hr_verified': statusColor = const Color(0xFF2563eb); statusLabel = 'HR Verified'; break;
+      case 'approved': statusColor = const Color(0xFF1D7A4F); statusLabel = 'Approved'; break;
+      case 'rejected': statusColor = const Color(0xFFba1a1a); statusLabel = 'Rejected'; break;
+      default: statusColor = scheme.onSurfaceVariant; statusLabel = status;
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors.outline.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('$date • $field',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.onSurface)),
+                  const SizedBox(height: 2),
+                  if (t['reason'] != null)
+                    Text(t['reason'].toString(),
+                      style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(statusLabel, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: statusColor)),
+            ),
+          ],
+        ),
       ),
     );
   }
