@@ -75,6 +75,7 @@ export default function Dashboard() {
   const target = ts.target || ds.target || 0
   const collected = ts.collected || ds.collected || 0
   const remaining = ts.remaining || Math.max(0, target - collected)
+  const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
   const progress = target > 0 ? Math.min(100, (collected / target) * 100) : 0
 
   const pieData = ts.stats
@@ -93,8 +94,8 @@ export default function Dashboard() {
 
   return (
     <div className="bento-grid">
-      {/* Hero row: target, collected, remaining */}
-      <div className="bento-col-4">
+      {/* Hero row: target, collected, achieved, remaining */}
+      <div className="bento-col-3">
         <div style={{ border:'1px solid var(--line)', borderRadius:16, padding:'18px 20px', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,.04)', display:'flex', flexDirection:'column' }}>
           <div style={{ fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:.5, color:'var(--md-outline)', marginBottom:2 }}>Monthly Target</div>
           <div style={{ fontSize:32, fontWeight:800, color:'var(--ink)', lineHeight:1.2, marginBottom:4 }}>{currency(target)}</div>
@@ -103,7 +104,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      <div className="bento-col-4">
+      <div className="bento-col-3">
         <div style={{ border:'1px solid var(--line)', borderRadius:16, padding:'18px 20px', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,.04)', display:'flex', flexDirection:'column' }}>
           <div style={{ fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:.5, color:'var(--md-outline)', marginBottom:2 }}>Collected</div>
           <div style={{ fontSize:32, fontWeight:800, color:'var(--sage)', lineHeight:1.2, marginBottom:4 }}>{currency(collected)}</div>
@@ -112,7 +113,20 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      <div className="bento-col-4">
+      <div className="bento-col-3">
+        <div style={{ border:'1px solid var(--line)', borderRadius:16, padding:'18px 20px', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,.04)', display:'flex', flexDirection:'column' }}>
+          <div style={{ fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:.5, color:'var(--md-outline)', marginBottom:2 }}>Achieved Target</div>
+          <div style={{ fontSize:32, fontWeight:800, color:'#8b5cf6', lineHeight:1.2, marginBottom:4 }}>
+            {achieved_target != null ? currency(achieved_target) : '—'}
+          </div>
+          <div style={{ fontSize:10, color:'var(--ink-soft)' }}>
+            {achieved_target != null
+              ? (achieved_target >= target ? 'Target achieved!' : `${((achieved_target / target) * 100).toFixed(0)}% of target`)
+              : 'Not set by admin'}
+          </div>
+        </div>
+      </div>
+      <div className="bento-col-3">
         <div style={{ border:'1px solid var(--line)', borderRadius:16, padding:'18px 20px', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,.04)', display:'flex', flexDirection:'column' }}>
           <div style={{ fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:.5, color:'var(--md-outline)', marginBottom:2 }}>Remaining</div>
           <div style={{ fontSize:32, fontWeight:800, color: remaining > 0 ? '#e53e3e' : 'var(--sage)', lineHeight:1.2, marginBottom:4 }}>{currency(remaining)}</div>

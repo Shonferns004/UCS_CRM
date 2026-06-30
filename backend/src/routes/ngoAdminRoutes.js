@@ -10,6 +10,7 @@ import {
   getTargets,
   getDashboard,
   getFroWiseCollection,
+  setAchievedTarget,
   getAccountsPending,
   verifyLeadDone,
   getStations,
@@ -48,6 +49,7 @@ router.get('/assignments', getAssignments);
 router.get('/targets', getTargets);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
+router.post('/achieved-target', setAchievedTarget);
 router.get('/accounts/pending', getAccountsPending);
 router.post('/accounts/:logId/verify', verifyLeadDone);
 
