@@ -8,6 +8,9 @@ function StyledQR({ data, size = 200 }) {
   const ref = useRef(null);
 
   useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.innerHTML = '';
     const qr = new QRCodeStyling({
       width: size,
       height: size,
@@ -29,8 +32,8 @@ function StyledQR({ data, size = 200 }) {
       backgroundOptions: { color: '#ffffff' },
       imageOptions: { crossOrigin: 'anonymous', margin: 8, imageSize: 0.35 },
     });
-    qr.append(ref.current);
-    return () => { if (ref.current) ref.current.innerHTML = ''; };
+    qr.append(el);
+    return () => { if (el) el.innerHTML = ''; };
   }, [data, size]);
 
   return <div ref={ref} />;
@@ -87,7 +90,6 @@ export default function GenerateQR() {
   const [longitude, setLongitude] = useState('');
   const [radius, setRadius] = useState('100');
   const [busy, setBusy] = useState(false);
-  const [newQR, setNewQR] = useState(null);
   const [viewedQR, setViewedQR] = useState(null);
 
   const load = useCallback(async () => {
@@ -115,10 +117,10 @@ export default function GenerateQR() {
     if (!label || !latitude || !longitude) return alert('Label, latitude, and longitude are required');
     setBusy(true);
     try {
-      const result = await generateQR(label, parseFloat(latitude), parseFloat(longitude), parseInt(radius) || 100);
-      setNewQR(result.qr);
+      await generateQR(label, parseFloat(latitude), parseFloat(longitude), parseInt(radius) || 100);
       setLabel(''); setLatitude(''); setLongitude(''); setRadius('100');
-      load();
+      await load();
+      document.querySelector('.card-head h3')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
   };
@@ -127,7 +129,6 @@ export default function GenerateQR() {
     if (!window.confirm('Delete this QR code?')) return;
     try {
       await removeQRCode(id);
-      if (newQR?.id === id) setNewQR(null);
       load();
     } catch (err) { alert(err.message); }
   };
@@ -163,21 +164,6 @@ export default function GenerateQR() {
           </button>
         </div>
       </div>
-
-      {newQR && (
-        <div className="card" style={{ padding: '24px 28px', marginBottom: 16, textAlign: 'center' }}>
-          <div className="card-title" style={{ marginBottom: 12 }}>Generated QR Code</div>
-          <StyledQR data={qrData(newQR)} size={200} />
-          <p style={{ margin: '8px 0 2px', fontWeight: 600 }}>{newQR.label}</p>
-          <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{newQR.latitude}, {newQR.longitude} &middot; {newQR.radius_meters}m radius</p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
-            <button className="btn btn-sm" onClick={() => { navigator.clipboard.writeText(qrData(newQR)); alert('Copied!'); }}>
-              Copy Data
-            </button>
-            <button className="btn btn-sm" onClick={() => printStyledQR(qrData(newQR), newQR.label, newQR.latitude, newQR.longitude, newQR.radius_meters)}>Print</button>
-          </div>
-        </div>
-      )}
 
       {error && <div style={{ background:'#fef2f2', color:'#991b1b', padding:'10px 14px', borderRadius:8, fontSize:13, marginBottom:12 }}>{error}</div>}
 
