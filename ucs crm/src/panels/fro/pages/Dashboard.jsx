@@ -76,7 +76,7 @@ export default function Dashboard() {
   const collected = ts.collected || ds.collected || 0
   const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
   const displayCollected = achieved_target != null ? achieved_target : collected
-  const remaining = ts.remaining || Math.max(0, target - displayCollected)
+  const remaining = Math.max(0, target - displayCollected)
   const progress = target > 0 ? Math.min(100, (displayCollected / target) * 100) : 0
 
   const pieData = ts.stats
