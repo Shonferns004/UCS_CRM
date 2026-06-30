@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
+import { Grid, Funnel, Download, Globe, Star, Users, Brief, Clock, Plane, Cal, Dollar, Spark, Bell, FileTxt, Ticket, Mail } from '../../icons'
 import Dashboard from './pages/Dashboard'
 import NGOs from './pages/NGOs'
 import Users from './pages/Users'
@@ -22,34 +23,34 @@ import DataImport from './pages/DataImport'
 import Tickets from './pages/Tickets'
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { id: 'data-sources', label: 'Data Sources', icon: '📡' },
-  { id: 'data-import', label: 'Data Import', icon: '📥' },
-  { id: 'ngos', label: 'NGOs', icon: '🌐' },
-  { id: 'causes', label: 'Causes', icon: '🎯' },
-  { id: 'users', label: 'Users', icon: '👥' },
-  { id: 'workers', label: 'Workers', icon: '👷' },
-  { id: 'attendance', label: 'Attendance', icon: '📅' },
-  { id: 'leaves', label: 'Leaves', icon: '🏖️' },
-  { id: 'holidays', label: 'Holidays', icon: '📆' },
-  { id: 'salary', label: 'Salary', icon: '💰' },
-  { id: 'incentives', label: 'Incentives', icon: '🎯' },
-  { id: 'events', label: 'Events', icon: '🎉' },
-  { id: 'notices', label: 'Notices', icon: '📢' },
-  { id: 'achievements', label: 'Achievements', icon: '🏆' },
-  { id: 'accounts', label: 'Accounts', icon: '💼' },
-  { id: 'reports', label: 'Reports', icon: '📈' },
-  { id: 'tickets', label: 'Tickets', icon: '🎫' },
+  { id: 'dashboard', label: 'Dashboard', icon: Grid },
+  { id: 'data-sources', label: 'Data Sources', icon: Funnel },
+  { id: 'data-import', label: 'Data Import', icon: Download },
+  { id: 'ngos', label: 'NGOs', icon: Globe },
+  { id: 'causes', label: 'Causes', icon: Star },
+  { id: 'users', label: 'Users', icon: Users },
+  { id: 'workers', label: 'Workers', icon: Users },
+  { id: 'attendance', label: 'Attendance', icon: Clock },
+  { id: 'leaves', label: 'Leaves', icon: Plane },
+  { id: 'holidays', label: 'Holidays', icon: Cal },
+  { id: 'salary', label: 'Salary', icon: Dollar },
+  { id: 'incentives', label: 'Incentives', icon: Spark },
+  { id: 'events', label: 'Events', icon: Star },
+  { id: 'notices', label: 'Notices', icon: Bell },
+  { id: 'achievements', label: 'Achievements', icon: Star },
+  { id: 'accounts', label: 'Accounts', icon: Brief },
+  { id: 'reports', label: 'Reports', icon: FileTxt },
+  { id: 'tickets', label: 'Tickets', icon: Ticket },
 ]
 
 const navMap = {}
 NAV.forEach(n => { navMap[n.id] = n })
 
 const GROUPS = [
-  { id: 'data', label: 'Data Management', icon: '📋', items: ['data-sources', 'data-import'] },
-  { id: 'org', label: 'Organization', icon: '🏢', items: ['ngos', 'causes', 'users', 'workers'] },
-  { id: 'time', label: 'Time & Attendance', icon: '⏰', items: ['attendance', 'leaves', 'holidays'] },
-  { id: 'comm', label: 'Communication', icon: '📢', items: ['events', 'notices'] },
+  { id: 'data', label: 'Data Management', icon: Grid, items: ['data-sources', 'data-import'] },
+  { id: 'org', label: 'Organization', icon: Globe, items: ['ngos', 'causes', 'users', 'workers'] },
+  { id: 'time', label: 'Time & Attendance', icon: Clock, items: ['attendance', 'leaves', 'holidays'] },
+  { id: 'comm', label: 'Communication', icon: Mail, items: ['events', 'notices'] },
 ]
 
 const standaloneIds = ['dashboard', 'salary', 'incentives', 'achievements', 'accounts', 'reports', 'tickets']
@@ -58,41 +59,46 @@ const standaloneIds = ['dashboard', 'salary', 'incentives', 'achievements', 'acc
 
 function Sidebar({ active, setActive, collapsedGroups, toggleGroup }) {
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div className="brand-mark">SA</div>
-        <div><h1>UFS</h1><span>Super Admin</span></div>
+    <aside className="sa-sidebar">
+      <div className="sa-sidebar-header">
+        <div className="sa-logo">SA</div>
+        <div><div className="sa-logo-text">UFS</div><div style={{fontSize:11,color:'var(--text-muted)',letterSpacing:.5,textTransform:'uppercase'}}>Super Admin</div></div>
       </div>
-      <nav className="sidebar-nav">
+      <nav className="sa-nav">
         {standaloneIds.map(id => {
           const n = navMap[id]
+          const Icon = n.icon
           return (
-            <button key={n.id} className={`snav-item${active === n.id ? ' active' : ''}`} onClick={() => setActive(n.id)}>
-              <span className="ico">{n.icon}</span>
-              <span>{n.label}</span>
+            <button key={n.id} className={`sa-nav-item${active === n.id ? ' active' : ''}`} onClick={() => setActive(n.id)}>
+              <Icon className="sa-nav-icon" size={16} />
+              <span className="sa-nav-label">{n.label}</span>
             </button>
           )
         })}
-        {GROUPS.map(g => (
+        {GROUPS.map(g => {
+          const GroupIcon = g.icon
+          return (
           <div key={g.id}>
-            <div className="snav-group-header" onClick={() => toggleGroup(g.id)}>
-              <span className="ico">{g.icon}</span>
+            <div className="sa-nav-group-header" onClick={() => toggleGroup(g.id)}>
+              <GroupIcon className="sa-nav-icon" size={14} />
               <span>{g.label}</span>
-              <span className={`snav-chevron${collapsedGroups.includes(g.id) ? '' : ' open'}`}>▸</span>
+              <span className={`sa-nav-chevron${collapsedGroups.includes(g.id) ? '' : ' open'}`}>▸</span>
             </div>
-            <div className={`snav-group-items${collapsedGroups.includes(g.id) ? ' collapsed' : ''}`}>
+            <div className={`sa-nav-group-items${collapsedGroups.includes(g.id) ? ' collapsed' : ''}`}>
               {g.items.map(id => {
                 const n = navMap[id]
+                const Icon = n.icon
                 return (
-                  <button key={n.id} className={`snav-item snav-sub${active === n.id ? ' active' : ''}`} onClick={() => setActive(n.id)}>
-                    <span className="ico">{n.icon}</span>
-                    <span>{n.label}</span>
+                  <button key={n.id} className={`sa-nav-item sa-nav-sub${active === n.id ? ' active' : ''}`} onClick={() => setActive(n.id)}>
+                    <Icon className="sa-nav-icon" size={16} />
+                    <span className="sa-nav-label">{n.label}</span>
                   </button>
                 )
               })}
             </div>
           </div>
-        ))}
+          )
+        })}
       </nav>
     </aside>
   )
