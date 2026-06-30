@@ -11,8 +11,6 @@ export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [showLogout, setShowLogout] = useState(false)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768)
 
   useEffect(() => {
@@ -69,22 +67,6 @@ export default function Layout() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Mobile Header */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-[var(--border)] safe-top" style={{ paddingTop: 'max(12px, env(safe-area-inset-top, 12px))' }}>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[var(--primary-light)] flex items-center justify-center text-white text-xs font-bold">U</div>
-            <span className="font-semibold text-sm">UFS</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setShowLogout(!showLogout)} className="text-sm text-[var(--ink-soft)]">
-              {user?.name || 'User'}
-            </button>
-            {showLogout && (
-              <button onClick={handleLogout} className="text-xs text-[var(--red)]">Logout</button>
-            )}
-          </div>
-        </header>
-
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
           <Outlet />
