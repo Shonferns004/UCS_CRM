@@ -318,7 +318,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     const dt = new Date(yr, mo - 1, d);
     const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()];
     const att = monthAttendance.find(a => a.date === dateStr);
-    return { date: dateStr, day: d, dayName, att, status: att?.status || null };
+    let status = att?.status || null;
+    if (!status && d <= viewingToday && dt.getDay() !== 0 && !holidayDates.has(dateStr) && !(joinedThisMonth && dateStr < joinCutoff)) {
+      status = 'absent';
+    }
+    return { date: dateStr, day: d, dayName, att, status };
   });
 
   const daysWorked = monthAttendance.filter(a =>
