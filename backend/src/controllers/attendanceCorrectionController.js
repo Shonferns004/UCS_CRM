@@ -9,6 +9,44 @@ import {
   getPendingTicketCount,
 } from '../models/attendanceCorrectionModel.js';
 import { getAttendanceById, updateAttendance } from '../models/attendanceModel.js';
+import { getSetting } from '../models/settingsModel.js';
+import { getApprovedHalfDayLeave } from '../models/leaveModel.js';
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function getIstTime(date = new Date()) {
+  return new Date(date.getTime() + IST_OFFSET_MS);
+}
+
+function istDateStr(date = new Date()) {
+  const ist = getIstTime(date);
+  const y = ist.getUTCFullYear();
+  const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(ist.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function getOfficeStart() {
+  const val = await getSetting('office_start_time');
+  if (!val) return { hour: 10, minute: 0 };
+  const [h, m] = val.split(':').map(Number);
+  return { hour: h || 10, minute: m || 0 };
+}
+
+async function calculateLateMinutes(punchInTime, workerId) {
+  const ist = getIstTime(new Date(punchInTime));
+  const h = ist.getUTCHours();
+  const m = ist.getUTCMinutes();
+  let effectiveStart = await getOfficeStart();
+  const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
+  if (todayHalfDay && todayHalfDay.half_start_time) {
+    const [hd, hm] = todayHalfDay.half_start_time.split(':').map(Number);
+    effectiveStart = { hour: hd, minute: hm };
+  }
+  return (h > effectiveStart.hour || (h === effectiveStart.hour && m > effectiveStart.minute))
+    ? (h - effectiveStart.hour) * 60 + m - effectiveStart.minute
+    : 0;
+}
 
 export const raiseTicket = async (req, res) => {
   try {
@@ -118,24 +156,10 @@ export const approveTicket = async (req, res) => {
     const updates = {};
     if (ticket.field === 'punch_in') {
       updates.punch_in_time = ticket.requested_time;
-      if (attendance.punch_out_time) {
-        const pi = new Date(ticket.requested_time).getTime();
-        const po = new Date(attendance.punch_out_time).getTime();
-        const diffMs = po - pi;
-        const hours = Math.floor(diffMs / 3600000);
-        const minutes = Math.floor((diffMs % 3600000) / 60000);
-        updates.hours_worked = `${hours}h ${minutes}m`;
-      }
+      updates.late_minutes = await calculateLateMinutes(ticket.requested_time, ticket.worker_id);
+      updates.status = updates.late_minutes > 0 ? 'late' : 'present';
     } else {
       updates.punch_out_time = ticket.requested_time;
-      if (attendance.punch_in_time) {
-        const pi = new Date(attendance.punch_in_time).getTime();
-        const po = new Date(ticket.requested_time).getTime();
-        const diffMs = po - pi;
-        const hours = Math.floor(diffMs / 3600000);
-        const minutes = Math.floor((diffMs % 3600000) / 60000);
-        updates.hours_worked = `${hours}h ${minutes}m`;
-      }
     }
 
     await updateAttendance(ticket.attendance_id, updates);
