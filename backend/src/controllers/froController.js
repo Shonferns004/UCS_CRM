@@ -18,6 +18,8 @@ import {
   getTotalCollectedByWorker,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
+  getVerifiedCollection,
+  getUnverifiedCollection,
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
@@ -165,6 +167,11 @@ export const getDashboard = async (req, res) => {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
+    const verifiedMonth = await getVerifiedCollection(workerId, monthStart, monthEnd);
+    const unverifiedMonth = await getUnverifiedCollection(workerId, monthStart, monthEnd);
+    const verifiedToday = await getVerifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
+    const unverifiedToday = await getUnverifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
+
     const fyYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
     const fyStart = new Date(fyYear, 3, 1);
 
@@ -175,8 +182,8 @@ export const getDashboard = async (req, res) => {
       ? await Promise.all([
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd),
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames),
+          supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
+          supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'),
           supabase.from('fro_assignments').select('status').in('station', stationNames).not('status', 'eq', 'reassigned'),
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done'),
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)').gte('created_at', fyStart.toISOString()),
@@ -313,6 +320,14 @@ export const getDashboard = async (req, res) => {
       total_donations: totalDonations,
       active_donors: activeDonors,
       inactive_donors: inactiveDonors,
+      verified_month_amount: verifiedMonth.amount,
+      verified_month_count: verifiedMonth.count,
+      unverified_month_amount: unverifiedMonth.amount,
+      unverified_month_count: unverifiedMonth.count,
+      verified_today_amount: verifiedToday.amount,
+      verified_today_count: verifiedToday.count,
+      unverified_today_amount: unverifiedToday.amount,
+      unverified_today_count: unverifiedToday.count,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

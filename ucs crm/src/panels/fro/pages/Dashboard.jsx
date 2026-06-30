@@ -201,6 +201,40 @@ export default function Dashboard() {
             <Icon color="#16a34a">
               <polyline points="20 6 9 17 4 12"/>
             </Icon>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>{currency(ds.verified_month_amount ?? 0)}</div>
+              <div style={{ fontSize: 10, color: '#16a34a', opacity: 0.7 }}>{ds.verified_month_count ?? 0} leads</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <span>Today: {currency(ds.verified_today_amount ?? 0)} ({ds.verified_today_count ?? 0})</span>
+            <span>Verified by Accts</span>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <Icon color="#f59e0b">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </Icon>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Unverified</span>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b', lineHeight: 1.2 }}>{currency(ds.unverified_month_amount ?? 0)}</div>
+              <div style={{ fontSize: 10, color: '#f59e0b', opacity: 0.7 }}>{ds.unverified_month_count ?? 0} leads</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <span>Today: {currency(ds.unverified_today_amount ?? 0)} ({ds.unverified_today_count ?? 0})</span>
+            <span>Pending verification</span>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <Icon color="#16a34a">
+              <polyline points="20 6 9 17 4 12"/>
+            </Icon>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Data Used</span>
             <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>{ds.data_used ?? (stats.contacted ?? 0) + (stats.donation_collected ?? 0) + (stats.follow_up ?? 0)}</span>
           </div>

@@ -89,6 +89,38 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
   return total;
 };
 
+export const getVerifiedCollection = async (workerId, startDate, endDate) => {
+  const { data, error } = await supabase
+    .from('fro_donor_logs')
+    .select('amount_collected, fro_assignments!inner(fro_worker_id)')
+    .eq('fro_assignments.fro_worker_id', workerId)
+    .eq('disposition_detail', 'lead_done')
+    .eq('accounts_status', 'verified')
+    .gte('verified_at', startDate)
+    .lte('verified_at', endDate);
+  if (error) throw error;
+
+  let total = 0;
+  for (const d of data || []) total += parseFloat(d.amount_collected || 0);
+  return { amount: total, count: (data || []).length };
+};
+
+export const getUnverifiedCollection = async (workerId, startDate, endDate) => {
+  const { data, error } = await supabase
+    .from('fro_donor_logs')
+    .select('amount_collected, fro_assignments!inner(fro_worker_id)')
+    .eq('fro_assignments.fro_worker_id', workerId)
+    .eq('disposition_detail', 'lead_done')
+    .eq('accounts_status', 'pending')
+    .gte('created_at', startDate)
+    .lte('created_at', endDate);
+  if (error) throw error;
+
+  let total = 0;
+  for (const d of data || []) total += parseFloat(d.amount_collected || 0);
+  return { amount: total, count: (data || []).length };
+};
+
 export const getTotalCollectedByAssignment = async (assignmentId) => {
   const { data, error } = await supabase
     .from('fro_donor_logs')

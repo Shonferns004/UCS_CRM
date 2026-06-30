@@ -34,6 +34,7 @@ import {
   getTransferHistory,
   getTransferDonors,
   getIncentives,
+  getVerificationFroWise,
 } from '../controllers/ngoAdminController.js';
 
 const router = Router();
@@ -54,6 +55,7 @@ router.get('/collections/fro-wise', getFroWiseCollection);
 router.post('/achieved-target', setAchievedTarget);
 router.get('/incentives', getIncentives);
 router.post('/incentive', setIncentive);
+router.get('/verification', getVerificationFroWise);
 router.get('/accounts/pending', getAccountsPending);
 router.post('/accounts/:logId/verify', verifyLeadDone);
 

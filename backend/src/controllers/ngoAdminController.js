@@ -19,7 +19,7 @@ import {
   deleteStationAssignment,
 } from '../models/froStationAssignmentModel.js';
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
-import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
+import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
 
@@ -420,6 +420,21 @@ export const getDashboard = async (req, res) => {
       todayCollection += await getTotalCollectedByWorker(w.id, todayStart.toISOString(), todayEnd.toISOString());
     }
 
+    let verifiedMonthAmount = 0, verifiedMonthCount = 0;
+    let unverifiedMonthAmount = 0, unverifiedMonthCount = 0;
+    let verifiedTodayAmount = 0, verifiedTodayCount = 0;
+    let unverifiedTodayAmount = 0, unverifiedTodayCount = 0;
+    for (const w of froWorkers) {
+      const vm = await getVerifiedCollection(w.id, monthStart, monthEnd);
+      verifiedMonthAmount += vm.amount; verifiedMonthCount += vm.count;
+      const um = await getUnverifiedCollection(w.id, monthStart, monthEnd);
+      unverifiedMonthAmount += um.amount; unverifiedMonthCount += um.count;
+      const vt = await getVerifiedCollection(w.id, todayStart.toISOString(), todayEnd.toISOString());
+      verifiedTodayAmount += vt.amount; verifiedTodayCount += vt.count;
+      const ut = await getUnverifiedCollection(w.id, todayStart.toISOString(), todayEnd.toISOString());
+      unverifiedTodayAmount += ut.amount; unverifiedTodayCount += ut.count;
+    }
+
     // Reactivation metrics (same logic as FRO dashboard, scoped by NGO)
     const fyYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
     const fyStart = new Date(fyYear, 3, 1);
@@ -487,6 +502,14 @@ export const getDashboard = async (req, res) => {
       data_unused: dataUnused,
       active_donors: activeDonors,
       inactive_donors: inactiveDonors,
+      verified_month_amount: verifiedMonthAmount,
+      verified_month_count: verifiedMonthCount,
+      unverified_month_amount: unverifiedMonthAmount,
+      unverified_month_count: unverifiedMonthCount,
+      verified_today_amount: verifiedTodayAmount,
+      verified_today_count: verifiedTodayCount,
+      unverified_today_amount: unverifiedTodayAmount,
+      unverified_today_count: unverifiedTodayCount,
       reactivated_today: reactivatedToday,
       reactivated_monthly: reactivatedMonthly,
     });
@@ -1824,6 +1847,60 @@ export const getIncentives = async (req, res) => {
         monthlyTarget,
         totalAKI,
         hasTarget: true,
+      });
+    }
+
+    return res.json(results);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getVerificationFroWise = async (req, res) => {
+  try {
+    const { status, period } = req.query;
+    if (!status || !period) {
+      return res.status(400).json({ message: 'status and period are required' });
+    }
+    if (!['verified', 'unverified'].includes(status)) {
+      return res.status(400).json({ message: 'status must be verified or unverified' });
+    }
+    if (!['month', 'today'].includes(period)) {
+      return res.status(400).json({ message: 'period must be month or today' });
+    }
+
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.json([]);
+
+    const allWorkers = [];
+    for (const ngoId of ngoIds) {
+      const workers = await getFroWorkersByNgo(ngoId);
+      allWorkers.push(...workers);
+    }
+
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    if (froWorkers.length === 0) return res.json([]);
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+
+    const startDate = period === 'month' ? monthStart : todayStart.toISOString();
+    const endDate = period === 'month' ? monthEnd : todayEnd.toISOString();
+
+    const collectionFn = status === 'verified' ? getVerifiedCollection : getUnverifiedCollection;
+
+    const results = [];
+    for (const w of froWorkers) {
+      const { amount, count } = await collectionFn(w.id, startDate, endDate);
+      results.push({
+        fro_id: w.id,
+        fro_name: w.name,
+        amount,
+        count,
       });
     }
 

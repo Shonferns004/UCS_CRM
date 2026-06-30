@@ -245,10 +245,13 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
   );
 }
 
-function CollectionDetailModal({ period, totalAmount, onClose }) {
+function CollectionDetailModal({ period, totalAmount, onClose, status }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  const isVerification = status === 'verified' || status === 'unverified';
+  const label = status === 'verified' ? 'Verified' : status === 'unverified' ? 'Pending' : 'Collection';
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -257,11 +260,14 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
 
   useEffect(() => {
     setLoading(true);
-    apiGet(`/ngo-admin/collections/fro-wise?period=${period}`)
+    const url = isVerification
+      ? `/ngo-admin/verification?status=${status}&period=${period}`
+      : `/ngo-admin/collections/fro-wise?period=${period}`;
+    apiGet(url)
       .then(data => setRows(Array.isArray(data) ? data : []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [period]);
+  }, [period, status, isVerification]);
 
   const filtered = useMemo(() => {
     if (!search) return rows;
@@ -271,9 +277,12 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
 
   const isMonth = period === 'month';
   const now = new Date();
-  const title = isMonth
+  const dateTitle = isMonth
     ? now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
     : `Today – ${now.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const title = isVerification ? `${label} Collections — ${dateTitle}` : dateTitle;
+
+  const totalLeads = filtered.reduce((s, r) => s + (r.count || 0), 0);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -292,7 +301,7 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
             <div className="loading" style={{ padding: 20 }}>Loading...</div>
           ) : rows.length === 0 ? (
             <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>
-              No collection data available.
+              No {label.toLowerCase()} collection data available.
             </div>
           ) : (
             <>
@@ -326,28 +335,41 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
                         FRO Name
                       </th>
                       <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
-                        Collection (₹)
+                        {isVerification ? 'Amount (₹)' : 'Collection (₹)'}
                       </th>
+                      {isVerification && (
+                        <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
+                          Leads
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(r => (
-                      <tr key={r.fro_id} style={{ borderBottom: '1px solid var(--line)', transition: 'background .1s' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                        onMouseLeave={e => e.currentTarget.style.background = ''}
-                      >
-                        <td style={{ padding: '8px 10px', fontWeight: 500 }}>{r.fro_name}</td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: r.collection_amount > 0 ? 'var(--sage)' : '#9ca3af' }}>
-                          ₹{Number(r.collection_amount).toLocaleString('en-IN')}
-                          {r.is_achieved && (
-                            <span style={{ fontSize: 9, color: '#8b5cf6', fontWeight: 500, marginLeft: 4, verticalAlign: 'middle' }}>(set)</span>
+                    {filtered.map(r => {
+                      const val = isVerification ? r.amount : r.collection_amount;
+                      return (
+                        <tr key={r.fro_id} style={{ borderBottom: '1px solid var(--line)', transition: 'background .1s' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                          onMouseLeave={e => e.currentTarget.style.background = ''}
+                        >
+                          <td style={{ padding: '8px 10px', fontWeight: 500 }}>{r.fro_name}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: val > 0 ? 'var(--sage)' : '#9ca3af' }}>
+                            ₹{Number(val).toLocaleString('en-IN')}
+                            {!isVerification && r.is_achieved && (
+                              <span style={{ fontSize: 9, color: '#8b5cf6', fontWeight: 500, marginLeft: 4, verticalAlign: 'middle' }}>(set)</span>
+                            )}
+                          </td>
+                          {isVerification && (
+                            <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 500, color: 'var(--ink-soft)' }}>
+                              {r.count || 0}
+                            </td>
                           )}
-                        </td>
-                      </tr>
-                    ))}
+                        </tr>
+                      );
+                    })}
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={2} style={{ padding: 16, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                        <td colSpan={isVerification ? 3 : 2} style={{ padding: 16, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
                           No FROs match your search.
                         </td>
                       </tr>
@@ -359,6 +381,11 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
                       <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--sage)', fontSize: 13 }}>
                         ₹{totalAmount.toLocaleString('en-IN')}
                       </td>
+                      {isVerification && (
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--ink-soft)', fontSize: 13 }}>
+                          {totalLeads}
+                        </td>
+                      )}
                     </tr>
                   </tfoot>
                 </table>
@@ -378,6 +405,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedStation, setSelectedStation] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
+  const [selectedStatus, setSelectedStatus] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -423,6 +451,14 @@ export default function Dashboard() {
   const active_fros = Number(data.active_fros) || 0;
   const month_collection = Number(data.month_collection) || 0;
   const today_collection = Number(data.today_collection) || 0;
+  const verified_month_amount = Number(data.verified_month_amount) || 0;
+  const verified_month_count = Number(data.verified_month_count) || 0;
+  const unverified_month_amount = Number(data.unverified_month_amount) || 0;
+  const unverified_month_count = Number(data.unverified_month_count) || 0;
+  const verified_today_amount = Number(data.verified_today_amount) || 0;
+  const verified_today_count = Number(data.verified_today_count) || 0;
+  const unverified_today_amount = Number(data.unverified_today_amount) || 0;
+  const unverified_today_count = Number(data.unverified_today_count) || 0;
   const total_workers = Number(data.total_workers) || 0;
   const workers_present = Number(data.workers_present) || 0;
   const workers_absent = Number(data.workers_absent) || 0;
@@ -562,6 +598,32 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Verified</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{verified_month_amount.toLocaleString('en-IN')}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <span>Month: {verified_month_count} leads</span>
+            <span>Today: ₹{verified_today_amount.toLocaleString('en-IN')} ({verified_today_count})</span>
+          </div>
+          <div style={{ fontSize: 10, color: '#16a34a', marginTop: 4 }}>Verified by Accounts panel</div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #f59e0b33' }} onClick={() => setSelectedStatus('unverified')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Pending</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>₹{unverified_month_amount.toLocaleString('en-IN')}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <span>Month: {unverified_month_count} leads</span>
+            <span>Today: ₹{unverified_today_amount.toLocaleString('en-IN')} ({unverified_today_count})</span>
+          </div>
+          <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>Awaiting Accounts verification</div>
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
@@ -751,6 +813,15 @@ export default function Dashboard() {
           period={selectedPeriod}
           totalAmount={selectedPeriod === 'month' ? month_collection : today_collection}
           onClose={() => setSelectedPeriod(null)}
+        />
+      )}
+
+      {selectedStatus && (
+        <CollectionDetailModal
+          status={selectedStatus}
+          period="month"
+          totalAmount={selectedStatus === 'verified' ? verified_month_amount : unverified_month_amount}
+          onClose={() => setSelectedStatus(null)}
         />
       )}
     </div>
