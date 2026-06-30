@@ -245,12 +245,90 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
   );
 }
 
+function CollectionDetailModal({ period, totalAmount, onClose }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    apiGet(`/ngo-admin/collections/fro-wise?period=${period}`)
+      .then(data => setRows(Array.isArray(data) ? data : []))
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false));
+  }, [period]);
+
+  const isMonth = period === 'month';
+  const now = new Date();
+  const title = isMonth
+    ? now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+    : `Today – ${now.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div className="modal-head">
+          <h3 style={{ margin: 0 }}>{title}</h3>
+          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            FRO-wise Collection
+          </div>
+
+          {loading ? (
+            <div className="loading" style={{ padding: 20 }}>Loading...</div>
+          ) : rows.length === 0 ? (
+            <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>
+              No collection data available.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>FRO Name</th>
+                    <th style={{ textAlign: 'right' }}>Collection (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.fro_id}>
+                      <td style={{ fontWeight: 500 }}>{r.fro_name}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: r.collection_amount > 0 ? 'var(--sage)' : '#9ca3af' }}>
+                        ₹{Number(r.collection_amount).toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td style={{ fontWeight: 700, borderTop: '2px solid var(--line)' }}>Total</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--sage)' }}>
+                      ₹{totalAmount.toLocaleString('en-IN')}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [stationStats, setStationStats] = useState(null);
   const [stationsData, setStationsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedStation, setSelectedStation] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -295,6 +373,7 @@ export default function Dashboard() {
   const assigned_donors = Number(data.assigned_donors) || 0;
   const active_fros = Number(data.active_fros) || 0;
   const month_collection = Number(data.month_collection) || 0;
+  const today_collection = Number(data.today_collection) || 0;
   const total_workers = Number(data.total_workers) || 0;
   const workers_present = Number(data.workers_present) || 0;
   const workers_absent = Number(data.workers_absent) || 0;
@@ -382,7 +461,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setSelectedPeriod('month')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Month Collection</span>
@@ -404,6 +483,33 @@ export default function Dashboard() {
               )}
               <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: month_collection > 0 ? 2 : 0 }}>
                 {month_collection === 0 ? 'No collections yet' : 'Current month'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setSelectedPeriod('today')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Today Collection</span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>₹{today_collection.toLocaleString('en-IN')}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ width: 64, height: 64, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d4d4d4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+                <span style={{ fontWeight: 600, color: 'var(--ink)' }}>Total</span>
+                <span style={{ fontWeight: 600 }}>₹{today_collection.toLocaleString('en-IN')}</span>
+              </div>
+              {today_collection > 0 && (
+                <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: '100%', borderRadius: 2, background: '#f59e0b', opacity: 0.6 }} />
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: today_collection > 0 ? 2 : 0 }}>
+                {today_collection === 0 ? 'No collections yet' : 'Today'}
               </div>
             </div>
           </div>
@@ -588,6 +694,14 @@ export default function Dashboard() {
           stats={stations[selectedStation]}
           stationInfo={stationInfoMap[selectedStation]}
           onClose={() => setSelectedStation(null)}
+        />
+      )}
+
+      {selectedPeriod && (
+        <CollectionDetailModal
+          period={selectedPeriod}
+          totalAmount={selectedPeriod === 'month' ? month_collection : today_collection}
+          onClose={() => setSelectedPeriod(null)}
         />
       )}
     </div>

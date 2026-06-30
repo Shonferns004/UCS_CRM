@@ -395,11 +395,17 @@ export const getDashboard = async (req, res) => {
       }
     }
 
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+
+    let todayCollection = 0;
+    for (const w of froWorkers) {
+      todayCollection += await getTotalCollectedByWorker(w.id, todayStart.toISOString(), todayEnd.toISOString());
+    }
+
     // Reactivation metrics (same logic as FRO dashboard, scoped by NGO)
     const fyYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
     const fyStart = new Date(fyYear, 3, 1);
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
 
     const [fyDonorsRes, todayDonorsRes, monthDonorsRes] = ngoIds.length > 0
       ? await Promise.all([
@@ -455,6 +461,7 @@ export const getDashboard = async (req, res) => {
       collected_donors: collectedDonations.length,
       active_fros: activeFroCount,
       month_collection: monthCollection,
+      today_collection: todayCollection,
       total_workers: activeFroCount,
       workers_present: workersPresent,
       workers_absent: workersAbsent,
@@ -466,6 +473,54 @@ export const getDashboard = async (req, res) => {
       reactivated_today: reactivatedToday,
       reactivated_monthly: reactivatedMonthly,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getFroWiseCollection = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoNames.push(ngo.name);
+      if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
+    }
+
+    const allWorkers = [];
+    for (const ngoId of ngoIds) {
+      const workers = await getFroWorkersByNgo(ngoId);
+      allWorkers.push(...workers);
+    }
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+
+    const period = req.query.period || 'month';
+    const now = new Date();
+    let startDate, endDate;
+
+    if (period === 'today') {
+      startDate = new Date(); startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(); endDate.setHours(23, 59, 59, 999);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    }
+
+    const result = [];
+    for (const w of froWorkers) {
+      const amount = await getTotalCollectedByWorker(w.id, startDate.toISOString(), endDate.toISOString());
+      result.push({
+        fro_id: w.id,
+        fro_name: w.name || w.login_id || 'Unknown',
+        collection_amount: amount,
+      });
+    }
+
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
