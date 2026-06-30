@@ -231,15 +231,29 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
   const monthAttendance = empAttendance.filter(a => a.date && a.date.startsWith(monthKey));
   const noAttendanceData = monthAttendance.length === 0;
-  const absentDates = monthAttendance
-    .filter(a => a.status === 'absent' && !holidayDates.has(a.date))
-    .map(a => a.date);
 
   const joinDate = new Date(data.created_at);
   const joinMonth = `${joinDate.getFullYear()}-${String(joinDate.getMonth() + 1).padStart(2, '0')}`;
   const joinedThisMonth = joinMonth === monthKey;
   const joinDayNum = joinDate.getDate();
   const joinCutoff = data.created_at.slice(0, 10);
+
+  // Compute absent dates — days with no attendance or explicitly absent
+  const viewingToday = (yr === now.getFullYear() && mo === (now.getMonth() + 1))
+    ? now.getDate() : daysInMonth + 1;
+  const absentDates = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (joinedThisMonth && dateStr < joinCutoff) continue;
+    const dt = new Date(yr, mo - 1, d);
+    if (dt.getDay() === 0) continue;
+    if (holidayDates.has(dateStr)) continue;
+    if (d > viewingToday) continue;
+    const att = monthAttendance.find(a => a.date === dateStr);
+    if (!att || att.status === 'absent') {
+      absentDates.push(dateStr);
+    }
+  }
   const absentDatesAfterJoin = absentDates.filter(d => !joinedThisMonth || d >= joinCutoff);
 
   // New-joiner check: ≤ 3 months employed
