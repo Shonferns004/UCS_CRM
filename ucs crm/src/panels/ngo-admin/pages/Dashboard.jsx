@@ -248,6 +248,7 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
 function CollectionDetailModal({ period, totalAmount, onClose }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -262,6 +263,12 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
       .finally(() => setLoading(false));
   }, [period]);
 
+  const filtered = useMemo(() => {
+    if (!search) return rows;
+    const q = search.toLowerCase();
+    return rows.filter(r => (r.fro_name || '').toLowerCase().includes(q));
+  }, [rows, search]);
+
   const isMonth = period === 'month';
   const now = new Date();
   const title = isMonth
@@ -270,16 +277,17 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-head">
-          <h3 style={{ margin: 0 }}>{title}</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            FRO-wise Collection
+          <h3 style={{ margin: 0, fontSize: 14 }}>{title}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 500 }}>
+              {rows.length} FRO{rows.length !== 1 ? 's' : ''}
+            </span>
+            <button className="btn btn-sm btn-outline" onClick={onClose} style={{ width: 28, height: 28, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
           </div>
-
+        </div>
+        <div className="modal-body" style={{ padding: '14px 18px' }}>
           {loading ? (
             <div className="loading" style={{ padding: 20 }}>Loading...</div>
           ) : rows.length === 0 ? (
@@ -287,34 +295,75 @@ function CollectionDetailModal({ period, totalAmount, onClose }) {
               No collection data available.
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>FRO Name</th>
-                    <th style={{ textAlign: 'right' }}>Collection (₹)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr key={r.fro_id}>
-                      <td style={{ fontWeight: 500 }}>{r.fro_name}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600, color: r.collection_amount > 0 ? 'var(--sage)' : '#9ca3af' }}>
-                        ₹{Number(r.collection_amount).toLocaleString('en-IN')}
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <input
+                  type="text"
+                  placeholder="Search FRO name..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{
+                    flex: 1, padding: '7px 10px', border: '1px solid var(--line)',
+                    borderRadius: 6, fontSize: 12, fontFamily: 'inherit', outline: 'none',
+                    background: 'var(--bg)', color: 'var(--ink)',
+                  }}
+                />
+                {search && (
+                  <button onClick={() => setSearch('')} className="btn btn-sm btn-outline">Clear</button>
+                )}
+              </div>
+              {search && (
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 8 }}>
+                  Showing {filtered.length} of {rows.length} FRO{rows.length !== 1 ? 's' : ''}
+                </div>
+              )}
+
+              <div style={{ overflowX: 'auto', maxHeight: '50vh', overflowY: 'auto', borderRadius: 6, border: '1px solid var(--line)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
+                        FRO Name
+                      </th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg)', padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--line)' }}>
+                        Collection (₹)
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(r => (
+                      <tr key={r.fro_id} style={{ borderBottom: '1px solid var(--line)', transition: 'background .1s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                      >
+                        <td style={{ padding: '8px 10px', fontWeight: 500 }}>{r.fro_name}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: r.collection_amount > 0 ? 'var(--sage)' : '#9ca3af' }}>
+                          ₹{Number(r.collection_amount).toLocaleString('en-IN')}
+                          {r.is_achieved && (
+                            <span style={{ fontSize: 9, color: '#8b5cf6', fontWeight: 500, marginLeft: 4, verticalAlign: 'middle' }}>(set)</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={2} style={{ padding: 16, textAlign: 'center', color: 'var(--ink-soft)', fontSize: 12 }}>
+                          No FROs match your search.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ padding: '10px', fontWeight: 700, borderTop: '2px solid var(--line)', fontSize: 13 }}>Total</td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--sage)', fontSize: 13 }}>
+                        ₹{totalAmount.toLocaleString('en-IN')}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td style={{ fontWeight: 700, borderTop: '2px solid var(--line)' }}>Total</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--sage)' }}>
-                      ₹{totalAmount.toLocaleString('en-IN')}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                  </tfoot>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </div>
