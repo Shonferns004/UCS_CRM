@@ -148,13 +148,12 @@ export const getDashboard = async (req, res) => {
 
     let target;
     let targetSource;
-    let manualTarget = null;
+    const manualTarget = await getTargetByWorker(workerId, monthStr);
     const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
     if (autoTarget !== null) {
       target = autoTarget;
       targetSource = monthsEmployed <= 0 ? 'month1' : monthsEmployed === 1 ? 'month2' : 'month3';
     } else {
-      manualTarget = await getTargetByWorker(workerId, monthStr);
       target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
       targetSource = manualTarget ? 'manual' : 'not_set';
     }
@@ -820,13 +819,12 @@ export const getMyTarget = async (req, res) => {
 
     let target;
     let targetSource;
-    let manualTarget = null;
+    const manualTarget = await getTargetByWorker(workerId, monthStr);
     const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
     if (autoTarget !== null) {
       target = autoTarget;
       targetSource = 'auto';
     } else {
-      manualTarget = await getTargetByWorker(workerId, monthStr);
       target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
       targetSource = manualTarget ? 'manual' : 'not_set';
     }
