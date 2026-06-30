@@ -18,7 +18,7 @@ import {
   getStationAssignmentsByNgo,
   deleteStationAssignment,
 } from '../models/froStationAssignmentModel.js';
-import { upsertTarget, getTargetsByNgo, getTargetByWorker } from '../models/froTargetModel.js';
+import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget } from '../models/froTargetModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 
@@ -275,8 +275,10 @@ export const getTargets = async (req, res) => {
       allManualTargets.push(...targets);
     }
     const manualMap = {};
+    const achievedMap = {};
     for (const t of allManualTargets) {
       manualMap[t.fro_worker_id] = parseFloat(t.target_amount);
+      achievedMap[t.fro_worker_id] = t.achieved_target != null ? parseFloat(t.achieved_target) : null;
     }
 
     const result = await Promise.all(froWorkers.map(async (w) => {
@@ -308,6 +310,7 @@ export const getTargets = async (req, res) => {
         target,
         target_source: targetSource,
         manual_target: manualMap[w.id] || null,
+        achieved_target: achievedMap[w.id] || null,
       };
     }));
 
@@ -521,6 +524,27 @@ export const getFroWiseCollection = async (req, res) => {
     }
 
     return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setAchievedTarget = async (req, res) => {
+  try {
+    const { fro_worker_id, month, achieved_amount } = req.body;
+    const ngoIds = await getUserNgoIds(req.user);
+    const ngoId = ngoIds[0];
+
+    if (!fro_worker_id || !month || achieved_amount === undefined) {
+      return res.status(400).json({ message: 'fro_worker_id, month, and achieved_amount are required' });
+    }
+    if (!ngoId) {
+      return res.status(400).json({ message: 'No NGO assigned to your account' });
+    }
+
+    const result = await updateAchievedTarget(fro_worker_id, ngoId, month + '-01', parseFloat(achieved_amount) || 0);
+
+    return res.json({ message: 'Achieved target saved successfully', data: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

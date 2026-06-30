@@ -74,8 +74,10 @@ export default function Dashboard() {
   const { stats = {} } = ds
   const target = ts.target || ds.target || 0
   const collected = ts.collected || ds.collected || 0
-  const remaining = ts.remaining || Math.max(0, target - collected)
-  const progress = target > 0 ? Math.min(100, (collected / target) * 100) : 0
+  const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
+  const displayCollected = achieved_target != null ? achieved_target : collected
+  const remaining = ts.remaining || Math.max(0, target - displayCollected)
+  const progress = target > 0 ? Math.min(100, (displayCollected / target) * 100) : 0
 
   const pieData = ts.stats
     ? Object.entries(ts.stats).filter(([k]) => k !== 'total').map(([k, v]) => ({
@@ -87,7 +89,7 @@ export default function Dashboard() {
 
   const barData = target > 0 ? [
     { name: 'Target', amount: target, fill: '#94a3b8' },
-    { name: 'Collected', amount: collected, fill: '#34d399' },
+    { name: 'Collected', amount: displayCollected, fill: '#34d399' },
     { name: 'Remaining', amount: remaining, fill: '#f87171' },
   ] : []
 
@@ -106,10 +108,15 @@ export default function Dashboard() {
       <div className="bento-col-4">
         <div style={{ border:'1px solid var(--line)', borderRadius:16, padding:'18px 20px', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,.04)', display:'flex', flexDirection:'column' }}>
           <div style={{ fontSize:10, fontWeight:600, textTransform:'uppercase', letterSpacing:.5, color:'var(--md-outline)', marginBottom:2 }}>Collected</div>
-          <div style={{ fontSize:32, fontWeight:800, color:'var(--sage)', lineHeight:1.2, marginBottom:4 }}>{currency(collected)}</div>
+          <div style={{ fontSize:32, fontWeight:800, color:'var(--sage)', lineHeight:1.2, marginBottom:4 }}>{currency(displayCollected)}</div>
           <div style={{ height:4, borderRadius:2, background:'var(--md-outline-variant)', overflow:'hidden' }}>
             <div style={{ height:'100%', borderRadius:2, background:'var(--sage)', width:`${progress}%`, transition:'width .4s' }} />
           </div>
+          {achieved_target != null && (
+            <div style={{ fontSize:10, color:'#8b5cf6', marginTop:4, fontWeight:500 }}>
+              Set by admin
+            </div>
+          )}
         </div>
       </div>
       <div className="bento-col-4">

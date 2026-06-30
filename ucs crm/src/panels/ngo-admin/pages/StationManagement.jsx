@@ -135,6 +135,8 @@ export default function StationManagement() {
   const [msg, setMsg] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [targetAmount, setTargetAmount] = useState('');
+  const [editAchieved, setEditAchieved] = useState(null);
+  const [achievedAmount, setAchievedAmount] = useState('');
 
   useEffect(() => {
     if (!msg) return;
@@ -332,6 +334,7 @@ export default function StationManagement() {
                   <th>Salary</th>
                   <th>Target</th>
                   <th>Source</th>
+                  <th>Achieved</th>
                   <th></th>
                 </tr>
               </thead>
@@ -400,6 +403,17 @@ export default function StationManagement() {
                       })()}
                     </td>
                     <td>
+                      {(() => {
+                        const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                        if (!w) return <span style={{ color: '#9ca3af' }}>—</span>;
+                        const t = targets.find(tg => tg.id === w.id);
+                        const val = t?.achieved_target;
+                        return val != null && val > 0
+                          ? <strong>₹{Number(val).toLocaleString('en-IN')}</strong>
+                          : <span style={{ color: '#9ca3af' }}>—</span>;
+                      })()}
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {(() => {
                           const at = activeTransfers.find(t => t.station === s.station);
@@ -424,6 +438,16 @@ export default function StationManagement() {
                             );
                           }
                           return <span style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>Auto</span>;
+                        })()}
+                        {(() => {
+                          const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                          if (!w) return null;
+                          const t = targets.find(tg => tg.id === w.id);
+                          return (
+                            <button className="btn btn-sm btn-outline" onClick={() => { setEditAchieved(w); setAchievedAmount(String(t?.achieved_target || '')); }}>
+                              {t?.achieved_target != null && t.achieved_target > 0 ? 'Edit Achv' : 'Set Achv'}
+                            </button>
+                          );
                         })()}
                         <button className="btn btn-sm btn-outline" onClick={() => {
                           const fro = froWorkers.find(w => w.id === s.fro_worker_id);
@@ -477,6 +501,39 @@ export default function StationManagement() {
                     loadTargets();
                   } catch (err) { alert(err.message); }
                 }} disabled={!targetAmount}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editAchieved && (
+        <div className="modal-overlay" onClick={() => setEditAchieved(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Set Achieved Target — {editAchieved.name}</h3>
+              <button className="btn btn-sm btn-outline" onClick={() => setEditAchieved(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label>Achieved Amount (₹)</label>
+                <input type="number" value={achievedAmount} onChange={e => setAchievedAmount(e.target.value)} min="0" />
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-outline" onClick={() => setEditAchieved(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={async () => {
+                  try {
+                    const now = new Date();
+                    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                    await apiPost('/ngo-admin/achieved-target', {
+                      fro_worker_id: editAchieved.id,
+                      month,
+                      achieved_amount: parseFloat(achievedAmount) || 0,
+                    });
+                    setEditAchieved(null);
+                    loadTargets();
+                  } catch (err) { alert(err.message); }
+                }}>Save</button>
               </div>
             </div>
           </div>

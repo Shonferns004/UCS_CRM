@@ -148,15 +148,18 @@ export const getDashboard = async (req, res) => {
 
     let target;
     let targetSource;
+    let manualTarget = null;
     const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
     if (autoTarget !== null) {
       target = autoTarget;
       targetSource = monthsEmployed <= 0 ? 'month1' : monthsEmployed === 1 ? 'month2' : 'month3';
     } else {
-      const manualTarget = await getTargetByWorker(workerId, monthStr);
+      manualTarget = await getTargetByWorker(workerId, monthStr);
       target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
       targetSource = manualTarget ? 'manual' : 'not_set';
     }
+
+    const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -294,6 +297,7 @@ export const getDashboard = async (req, res) => {
       target,
       target_source: targetSource,
       collected,
+      achieved_target,
       salary: currentSalary,
       months_employed: monthsEmployed,
       monthly_connected: monthlyDonorIds.size,
@@ -816,15 +820,18 @@ export const getMyTarget = async (req, res) => {
 
     let target;
     let targetSource;
+    let manualTarget = null;
     const autoTarget = calculateAutoTarget(currentSalary, monthsEmployed);
     if (autoTarget !== null) {
       target = autoTarget;
       targetSource = 'auto';
     } else {
-      const manualTarget = await getTargetByWorker(workerId, monthStr);
+      manualTarget = await getTargetByWorker(workerId, monthStr);
       target = manualTarget ? parseFloat(manualTarget.target_amount) : 0;
       targetSource = manualTarget ? 'manual' : 'not_set';
     }
+
+    const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
     const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
 
@@ -860,6 +867,7 @@ export const getMyTarget = async (req, res) => {
       target,
       target_source: targetSource,
       collected,
+      achieved_target,
       remaining: Math.max(0, target - collected),
       salary: currentSalary,
       months_employed: monthsEmployed,
