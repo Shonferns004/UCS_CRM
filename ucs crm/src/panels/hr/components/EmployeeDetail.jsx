@@ -333,7 +333,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     if (joinedThisMonth && i + 1 < joinDayNum) return 0;
     return new Date(yr, mo - 1, i + 1).getDay() === 0 ? 1 : 0;
   }).reduce((a, b) => a + b, 0);
-  let paidDays = noAttendanceData ? 0 : availableDays - deducted.size;
+  let paidDays = noAttendanceData ? 0 : presentDays + sundayCount;
   if (paidDays < 0) paidDays = 0;
   const sundayDeductions = [...deducted].filter(d => new Date(d).getDay() === 0).length;
   const JOINING_DEDUCTION = 1.5;
