@@ -53,8 +53,15 @@ export default function Scanner() {
   const getLocation = () => new Promise((res) => {
     navigator.geolocation.getCurrentPosition(
       (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      (err) => res({ error: err.message || 'Location unavailable' }),
-      { enableHighAccuracy: true, timeout: 15000 }
+      () => {
+        // Fallback to low accuracy if high accuracy fails
+        navigator.geolocation.getCurrentPosition(
+          (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+          (err) => res({ error: err.message || 'Location unavailable' }),
+          { enableHighAccuracy: false, timeout: 10000 }
+        )
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     )
   })
 
