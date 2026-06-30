@@ -2,12 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import QRCodeStyling from 'qr-code-styling';
 import { useHR } from '../store';
 
-const checkmarkSvg = 'data:image/svg+xml,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-  + '<circle cx="50" cy="50" r="46" fill="#fff" stroke="#4f46e5" stroke-width="4"/>'
-  + '<path d="M30 52 L44 66 L74 34" stroke="#4f46e5" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
-  + '</svg>'
-);
+const qrLogo = '/logo/qr.png';
 
 function StyledQR({ data, size = 200 }) {
   const ref = useRef(null);
@@ -17,7 +12,7 @@ function StyledQR({ data, size = 200 }) {
       width: size,
       height: size,
       data,
-      image: checkmarkSvg,
+      image: qrLogo,
       dotsOptions: {
         type: 'rounded',
         gradient: {
@@ -46,7 +41,7 @@ async function printStyledQR(qrData, label, latitude, longitude, radius) {
     width: 300,
     height: 300,
     data: qrData,
-    image: checkmarkSvg,
+    image: qrLogo,
     dotsOptions: {
       type: 'rounded',
       gradient: {
