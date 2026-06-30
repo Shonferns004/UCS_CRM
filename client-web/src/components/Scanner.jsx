@@ -50,6 +50,14 @@ export default function Scanner() {
     }
   }, [])
 
+  const getLocation = () => new Promise((res) => {
+    navigator.geolocation.getCurrentPosition(
+      (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      (err) => res({ error: err.message || 'Location unavailable' }),
+      { enableHighAccuracy: true, timeout: 15000 }
+    )
+  })
+
   const scanLoop = () => {
     if (!videoRef.current || !canvasRef.current) return
     const video = videoRef.current
@@ -85,13 +93,11 @@ export default function Scanner() {
       let parsed
       try { parsed = JSON.parse(data) } catch { parsed = { code: data } }
       const code = parsed.code || data
-      const pos = await new Promise((res) => {
-        navigator.geolocation.getCurrentPosition(
-          (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-          () => res({ lat: 0, lng: 0 }),
-          { enableHighAccuracy: true, timeout: 10000 }
-        )
-      })
+      const pos = await getLocation()
+      if (pos.error) {
+        setError('Location access is required to punch in. Please allow location permissions in your device settings.')
+        setLoading(false); setScanning(false); return
+      }
       const returnTo = location.state?.returnTo || '/home'
       await api.punchIn(code, pos.lat, pos.lng)
       navigate(returnTo)
