@@ -69,11 +69,6 @@ export default function Scanner() {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
     const d = imageData.data
-    for (let i = 0; i < d.length; i += 4) {
-      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
-      const adj = gray > 128 ? Math.min(255, gray * 1.3) : Math.max(0, gray * 0.7)
-      d[i] = d[i + 1] = d[i + 2] = adj
-    }
 
     const code = jsQR(imageData.data, imageData.width, imageData.height)
     if (code) { handleCode(code.data); return }
