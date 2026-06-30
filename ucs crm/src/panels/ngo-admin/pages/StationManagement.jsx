@@ -137,6 +137,7 @@ export default function StationManagement() {
   const [targetAmount, setTargetAmount] = useState('');
   const [editAchieved, setEditAchieved] = useState(null);
   const [achievedAmount, setAchievedAmount] = useState('');
+  const [incentives, setIncentives] = useState([]);
 
   useEffect(() => {
     if (!msg) return;
@@ -171,12 +172,18 @@ export default function StationManagement() {
     apiGet('/ngo-admin/targets').then(t => {
       if (Array.isArray(t)) setTargets(t);
     }).catch(() => {});
+    apiGet('/ngo-admin/incentives').then(r => {
+      if (Array.isArray(r)) setIncentives(r);
+    }).catch(() => {});
     if (successMsg) setMsg(successMsg);
   };
 
   const loadTargets = () => {
     apiGet('/ngo-admin/targets').then(t => {
       if (Array.isArray(t)) setTargets(t);
+    }).catch(() => {});
+    apiGet('/ngo-admin/incentives').then(r => {
+      if (Array.isArray(r)) setIncentives(r);
     }).catch(() => {});
   };
 
@@ -187,12 +194,14 @@ export default function StationManagement() {
       apiGet('/ngo-admin/ngos'),
       apiGet('/ngo-admin/fro-workers'),
       apiGet('/ngo-admin/targets'),
-    ]).then(([s, n, f, t]) => {
+      apiGet('/ngo-admin/incentives'),
+    ]).then(([s, n, f, t, i]) => {
       const list = Array.isArray(s) ? s : [];
       setStations(list);
       setAllNgos(Array.isArray(n) ? n : []);
       setFroWorkers(Array.isArray(f) ? f : []);
       if (Array.isArray(t)) setTargets(t);
+      if (Array.isArray(i)) setIncentives(i);
       setNewStation(computeNextName(list));
     }).catch(err => console.error('Initial load error:', err)).finally(() => setLoading(false));
     apiGet('/ngo-admin/transfers').then(t => {
@@ -335,6 +344,7 @@ export default function StationManagement() {
                   <th>Target</th>
                   <th>Source</th>
                   <th>Achieved</th>
+                  <th>Incentive</th>
                   <th></th>
                 </tr>
               </thead>
@@ -411,6 +421,18 @@ export default function StationManagement() {
                         return val != null && val > 0
                           ? <strong>₹{Number(val).toLocaleString('en-IN')}</strong>
                           : <span style={{ color: '#9ca3af' }}>—</span>;
+                      })()}
+                    </td>
+                    <td>
+                      {(() => {
+                        const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
+                        if (!w) return <span style={{ color: '#9ca3af' }}>—</span>;
+                        const inc = incentives.find(i => i.worker_id === w.id);
+                        if (!inc || !inc.hasTarget) return <span style={{ color: '#9ca3af' }}>—</span>;
+                        if (inc.totalIncentive > 0) {
+                          return <strong style={{ color: '#059669' }}>₹{Number(inc.totalIncentive).toLocaleString('en-IN')}</strong>;
+                        }
+                        return <span style={{ color: '#9ca3af' }}>0</span>;
                       })()}
                     </td>
                     <td>

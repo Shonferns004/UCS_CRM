@@ -21,6 +21,7 @@ import {
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget } from '../models/froTargetModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
+import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
 
 async function getFroWorkersByNgo(ngoId) {
   const workerIds = await getWorkersByNgo(ngoId);
@@ -1692,6 +1693,116 @@ export const getTransferDonors = async (req, res) => {
     }));
 
     return res.json(fallback);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getIncentives = async (req, res) => {
+  try {
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.json([]);
+
+    const allWorkers = [];
+    for (const ngoId of ngoIds) {
+      const workers = await getFroWorkersByNgo(ngoId);
+      allWorkers.push(...workers);
+    }
+
+    const workerIds = allWorkers.map(w => w.id);
+    if (workerIds.length === 0) return res.json([]);
+
+    const offset = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(Date.now() + offset);
+    const y = ist.getUTCFullYear();
+    const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+    const startDate = `${y}-${m}-01`;
+    const lastDay = new Date(Date.UTC(y, parseInt(m), 0)).getUTCDate();
+    const endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+
+    const { data: allAchievements } = await supabase
+      .from('daily_achievements')
+      .select('*')
+      .in('worker_id', workerIds)
+      .gte('date', startDate)
+      .lte('date', endDate);
+
+    const achievementsByWorker = {};
+    if (allAchievements) {
+      for (const a of allAchievements) {
+        if (!achievementsByWorker[a.worker_id]) achievementsByWorker[a.worker_id] = [];
+        achievementsByWorker[a.worker_id].push(a);
+      }
+    }
+
+    const { data: incentiveTargets } = await supabase
+      .from('incentive_targets')
+      .select('*')
+      .in('worker_id', workerIds)
+      .eq('month', startDate);
+
+    const targetByWorker = {};
+    if (incentiveTargets) {
+      for (const t of incentiveTargets) {
+        targetByWorker[t.worker_id] = t;
+      }
+    }
+
+    const results = [];
+    for (const worker of allWorkers) {
+      const workerAchs = achievementsByWorker[worker.id] || [];
+      const monthlyAchievement = workerAchs.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+
+      const target = targetByWorker[worker.id];
+      if (!target) {
+        results.push({
+          worker_id: worker.id,
+          name: worker.name,
+          totalIncentive: 0,
+          akiPayout: 0,
+          monthlyIncentive: 0,
+          monthlyAchievement,
+          monthlyTarget: 0,
+          hasTarget: false,
+        });
+        continue;
+      }
+
+      const monthlyTarget = parseFloat(target.target_amount);
+      const totalAKI = workerAchs.reduce((sum, r) => {
+        const dayName = getDayName(r.date);
+        return sum + calculateAKI(parseFloat(r.amount), dayName);
+      }, 0);
+
+      const monthsEmployed = getMonthsEmployed(worker.created_at);
+      const isNewJoiner = monthsEmployed <= 3;
+      const monthlyTargetMet = monthlyAchievement >= monthlyTarget;
+
+      let akiPayout = 0;
+      let monthlyIncentive = 0;
+      let totalIncentive = 0;
+
+      if (monthlyTargetMet) {
+        const overage = monthlyAchievement - monthlyTarget;
+        monthlyIncentive = Math.round(overage * 0.1);
+        akiPayout = isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
+        totalIncentive = akiPayout + monthlyIncentive;
+      }
+
+      results.push({
+        worker_id: worker.id,
+        name: worker.name,
+        totalIncentive,
+        akiPayout,
+        monthlyIncentive,
+        monthlyAchievement,
+        monthlyTarget,
+        totalAKI,
+        hasTarget: true,
+      });
+    }
+
+    return res.json(results);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
