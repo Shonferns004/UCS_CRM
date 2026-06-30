@@ -513,13 +513,26 @@ export const getFroWiseCollection = async (req, res) => {
       endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     }
 
+    const achievedMap = {};
+    if (period === 'month') {
+      const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
+      for (const ngoId of ngoIds) {
+        const targets = await getTargetsByNgo(ngoId, monthStr);
+        for (const t of targets) {
+          if (t.achieved_target != null) achievedMap[t.fro_worker_id] = parseFloat(t.achieved_target);
+        }
+      }
+    }
+
     const result = [];
     for (const w of froWorkers) {
       const amount = await getTotalCollectedByWorker(w.id, startDate.toISOString(), endDate.toISOString());
+      const achieved = achievedMap[w.id];
       result.push({
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
-        collection_amount: amount,
+        collection_amount: achieved != null && achieved > 0 ? achieved : amount,
+        ...(achieved != null && achieved > 0 ? { is_achieved: true } : {}),
       });
     }
 
