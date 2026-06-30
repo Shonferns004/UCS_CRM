@@ -14,5 +14,8 @@ fi
 
 export PATH="$FLUTTER_ROOT/bin:$PATH"
 
+git config --global --add safe.directory "$FLUTTER_ROOT"
+git config --global --add safe.directory /vercel
+
 flutter pub get
 flutter build web --release --no-pub
