@@ -47,23 +47,6 @@ function getIstDateStr(date) {
   return `${y}-${m}-${d}`;
 }
 
-function extractTime(iso) {
-  if (!iso) return '';
-  const d = new Date(new Date(iso).getTime() + IST_OFFSET);
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
-
-function reconstructIso(originalIso, newTime) {
-  if (!newTime) return null;
-  if (!originalIso) return originalIso;
-  const [h, m] = newTime.split(':').map(Number);
-  const ist = new Date(new Date(originalIso).getTime() + IST_OFFSET);
-  ist.setUTCHours(h, m, 0, 0);
-  return new Date(ist.getTime() - IST_OFFSET).toISOString();
-}
-
 function Badge({ status }) {
   const map = {
     present: { cls: 'badge-present', lbl: 'Present' },
@@ -91,11 +74,6 @@ export default function Attendance() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [workerAttendance, setWorkerAttendance] = useState([]);
-  const [editingRecord, setEditingRecord] = useState(null);
-  const [editPunchIn, setEditPunchIn] = useState('');
-  const [editPunchOut, setEditPunchOut] = useState('');
-  const [editStatus, setEditStatus] = useState('');
-  const [editLoading, setEditLoading] = useState(false);
   const [addingRecord, setAddingRecord] = useState(false);
   const [addDate, setAddDate] = useState('');
   const [addPunchIn, setAddPunchIn] = useState('');
@@ -204,48 +182,6 @@ export default function Attendance() {
 
   const backToOverview = () => {
     setSelectedWorker(null);
-    setEditingRecord(null);
-  };
-
-  const openEdit = (record) => {
-    setEditingRecord(record);
-    setEditPunchIn(extractTime(record.punch_in_time));
-    setEditPunchOut(extractTime(record.punch_out_time));
-    setEditStatus(record.status);
-  };
-
-  const closeEdit = () => {
-    setEditingRecord(null);
-  };
-
-  const saveEdit = async () => {
-    if (!editingRecord) return;
-    setEditLoading(true);
-    try {
-      const body = {
-        punch_in_time: reconstructIso(editingRecord.punch_in_time, editPunchIn),
-        punch_out_time: reconstructIso(editingRecord.punch_out_time, editPunchOut),
-        status: editStatus,
-      };
-      const res = await fetch(API_BASE + '/attendance/' + editingRecord.id, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + localStorage.getItem('ucs_token'),
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Failed to update' }));
-        throw new Error(err.message || 'Update failed');
-      }
-      fetchAttendance().then(setAttendance).catch(() => {});
-      closeEdit();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setEditLoading(false);
-    }
   };
 
   const onTime = todayCombined.filter(r => r.status === 'present').length;
@@ -277,7 +213,7 @@ export default function Attendance() {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>#</th><th>Date</th><th>Status</th><th>Punch In</th><th>Punch Out</th><th>Late (min)</th><th>Hours Worked</th><th>Action</th></tr>
+                    <tr><th>#</th><th>Date</th><th>Status</th><th>Punch In</th><th>Punch Out</th><th>Late (min)</th><th>Hours Worked</th></tr>
                   </thead>
                   <tbody>
                     {workerAttendance.map((r, i) => (
@@ -289,11 +225,6 @@ export default function Attendance() {
                         <td>{fmtTime(r.punch_out_time)}</td>
                         <td>{r.late_minutes > 0 ? <span className="late-mins">{r.late_minutes}</span> : '\u2014'}</td>
                         <td>{r.hours_worked || '\u2014'}</td>
-                        <td>
-                          <button className="btn btn-sm" onClick={() => openEdit(r)} title="Edit Attendance">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -527,65 +458,6 @@ export default function Attendance() {
         </div>
       )}
 
-      {editingRecord && (
-        <div className="modal-overlay" onClick={closeEdit}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Edit Attendance</h3>
-              <button className="btn btn-sm" onClick={closeEdit}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <label className="field">
-                <span>Worker</span>
-                <input type="text" value={editingRecord.workers?.name || ''} disabled />
-              </label>
-              <label className="field">
-                <span>Date</span>
-                <input type="text" value={editingRecord.date} disabled />
-              </label>
-              <label className="field">
-                <span>Punch In Time</span>
-                <input type="time" value={editPunchIn} onChange={e => setEditPunchIn(e.target.value)} />
-              </label>
-              <label className="field">
-                <span>Punch Out Time</span>
-                <input type="time" value={editPunchOut} onChange={e => setEditPunchOut(e.target.value)} />
-              </label>
-              <label className="field">
-                <span>Status</span>
-                <select value={editStatus} onChange={e => setEditStatus(e.target.value)}>
-                  <option value="present">Present</option>
-                  <option value="late">Late</option>
-                  <option value="absent">Absent</option>
-                  <option value="leave">Leave</option>
-                </select>
-              </label>
-            </div>
-            <div className="modal-foot">
-              <button className="btn btn-danger" onClick={async () => {
-                if (!confirm('Delete this attendance record? The worker will need to punch in again.')) return;
-                try {
-                  const res = await fetch(API_BASE + '/attendance/' + editingRecord.id, {
-                    method: 'DELETE',
-                    headers: { Authorization: 'Bearer ' + localStorage.getItem('ucs_token') },
-                  });
-                  if (!res.ok) throw new Error('Delete failed');
-                  fetchAttendance().then(setAttendance).catch(() => {});
-                  closeEdit();
-                } catch (err) {
-                  alert(err.message);
-                }
-              }} style={{ marginRight:'auto', background:'var(--danger)', color:'#fff', border:'none' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight:6, verticalAlign:'middle' }}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Delete
-              </button>
-              <button className="btn" onClick={closeEdit}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEdit} disabled={editLoading}>
-                {editLoading ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
