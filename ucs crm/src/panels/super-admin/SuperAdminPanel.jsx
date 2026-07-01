@@ -1,15 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
-import { Grid, Globe, Star, Users as UsersIcon, Clock, Plane, Cal, Ticket } from '../../icons'
+import { Grid, Globe, Star, Users as UsersIcon, Clock, Plane, Ticket } from '../../icons'
 import Dashboard from './pages/Dashboard'
 import NGOs from './pages/NGOs'
-import Users from './pages/Users'
 import Workers from './pages/Workers'
 import WorkerDetail from './pages/WorkerDetail'
 import Attendance from './pages/Attendance'
 import Leaves from './pages/Leaves'
-import Holidays from './pages/Holidays'
 import Causes from './pages/Causes'
 import DataManagement from './pages/DataManagement'
 import Tickets from './pages/Tickets'
@@ -19,11 +17,9 @@ const NAV = [
   { id: 'data-management', label: 'Data Management', icon: Grid },
   { id: 'ngos', label: 'NGOs', icon: Globe },
   { id: 'causes', label: 'Causes', icon: Star },
-  { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'workers', label: 'Workers', icon: UsersIcon },
   { id: 'attendance', label: 'Attendance', icon: Clock },
   { id: 'leaves', label: 'Leaves', icon: Plane },
-  { id: 'holidays', label: 'Holidays', icon: Cal },
   { id: 'tickets', label: 'Tickets', icon: Ticket },
 ]
 
@@ -31,8 +27,8 @@ const navMap = {}
 NAV.forEach(n => { navMap[n.id] = n })
 
 const GROUPS = [
-  { id: 'org', label: 'Organization', icon: Globe, items: ['ngos', 'causes', 'users', 'workers'] },
-  { id: 'time', label: 'Time & Attendance', icon: Clock, items: ['attendance', 'leaves', 'holidays'] },
+  { id: 'org', label: 'Organization', icon: Globe, items: ['ngos', 'causes', 'workers'] },
+  { id: 'time', label: 'Time & Attendance', icon: Clock, items: ['attendance', 'leaves'] },
 ]
 
 const standaloneIds = ['dashboard', 'data-management', 'tickets']
@@ -166,12 +162,10 @@ export default function SuperAdminPanel() {
     switch (active) {
       case 'dashboard': return <Dashboard />
       case 'ngos': return <NGOs />
-      case 'users': return <Users />
       case 'workers': return <Workers onViewWorker={handleViewWorker} />
       case 'worker-detail': return <WorkerDetail workerId={workerId} onBack={handleBack} />
       case 'attendance': return <Attendance />
       case 'leaves': return <Leaves />
-      case 'holidays': return <Holidays />
       case 'causes': return <Causes />
       case 'data-management': return <DataManagement />
       case 'tickets': return <Tickets />
