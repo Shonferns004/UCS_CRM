@@ -55,22 +55,6 @@ async function getUserNgoIds(user) {
   return [];
 }
 
-async function resolveAssignedBy(userId) {
-  if (!userId) return null;
-  const { data: user } = await supabase.from('users').select('id').eq('id', userId).maybeSingle();
-  if (user) return userId;
-  const { data: worker } = await supabase.from('workers').select('name, login_id').eq('id', userId).maybeSingle();
-  if (worker) {
-    if (worker.login_id) {
-      const { data: byEmail } = await supabase.from('users').select('id').eq('email', worker.login_id).maybeSingle();
-      if (byEmail) return byEmail.id;
-    }
-    const { data: byName } = await supabase.from('users').select('id').eq('name', worker.name).maybeSingle();
-    if (byName) return byName.id;
-  }
-  return null;
-}
-
 export const getDonors = async (req, res) => {
   try {
     const { search, limit } = req.query;
@@ -888,10 +872,7 @@ export const saveStationAssignment = async (req, res) => {
     if (!ngoId) ngoId = ngoIds[0] || req.user.ngo_id || null;
     if (!ngoId) return res.status(400).json({ message: 'No NGO assigned to your account' });
 
-    const aBy = await resolveAssignedBy(req.user.id);
-    if (!aBy) return res.status(400).json({ message: 'Cannot resolve user identity' });
-
-    const result = await upsertStationAssignment(fro_worker_id || null, ngoId, trimmedStation, aBy);
+    const result = await upsertStationAssignment(fro_worker_id || null, ngoId, trimmedStation, req.user.id);
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -931,8 +912,6 @@ export const createStationHandler = async (req, res) => {
     }
 
     const stationName = station.trim();
-    const aBy = await resolveAssignedBy(req.user.id);
-    if (!aBy) return res.status(400).json({ message: 'Cannot resolve user identity' });
     const records = [];
 
     if (ngo_ids && ngo_ids.length > 0) {
@@ -944,7 +923,7 @@ export const createStationHandler = async (req, res) => {
           .eq('ngo_id', ngo_id)
           .maybeSingle();
         if (existing) continue;
-        records.push({ station: stationName, ngo_id, assigned_by: aBy });
+        records.push({ station: stationName, ngo_id, assigned_by: req.user.id });
       }
     } else {
       const { data: existing } = await supabase
@@ -954,7 +933,7 @@ export const createStationHandler = async (req, res) => {
         .is('ngo_id', null)
         .maybeSingle();
       if (!existing) {
-        records.push({ station: stationName, ngo_id: null, assigned_by: aBy });
+        records.push({ station: stationName, ngo_id: null, assigned_by: req.user.id });
       }
     }
 
@@ -984,9 +963,6 @@ export const updateStationNgos = async (req, res) => {
     const access = await getUserNgoAccess(req.user.id);
     const allowedNgoIds = new Set(access.map(a => a.ngo_id));
 
-    const aBy = await resolveAssignedBy(req.user.id);
-    if (!aBy) return res.status(400).json({ message: 'Cannot resolve user identity' });
-
     // Only allow assigning NGOs the user has access to
     const validNgoIds = ngo_ids.filter(id => allowedNgoIds.has(id));
 
@@ -1001,7 +977,7 @@ export const updateStationNgos = async (req, res) => {
     if (validNgoIds.length === 0) {
       const { error: insErr } = await supabase
         .from('fro_station_assignments')
-        .insert([{ station: station.trim(), assigned_by: aBy, fro_worker_id: fro_worker_id || null }]);
+        .insert([{ station: station.trim(), assigned_by: req.user.id, fro_worker_id: fro_worker_id || null }]);
       if (insErr) throw insErr;
       return res.json({ message: 'Station NGOs cleared' });
     }
@@ -1010,7 +986,7 @@ export const updateStationNgos = async (req, res) => {
     const rows = validNgoIds.map(ngo_id => ({
       ngo_id,
       station: station.trim(),
-      assigned_by: aBy,
+      assigned_by: req.user.id,
       fro_worker_id: fro_worker_id || null,
     }));
     const { error: insErr } = await supabase
@@ -1048,11 +1024,8 @@ export const reassignStationFro = async (req, res) => {
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
     const ngoName = ngoNames[0] || stationAssign.ngo_id;
 
-    const aBy = await resolveAssignedBy(req.user.id);
-    if (!aBy) return res.status(400).json({ message: 'Cannot resolve user identity' });
-
     // Update station assignment
-    await upsertStationAssignment(fro_worker_id, ngoId, stationAssign.station, aBy);
+    await upsertStationAssignment(fro_worker_id, ngoId, stationAssign.station, req.user.id);
 
     // Reassign donors in this station
     const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
@@ -1240,8 +1213,6 @@ export const distributeNewData = async (req, res) => {
   try {
     const { stations: selectedStations } = req.body;
     const access = await getUserNgoAccess(req.user.id);
-    const aBy = await resolveAssignedBy(req.user.id);
-    if (!aBy) return res.status(400).json({ message: 'Cannot resolve user identity' });
     const ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
@@ -1337,7 +1308,7 @@ export const distributeNewData = async (req, res) => {
           continue;
         }
         for (let i = 0; i < activeWorkers.length; i++) {
-          await upsertStationAssignment(activeWorkers[i].id, ngoId, `U-${i + 1}`, aBy);
+          await upsertStationAssignment(activeWorkers[i].id, ngoId, `U-${i + 1}`, req.user.id);
         }
         targetStations = await getStationAssignmentsByNgo([ngoId]);
       }
@@ -1407,7 +1378,7 @@ export const distributeNewData = async (req, res) => {
           fro_worker_id: workerId || null,
           ngo_id: ngoId,
           station: station,
-          assigned_by: aBy,
+          assigned_by: req.user.id,
           status: 'pending',
         });
       }
