@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
-import { Grid, Globe, Star, Users as UsersIcon, Clock, Plane, Ticket } from '../../icons'
+import { GridFour, GlobeHemisphereWest, Star, Users, ClockAfternoon, Airplane, Ticket } from '@phosphor-icons/react'
 import Dashboard from './pages/Dashboard'
 import NGOs from './pages/NGOs'
 import Workers from './pages/Workers'
@@ -13,13 +13,13 @@ import DataManagement from './pages/DataManagement'
 import Tickets from './pages/Tickets'
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: Grid },
-  { id: 'data-management', label: 'Data Management', icon: Grid },
-  { id: 'ngos', label: 'NGOs', icon: Globe },
+  { id: 'dashboard', label: 'Dashboard', icon: GridFour },
+  { id: 'data-management', label: 'Data Management', icon: GridFour },
+  { id: 'ngos', label: 'NGOs', icon: GlobeHemisphereWest },
   { id: 'causes', label: 'Causes', icon: Star },
-  { id: 'workers', label: 'Workers', icon: UsersIcon },
-  { id: 'attendance', label: 'Attendance', icon: Clock },
-  { id: 'leaves', label: 'Leaves', icon: Plane },
+  { id: 'workers', label: 'Workers', icon: Users },
+  { id: 'attendance', label: 'Attendance', icon: ClockAfternoon },
+  { id: 'leaves', label: 'Leaves', icon: Airplane },
   { id: 'tickets', label: 'Tickets', icon: Ticket },
 ]
 
@@ -27,8 +27,8 @@ const navMap = {}
 NAV.forEach(n => { navMap[n.id] = n })
 
 const GROUPS = [
-  { id: 'org', label: 'Organization', icon: Globe, items: ['ngos', 'causes', 'workers'] },
-  { id: 'time', label: 'Time & Attendance', icon: Clock, items: ['attendance', 'leaves'] },
+  { id: 'org', label: 'Organization', icon: GlobeHemisphereWest, items: ['ngos', 'causes', 'workers'] },
+  { id: 'time', label: 'Time & Attendance', icon: ClockAfternoon, items: ['attendance', 'leaves'] },
 ]
 
 const standaloneIds = ['dashboard', 'data-management', 'tickets']

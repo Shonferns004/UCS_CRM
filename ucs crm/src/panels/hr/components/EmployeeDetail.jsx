@@ -1688,7 +1688,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         const cells = [];
                         for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} />);
                         for (let d = 1; d <= daysInMonth; d++) {
-                          const dateStr = `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                          const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                           const ach = workerAchs.find(a => a.date === dateStr);
                           const formKey = `ach-${dateStr}`;
                           const saving = achSaving[formKey];
@@ -1710,7 +1710,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                         setAchSaving(f => ({ ...f, [formKey]: true }));
                                         try {
                                           await setAchievement(data.id, dateStr, parseFloat(achForm[formKey]));
-                                          const month = `${yr}-${String(mo + 1).padStart(2, '0')}-01`;
+                                          const month = `${yr}-${String(mo).padStart(2, '0')}-01`;
                                           const a = await fetchWorkerAchievements(data.id, month);
                                           setWorkerAchs(Array.isArray(a) ? a : []);
                                           const s = await fetchIncentiveSummary(data.id, month);
