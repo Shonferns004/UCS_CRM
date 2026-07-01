@@ -95,7 +95,27 @@ export default function Dashboard() {
   }, [period])
 
   if (err) return <div className="sa-err-card">Error: {err}</div>
-  if (!data) return <div className="sa-loading">Loading dashboard…</div>
+  if (!data) return (
+    <div className="dash-page">
+      <div className="dash-header" style={{marginBottom:24}}>
+        <div><div className="sk" style={{width:'55%',height:14,marginBottom:8}} /><div className="sk" style={{width:'80%',height:14}} /></div>
+        <div className="dash-header-actions"><div className="sk" style={{width:200,height:32,borderRadius:6}} /></div>
+      </div>
+      <div className="metrics-grid">
+        {[1,2,3,4,5].map(i => <div key={i} className="clay-card" style={{padding:20}}><div className="sk" style={{height:100}} /></div>)}
+      </div>
+      <div className="dash-grid" style={{marginTop:24}}>
+        <div className="dash-grid-main">
+          <div className="clay-card" style={{padding:20}}><div className="sk" style={{height:200}} /></div>
+          <div className="clay-card" style={{padding:20,marginTop:16}}><div className="sk" style={{height:200}} /></div>
+        </div>
+        <div className="dash-grid-side">
+          <div className="clay-card" style={{padding:20}}><div className="sk" style={{height:200}} /></div>
+          <div className="clay-card" style={{padding:20,marginTop:16}}><div className="sk" style={{height:200}} /></div>
+        </div>
+      </div>
+    </div>
+  )
 
   const {
     stats = {}, deptWorkers = {}, roleDistribution = {}, ngoUserCounts = [],

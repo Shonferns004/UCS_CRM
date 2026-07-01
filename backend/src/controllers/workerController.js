@@ -413,13 +413,21 @@ export const getWorkerAllocations = async (req, res) => {
 export const setWorkerAllocations = async (req, res) => {
   try {
     const { allocations, salary } = req.body;
-    const validation = validateAllocations(allocations, salary);
-    if (!validation.valid) {
-      return res.status(400).json({ message: validation.message });
+    if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
+      return res.status(400).json({ message: 'At least one NGO allocation is required' });
+    }
+    if (allocations.length > 4) {
+      return res.status(400).json({ message: 'Maximum 4 NGO allocations allowed' });
+    }
+    if (salary && parseFloat(salary) > 0) {
+      const validation = validateAllocations(allocations, salary);
+      if (!validation.valid) {
+        return res.status(400).json({ message: validation.message });
+      }
     }
     const rows = await setAllocations(req.params.id, allocations.map(a => ({
       ngo_id: a.ngo_id,
-      salary_portion: parseFloat(a.salary_portion),
+      salary_portion: parseFloat(a.salary_portion) || 0,
     })));
     return res.json({ message: 'Allocations updated', allocations: rows });
   } catch (error) {
