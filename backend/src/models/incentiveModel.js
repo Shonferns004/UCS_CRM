@@ -18,7 +18,8 @@ export const getTarget = async (workerId, month) => {
     .eq('month', month)
     .maybeSingle();
   if (error) throw error;
-  if (data) return data;
+
+  if (data && !data.is_auto_generated) return data;
 
   const { data: froData, error: froError } = await supabase
     .from('fro_monthly_targets')
@@ -35,6 +36,8 @@ export const getTarget = async (workerId, month) => {
       is_auto_generated: false,
     };
   }
+
+  if (data) return data;
 
   return null;
 };
