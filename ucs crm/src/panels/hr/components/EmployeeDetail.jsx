@@ -204,6 +204,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     { key: 'salary', label: 'Salary' },
     { key: 'leaves', label: 'Leaves' },
     { key: 'loans', label: 'Loans & Advances' },
+    { key: 'settings', label: 'Settings' },
   ];
 
   const now = new Date();
@@ -1842,11 +1843,109 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
             </div>
           )}
 
+          {tab === 'settings' && (
+            <ShiftSettings workerId={data?.id} currentShift={{ start: data?.shift_start_time, end: data?.shift_end_time }} onSave={() => fetchWorkerById(worker.id).then(d => setData(d)).catch(() => {})} />
+          )}
+
         </div>
       </div>
 
     </>
   );
+}
+
+
+function ShiftSettings({ workerId, currentShift, onSave }) {
+  const { updateWorker } = useHR()
+  const [start, setStart] = useState(currentShift?.start || '')
+  const [end, setEnd] = useState(currentShift?.end || '')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    setStart(currentShift?.start || '')
+    setEnd(currentShift?.end || '')
+  }, [currentShift?.start, currentShift?.end])
+
+  const hasOverride = !!(currentShift?.start || currentShift?.end)
+  const isCustom = currentShift?.start || currentShift?.end
+
+  const save = async () => {
+    setSaving(true)
+    setMsg(null)
+    try {
+      await updateWorker(workerId, { shift_start_time: start || null, shift_end_time: end || null })
+      setMsg({ type: 'success', text: 'Shift settings saved' })
+      onSave?.()
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const reset = async () => {
+    setStart('')
+    setEnd('')
+    setSaving(true)
+    setMsg(null)
+    try {
+      await updateWorker(workerId, { shift_start_time: null, shift_end_time: null })
+      setMsg({ type: 'success', text: 'Reset to default shift' })
+      onSave?.()
+    } catch (e) {
+      setMsg({ type: 'error', text: e.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head"><h3>Shift Settings</h3></div>
+      <div className="card-pad">
+        <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, background: isCustom ? '#fefce8' : '#f3f4f6', border: '1px solid', borderColor: isCustom ? '#fde68a' : '#e5e7eb', fontSize: 13 }}>
+          <strong>Current shift:</strong>{' '}
+          {isCustom
+            ? <><span style={{ color: '#92400e' }}>{currentShift?.start || '10:00'} – {currentShift?.end || '19:00'}</span> <span style={{ fontSize: 11, color: '#a16207' }}>(Custom override)</span></>
+            : <span style={{ color: '#6b7280' }}>10:00 – 19:00 <span style={{ fontSize: 11 }}>(Default — no override set)</span></span>
+          }
+        </div>
+
+        {msg && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 12, background: msg.type === 'success' ? '#d1fae5' : '#fee2e2', color: msg.type === 'success' ? '#065f46' : '#991b1b' }}>
+            {msg.text}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <label className="field">
+            <span>Override Start Time</span>
+            <input type="time" value={start} onChange={e => setStart(e.target.value)}
+              placeholder="10:00" />
+          </label>
+          <label className="field">
+            <span>Override End Time</span>
+            <input type="time" value={end} onChange={e => setEnd(e.target.value)}
+              placeholder="19:00" />
+          </label>
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4, marginBottom: 0 }}>
+          Leave blank to use the default shift timing (10:00 – 19:00). The late calculation and half-day detection will adjust to these timings.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+          <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+          {hasOverride && (
+            <button className="btn btn-sm" onClick={reset} disabled={saving} style={{ color: 'var(--danger)' }}>
+              Reset to Default
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function Field({ label, value }) {
