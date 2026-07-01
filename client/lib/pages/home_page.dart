@@ -195,6 +195,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   void _applyTodayStatus(Map<String, dynamic> today) {
     final att = today['attendance'];
     setState(() {
+      _officeStartTime = (today['officeStartTime'] ?? '10:00') as String;
+      _officeEndTime = (today['officeEndTime'] ?? '19:00') as String;
       _lateUsed = today['lateUsed'] ?? 0;
       if (att != null) {
         _isPunchedIn = att['punch_in_time'] != null;
