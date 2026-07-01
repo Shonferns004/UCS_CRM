@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
-import { Grid, Funnel, Download, Globe, Star, Users as UsersIcon, Brief, Clock, Plane, Cal, Dollar, Spark, Bell, FileTxt, Ticket, Mail } from '../../icons'
+import { Grid, Funnel, Download, Globe, Star, Users as UsersIcon, Clock, Plane, Cal, Ticket } from '../../icons'
 import Dashboard from './pages/Dashboard'
 import NGOs from './pages/NGOs'
 import Users from './pages/Users'
@@ -10,13 +10,6 @@ import WorkerDetail from './pages/WorkerDetail'
 import Attendance from './pages/Attendance'
 import Leaves from './pages/Leaves'
 import Holidays from './pages/Holidays'
-import Salary from './pages/Salary'
-import Incentives from './pages/Incentives'
-import Events from './pages/Events'
-import Notices from './pages/Notices'
-import Achievements from './pages/Achievements'
-import Accounts from './pages/Accounts'
-import Reports from './pages/Reports'
 import Causes from './pages/Causes'
 import DataSources from './pages/DataSources'
 import DataImport from './pages/DataImport'
@@ -33,13 +26,6 @@ const NAV = [
   { id: 'attendance', label: 'Attendance', icon: Clock },
   { id: 'leaves', label: 'Leaves', icon: Plane },
   { id: 'holidays', label: 'Holidays', icon: Cal },
-  { id: 'salary', label: 'Salary', icon: Dollar },
-  { id: 'incentives', label: 'Incentives', icon: Spark },
-  { id: 'events', label: 'Events', icon: Star },
-  { id: 'notices', label: 'Notices', icon: Bell },
-  { id: 'achievements', label: 'Achievements', icon: Star },
-  { id: 'accounts', label: 'Accounts', icon: Brief },
-  { id: 'reports', label: 'Reports', icon: FileTxt },
   { id: 'tickets', label: 'Tickets', icon: Ticket },
 ]
 
@@ -50,10 +36,9 @@ const GROUPS = [
   { id: 'data', label: 'Data Management', icon: Grid, items: ['data-sources', 'data-import'] },
   { id: 'org', label: 'Organization', icon: Globe, items: ['ngos', 'causes', 'users', 'workers'] },
   { id: 'time', label: 'Time & Attendance', icon: Clock, items: ['attendance', 'leaves', 'holidays'] },
-  { id: 'comm', label: 'Communication', icon: Mail, items: ['events', 'notices'] },
 ]
 
-const standaloneIds = ['dashboard', 'salary', 'incentives', 'achievements', 'accounts', 'reports', 'tickets']
+const standaloneIds = ['dashboard', 'tickets']
 
 
 
@@ -190,13 +175,6 @@ export default function SuperAdminPanel() {
       case 'attendance': return <Attendance />
       case 'leaves': return <Leaves />
       case 'holidays': return <Holidays />
-      case 'salary': return <Salary />
-      case 'incentives': return <Incentives />
-      case 'events': return <Events />
-      case 'notices': return <Notices />
-      case 'achievements': return <Achievements />
-      case 'accounts': return <Accounts />
-      case 'reports': return <Reports />
       case 'causes': return <Causes />
       case 'data-sources': return <DataSources />
       case 'data-import': return <DataImport />
