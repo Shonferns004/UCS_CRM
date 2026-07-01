@@ -18,7 +18,25 @@ export const getTarget = async (workerId, month) => {
     .eq('month', month)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  if (data) return data;
+
+  const { data: froData, error: froError } = await supabase
+    .from('fro_monthly_targets')
+    .select('*')
+    .eq('fro_worker_id', workerId)
+    .eq('month', month)
+    .maybeSingle();
+  if (froError) throw froError;
+  if (froData) {
+    return {
+      worker_id: froData.fro_worker_id,
+      month: froData.month,
+      target_amount: froData.target_amount,
+      is_auto_generated: false,
+    };
+  }
+
+  return null;
 };
 
 export const upsertTarget = async (data) => {
