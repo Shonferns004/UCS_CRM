@@ -20,8 +20,8 @@ export default function WorkerDetail({ workerId, onBack }) {
   if (err) return <div className="sa-err-card">{err}</div>
   if (!worker) return (
     <div className="sa-page">
-      <div className="sa-page-header"><div className="sa-skeleton sa-skeleton-text narrow" /><div className="sa-skeleton" style={{width:80,height:32,borderRadius:6}} /></div>
-      <div className="sa-card"><div className="sa-skeleton sa-skeleton-chart" /><div style={{marginTop:12}}><div className="sa-skeleton sa-skeleton-text wide" /><div className="sa-skeleton sa-skeleton-text medium" /></div></div>
+      <div className="sa-page-header"><div className="sk" style={{width:'35%',height:14}} /><div className="sk" style={{width:80,height:32,borderRadius:6}} /></div>
+      <div className="sa-card"><div className="sk" style={{height:200}} /><div style={{marginTop:12}}><div className="sk" style={{width:'80%',height:14,marginBottom:8}} /><div className="sk" style={{width:'55%',height:14}} /></div></div>
     </div>
   )
 

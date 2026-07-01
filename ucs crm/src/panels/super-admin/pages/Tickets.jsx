@@ -197,7 +197,7 @@ export default function Tickets() {
         {loading ? (
           <div style={{padding:20}}>
             {[1,2,3,4,5].map(i => <div key={i} style={{display:'flex',gap:12,marginBottom:12,alignItems:'center'}}>
-              <div className="sa-skeleton" style={{width:'20%',height:14}} /><div className="sa-skeleton" style={{width:'15%',height:14}} /><div className="sa-skeleton" style={{width:'25%',height:14}} /><div className="sa-skeleton" style={{width:'10%',height:24,borderRadius:12}} />
+              <div className="sk" style={{width:'20%',height:14}} /><div className="sk" style={{width:'15%',height:14}} /><div className="sk" style={{width:'25%',height:14}} /><div className="sk" style={{width:'10%',height:24,borderRadius:12}} />
             </div>)}
           </div>
         ) : filtered.length === 0 ? (

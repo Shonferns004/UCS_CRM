@@ -98,20 +98,20 @@ export default function Dashboard() {
   if (!data) return (
     <div className="dash-page">
       <div className="dash-header" style={{marginBottom:24}}>
-        <div><div className="sa-skeleton sa-skeleton-text medium" /><div className="sa-skeleton sa-skeleton-text wide" /></div>
-        <div className="dash-header-actions"><div className="sa-skeleton" style={{width:200,height:32,borderRadius:6}} /></div>
+        <div><div className="sk" style={{width:'55%',height:14,marginBottom:8}} /><div className="sk" style={{width:'80%',height:14}} /></div>
+        <div className="dash-header-actions"><div className="sk" style={{width:200,height:32,borderRadius:6}} /></div>
       </div>
       <div className="metrics-grid">
-        {[1,2,3,4,5].map(i => <div key={i} className="clay-card" style={{padding:20}}><div className="sa-skeleton sa-skeleton-card" /></div>)}
+        {[1,2,3,4,5].map(i => <div key={i} className="clay-card" style={{padding:20}}><div className="sk" style={{height:100}} /></div>)}
       </div>
       <div className="dash-grid" style={{marginTop:24}}>
         <div className="dash-grid-main">
-          <div className="clay-card" style={{padding:20}}><div className="sa-skeleton sa-skeleton-chart" /></div>
-          <div className="clay-card" style={{padding:20,marginTop:16}}><div className="sa-skeleton sa-skeleton-chart" /></div>
+          <div className="clay-card" style={{padding:20}}><div className="sk" style={{height:200}} /></div>
+          <div className="clay-card" style={{padding:20,marginTop:16}}><div className="sk" style={{height:200}} /></div>
         </div>
         <div className="dash-grid-side">
-          <div className="clay-card" style={{padding:20}}><div className="sa-skeleton sa-skeleton-chart" /></div>
-          <div className="clay-card" style={{padding:20,marginTop:16}}><div className="sa-skeleton sa-skeleton-chart" /></div>
+          <div className="clay-card" style={{padding:20}}><div className="sk" style={{height:200}} /></div>
+          <div className="clay-card" style={{padding:20,marginTop:16}}><div className="sk" style={{height:200}} /></div>
         </div>
       </div>
     </div>

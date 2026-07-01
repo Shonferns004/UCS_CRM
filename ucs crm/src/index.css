@@ -113,17 +113,6 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-sa .sa-nav-group-items.collapsed { max-height:0; }
 .panel-sa .sa-nav-group-items:not(.collapsed) { max-height:400px; }
 .panel-sa .main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
-
-/* SA Panel Skeleton Loading */
-.sa-skeleton { background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%); background-size:200% 100%; animation:saShimmer 1.5s infinite; border-radius:8px; }
-@keyframes saShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-.sa-skeleton-card { height:100px; }
-.sa-skeleton-chart { height:200px; }
-.sa-skeleton-text { height:14px; margin-bottom:8px; }
-.sa-skeleton-text.wide { width:80%; }
-.sa-skeleton-text.medium { width:55%; }
-.sa-skeleton-text.narrow { width:35%; }
-.sa-skeleton-bar { height:24px; margin-bottom:12px; border-radius:4px; }
 .panel-sa .sa-main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
 .panel-sa .sa-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; background:var(--bg-card); border-bottom:1px solid var(--border); flex-shrink:0; }
 .panel-sa .sa-eyebrow { font-size:11px; color:var(--text-soft); text-transform:uppercase; letter-spacing:.5px; }
