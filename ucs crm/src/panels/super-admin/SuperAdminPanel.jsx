@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
-import { GridFour, GlobeHemisphereWest, Star, Users, ClockAfternoon, Airplane, Ticket } from '@phosphor-icons/react'
+import { GridFour, GlobeHemisphereWest, Star, Users, ClockAfternoon, Airplane, Ticket, Database } from '@phosphor-icons/react'
 import Dashboard from './pages/Dashboard'
 import NGOs from './pages/NGOs'
 import Workers from './pages/Workers'
@@ -14,7 +14,7 @@ import Tickets from './pages/Tickets'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: GridFour },
-  { id: 'data-management', label: 'Data Management', icon: GridFour },
+  { id: 'data-management', label: 'Data Management', icon: Database },
   { id: 'ngos', label: 'NGOs', icon: GlobeHemisphereWest },
   { id: 'causes', label: 'Causes', icon: Star },
   { id: 'workers', label: 'Workers', icon: Users },
