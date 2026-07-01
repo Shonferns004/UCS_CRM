@@ -19,9 +19,11 @@ export default function WorkerDetail({ workerId, onBack }) {
 
   if (err) return <div className="sa-err-card">{err}</div>
   if (!worker) return (
-    <div className="sa-page">
-      <div className="sa-page-header"><div className="sk" style={{width:'35%',height:14}} /><div className="sk" style={{width:80,height:32,borderRadius:6}} /></div>
-      <div className="sa-card"><div className="sk" style={{height:200}} /><div style={{marginTop:12}}><div className="sk" style={{width:'80%',height:14,marginBottom:8}} /><div className="sk" style={{width:'55%',height:14}} /></div></div>
+    <div className="sa-page" style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'60vh'}}>
+      <div style={{textAlign:'center'}}>
+        <div className="spinner" style={{margin:'0 auto 12px'}} />
+        <div style={{fontSize:13,color:'var(--text-soft)'}}>Loading worker...</div>
+      </div>
     </div>
   )
 

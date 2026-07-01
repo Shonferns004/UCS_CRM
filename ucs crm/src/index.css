@@ -113,6 +113,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-sa .sa-nav-group-items.collapsed { max-height:0; }
 .panel-sa .sa-nav-group-items:not(.collapsed) { max-height:400px; }
 .panel-sa .main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+.panel-sa .spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:att-spin .6s linear infinite; }
 .panel-sa .sa-main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
 .panel-sa .sa-topbar { display:flex; align-items:center; justify-content:space-between; padding:12px 24px; background:var(--bg-card); border-bottom:1px solid var(--border); flex-shrink:0; }
 .panel-sa .sa-eyebrow { font-size:11px; color:var(--text-soft); text-transform:uppercase; letter-spacing:.5px; }
