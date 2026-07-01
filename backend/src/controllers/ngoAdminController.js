@@ -19,7 +19,7 @@ import {
   deleteStationAssignment,
 } from '../models/froStationAssignmentModel.js';
 import { upsertTarget, getTargetsByNgo, getTargetByWorker, updateAchievedTarget, updateIncentive } from '../models/froTargetModel.js';
-import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection } from '../models/froDonorLogModel.js';
+import { getTotalCollectedByWorker, getVerifiedCollection, getUnverifiedCollection, getBatchCollectionStats } from '../models/froDonorLogModel.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
 
@@ -336,11 +336,7 @@ export const getDashboard = async (req, res) => {
       if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
     }
 
-    const allWorkers = [];
-    for (const ngoId of ngoIds) {
-      const workers = await getFroWorkersByNgo(ngoId);
-      allWorkers.push(...workers);
-    }
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
@@ -349,11 +345,7 @@ export const getDashboard = async (req, res) => {
       totalDonors = await getDonorProfilesByImportNgo(ngoNames, 100000);
     }
 
-    const allAssignments = [];
-    for (const ngoId of ngoIds) {
-      const assignments = await findAssignmentsByNgo(ngoId);
-      allAssignments.push(...assignments);
-    }
+    const allAssignments = (await Promise.all(ngoIds.map(ngoId => findAssignmentsByNgo(ngoId)))).flat();
     const assignedCount = allAssignments.length;
     const collectedDonations = allAssignments.filter(a => a.status === 'donation_collected');
 
@@ -363,16 +355,21 @@ export const getDashboard = async (req, res) => {
 
     const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
     const achievedMap = {};
-    for (const ngoId of ngoIds) {
-      const targets = await getTargetsByNgo(ngoId, monthStr);
-      for (const t of targets) {
-        if (t.achieved_target != null) achievedMap[t.fro_worker_id] = parseFloat(t.achieved_target);
-      }
+    const allTargets = (await Promise.all(ngoIds.map(ngoId => getTargetsByNgo(ngoId, monthStr)))).flat();
+    for (const t of allTargets) {
+      if (t.achieved_target != null) achievedMap[t.fro_worker_id] = parseFloat(t.achieved_target);
     }
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+
+    // Batch all collection stats in a single query
+    const workerIds = froWorkers.map(w => w.id);
+    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString());
 
     let monthCollection = 0;
     for (const w of froWorkers) {
-      const actual = await getTotalCollectedByWorker(w.id, monthStart, monthEnd);
+      const actual = batchStats.monthCollection[w.id] || 0;
       monthCollection += achievedMap[w.id] != null && achievedMap[w.id] > 0 ? achievedMap[w.id] : actual;
     }
 
@@ -412,12 +409,9 @@ export const getDashboard = async (req, res) => {
       }
     }
 
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
     let todayCollection = 0;
     for (const w of froWorkers) {
-      todayCollection += await getTotalCollectedByWorker(w.id, todayStart.toISOString(), todayEnd.toISOString());
+      todayCollection += batchStats.todayCollection[w.id] || 0;
     }
 
     let verifiedMonthAmount = 0, verifiedMonthCount = 0;
@@ -425,13 +419,13 @@ export const getDashboard = async (req, res) => {
     let verifiedTodayAmount = 0, verifiedTodayCount = 0;
     let unverifiedTodayAmount = 0, unverifiedTodayCount = 0;
     for (const w of froWorkers) {
-      const vm = await getVerifiedCollection(w.id, monthStart, monthEnd);
+      const vm = batchStats.verifiedMonth[w.id] || { amount: 0, count: 0 };
       verifiedMonthAmount += vm.amount; verifiedMonthCount += vm.count;
-      const um = await getUnverifiedCollection(w.id, monthStart, monthEnd);
+      const um = batchStats.unverifiedMonth[w.id] || { amount: 0, count: 0 };
       unverifiedMonthAmount += um.amount; unverifiedMonthCount += um.count;
-      const vt = await getVerifiedCollection(w.id, todayStart.toISOString(), todayEnd.toISOString());
+      const vt = batchStats.verifiedToday[w.id] || { amount: 0, count: 0 };
       verifiedTodayAmount += vt.amount; verifiedTodayCount += vt.count;
-      const ut = await getUnverifiedCollection(w.id, todayStart.toISOString(), todayEnd.toISOString());
+      const ut = batchStats.unverifiedToday[w.id] || { amount: 0, count: 0 };
       unverifiedTodayAmount += ut.amount; unverifiedTodayCount += ut.count;
     }
 
@@ -530,11 +524,7 @@ export const getFroWiseCollection = async (req, res) => {
       if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
     }
 
-    const allWorkers = [];
-    for (const ngoId of ngoIds) {
-      const workers = await getFroWorkersByNgo(ngoId);
-      allWorkers.push(...workers);
-    }
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
@@ -553,25 +543,25 @@ export const getFroWiseCollection = async (req, res) => {
     const achievedMap = {};
     if (period === 'month') {
       const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
-      for (const ngoId of ngoIds) {
-        const targets = await getTargetsByNgo(ngoId, monthStr);
-        for (const t of targets) {
-          if (t.achieved_target != null) achievedMap[t.fro_worker_id] = parseFloat(t.achieved_target);
-        }
+      const allTargets = (await Promise.all(ngoIds.map(ngoId => getTargetsByNgo(ngoId, monthStr)))).flat();
+      for (const t of allTargets) {
+        if (t.achieved_target != null) achievedMap[t.fro_worker_id] = parseFloat(t.achieved_target);
       }
     }
 
-    const result = [];
-    for (const w of froWorkers) {
-      const amount = await getTotalCollectedByWorker(w.id, startDate.toISOString(), endDate.toISOString());
+    const workerAmounts = await Promise.all(froWorkers.map(w =>
+      getTotalCollectedByWorker(w.id, startDate.toISOString(), endDate.toISOString())
+    ));
+    const result = froWorkers.map((w, i) => {
+      const amount = workerAmounts[i];
       const achieved = achievedMap[w.id];
-      result.push({
+      return {
         fro_id: w.id,
         fro_name: w.name || w.login_id || 'Unknown',
         collection_amount: achieved != null && achieved > 0 ? achieved : amount,
         ...(achieved != null && achieved > 0 ? { is_achieved: true } : {}),
-      });
-    }
+      };
+    });
 
     return res.json(result);
   } catch (error) {
@@ -1066,8 +1056,8 @@ export const getStationStats = async (req, res) => {
     const stationMap = {};
     const summary = {};
 
-    for (const ngoId of ngoIds) {
-      const stats = await getStationDispositionStats(ngoId);
+    const allStats = await Promise.all(ngoIds.map(ngoId => getStationDispositionStats(ngoId)));
+    for (const stats of allStats) {
       for (const [station, statuses] of Object.entries(stats)) {
         if (!stationMap[station]) stationMap[station] = {};
         for (const [status, count] of Object.entries(statuses)) {
@@ -1872,11 +1862,7 @@ export const getVerificationFroWise = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     if (ngoIds.length === 0) return res.json([]);
 
-    const allWorkers = [];
-    for (const ngoId of ngoIds) {
-      const workers = await getFroWorkersByNgo(ngoId);
-      allWorkers.push(...workers);
-    }
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
 
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
@@ -1893,16 +1879,10 @@ export const getVerificationFroWise = async (req, res) => {
 
     const collectionFn = status === 'verified' ? getVerifiedCollection : getUnverifiedCollection;
 
-    const results = [];
-    for (const w of froWorkers) {
+    const results = await Promise.all(froWorkers.map(async (w) => {
       const { amount, count } = await collectionFn(w.id, startDate, endDate);
-      results.push({
-        fro_id: w.id,
-        fro_name: w.name,
-        amount,
-        count,
-      });
-    }
+      return { fro_id: w.id, fro_name: w.name, amount, count };
+    }));
 
     return res.json(results);
   } catch (error) {
