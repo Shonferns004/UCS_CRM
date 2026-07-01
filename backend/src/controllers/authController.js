@@ -111,6 +111,7 @@ export const unifiedLogin = async (req, res) => {
     else if (dept.includes('recruit')) role = 'recruiter';
     else if (dept === 'admin') role = 'accounts';
     else if (dept === 'fro') role = 'fro';
+    else if (dept === 'ngo admin') role = 'hoadmin';
     else role = 'worker';
     const token = jwt.sign(
       { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
