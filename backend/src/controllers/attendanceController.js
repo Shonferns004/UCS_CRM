@@ -195,8 +195,8 @@ export const todayStatus = async (req, res) => {
     const record = await getTodayAttendance(req.user.id);
     const lateUsed = await getMonthlyLateMinutes(req.user.id);
     const [officeStart, officeEnd] = await Promise.all([
-      getOfficeStart(),
-      getOfficeEnd(),
+      getOfficeStart(req.user.id),
+      getOfficeEnd(req.user.id),
     ]);
     const fmt = (o) => `${o.hour.toString().padStart(2, '0')}:${o.minute.toString().padStart(2, '0')}`;
     return res.json({
