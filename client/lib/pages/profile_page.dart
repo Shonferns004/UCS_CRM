@@ -128,7 +128,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _applyCachedHistory(Future<List<dynamic>?> future) async {
     final cachedHistory = await future;
     if (cachedHistory == null) return;
-    int p = 0, a = 0, l = 0, lv = 0;
+    int p = 0, a = 0, l = 0, lv = 0, hd = 0;
     final statusMap = <String, String>{};
     final monthlyStats = <int, Map<String, int>>{};
     final hoursMap = <String, String>{};

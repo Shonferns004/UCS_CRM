@@ -11,7 +11,7 @@ import { getQRByCode } from '../models/qrModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave, getApprovedLeaves } from '../models/leaveModel.js';
 import { getAllAttendance } from '../models/attendanceModel.js';
-import { getAllWorkers } from '../models/workerModel.js';
+import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 
 const MAX_LATE_MINUTES = 180;
@@ -32,7 +32,6 @@ function istDateStr(date = new Date()) {
 async function getOfficeStart(workerId) {
   if (workerId) {
     try {
-      const { getWorkerById } = await import('../models/workerModel.js');
       const worker = await getWorkerById(workerId);
       if (worker?.shift_start_time) {
         const [h, m] = worker.shift_start_time.split(':').map(Number);
@@ -49,7 +48,6 @@ async function getOfficeStart(workerId) {
 async function getOfficeEnd(workerId) {
   if (workerId) {
     try {
-      const { getWorkerById } = await import('../models/workerModel.js');
       const worker = await getWorkerById(workerId);
       if (worker?.shift_end_time) {
         const [h, m] = worker.shift_end_time.split(':').map(Number);
@@ -195,8 +193,8 @@ export const todayStatus = async (req, res) => {
     const record = await getTodayAttendance(req.user.id);
     const lateUsed = await getMonthlyLateMinutes(req.user.id);
     const [officeStart, officeEnd] = await Promise.all([
-      getOfficeStart(),
-      getOfficeEnd(),
+      getOfficeStart(req.user.id),
+      getOfficeEnd(req.user.id),
     ]);
     const fmt = (o) => `${o.hour.toString().padStart(2, '0')}:${o.minute.toString().padStart(2, '0')}`;
     return res.json({

@@ -9,6 +9,7 @@ import {
   getPendingTicketCount,
 } from '../models/attendanceCorrectionModel.js';
 import { getAttendanceById, updateAttendance } from '../models/attendanceModel.js';
+import { getWorkerById } from '../models/workerModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave } from '../models/leaveModel.js';
 
@@ -29,7 +30,6 @@ function istDateStr(date = new Date()) {
 async function getOfficeStart(workerId) {
   if (workerId) {
     try {
-      const { getWorkerById } = await import('../models/workerModel.js');
       const worker = await getWorkerById(workerId);
       if (worker?.shift_start_time) {
         const [h, m] = worker.shift_start_time.split(':').map(Number);
@@ -46,7 +46,6 @@ async function getOfficeStart(workerId) {
 async function getOfficeEnd(workerId) {
   if (workerId) {
     try {
-      const { getWorkerById } = await import('../models/workerModel.js');
       const worker = await getWorkerById(workerId);
       if (worker?.shift_end_time) {
         const [h, m] = worker.shift_end_time.split(':').map(Number);

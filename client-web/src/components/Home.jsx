@@ -19,6 +19,8 @@ export default function Home() {
   const [notifications, setNotifications] = useState([])
   const [showLeave, setShowLeave] = useState(false)
   const [showAdvance, setShowAdvance] = useState(false)
+  const [shiftStart, setShiftStart] = useState('10:00')
+  const [shiftEnd, setShiftEnd] = useState('19:00')
 
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t) }, [])
 
@@ -32,6 +34,14 @@ export default function Home() {
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
+
+  useEffect(() => {
+    api.myProfile().then(d => {
+      const w = d?.worker || d
+      if (w?.shift_start_time) setShiftStart(w.shift_start_time)
+      if (w?.shift_end_time) setShiftEnd(w.shift_end_time)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!user?.id) return
@@ -116,7 +126,7 @@ export default function Home() {
 
         {/* Shift Badge */}
         <div className="inline-block px-3 py-1 rounded-full bg-[var(--primary)]/5 text-[10px] font-semibold text-[var(--primary)] tracking-wider">
-          SHIFT 10:00 - 19:00
+          SHIFT {shiftStart} - {shiftEnd}
         </div>
 
         {/* Clock + Punch */}
