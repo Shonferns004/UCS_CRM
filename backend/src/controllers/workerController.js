@@ -252,6 +252,8 @@ export const getWorker = async (req, res) => {
       declaration_place: worker.declaration_place,
       previous_organizations: worker.previous_organizations,
       salary: activeSalary ? parseFloat(activeSalary.salary) : null,
+      shift_start_time: worker.shift_start_time,
+      shift_end_time: worker.shift_end_time,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
