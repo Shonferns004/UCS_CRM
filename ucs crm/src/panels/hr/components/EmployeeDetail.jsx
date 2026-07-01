@@ -109,6 +109,15 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       fetchWorkerSalaryAllocations(worker.id, month)
         .then(r => setSundayBonus(r?.sundayBonus || null))
         .catch(() => {});
+      fetchWorkerTargetForMonth(worker.id, month)
+        .then(t => setCurrentTarget(t?.target_amount || null))
+        .catch(() => {});
+      fetchWorkerAchievements(worker.id, month)
+        .then(a => setWorkerAchs(Array.isArray(a) ? a : []))
+        .catch(() => {});
+      fetchIncentiveSummary(worker.id, month)
+        .then(s => setIncSummary(s?.hasIncentive ? s : null))
+        .catch(() => {});
     }
   }, [viewingMonthKey, worker.id, data?.department]);
 
