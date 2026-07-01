@@ -17,7 +17,31 @@ export const getUserNgoAccess = async (userId) => {
     .select('ngo_id, ngos!inner(name)')
     .eq('user_id', userId);
   if (error) throw error;
-  return data.map(d => ({ ngo_id: d.ngo_id, ngo_name: d.ngos?.name }));
+  if (data && data.length > 0) {
+    return data.map(d => ({ ngo_id: d.ngo_id, ngo_name: d.ngos?.name }));
+  }
+
+  // Fallback: check if user is an NGO Admin worker
+  const { data: wrk } = await supabase
+    .from('workers')
+    .select('department, ngo_id')
+    .eq('id', userId)
+    .maybeSingle();
+  if (wrk && wrk.department?.toLowerCase() === 'ngo admin') {
+    const { data: allocations } = await supabase
+      .from('worker_ngo_allocations')
+      .select('ngo_id, ngos(name)')
+      .eq('worker_id', userId);
+    if (allocations && allocations.length > 0) {
+      return allocations.map(a => ({ ngo_id: a.ngo_id, ngo_name: a.ngos?.name }));
+    }
+    if (wrk.ngo_id) {
+      const { data: ngo } = await supabase.from('ngos').select('id, name').eq('id', wrk.ngo_id).single();
+      if (ngo) return [{ ngo_id: ngo.id, ngo_name: ngo.name }];
+    }
+  }
+
+  return [];
 };
 
 export const setUserNgoAccess = async (userId, ngoIds) => {

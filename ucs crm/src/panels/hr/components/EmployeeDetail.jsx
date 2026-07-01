@@ -59,6 +59,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [achForm, setAchForm] = useState({});
   const [achSaving, setAchSaving] = useState({});
   const [allocations, setAllocations] = useState([]);
+  const [editNgoAllocations, setEditNgoAllocations] = useState([]);
   const [sundayBonus, setSundayBonus] = useState(null);
   const [workerLoans, setWorkerLoans] = useState([]);
 
@@ -151,11 +152,12 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       ifsc_code: data.ifsc_code || '',
       account_number: data.account_number || '',
     });
+    setEditNgoAllocations(allocations.map(a => a.ngo_id));
     setEditing(true);
     setErr('');
   };
 
-  const cancelEdit = () => { setEditing(false); setErr(''); };
+  const cancelEdit = () => { setEditing(false); setErr(''); setEditNgoAllocations([]); };
 
   const save = async () => {
     setSaving(true); setErr('');
@@ -165,8 +167,13 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       if (!payload.created_at) delete payload.created_at;
       else payload.created_at = payload.created_at + 'T00:00:00.000Z';
       await updateWorker(worker.id, payload);
+      if (form.department === 'NGO Admin' && editNgoAllocations.length > 0) {
+        try {
+          await setWorkerAllocations(worker.id, editNgoAllocations.map(id => ({ ngo_id: id, salary_portion: 0 })), 0);
+        } catch {}
+      }
       const fresh = await fetchWorkerById(worker.id);
-      setData(fresh); setEditing(false);
+      setData(fresh); setEditing(false); setEditNgoAllocations([]);
     } catch (e) { setErr(e.message); }
     finally { setSaving(false); }
   };
@@ -515,7 +522,28 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         style={{ width:'100%' }} options={DEPTS} />
                     </div>
                   ) : <Field label="Department" value={data.department} />}
-                  {editing ? (
+                  {editing && form.department === 'NGO Admin' ? (
+                    <div className="detail-field" style={{ gridColumn:'1 / -1' }}>
+                      <span className="detail-label">NGOs</span>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:4 }}>
+                        {ngos.map(n => {
+                          const active = editNgoAllocations.includes(n.id);
+                          return (
+                            <span key={n.id} onClick={() => setEditNgoAllocations(prev =>
+                              prev.includes(n.id) ? prev.filter(id => id !== n.id) : [...prev, n.id]
+                            )} style={{
+                              padding:'4px 12px', borderRadius:20, fontSize:13, cursor:'pointer',
+                              border:'1px solid var(--line)',
+                              background: active ? '#5B6B4E' : 'var(--paper)',
+                              color: active ? '#fff' : 'var(--ink)',
+                              fontWeight: active ? 600 : 400,
+                              userSelect:'none', transition:'all .15s',
+                            }}>{n.name}</span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : editing ? (
                     <div className="detail-field">
                       <span className="detail-label">NGO</span>
                       <Dropdown value={form.ngo_id} onChange={setField('ngo_id')}
