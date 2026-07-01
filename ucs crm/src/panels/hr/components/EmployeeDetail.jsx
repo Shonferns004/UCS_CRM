@@ -1683,11 +1683,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         <div key={d} style={{ textAlign:'center', fontWeight:600, color:'var(--ink-soft)', padding:'2px 0' }}>{d}</div>
                       )}
                       {(() => {
-                        const now = new Date();
-                        const yr = now.getFullYear();
-                        const mo = now.getMonth();
-                        const daysInMonth = new Date(yr, mo + 1, 0).getDate();
-                        const firstDay = new Date(yr, mo, 1).getDay();
+                        const daysInMonth = new Date(yr, mo, 0).getDate();
+                        const firstDay = new Date(yr, mo - 1, 1).getDay();
                         const cells = [];
                         for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} />);
                         for (let d = 1; d <= daysInMonth; d++) {
