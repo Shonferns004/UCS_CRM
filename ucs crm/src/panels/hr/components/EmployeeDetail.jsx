@@ -364,6 +364,19 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   if (payDate.getDay() === 0) payDate.setDate(payDate.getDate() + 1);
   const payDateStr = payDate.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
 
+  // All months from join date to now
+  const allMonthKeys = [];
+  if (data?.created_at) {
+    const jd = new Date(data.created_at);
+    const jy = jd.getFullYear(), jm = jd.getMonth() + 1;
+    const ny = now.getFullYear(), nm = now.getMonth() + 1;
+    let y = jy, m = jm;
+    while (y < ny || (y === ny && m <= nm)) {
+      allMonthKeys.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+  }
+
   // Previous month data for compact summary
   const prevMonthDate = new Date(yr, mo - 2, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
@@ -425,19 +438,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   }
 
   const fmtMonthYear = (d) => d.toLocaleDateString('en-GB', { month:'long', year:'numeric' });
-
-  // All months from join date to now
-  const allMonthKeys = [];
-  if (data?.created_at) {
-    const jd = new Date(data.created_at);
-    const jy = jd.getFullYear(), jm = jd.getMonth() + 1;
-    const ny = now.getFullYear(), nm = now.getMonth() + 1;
-    let y = jy, m = jm;
-    while (y < ny || (y === ny && m <= nm)) {
-      allMonthKeys.push(`${y}-${String(m).padStart(2, '0')}`);
-      m++; if (m > 12) { m = 1; y++; }
-    }
-  }
 
   return (
     <>
