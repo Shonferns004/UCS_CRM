@@ -14,7 +14,14 @@ export default function Accounts() {
   }, [])
 
   if (err) return <div className="sa-err-card">Error: {err}</div>
-  if (!data) return <div className="sa-loading">Loading accounts dashboard…</div>
+  if (!data) return (
+    <div className="sa-page">
+      <div className="sa-page-header"><div className="sa-skeleton sa-skeleton-text medium" /><div className="sa-skeleton" style={{width:120,height:32,borderRadius:6}} /></div>
+      <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))',marginBottom:16}}>
+        {[1,2,3,4].map(i => <div key={i} className="sa-stat-card"><div className="sa-skeleton sa-skeleton-card" /></div>)}
+      </div>
+    </div>
+  )
 
   const { stats = {}, deptWorkers = {}, attendanceCount = 0 } = data
 
