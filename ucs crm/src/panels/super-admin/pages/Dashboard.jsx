@@ -96,10 +96,16 @@ export default function Dashboard() {
 
   if (err) return <div className="sa-err-card">Error: {err}</div>
   if (!data) return (
-    <div className="dash-page" style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'60vh'}}>
-      <div style={{textAlign:'center'}}>
-        <div className="loading" style={{marginBottom:8}}><div className="spinner" /></div>
-        <div style={{fontSize:13,color:'var(--text-soft)'}}>Loading dashboard...</div>
+    <div className="dash-page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:24}}>
+        <div style={{flex:1}}>
+          <div className="sk" style={{width:200,height:20,marginBottom:8}} />
+          <div className="sk" style={{width:280,height:12}} />
+        </div>
+        <div className="sk" style={{width:140,height:32,borderRadius:6}} />
+      </div>
+      <div className="metrics-grid">
+        {[1,2,3,4,5].map(i => <div key={i} className="clay-card"><div className="sk" style={{height:80}} /></div>)}
       </div>
     </div>
   )

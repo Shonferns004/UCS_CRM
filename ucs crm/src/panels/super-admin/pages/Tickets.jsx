@@ -195,11 +195,8 @@ export default function Tickets() {
 
       <div className="sa-card" style={{ padding: 0 }}>
         {loading ? (
-          <div className="sa-page" style={{display:'flex',alignItems:'center',justifyContent:'center',padding:40}}>
-            <div style={{textAlign:'center'}}>
-              <div className="spinner" style={{margin:'0 auto 12px'}} />
-              <div style={{fontSize:13,color:'var(--text-soft)'}}>Loading tickets...</div>
-            </div>
+          <div style={{padding:16}}>
+            {[1,2,3,4,5].map(i => <div key={i} className="sk" style={{width:'100%',height:14,marginBottom:8,borderRadius:4}} />)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="sa-loading">No tickets found.</div>

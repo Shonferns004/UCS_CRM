@@ -15,10 +15,13 @@ export default function Accounts() {
 
   if (err) return <div className="sa-err-card">Error: {err}</div>
   if (!data) return (
-    <div className="sa-page" style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'60vh'}}>
-      <div style={{textAlign:'center'}}>
-        <div className="spinner" style={{margin:'0 auto 12px'}} />
-        <div style={{fontSize:13,color:'var(--text-soft)'}}>Loading...</div>
+    <div className="sa-page">
+      <div className="sa-page-header" style={{marginBottom:16}}>
+        <div className="sk" style={{width:160,height:18}} />
+        <div className="sk" style={{width:100,height:32,borderRadius:6}} />
+      </div>
+      <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))'}}>
+        {[1,2,3,4].map(i => <div key={i} className="sa-stat-card"><div className="sk" style={{height:90}} /></div>)}
       </div>
     </div>
   )

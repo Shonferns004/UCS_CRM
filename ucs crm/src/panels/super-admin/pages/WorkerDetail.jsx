@@ -19,10 +19,19 @@ export default function WorkerDetail({ workerId, onBack }) {
 
   if (err) return <div className="sa-err-card">{err}</div>
   if (!worker) return (
-    <div className="sa-page" style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'60vh'}}>
-      <div style={{textAlign:'center'}}>
-        <div className="spinner" style={{margin:'0 auto 12px'}} />
-        <div style={{fontSize:13,color:'var(--text-soft)'}}>Loading worker...</div>
+    <div className="sa-page">
+      <div className="sa-page-header" style={{marginBottom:16}}>
+        <div className="sk" style={{width:100,height:18}} />
+        <div className="sk" style={{width:60,height:32,borderRadius:6}} />
+      </div>
+      <div className="sa-card">
+        <div style={{display:'flex',gap:16,alignItems:'center',marginBottom:20}}>
+          <div className="sk" style={{width:64,height:64,borderRadius:12}} />
+          <div><div className="sk" style={{width:180,height:16,marginBottom:6}} /><div className="sk" style={{width:120,height:12}} /></div>
+        </div>
+        <div className="detail-grid">
+          {[1,2,3,4,5,6].map(i => <div key={i} className="detail-field"><div className="sk" style={{width:'50%',height:10,marginBottom:4}} /><div className="sk" style={{width:'80%',height:14}} /></div>)}
+        </div>
       </div>
     </div>
   )
