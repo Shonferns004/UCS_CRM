@@ -52,7 +52,8 @@ export const AKI_RANGES = {
 };
 
 export function getDayName(dateStr) {
-  return DAY_NAMES[new Date(dateStr + 'T00:00:00+05:30').getDay()];
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return DAY_NAMES[new Date(y, m - 1, d).getDay()];
 }
 
 export function calculateAKI(amount, dayName) {
