@@ -26,18 +26,45 @@ function istDateStr(date = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
-async function getOfficeStart() {
+async function getOfficeStart(workerId) {
+  if (workerId) {
+    try {
+      const { getWorkerById } = await import('../models/workerModel.js');
+      const worker = await getWorkerById(workerId);
+      if (worker?.shift_start_time) {
+        const [h, m] = worker.shift_start_time.split(':').map(Number);
+        return { hour: h || 10, minute: m || 0 };
+      }
+    } catch (_) {}
+  }
   const val = await getSetting('office_start_time');
   if (!val) return { hour: 10, minute: 0 };
   const [h, m] = val.split(':').map(Number);
   return { hour: h || 10, minute: m || 0 };
 }
 
+async function getOfficeEnd(workerId) {
+  if (workerId) {
+    try {
+      const { getWorkerById } = await import('../models/workerModel.js');
+      const worker = await getWorkerById(workerId);
+      if (worker?.shift_end_time) {
+        const [h, m] = worker.shift_end_time.split(':').map(Number);
+        return { hour: h || 19, minute: m || 0 };
+      }
+    } catch (_) {}
+  }
+  const val = await getSetting('office_end_time');
+  if (!val) return { hour: 19, minute: 0 };
+  const [h, m] = val.split(':').map(Number);
+  return { hour: h || 19, minute: m || 0 };
+}
+
 async function calculateLateMinutes(punchInTime, workerId) {
   const ist = getIstTime(new Date(punchInTime));
   const h = ist.getUTCHours();
   const m = ist.getUTCMinutes();
-  let effectiveStart = await getOfficeStart();
+  let effectiveStart = await getOfficeStart(workerId);
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) {
     const [hd, hm] = todayHalfDay.half_start_time.split(':').map(Number);
@@ -51,9 +78,8 @@ async function calculateLateMinutes(punchInTime, workerId) {
 async function isHalfDayByLatePunch(punchInTime, workerId) {
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) return false;
-  const val = await getSetting('office_start_time');
-  const [h, m] = (val || '10:00').split(':').map(Number);
-  const startMin = (h || 10) * 60 + (m || 0);
+  const start = await getOfficeStart(workerId);
+  const startMin = start.hour * 60 + start.minute;
   const ist = getIstTime(new Date(punchInTime));
   const punchMin = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   return (punchMin - startMin) >= 240;
@@ -62,9 +88,8 @@ async function isHalfDayByLatePunch(punchInTime, workerId) {
 async function isHalfDayByEarlyPunchOut(punchOutTime, workerId) {
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchOutTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) return false;
-  const val = await getSetting('office_end_time');
-  const [h, m] = (val || '19:00').split(':').map(Number);
-  const endMin = (h || 19) * 60 + (m || 0);
+  const end = await getOfficeEnd(workerId);
+  const endMin = end.hour * 60 + end.minute;
   const ist = getIstTime(new Date(punchOutTime));
   const punchMin = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   return (endMin - punchMin) >= 180;
