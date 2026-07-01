@@ -11,7 +11,7 @@ import Attendance from './pages/Attendance'
 import Leaves from './pages/Leaves'
 import Holidays from './pages/Holidays'
 import Causes from './pages/Causes'
-import DataSources from './pages/DataSources'
+import DataManagement from './pages/DataManagement'
 import Tickets from './pages/Tickets'
 
 const NAV = [
@@ -173,7 +173,7 @@ export default function SuperAdminPanel() {
       case 'leaves': return <Leaves />
       case 'holidays': return <Holidays />
       case 'causes': return <Causes />
-      case 'data-management': return <DataSources />
+      case 'data-management': return <DataManagement />
       case 'tickets': return <Tickets />
       default: return <Dashboard />
     }
