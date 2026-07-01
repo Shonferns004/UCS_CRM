@@ -25,10 +25,14 @@ export async function api(path, options = {}) {
   const headers = { ...options.headers }
   if (!isFormData) headers['Content-Type'] = 'application/json'
   if (token) headers['Authorization'] = `Bearer ${token}`
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), options.timeout || 120000)
+  const timeoutController = new AbortController()
+  const timeout = setTimeout(() => timeoutController.abort(), options.timeout || 120000)
+  const externalSignal = options.signal || null
+  const combinedSignal = externalSignal
+    ? AbortSignal.any([timeoutController.signal, externalSignal])
+    : timeoutController.signal
   try {
-    const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: controller.signal })
+    const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: combinedSignal })
     if (res.status === 401) {
       clearSession(options._prefix || 'ucs')
       throw new Error('Session expired. Please login again.')

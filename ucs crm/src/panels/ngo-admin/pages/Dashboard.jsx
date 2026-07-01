@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { apiGet } from '../api/auth';
+import { SkeletonDashboard } from '../../../components/Skeleton';
 
 const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
@@ -44,19 +45,25 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
     g.statuses.filter(s => (stats?.[s] || 0) > 0).map(s => ({ status: s, count: stats[s], group: g }))
   );
 
+  const donorsRef = useRef(null);
   const fetchDonors = useCallback(async (status) => {
+    if (donorsRef.current) donorsRef.current.abort();
+    const controller = new AbortController();
+    donorsRef.current = controller;
     setLoadingDonors(true);
     setStatusFilter(status || '');
     try {
       const params = new URLSearchParams({ station });
       if (status) params.set('status', status);
-      const data = await apiGet(`/ngo-admin/donors-by-station?${params}`);
-      setDonors(data || []);
-      setPage(1);
+      const data = await apiGet(`/ngo-admin/donors-by-station?${params}`, { signal: controller.signal, timeout: 30000 });
+      if (!controller.signal.aborted) {
+        setDonors(data || []);
+        setPage(1);
+      }
     } catch {
-      setDonors([]);
+      if (!controller.signal.aborted) setDonors([]);
     } finally {
-      setLoadingDonors(false);
+      if (!controller.signal.aborted) setLoadingDonors(false);
     }
   }, [station]);
 
@@ -245,10 +252,11 @@ function StationDetailModal({ station, stats, stationInfo, onClose }) {
   );
 }
 
-function CollectionDetailModal({ period, totalAmount, onClose, status }) {
+function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, status, monthAmount, monthCount, todayAmount, todayCount }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [period, setPeriod] = useState(defaultPeriod || 'month');
 
   const isVerification = status === 'verified' || status === 'unverified';
   const label = status === 'verified' ? 'Verified' : status === 'unverified' ? 'Pending' : 'Collection';
@@ -259,14 +267,16 @@ function CollectionDetailModal({ period, totalAmount, onClose, status }) {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     const url = isVerification
       ? `/ngo-admin/verification?status=${status}&period=${period}`
       : `/ngo-admin/collections/fro-wise?period=${period}`;
-    apiGet(url)
-      .then(data => setRows(Array.isArray(data) ? data : []))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
+    apiGet(url, { signal: controller.signal, timeout: 30000 })
+      .then(data => { if (!controller.signal.aborted) setRows(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!controller.signal.aborted) setRows([]); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, [period, status, isVerification]);
 
   const filtered = useMemo(() => {
@@ -282,6 +292,9 @@ function CollectionDetailModal({ period, totalAmount, onClose, status }) {
     : `Today – ${now.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`;
   const title = isVerification ? `${label} Collections — ${dateTitle}` : dateTitle;
 
+  const displayAmount = isVerification
+    ? (period === 'month' ? (monthAmount || 0) : (todayAmount || 0))
+    : (totalAmount || 0);
   const totalLeads = filtered.reduce((s, r) => s + (r.count || 0), 0);
 
   return (
@@ -305,6 +318,22 @@ function CollectionDetailModal({ period, totalAmount, onClose, status }) {
             </div>
           ) : (
             <>
+              {isVerification && (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                  <button onClick={() => setPeriod('month')} style={{
+                    padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: period === 'month' ? '1.5px solid var(--sage)' : '1px solid var(--line)',
+                    background: period === 'month' ? '#f0fdf4' : 'transparent',
+                    color: period === 'month' ? 'var(--sage)' : 'var(--ink-soft)',
+                  }}>Month</button>
+                  <button onClick={() => setPeriod('today')} style={{
+                    padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: period === 'today' ? '1.5px solid #f59e0b' : '1px solid var(--line)',
+                    background: period === 'today' ? '#fffbeb' : 'transparent',
+                    color: period === 'today' ? '#b45309' : 'var(--ink-soft)',
+                  }}>Today</button>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 <input
                   type="text"
@@ -379,7 +408,7 @@ function CollectionDetailModal({ period, totalAmount, onClose, status }) {
                     <tr>
                       <td style={{ padding: '10px', fontWeight: 700, borderTop: '2px solid var(--line)', fontSize: 13 }}>Total</td>
                       <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--sage)', fontSize: 13 }}>
-                        ₹{totalAmount.toLocaleString('en-IN')}
+                        ₹{displayAmount.toLocaleString('en-IN')}
                       </td>
                       {isVerification && (
                         <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, borderTop: '2px solid var(--line)', color: 'var(--ink-soft)', fontSize: 13 }}>
@@ -403,27 +432,60 @@ export default function Dashboard() {
   const [stationStats, setStationStats] = useState(null);
   const [stationsData, setStationsData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedStation, setSelectedStation] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState(null);
 
-  useEffect(() => {
+  const fetchDashboard = useCallback(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    const opts = { signal: controller.signal, timeout: 45000 };
     Promise.all([
-      apiGet('/ngo-admin/dashboard'),
-      apiGet('/ngo-admin/dashboard/station-stats'),
-      apiGet('/ngo-admin/stations'),
+      apiGet('/ngo-admin/dashboard', opts),
+      apiGet('/ngo-admin/dashboard/station-stats', opts),
+      apiGet('/ngo-admin/stations', opts),
     ])
       .then(([d, s, st]) => {
-        setData(d);
-        setStationStats(s);
-        setStationsData(Array.isArray(st) ? st : []);
+        if (!controller.signal.aborted) {
+          setData(d);
+          setStationStats(s);
+          setStationsData(Array.isArray(st) ? st : []);
+        }
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          setError(err.message || 'Failed to load dashboard data');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return controller;
   }, []);
 
-  if (loading) return <div className="loading">Loading dashboard...</div>;
-  if (!data) return <div className="empty-state"><p>Could not load dashboard data.</p></div>;
+  useEffect(() => {
+    const controller = fetchDashboard();
+    return () => controller.abort();
+  }, [fetchDashboard]);
+
+  if (loading) return <SkeletonDashboard />;
+  if (error || !data) {
+    return (
+      <div className="empty-state" style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 12 }}>
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p style={{ marginBottom: 6, fontWeight: 600, color: 'var(--ink)' }}>Could not load dashboard data</p>
+        <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 16 }}>{error || 'The server took too long to respond. Please try again.'}</p>
+        <button className="btn btn-primary" onClick={fetchDashboard} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   const stations = stationStats?.stations || {};
   const summary = stationStats?.summary || {};
@@ -819,8 +881,10 @@ export default function Dashboard() {
       {selectedStatus && (
         <CollectionDetailModal
           status={selectedStatus}
-          period="month"
-          totalAmount={selectedStatus === 'verified' ? verified_month_amount : unverified_month_amount}
+          monthAmount={selectedStatus === 'verified' ? verified_month_amount : unverified_month_amount}
+          monthCount={selectedStatus === 'verified' ? verified_month_count : unverified_month_count}
+          todayAmount={selectedStatus === 'verified' ? verified_today_amount : unverified_today_amount}
+          todayCount={selectedStatus === 'verified' ? verified_today_count : unverified_today_count}
           onClose={() => setSelectedStatus(null)}
         />
       )}

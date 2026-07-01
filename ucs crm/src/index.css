@@ -567,6 +567,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-hr .sk, .panel-hr .skeleton { background:linear-gradient(90deg,var(--line) 25%,var(--sand) 50%,var(--line) 75%); background-size:200% 100%; animation:sk-shimmer 1.4s infinite; border-radius:6px; }
 @keyframes sk-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 .panel-fro .sk { background:linear-gradient(90deg,var(--line) 25%,var(--sand) 50%,var(--line) 75%); background-size:200% 100%; animation:sk-shimmer 1.4s infinite; border-radius:6px; }
+.app .sk { background:linear-gradient(90deg,var(--line) 25%,var(--sand) 50%,var(--line) 75%); background-size:200% 100%; animation:sk-shimmer 1.4s infinite; border-radius:6px; }
 .panel-hr .att-chart { display:flex; align-items:center; gap:32px; padding:8px 0; }
 .panel-hr .att-legend { display:flex; flex-direction:column; gap:10px; }
 .panel-hr .att-legend-item { display:flex; align-items:center; gap:8px; font-size:13px; }

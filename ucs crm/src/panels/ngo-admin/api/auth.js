@@ -6,7 +6,7 @@ export async function login(email, password) {
   return data
 }
 
-export function apiGet(path) { return api(path, { _prefix: 'ucs' }) }
+export function apiGet(path, opts = {}) { return api(path, { ...opts, _prefix: 'ucs' }) }
 export function apiPost(path, body) { return api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' }) }
 export function apiPut(path, body) { return api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }) }
 export function apiDelete(path) { return api(path, { method: 'DELETE', _prefix: 'ucs' }) }

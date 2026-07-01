@@ -79,7 +79,6 @@ export default function NgoAdminPanel() {
   const handleNav = useCallback((id) => {
     setActive(id)
     setSelectedDonor(null)
-    setSelectedWorker(null)
     setSidebarOpen(false)
   }, [])
 
