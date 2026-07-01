@@ -25,6 +25,7 @@ export function UcsProvider({ children }) {
       throw new Error('Access denied. Invalid role.')
     }
     const userData = data.user || { ...data }
+    userData.role = data.role
     setSession('ucs', data.token, userData)
     setToken(data.token)
     setUser(userData)
