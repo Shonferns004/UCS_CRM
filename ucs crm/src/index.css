@@ -839,26 +839,6 @@ input,select,textarea { font-family:inherit; font-size:14px; }
   .panel-hr .mobile-top { display:none !important; }
 }
 
-/* ── ACCOUNTS PANEL SIDEBAR OVERRIDE ── */
-.panel-accounts .sidebar { background:#0f172a; color:#e2e8f0; border-right:1px solid rgba(255,255,255,.06); }
-.panel-accounts .sidebar-brand { padding:8px 20px 24px; border-bottom:1px solid rgba(255,255,255,.08); margin-bottom:16px; }
-.panel-accounts .brand-mark { background:linear-gradient(135deg,#065f46,#059669); color:#fff; border-radius:12px; width:40px; height:40px; font-size:16px; font-weight:800; }
-.panel-accounts .sidebar-brand h1 { font-size:18px; font-weight:700; color:#f8fafc; }
-.panel-accounts .sidebar-brand span { font-size:10px; color:#64748b; letter-spacing:.08em; text-transform:uppercase; }
-.panel-accounts .snav-item { color:#94a3b8; font-size:13px; font-weight:500; padding:10px 14px; margin:0 4px; border-radius:10px; transition:all .15s; }
-.panel-accounts .snav-item:hover { background:rgba(255,255,255,.06); color:#e2e8f0; }
-.panel-accounts .snav-item.active { background:linear-gradient(135deg,#065f46,#047857); color:#fff; font-weight:600; box-shadow:0 2px 8px rgba(6,95,70,.35); }
-.panel-accounts .snav-item .ico { width:20px; height:20px; font-size:14px; display:flex; align-items:center; justify-content:center; }
-
-.panel-accounts .topbar { background:#fff; border-bottom:1px solid #e5e7eb; }
-.panel-accounts .user-menu { background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.1); }
-.panel-accounts .user-menu-item { padding:10px 14px; font-size:13px; border-radius:8px; }
-.panel-accounts .user-menu-item:hover { background:#f1f5f9; }
-
-.panel-accounts .avatar { width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#065f46,#059669); color:#fff; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; }
-.panel-accounts .topbar-name { font-size:13px; font-weight:600; color:#0f172a; }
-.panel-accounts .topbar-role { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.5px; }
-
 /* ── ACCOUNTS / NGO ADMIN / FRO COMMON (.panel-accounts, .panel-ngo-admin, .panel-fro) ── */
 .panel-accounts, .panel-ngo-admin, .panel-fro { --sage:#5B6B4E; --sage-light:#7A8F6A; --ink:#1a1a2e; --ink-soft:#6b7280; --line:#e5e7eb; --danger:#d9534f; --warning:#e67e22; --success:#16a34a; --bg:#f5f6fa; --card-bg:#ffffff; --radius:12px; --radius-sm:8px; --shadow:0 1px 3px rgba(0,0,0,0.06); --shadow-md:0 4px 12px rgba(0,0,0,0.08); background:var(--bg); color:var(--ink); }
 

@@ -77,13 +77,6 @@ function ScreenshotImage({ src, onClick }) {
   );
 }
 
-const inputStyle = {
-  width: '100%', boxSizing: 'border-box',
-  padding: '6px 10px', fontSize: 13,
-  border: '1px solid #d1d5db', borderRadius: 6,
-  outline: 'none', background: '#fff', color: '#1f2937',
-};
-
 export default function LeadDetail({ logId, onBack }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -281,27 +274,27 @@ export default function LeadDetail({ logId, onBack }) {
               <div className="info-grid">
                 <div>
                   <div className="label">Name</div>
-                  <input style={inputStyle} value={form.donor_name} onChange={e => setField('donor_name', e.target.value)} placeholder="Donor name" />
+                  <input className="field-input" value={form.donor_name} onChange={e => setField('donor_name', e.target.value)} placeholder="Donor name" />
                 </div>
                 <div>
                   <div className="label">Mobile</div>
-                  <input style={inputStyle} value={form.donor_mobile} onChange={e => setField('donor_mobile', e.target.value)} placeholder="Mobile number" />
+                  <input className="field-input" value={form.donor_mobile} onChange={e => setField('donor_mobile', e.target.value)} placeholder="Mobile number" />
                 </div>
                 <div>
                   <div className="label">City</div>
-                  <input style={inputStyle} value={form.donor_city} onChange={e => setField('donor_city', e.target.value)} placeholder="City" />
+                  <input className="field-input" value={form.donor_city} onChange={e => setField('donor_city', e.target.value)} placeholder="City" />
                 </div>
                 <div>
                   <div className="label">Email</div>
-                  <input style={inputStyle} value={form.donor_email} onChange={e => setField('donor_email', e.target.value)} placeholder="donor@email.com" />
+                  <input className="field-input" value={form.donor_email} onChange={e => setField('donor_email', e.target.value)} placeholder="donor@email.com" />
                 </div>
                 <div>
                   <div className="label">Address</div>
-                  <input style={inputStyle} value={form.donor_address} onChange={e => setField('donor_address', e.target.value)} placeholder="Address" />
+                  <input className="field-input" value={form.donor_address} onChange={e => setField('donor_address', e.target.value)} placeholder="Address" />
                 </div>
                 <div>
                   <div className="label">PAN</div>
-                  <input style={inputStyle} value={form.donor_pan} onChange={e => setField('donor_pan', e.target.value)} placeholder="ABCDE1234F" />
+                  <input className="field-input" value={form.donor_pan} onChange={e => setField('donor_pan', e.target.value)} placeholder="ABCDE1234F" />
                 </div>
                 <div><div className="label">DOB</div><div className="value">{l.donor_dob || '\u2014'}</div></div>
                 <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
@@ -333,7 +326,7 @@ export default function LeadDetail({ logId, onBack }) {
               <div className="info-grid">
                 <div>
                   <div className="label">UPI Transaction ID</div>
-                  <input style={inputStyle} value={form.upi_transaction_id} onChange={e => setField('upi_transaction_id', e.target.value)} placeholder="e.g. UPI123456789" />
+                  <input className="field-input" value={form.upi_transaction_id} onChange={e => setField('upi_transaction_id', e.target.value)} placeholder="e.g. UPI123456789" />
                 </div>
                 <div>
                   <div className="label">Date</div>
@@ -359,7 +352,7 @@ export default function LeadDetail({ logId, onBack }) {
                 </div>
                 <div>
                   <div className="label">From (Sender Name)</div>
-                  <input style={inputStyle} value={form.payment_from} onChange={e => setField('payment_from', e.target.value)} placeholder="e.g. Name on UPI" />
+                  <input className="field-input" value={form.payment_from} onChange={e => setField('payment_from', e.target.value)} placeholder="e.g. Name on UPI" />
                 </div>
               </div>
             </div>
@@ -389,11 +382,11 @@ export default function LeadDetail({ logId, onBack }) {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', fontSize: 13 }}>
               <label className="field" style={{ flex: 1, minWidth: 140 }}>
                 PAN (optional)
-                <input value={form.pan_input} onChange={e => setField('pan_input', e.target.value)} placeholder="Enter PAN" />
+                <input className="field-input" value={form.pan_input} onChange={e => setField('pan_input', e.target.value)} placeholder="Enter PAN" />
               </label>
               <label className="field" style={{ flex: 1, minWidth: 140 }}>
                 Mode (optional)
-                <input value={form.mode_input} onChange={e => setField('mode_input', e.target.value)} placeholder="e.g. UPI, Cash" />
+                <input className="field-input" value={form.mode_input} onChange={e => setField('mode_input', e.target.value)} placeholder="e.g. UPI, Cash" />
               </label>
               <button className="btn btn-primary" onClick={handleGenerateReceipt} disabled={receiptLoading} style={{ marginBottom: 4 }}>
                 {receiptLoading ? 'Generating...' : 'Generate Receipt'}
@@ -475,21 +468,35 @@ export default function LeadDetail({ logId, onBack }) {
         }
         .reject-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
+        .field-input {
+          width: 100%; box-sizing: border-box;
+          padding: 8px 12px; font-size: 13px;
+          border: 1px solid #e5e7eb; border-radius: 8px;
+          outline: none; background: #f9fafb; color: #1f2937;
+          transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+        }
+        .field-input:focus {
+          border-color: var(--sage, #5B6B4E);
+          box-shadow: 0 0 0 3px rgba(91,107,78,0.08);
+          background: #fff;
+        }
+        .field-input::placeholder { color: #9ca3af; }
+
         .action-bar {
           position: sticky; bottom: 0; z-index: 50;
-          background: rgba(255,255,255,0.95);
+          background: rgba(255,255,255,0.97);
           backdrop-filter: blur(16px);
           border-top: 1px solid #e5e7eb;
-          padding: 16px 24px; margin: 24px -24px -24px;
+          padding: 14px 24px; margin: 16px -24px -20px;
           display: flex; justify-content: center;
-          box-shadow: 0 -4px 20px rgba(0,0,0,0.04);
+          box-shadow: 0 -2px 10px rgba(0,0,0,0.04);
         }
 
         .datepicker-input {
           width: 100%; box-sizing: border-box;
-          padding: 6px 10px; font-size: 13px;
-          border: 1px solid #d1d5db; border-radius: 6px;
-          outline: none; background: #fff; color: #1f2937;
+          padding: 8px 12px; font-size: 13px;
+          border: 1px solid #e5e7eb; border-radius: 8px;
+          outline: none; background: #f9fafb; color: #1f2937;
         }
         .datepicker-input:focus {
           border-color: var(--sage, #4ade80);
