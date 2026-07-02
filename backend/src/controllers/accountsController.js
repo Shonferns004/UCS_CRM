@@ -10,6 +10,7 @@ export const getLeadList = async (req, res) => {
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
         payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at,
+        upi_transaction_id, transaction_datetime, payment_from,
         assignment_id,
         fro_assignments!inner(
           id,
@@ -55,6 +56,9 @@ export const getLeadList = async (req, res) => {
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
+      upi_transaction_id: r.upi_transaction_id || null,
+      transaction_datetime: r.transaction_datetime || null,
+      payment_from: r.payment_from || null,
       agent_id: r.fro_assignments?.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
@@ -283,6 +287,45 @@ export const rejectLead = async (req, res) => {
     }
 
     return res.json({ message: 'Lead rejected' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Inline Field Update ───────────────────────────────────
+
+const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'pan_number', 'notes', 'remark'];
+
+export const patchLeadField = async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { field, value } = req.body;
+
+    if (!field || !ALLOWED_FIELDS.includes(field)) {
+      return res.status(400).json({ message: `Invalid field. Allowed: ${ALLOWED_FIELDS.join(', ')}` });
+    }
+
+    const { data: log, error: logError } = await supabase
+      .from('fro_donor_logs')
+      .select('id, accounts_status')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) {
+      return res.status(404).json({ message: 'Log entry not found' });
+    }
+
+    const updateData = {};
+    updateData[field] = value === '' ? null : value;
+
+    const { error: updateError } = await supabase
+      .from('fro_donor_logs')
+      .update(updateData)
+      .eq('id', logId);
+
+    if (updateError) throw updateError;
+
+    return res.json({ message: 'Field updated', field, value: updateData[field] });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
