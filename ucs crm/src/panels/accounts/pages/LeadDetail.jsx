@@ -30,6 +30,28 @@ function buildDonor(receipt) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
+function ScreenshotImage({ src, onClick }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div style={{ position: 'relative', minHeight: 120, background: 'var(--bg)' }}>
+      {!loaded && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'linear-gradient(90deg, var(--bg) 25%, var(--line) 50%, var(--bg) 75%)',
+          backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite',
+        }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+          </svg>
+        </div>
+      )}
+      <img src={src} alt="Payment screenshot" onLoad={() => setLoaded(true)}
+        onClick={onClick}
+        style={{ width: '100%', display: loaded ? 'block' : 'none', cursor: 'pointer' }} />
+    </div>
+  );
+}
+
 export default function LeadDetail({ logId, onBack }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -205,18 +227,12 @@ export default function LeadDetail({ logId, onBack }) {
 
         <div>
           {l.screenshot_url ? (
-            <div className="card" style={{ position: 'sticky', top: 16 }}>
-              <div className="card-head"><h3>Payment Screenshot</h3></div>
-              <div className="card-pad" style={{ padding: 0 }}>
-                <img src={l.screenshot_url} alt="Payment screenshot"
-                  onClick={() => setShowScreenshot(true)}
-                  style={{ width: '100%', display: 'block', borderRadius: '0 0 var(--radius) var(--radius)', cursor: 'pointer' }} />
-              </div>
+            <div className="card" style={{ position: 'sticky', top: 16, overflow: 'hidden' }}>
+              <ScreenshotImage src={l.screenshot_url} onClick={() => setShowScreenshot(true)} />
             </div>
           ) : (
-            <div className="card">
-              <div className="card-head"><h3>Payment Screenshot</h3></div>
-              <div className="card-pad" style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-soft)' }}>
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-soft)' }}>
                 <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.3 }}>{'\u{1F5BC}\uFE0F'}</div>
                 <div style={{ fontSize: 13 }}>No screenshot available</div>
               </div>
