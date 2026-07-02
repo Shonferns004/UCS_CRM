@@ -256,6 +256,15 @@ export default function LeadDetail({ logId, onBack }) {
           </div>
         )}
 
+        {l.remark && (
+          <div className="card">
+            <div className="card-head"><h3>Remark</h3></div>
+            <div className="card-pad" style={{ background: '#f0fdf4', borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
+              <p style={{ fontSize: 13, margin: 0, color: '#166534', whiteSpace: 'pre-wrap' }}>{l.remark}</p>
+            </div>
+          </div>
+        )}
+
         {l.rejection_reason && (
           <div className="card">
             <div className="card-head"><h3>Rejection Reason</h3></div>

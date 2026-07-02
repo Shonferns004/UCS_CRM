@@ -623,7 +623,7 @@ export const getAccountsPending = async (req, res) => {
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
-        payment_screenshot_url, accounts_status, pan_number, notes, created_at,
+        payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at,
         assignment_id,
         fro_assignments!inner(
           id,
@@ -648,6 +648,7 @@ export const getAccountsPending = async (req, res) => {
       accounts_status: r.accounts_status,
       pan_number: r.pan_number,
       notes: r.notes,
+      remark: r.remark,
       created_at: r.created_at,
       assignment_id: r.assignment_id,
       assignment_status: r.fro_assignments?.status || 'lead_done',

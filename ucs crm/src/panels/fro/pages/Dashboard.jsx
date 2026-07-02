@@ -52,7 +52,7 @@ export default function Dashboard() {
       setLeadStats(ls)
       setMonthlyDonors(md || [])
       if (d || t) cacheSet(CACHE_KEY, { dash: d, target: t }, 30000)
-      if (isMonthlyPopupSeason && md?.length > 0) setShowMonthlyModal(true)
+      if (isMonthlyPopupSeason && md?.length > 0 && localStorage.getItem('monthly_donors_dismissed') !== monthStr) setShowMonthlyModal(true)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -455,14 +455,14 @@ export default function Dashboard() {
       )}
 
       {showMonthlyModal && monthlyDonors.length > 0 && (
-        <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => setShowMonthlyModal(false)}>
+        <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => { localStorage.setItem('monthly_donors_dismissed', monthStr); setShowMonthlyModal(false); }}>
           <div style={{ background:'#fff', borderRadius:12, width:480, maxHeight:'70vh', display:'flex', flexDirection:'column', boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <div>
                 <div style={{ fontSize:14, fontWeight:700 }}>Monthly Recurring Donors</div>
                 <div style={{ fontSize:10, color:'var(--ink-soft)' }}>{monthStr} — Donors with 3+ donations history</div>
               </div>
-              <button onClick={() => setShowMonthlyModal(false)}
+              <button onClick={() => { localStorage.setItem('monthly_donors_dismissed', monthStr); setShowMonthlyModal(false); }}
                 style={{ width:28, height:28, border:'none', borderRadius:6, background:'var(--bg)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, lineHeight:1 }}>
                 ×
               </button>
