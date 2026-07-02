@@ -4,10 +4,11 @@ export async function getTransferredLeads() {
   return api('/fro/transferred-leads', { _prefix: 'ucs' })
 }
 
-export async function getMyDonors(status, statusGroup) {
+export async function getMyDonors(status, statusGroup, options = {}) {
   const params = new URLSearchParams();
   if (statusGroup) params.set('status_group', statusGroup);
   else if (status) params.set('status', status);
+  if (options.verifiedOnly) params.set('verified_only', 'true');
   const qs = params.toString();
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
