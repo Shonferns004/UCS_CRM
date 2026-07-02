@@ -2,14 +2,15 @@ import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
+import { CheckCircle, Question, Receipt } from '@phosphor-icons/react'
 import Dashboard from './pages/Dashboard'
 import SuspensePage from './pages/SuspensePage'
 import ReceiptHistory from './pages/ReceiptHistory'
 
 const NAV = [
-  { id: 'leads', path: '/accounts/leads', label: 'Lead Verification', icon: '\u{1F4B0}' },
-  { id: 'suspense', path: '/accounts/suspense', label: 'Suspense', icon: '\u{2753}' },
-  { id: 'receipts', path: '/accounts/receipts', label: 'Receipt History', icon: '\u{1F4C4}' },
+  { id: 'leads', path: '/accounts/leads', label: 'Lead Verification', Icon: CheckCircle },
+  { id: 'suspense', path: '/accounts/suspense', label: 'Suspense', Icon: Question },
+  { id: 'receipts', path: '/accounts/receipts', label: 'Receipt History', Icon: Receipt },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -26,7 +27,7 @@ function Sidebar({ open, onClose }) {
           {NAV.map(n => (
             <NavLink key={n.id} to={n.path} onClick={onClose}
               className={`snav-item ${location.pathname === n.path ? 'active' : ''}`}>
-              <span className="ico">{n.icon}</span>
+              <span className="ico"><n.Icon size={20} weight={location.pathname === n.path ? 'fill' : 'regular'} /></span>
               <span>{n.label}</span>
             </NavLink>
           ))}

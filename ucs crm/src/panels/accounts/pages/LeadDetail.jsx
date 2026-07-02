@@ -449,36 +449,40 @@ export default function LeadDetail({ logId, onBack }) {
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .verify-btn {
-          padding: 7px 18px; font-size: 13px; font-weight: 600;
-          background: linear-gradient(135deg, #166534, #15803d);
-          color: #fff; border: none; border-radius: 8px; cursor: pointer;
-          transition: all 0.15s; display: inline-flex; align-items: center; gap: 5px;
+          padding: 12px 28px; font-size: 14px; font-weight: 600;
+          background: linear-gradient(135deg, #059669, #047857);
+          color: #fff; border: none; border-radius: 10px; cursor: pointer;
+          transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          box-shadow: 0 2px 8px rgba(5,150,105,0.25);
+          letter-spacing: 0.3px;
         }
         .verify-btn:hover:not(:disabled) {
-          background: linear-gradient(135deg, #14532d, #166534);
-          transform: translateY(-1px); box-shadow: 0 4px 12px rgba(22,101,52,0.3);
+          background: linear-gradient(135deg, #047857, #065f46);
+          transform: translateY(-1px); box-shadow: 0 6px 20px rgba(5,150,105,0.35);
         }
-        .verify-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .verify-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
         .reject-btn {
-          padding: 7px 18px; font-size: 13px; font-weight: 600;
+          padding: 12px 28px; font-size: 14px; font-weight: 500;
           background: #fff; color: #dc2626;
-          border: 1px solid #fecaca; border-radius: 8px; cursor: pointer;
-          transition: all 0.15s; display: inline-flex; align-items: center; gap: 5px;
+          border: 1.5px solid #fecaca; border-radius: 10px; cursor: pointer;
+          transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          letter-spacing: 0.3px;
         }
         .reject-btn:hover:not(:disabled) {
-          background: #fef2f2; border-color: #dc2626;
-          transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.12);
+          background: #fef2f2; border-color: #fca5a5;
+          transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.1);
         }
-        .reject-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .reject-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
         .action-bar {
           position: sticky; bottom: 0; z-index: 50;
-          background: linear-gradient(0deg, rgba(255,255,255,0.97), rgba(245,246,250,0.95));
-          backdrop-filter: blur(12px);
+          background: rgba(255,255,255,0.95);
+          backdrop-filter: blur(16px);
           border-top: 1px solid #e5e7eb;
-          padding: 14px 24px; margin: 20px -24px -24px;
+          padding: 16px 24px; margin: 24px -24px -24px;
           display: flex; justify-content: center;
+          box-shadow: 0 -4px 20px rgba(0,0,0,0.04);
         }
 
         .datepicker-input {
