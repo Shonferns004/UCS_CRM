@@ -77,9 +77,9 @@ export default function Dashboard() {
   const ts = targetData || {}
   const { stats = {} } = ds
   const target = ts.target || ds.target || 0
-  const collected = ts.collected || ds.collected || 0
+  const collected = ts.collected ?? ds.collected ?? 0
   const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
-  const displayCollected = achieved_target != null ? achieved_target : collected
+  const displayCollected = collected
   const remaining = Math.max(0, target - displayCollected)
   const progress = target > 0 ? Math.min(100, (displayCollected / target) * 100) : 0
 
@@ -129,7 +129,7 @@ export default function Dashboard() {
             <div style={{ height: '100%', borderRadius: 2, background: 'var(--sage)', width: `${progress}%`, transition: 'width .4s' }} />
           </div>
           {achieved_target != null && (
-            <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 500 }}>Set by admin</div>
+            <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 500 }}>Admin target: ₹{Number(achieved_target).toLocaleString('en-IN')}</div>
           )}
         </div>
 

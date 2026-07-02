@@ -73,8 +73,8 @@ export default function History() {
                   <td style={{ padding:'8px 10px', color:'var(--ink-soft)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {l.notes || '—'}
                   </td>
-                  <td style={{ padding:'8px 10px', textAlign:'right', fontWeight:600, color:l.amount_collected ? 'var(--sage)' : 'inherit' }}>
-                    {l.amount_collected ? `₹${Number(l.amount_collected).toLocaleString('en-IN')}` : '—'}
+                  <td style={{ padding:'8px 10px', textAlign:'right', fontWeight:600, color:l.amount_collected != null ? 'var(--sage)' : 'inherit' }}>
+                    {l.amount_collected != null ? `₹${Number(l.amount_collected).toLocaleString('en-IN')}` : '—'}
                   </td>
                   <td style={{ padding:'8px 10px', textAlign:'right', color:'var(--ink-soft)', fontSize:11 }}>
                     {l.created_at ? new Date(l.created_at).toLocaleString('en-GB') : '—'}

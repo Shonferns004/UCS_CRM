@@ -364,11 +364,23 @@ export const getMyDonors = async (req, res) => {
       query = query.in('status', ['pending', ...NOT_CONNECTED_STATUSES]).order('is_new', { ascending: false });
     }
 
-    const { data: assignments } = await query;
+    let { data: assignments } = await query;
 
     if (!assignments || assignments.length === 0) return res.json([]);
 
-    const donorIds = [...new Set(assignments.map(a => a.donor_id))];
+    let donorIds = [...new Set(assignments.map(a => a.donor_id))];
+
+    if (req.query.verified_only === 'true' && donorIds.length > 0) {
+      const { data: verifiedLogs } = await supabase
+        .from('fro_donor_logs')
+        .select('donor_id')
+        .in('donor_id', donorIds)
+        .eq('accounts_status', 'verified');
+      const verifiedDonorIds = new Set((verifiedLogs || []).map(l => l.donor_id));
+      assignments = assignments.filter(a => verifiedDonorIds.has(a.donor_id));
+      donorIds = [...new Set(assignments.map(a => a.donor_id))];
+      if (donorIds.length === 0) return res.json([]);
+    }
     const { data: donors } = await supabase
       .from('donor_profiles')
       .select('*')
@@ -391,18 +403,17 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    const now = new Date();
-    const fyStart = new Date(now.getFullYear(), now.getMonth() < 3 ? 3 : 3, 1);
-    if (fyStart > now) fyStart.setFullYear(fyStart.getFullYear() - 1);
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-    const { data: donationLogs } = await supabase
+    const { data: recentActivity } = await supabase
       .from('fro_donor_logs')
       .select('donor_id')
       .in('donor_id', donorIds)
-      .in('action', ['donation'])
-      .gte('created_at', fyStart.toISOString());
+      .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+      .gte('created_at', oneYearAgo.toISOString());
 
-    const donatedInFy = new Set((donationLogs || []).map(l => l.donor_id));
+    const activeDonorIds = new Set((recentActivity || []).map(l => l.donor_id));
 
     const result = [];
     const seen = new Set();
@@ -433,7 +444,7 @@ export const getMyDonors = async (req, res) => {
         total_donated: d.total_amount || 0,
         last_donation_date: d.last_donation_date || null,
         first_donation_date: d.first_donation_date || null,
-        has_donated_current_fy: donatedInFy.has(a.donor_id),
+        has_donated_current_fy: activeDonorIds.has(a.donor_id),
         status: a.status || 'pending',
         notes: a.notes || null,
         last_contacted_at: a.last_contacted_at || null,

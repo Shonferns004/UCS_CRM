@@ -390,7 +390,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
                     {log.notes && <div className="desc">{log.notes}</div>}
                     {log.outcome && <div className="desc">Outcome: {log.outcome}</div>}
                     {log.scheduled_at && <div className="desc" style={{ color: 'var(--primary)' }}>Scheduled: {new Date(log.scheduled_at).toLocaleString()}</div>}
-                    {log.amount_collected && <div className="desc" style={{ color: 'var(--success)' }}>Amount: ₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
+                    {log.amount_collected != null && <div className="desc" style={{ color: 'var(--success)' }}>Amount: ₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
                     {log.disposition_detail === 'lead_done' && log.accounts_status === 'verified' && (
                       <div className="desc" style={{ color: '#16a34a' }}>Accounts: Verified ✓</div>
                     )}
