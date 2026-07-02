@@ -188,6 +188,31 @@ export default function LeadDetail({ logId, onBack }) {
         </div>
       </div>
 
+      {(l.notes || l.remark || l.rejection_reason) && (
+        <div className="card" style={{ borderLeft: '3px solid #dc2626', marginBottom: 16 }}>
+          <div className="card-pad" style={{ padding: '10px 16px', background: '#fef2f2' }}>
+            {l.remark && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: 1 }}>Remark:</span>
+                <p style={{ margin: 0, fontSize: 13, color: '#991b1b', whiteSpace: 'pre-wrap' }}>{l.remark}</p>
+              </div>
+            )}
+            {l.notes && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: l.remark ? 8 : 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: 1 }}>Notes:</span>
+                <p style={{ margin: 0, fontSize: 13, color: '#991b1b', whiteSpace: 'pre-wrap' }}>{l.notes}</p>
+              </div>
+            )}
+            {l.rejection_reason && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: (l.remark || l.notes) ? 8 : 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', whiteSpace: 'nowrap', marginTop: 1 }}>Rejection:</span>
+                <p style={{ margin: 0, fontSize: 13, color: '#991b1b', whiteSpace: 'pre-wrap' }}>{l.rejection_reason}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="two-col detail-layout">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
@@ -261,35 +286,6 @@ export default function LeadDetail({ logId, onBack }) {
           </div>
         </div>
       )}
-
-      <div className="two-col">
-        {l.notes && (
-          <div className="card">
-            <div className="card-head"><h3>Notes</h3></div>
-            <div className="card-pad">
-              <p style={{ fontSize: 13, margin: 0, whiteSpace: 'pre-wrap' }}>{l.notes}</p>
-            </div>
-          </div>
-        )}
-
-        {l.remark && (
-          <div className="card">
-            <div className="card-head"><h3>Remark</h3></div>
-            <div className="card-pad" style={{ background: '#f0fdf4', borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
-              <p style={{ fontSize: 13, margin: 0, color: '#166534', whiteSpace: 'pre-wrap' }}>{l.remark}</p>
-            </div>
-          </div>
-        )}
-
-        {l.rejection_reason && (
-          <div className="card">
-            <div className="card-head"><h3>Rejection Reason</h3></div>
-            <div className="card-pad" style={{ background: '#fef2f2', borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
-              <p style={{ fontSize: 13, margin: 0, color: '#991b1b' }}>{l.rejection_reason}</p>
-            </div>
-          </div>
-        )}
-      </div>
 
       {showScreenshot && l.screenshot_url && (
         <div className="modal-overlay" onClick={() => setShowScreenshot(false)} style={{ cursor: 'zoom-out' }}>
