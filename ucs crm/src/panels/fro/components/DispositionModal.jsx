@@ -111,12 +111,13 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       if (selected === 'lead_done') {
         if (leadScreenshot) {
           const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime);
-          logPayload.screenshot = uploadResult.url;
+          logPayload.payment_screenshot_url = uploadResult.file_url;
         }
         logPayload.donor_address = leadAddress || null;
-        logPayload.donor_pan = leadPan || null;
+        logPayload.pan_number = leadPan || null;
         logPayload.donor_dob = leadDob || null;
         logPayload.project_name = projectName || null;
+        logPayload.amount_collected = leadAmount ? Number(leadAmount) : null;
       }
       await addDonorLog(donorId, logPayload);
       onDone();

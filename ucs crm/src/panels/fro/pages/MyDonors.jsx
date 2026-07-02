@@ -207,10 +207,10 @@ export default function MyDonors() {
       if (selected === 'lead_done') {
         if (leadScreenshot) {
           const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime);
-          logData.screenshot = uploadResult.url;
+          logData.payment_screenshot_url = uploadResult.file_url;
         }
         logData.donor_address = leadAddress || null;
-        logData.donor_pan = leadPan || null;
+        logData.pan_number = leadPan || null;
         logData.donor_dob = leadDob || null;
         logData.project_name = projectName || null;
         logData.amount_collected = leadAmount ? Number(leadAmount) : null;

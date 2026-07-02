@@ -57,6 +57,7 @@ export default function TransferredLeads() {
   const [panError, setPanError] = useState('');
   const [leadDob, setLeadDob] = useState('');
   const [projectName, setProjectName] = useState('');
+  const [leadAmount, setLeadAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [showDonationModal, setShowDonationModal] = useState(false);
@@ -187,15 +188,16 @@ export default function TransferredLeads() {
       if (selected === 'lead_done') {
         if (leadScreenshot) {
           const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime);
-          logData.screenshot = uploadResult.url;
+          logData.payment_screenshot_url = uploadResult.file_url;
         }
         logData.donor_address = leadAddress || null;
-        logData.donor_pan = leadPan || null;
+        logData.pan_number = leadPan || null;
         logData.donor_dob = leadDob || null;
         logData.project_name = projectName || null;
+        logData.amount_collected = leadAmount ? Number(leadAmount) : null;
       }
       await addDonorLog(donor.id, logData);
-      setSelected(null); setNotes(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName('');
+      setSelected(null); setNotes(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount('');
       const nextDonors = donors.filter(d => d.id !== donor.id || d.ngo_id !== donor.ngo_id);
       setDonors(nextDonors);
       if (index >= nextDonors.length && nextDonors.length > 0) setIndex(0);
@@ -383,6 +385,13 @@ export default function TransferredLeads() {
                         <option value="">— Select Project —</option>
                         {PROJECTS.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
+                    </div>
+                  </div>
+                  <div className="detail-field-row">
+                    <div className="fld">
+                      <label>Amount Collected</label>
+                      <input type="number" min="0" value={leadAmount}
+                        onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
                     </div>
                   </div>
                   <div className="detail-field-row">
