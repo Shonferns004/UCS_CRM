@@ -166,47 +166,62 @@ export default function LeadDetail({ logId, onBack }) {
         </div>
       </div>
 
-      <div className="two-col">
-        <div className="card">
-          <div className="card-head"><h3>Donor Information</h3></div>
-          <div className="card-pad">
-            <div className="info-grid">
-              <div><div className="label">Name</div><div className="value">{l.donor_name}</div></div>
-              <div><div className="label">Mobile</div><div className="value">{l.donor_mobile}</div></div>
-              <div><div className="label">City</div><div className="value">{l.donor_city || '\u2014'}</div></div>
-              <div><div className="label">Email</div><div className="value">{l.donor_email || '\u2014'}</div></div>
-              <div><div className="label">Address</div><div className="value">{l.donor_address || '\u2014'}</div></div>
-              <div><div className="label">PAN</div><div className="value">{l.pan_number || l.donor_pan || '\u2014'}</div></div>
-              <div><div className="label">DOB</div><div className="value">{l.donor_dob || '\u2014'}</div></div>
-              <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
-              <div><div className="label">Donations</div><div className="value">{l.donation_count || 0} times</div></div>
-              <div><div className="label">Total Donated</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.total_donated)}</div></div>
+      <div className="two-col detail-layout">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="card-head"><h3>Donor Information</h3></div>
+            <div className="card-pad">
+              <div className="info-grid">
+                <div><div className="label">Name</div><div className="value">{l.donor_name}</div></div>
+                <div><div className="label">Mobile</div><div className="value">{l.donor_mobile}</div></div>
+                <div><div className="label">City</div><div className="value">{l.donor_city || '\u2014'}</div></div>
+                <div><div className="label">Email</div><div className="value">{l.donor_email || '\u2014'}</div></div>
+                <div><div className="label">Address</div><div className="value">{l.donor_address || '\u2014'}</div></div>
+                <div><div className="label">PAN</div><div className="value">{l.pan_number || l.donor_pan || '\u2014'}</div></div>
+                <div><div className="label">DOB</div><div className="value">{l.donor_dob || '\u2014'}</div></div>
+                <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
+                <div><div className="label">Donations</div><div className="value">{l.donation_count || 0} times</div></div>
+                <div><div className="label">Total Donated</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.total_donated)}</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><h3>Payment Details</h3></div>
+            <div className="card-pad">
+              <div className="info-grid">
+                <div><div className="label">Amount</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.amount)}</div></div>
+                <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>({l.agent_login})</span></div></div>
+                <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div></div>
+                <div><div className="label">Status</div><div>
+                  {l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
+                   l.accounts_status === 'rejected' ? <span className="pill pill-red">Rejected</span> :
+                   <span className="pill pill-yellow">Pending</span>}
+                </div></div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-head"><h3>Payment Details</h3></div>
-          <div className="card-pad">
-            <div className="info-grid" style={{ marginBottom: 12 }}>
-              <div><div className="label">Amount</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.amount)}</div></div>
-              <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>({l.agent_login})</span></div></div>
-              <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div></div>
-              <div><div className="label">Status</div><div>
-                {l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
-                 l.accounts_status === 'rejected' ? <span className="pill pill-red">Rejected</span> :
-                 <span className="pill pill-yellow">Pending</span>}
-              </div></div>
-            </div>
-            {l.screenshot_url && (
-              <div>
-                <div className="label" style={{ marginBottom: 6 }}>Payment Screenshot</div>
+        <div>
+          {l.screenshot_url ? (
+            <div className="card" style={{ position: 'sticky', top: 16 }}>
+              <div className="card-head"><h3>Payment Screenshot</h3></div>
+              <div className="card-pad" style={{ padding: 0 }}>
                 <img src={l.screenshot_url} alt="Payment screenshot"
                   onClick={() => setShowScreenshot(true)}
-                  style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, border: '1px solid var(--line)', cursor: 'pointer', objectFit: 'cover' }} />
+                  style={{ width: '100%', display: 'block', borderRadius: '0 0 var(--radius) var(--radius)', cursor: 'pointer' }} />
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="card">
+              <div className="card-head"><h3>Payment Screenshot</h3></div>
+              <div className="card-pad" style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-soft)' }}>
+                <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.3 }}>{'\u{1F5BC}\uFE0F'}</div>
+                <div style={{ fontSize: 13 }}>No screenshot available</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
