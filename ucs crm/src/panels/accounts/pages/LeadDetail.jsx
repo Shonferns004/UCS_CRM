@@ -220,7 +220,7 @@ export default function LeadDetail({ logId, onBack }) {
   const donor = receipt ? buildDonor(receipt) : null;
 
   return (
-    <div style={{ paddingBottom: 80 }}>
+    <div style={{ paddingBottom: 65 }}>
       <div className="detail-header">
         <button className="back-btn" onClick={onBack}>{'\u2190'}</button>
         <div style={{ flex: 1 }}>
@@ -442,7 +442,7 @@ export default function LeadDetail({ logId, onBack }) {
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .verify-btn {
-          padding: 12px 28px; font-size: 14px; font-weight: 600;
+          padding: 10px 22px; font-size: 13px; font-weight: 600;
           background: linear-gradient(135deg, #059669, #047857);
           color: #fff; border: none; border-radius: 10px; cursor: pointer;
           transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -456,7 +456,7 @@ export default function LeadDetail({ logId, onBack }) {
         .verify-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
         .reject-btn {
-          padding: 12px 28px; font-size: 14px; font-weight: 500;
+          padding: 10px 22px; font-size: 13px; font-weight: 500;
           background: #fff; color: #dc2626;
           border: 1.5px solid #fecaca; border-radius: 10px; cursor: pointer;
           transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -487,7 +487,7 @@ export default function LeadDetail({ logId, onBack }) {
           background: rgba(255,255,255,0.97);
           backdrop-filter: blur(16px);
           border-top: 1px solid #e5e7eb;
-          padding: 14px 32px;
+          padding: 10px 24px;
           display: flex; justify-content: center;
           box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
         }
