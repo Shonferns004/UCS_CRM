@@ -1,5 +1,12 @@
 import Tesseract from 'tesseract.js';
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import groq from '../config/groq.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOCAL_LANG_PATH = join(__dirname, '..', '..', 'tessdata');
+const HAS_LOCAL_TESSDATA = existsSync(join(LOCAL_LANG_PATH, 'eng.traineddata'));
 
 function parseGroqJson(raw) {
   try {
@@ -20,9 +27,12 @@ function parseGroqJson(raw) {
 export async function extractUpiFields(screenshotUrl) {
   const ocrStart = Date.now();
 
-  const { data: { text } } = await Tesseract.recognize(screenshotUrl, 'eng', {
-    logger: () => {},
-  });
+  const workerOptions = { logger: () => {} };
+  if (HAS_LOCAL_TESSDATA) {
+    workerOptions.langPath = LOCAL_LANG_PATH;
+  }
+
+  const { data: { text } } = await Tesseract.recognize(screenshotUrl, 'eng', workerOptions);
 
   const ocrText = text.trim();
   const ocrMs = Date.now() - ocrStart;
