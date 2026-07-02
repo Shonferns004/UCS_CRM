@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { TimePicker } from '../../fro/components/TimePicker';
 import { apiGet, apiPost } from '../api/auth';
 import { getReceipt, generateReceipt as apiGenerateReceipt } from '../api/receipts';
 import { generateReceiptPDF } from '../services/pdfGenerator';
@@ -366,15 +367,11 @@ export default function LeadDetail({ logId, onBack }) {
                 </div>
                 <div>
                   <div className="label">Time</div>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="time"
-                      value={form.transaction_time}
-                      onChange={e => setField('transaction_time', e.target.value)}
-                      className="time-input"
-                    />
-                    <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 15, pointerEvents: 'none', color: '#6b7280' }}>&#x1F552;</span>
-                  </div>
+                  <TimePicker
+                    value={form.transaction_time}
+                    onChange={e => setField('transaction_time', e.target.value)}
+                    placeholder="Select time"
+                  />
                 </div>
                 <div>
                   <div className="label">From (Sender Name)</div>
@@ -477,19 +474,6 @@ export default function LeadDetail({ logId, onBack }) {
           transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.12);
         }
         .reject-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .time-input {
-          width: 100%; box-sizing: border-box;
-          padding: 6px 32px 6px 10px; font-size: 13px;
-          border: 1px solid #d1d5db; border-radius: 6px;
-          outline: none; background: #fff; color: #1f2937;
-          height: 32px; cursor: pointer;
-        }
-        .time-input:focus {
-          border-color: var(--sage, #4ade80);
-          box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
-        }
-        .time-input::-webkit-calendar-picker-indicator { opacity: 0; width: 100%; height: 100%; position: absolute; right: 0; top: 0; cursor: pointer; }
 
         .datepicker-input {
           width: 100%; box-sizing: border-box;
