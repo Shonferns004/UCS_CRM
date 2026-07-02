@@ -1,5 +1,6 @@
 import supabase from '../config/supabase.js';
 import { createReceipt, findReceiptByLogId, getLastReceiptNo, listAllReceipts } from '../models/receiptModel.js';
+import { extractUpiFields } from '../services/upiExtractor.js';
 
 export const getLeadList = async (req, res) => {
   try {
@@ -326,6 +327,53 @@ export const patchLeadField = async (req, res) => {
     if (updateError) throw updateError;
 
     return res.json({ message: 'Field updated', field, value: updateData[field] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── UPI Screenshot Extraction ─────────────────────────────
+
+export const extractUpiDetails = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    const { data: log, error: logError } = await supabase
+      .from('fro_donor_logs')
+      .select('id, payment_screenshot_url')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) {
+      return res.status(404).json({ message: 'Log entry not found' });
+    }
+
+    if (!log.payment_screenshot_url) {
+      return res.status(400).json({ message: 'No payment screenshot available for this lead' });
+    }
+
+    const extracted = await extractUpiFields(log.payment_screenshot_url);
+
+    const fields = {
+      upi_transaction_id: extracted.upi_transaction_id,
+      transaction_datetime: extracted.transaction_datetime,
+      payment_from: extracted.payment_from,
+    };
+
+    const hasAny = Object.values(fields).some(v => v !== null);
+    if (hasAny) {
+      await supabase
+        .from('fro_donor_logs')
+        .update(fields)
+        .eq('id', logId);
+    }
+
+    return res.json({
+      ...fields,
+      ocr_text: extracted.ocr_text,
+      ocr_ms: extracted.ocr_ms,
+      ai_ms: extracted.ai_ms,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

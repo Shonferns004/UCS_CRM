@@ -173,6 +173,7 @@ export default function LeadDetail({ logId, onBack }) {
   const [showScreenshot, setShowScreenshot] = useState(false);
   const [panInput, setPanInput] = useState('');
   const [modeInput, setModeInput] = useState('');
+  const [extracting, setExtracting] = useState(false);
   const receiptRef = useRef(null);
 
   const load = () => {
@@ -199,6 +200,21 @@ export default function LeadDetail({ logId, onBack }) {
 
   const handleFieldSave = (field, value) => {
     setLead(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleExtractUpi = async () => {
+    if (!lead) return;
+    setExtracting(true);
+    try {
+      const data = await apiPost(`/accounts/leads/${lead.log_id}/extract-upi`);
+      setLead(prev => ({
+        ...prev,
+        upi_transaction_id: data.upi_transaction_id || null,
+        transaction_datetime: data.transaction_datetime || null,
+        payment_from: data.payment_from || null,
+      }));
+    } catch (err) { alert('Extraction failed: ' + err.message); }
+    finally { setExtracting(false); }
   };
 
   const handleVerify = async () => {
@@ -365,7 +381,19 @@ export default function LeadDetail({ logId, onBack }) {
           </div>
 
           <div className="card">
-            <div className="card-head"><h3>Transaction Details</h3></div>
+            <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3>Transaction Details</h3>
+              {l.screenshot_url && (
+                <button
+                  className="btn btn-sm"
+                  onClick={handleExtractUpi}
+                  disabled={extracting}
+                  style={{ background: 'var(--sage-light, #dcfce7)', color: 'var(--sage-dark, #166534)' }}
+                >
+                  {extracting ? '\u23F3 Extracting...' : '\u{1F50D} Extract from Screenshot'}
+                </button>
+              )}
+            </div>
             <div className="card-pad">
               <div className="info-grid">
                 <div>
