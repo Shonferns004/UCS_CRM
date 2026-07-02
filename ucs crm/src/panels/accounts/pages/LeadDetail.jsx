@@ -230,16 +230,21 @@ export default function LeadDetail({ logId, onBack }) {
       <div className="detail-header">
         <button className="back-btn" onClick={onBack}>{'\u2190'}</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 1 }}>Lead Details</div>
-          <h2 style={{ margin: 0, fontSize: 16 }}>{l.donor_name}</h2>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Lead Details</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {l.accounts_status === 'pending' && (
             <>
-              <button className="btn btn-primary btn-sm" onClick={handleVerify} disabled={submitting} style={{ minWidth: 90 }}>
-                {submitting ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />Saving</span> : '\u2714 Verify'}
+              <button
+                onClick={handleVerify} disabled={submitting}
+                className="verify-btn"
+              >
+                {submitting ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />Saving</span> : '\u2714 Verify'}
               </button>
-              <button className="btn btn-sm btn-danger" onClick={handleReject} disabled={submitting} style={{ minWidth: 80 }}>
+              <button
+                onClick={handleReject} disabled={submitting}
+                className="reject-btn"
+              >
                 {submitting ? '...' : '\u2716 Reject'}
               </button>
             </>
@@ -353,17 +358,23 @@ export default function LeadDetail({ logId, onBack }) {
                     dateFormat="dd/MM/yyyy"
                     placeholderText="Select date"
                     isClearable
+                    showYearDropdown
+                    scrollableYearDropdown
+                    yearDropdownItemNumber={50}
                     className="datepicker-input"
                   />
                 </div>
                 <div>
                   <div className="label">Time</div>
-                  <input
-                    type="time"
-                    style={inputStyle}
-                    value={form.transaction_time}
-                    onChange={e => setField('transaction_time', e.target.value)}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="time"
+                      value={form.transaction_time}
+                      onChange={e => setField('transaction_time', e.target.value)}
+                      className="time-input"
+                    />
+                    <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 15, pointerEvents: 'none', color: '#6b7280' }}>&#x1F552;</span>
+                  </div>
                 </div>
                 <div>
                   <div className="label">From (Sender Name)</div>
@@ -443,6 +454,43 @@ export default function LeadDetail({ logId, onBack }) {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        .verify-btn {
+          padding: 7px 18px; font-size: 13px; font-weight: 600;
+          background: linear-gradient(135deg, #166534, #15803d);
+          color: #fff; border: none; border-radius: 8px; cursor: pointer;
+          transition: all 0.15s; display: inline-flex; align-items: center; gap: 5px;
+        }
+        .verify-btn:hover:not(:disabled) {
+          background: linear-gradient(135deg, #14532d, #166534);
+          transform: translateY(-1px); box-shadow: 0 4px 12px rgba(22,101,52,0.3);
+        }
+        .verify-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .reject-btn {
+          padding: 7px 18px; font-size: 13px; font-weight: 600;
+          background: #fff; color: #dc2626;
+          border: 1px solid #fecaca; border-radius: 8px; cursor: pointer;
+          transition: all 0.15s; display: inline-flex; align-items: center; gap: 5px;
+        }
+        .reject-btn:hover:not(:disabled) {
+          background: #fef2f2; border-color: #dc2626;
+          transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.12);
+        }
+        .reject-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .time-input {
+          width: 100%; box-sizing: border-box;
+          padding: 6px 32px 6px 10px; font-size: 13px;
+          border: 1px solid #d1d5db; border-radius: 6px;
+          outline: none; background: #fff; color: #1f2937;
+          height: 32px; cursor: pointer;
+        }
+        .time-input:focus {
+          border-color: var(--sage, #4ade80);
+          box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
+        }
+        .time-input::-webkit-calendar-picker-indicator { opacity: 0; width: 100%; height: 100%; position: absolute; right: 0; top: 0; cursor: pointer; }
+
         .datepicker-input {
           width: 100%; box-sizing: border-box;
           padding: 6px 10px; font-size: 13px;
@@ -484,6 +532,15 @@ export default function LeadDetail({ logId, onBack }) {
         }
         .react-datepicker__navigation {
           top: 10px;
+        }
+        .react-datepicker__year-dropdown-container {
+          margin-left: 5px;
+        }
+        .react-datepicker__year-select {
+          padding: 2px 6px; font-size: 13px;
+          border: 1px solid #d1d5db; border-radius: 4px;
+          background: #fff; color: #166534; font-weight: 600;
+          cursor: pointer; outline: none;
         }
         .react-datepicker__close-icon::after {
           background: #9ca3af; font-size: 14px; height: 16px; width: 16px;
