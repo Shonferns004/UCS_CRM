@@ -9,8 +9,8 @@ export const getLeadList = async (req, res) => {
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
-        payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at,
-        upi_transaction_id, transaction_datetime, payment_from,
+        payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at, verified_at,
+        upi_transaction_id, transaction_datetime, payment_from, payment_mode,
         assignment_id,
         fro_assignments!inner(
           id,
@@ -59,6 +59,8 @@ export const getLeadList = async (req, res) => {
       upi_transaction_id: r.upi_transaction_id || null,
       transaction_datetime: r.transaction_datetime || null,
       payment_from: r.payment_from || null,
+      payment_mode: r.payment_mode || null,
+      verified_at: r.verified_at || null,
       agent_id: r.fro_assignments?.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
@@ -76,12 +78,12 @@ export const verifyLead = async (req, res) => {
     const {
       pan_number, notes,
       donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address,
-      upi_transaction_id, transaction_datetime, payment_from,
+      upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
     const { data: log, error: logError } = await supabase
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, email, pan_number, project_supported))')
       .eq('id', logId)
       .single();
 
@@ -94,8 +96,9 @@ export const verifyLead = async (req, res) => {
     }
 
     const assignmentId = log.fro_assignments?.id;
-    if (!assignmentId) {
-      return res.status(400).json({ message: 'Associated assignment not found' });
+    const donorProfile = log.fro_assignments?.donor_profiles;
+    if (!assignmentId || !donorProfile) {
+      return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
 
     const logUpdate = {
@@ -126,7 +129,8 @@ export const verifyLead = async (req, res) => {
 
     if (updateAsgnError) throw updateAsgnError;
 
-    if (log.fro_assignments?.donor_id) {
+    const donorId = log.fro_assignments?.donor_id;
+    if (donorId) {
       const donorUpdate = { updated_at: new Date().toISOString() };
       if (donor_name !== undefined) donorUpdate.name = donor_name || null;
       if (donor_mobile !== undefined) donorUpdate.mobile_number = donor_mobile || null;
@@ -138,15 +142,37 @@ export const verifyLead = async (req, res) => {
         const { data: donor } = await supabase
           .from('donor_profiles')
           .select('total_amount, donation_count')
-          .eq('id', log.fro_assignments.donor_id)
+          .eq('id', donorId)
           .single();
         donorUpdate.total_amount = (donor?.total_amount || 0) + (log.amount_collected || 0);
         donorUpdate.donation_count = (donor?.donation_count || 0) + 1;
-        await supabase.from('donor_profiles').update(donorUpdate).eq('id', log.fro_assignments.donor_id);
+        await supabase.from('donor_profiles').update(donorUpdate).eq('id', donorId);
       } catch (err) { console.error('Failed to update donor totals:', err); }
     }
 
-    return res.json({ message: 'Lead verified, amount added to target' });
+    const existing = await findReceiptByLogId(logId);
+    let receipt = existing || null;
+    if (!existing) {
+      const project = donorProfile?.project_supported || 'bsct';
+      const donorName = donorProfile?.name || 'Unknown';
+      const lastNo = await getLastReceiptNo(project);
+      const receiptNo = generateReceiptNo(project, lastNo);
+
+      receipt = await createReceipt({
+        log_id: parseInt(logId),
+        receipt_no: receiptNo,
+        project_id: project,
+        donor_name: donorName,
+        amount: log.amount_collected || 0,
+        pan_number: pan_number || log.pan_number || donorProfile?.pan_number || null,
+        address: donor_address || donorProfile?.address_1 || null,
+        mode: payment_mode || null,
+        purpose: 'General Donation',
+        generated_by: req.user.id,
+      });
+    }
+
+    return res.json({ message: 'Lead verified, receipt generated', receipt });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -3,7 +3,6 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { TimePicker } from '../../fro/components/TimePicker';
 import { apiGet, apiPost } from '../api/auth';
-import { getReceipt, generateReceipt as apiGenerateReceipt } from '../api/receipts';
 import { generateReceiptPDF } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
@@ -12,6 +11,7 @@ import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
 const DB_TO_TEMPLATE = { maan: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { maan: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
+const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Cheque', 'NEFT'];
 
 function getTemplateId(projectId) {
   return DB_TO_TEMPLATE[projectId] || 'beingsevak';
@@ -82,14 +82,16 @@ export default function LeadDetail({ logId, onBack }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
-  const [receiptLoading, setReceiptLoading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
 
   const [form, setForm] = useState({
     donor_name: '', donor_mobile: '', donor_city: '', donor_email: '', donor_address: '', donor_pan: '',
     upi_transaction_id: '', transaction_date: null, transaction_time: '', payment_from: '',
-    pan_input: '', mode_input: '',
+    payment_mode: 'UPI',
   });
 
   const receiptRef = useRef(null);
@@ -114,8 +116,7 @@ export default function LeadDetail({ logId, onBack }) {
             transaction_date: date,
             transaction_time: time,
             payment_from: ll.payment_from || '',
-            pan_input: ll.pan_number || ll.donor_pan || '',
-            mode_input: '',
+            payment_mode: ll.payment_mode || 'UPI',
           });
           hasInitRef.current = true;
         }
@@ -124,12 +125,12 @@ export default function LeadDetail({ logId, onBack }) {
       .finally(() => setLoading(false));
   };
 
-  const loadReceipt = () => {
-    setReceiptLoading(true);
-    getReceipt(logId)
-      .then(r => setReceipt(r || null))
-      .catch(() => setReceipt(null))
-      .finally(() => setReceiptLoading(false));
+  const loadReceipt = async () => {
+    if (!lead) return;
+    try {
+      const r = await apiGet(`/accounts/leads/${lead.log_id}/receipt`);
+      setReceipt(r || null);
+    } catch { setReceipt(null); }
   };
 
   useEffect(() => { load(); }, [logId]);
@@ -140,11 +141,12 @@ export default function LeadDetail({ logId, onBack }) {
   const setField = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
   const handleVerify = async () => {
-    if (!lead || !window.confirm('Verify this lead and mark amount as collected?')) return;
+    if (!lead) return;
+    setConfirmOpen(false);
     setSubmitting(true);
     try {
-      await apiPost(`/accounts/leads/${lead.log_id}/verify`, {
-        pan_number: form.donor_pan || form.pan_input || null,
+      const res = await apiPost(`/accounts/leads/${lead.log_id}/verify`, {
+        pan_number: form.donor_pan || form.donor_pan || null,
         donor_name: form.donor_name || null,
         donor_mobile: form.donor_mobile || null,
         donor_city: form.donor_city || null,
@@ -154,36 +156,24 @@ export default function LeadDetail({ logId, onBack }) {
         upi_transaction_id: form.upi_transaction_id || null,
         transaction_datetime: combineDatetime(form.transaction_date, form.transaction_time),
         payment_from: form.payment_from || null,
+        payment_mode: form.payment_mode || 'UPI',
       });
+      if (res.receipt) setReceipt(res.receipt);
       load();
     } catch (err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
 
   const handleReject = async () => {
-    if (!lead) return;
-    const reason = prompt('Enter rejection reason:');
-    if (!reason) return;
+    if (!lead || !rejectReason.trim()) return;
+    setRejectOpen(false);
     setSubmitting(true);
     try {
-      await apiPost(`/accounts/leads/${lead.log_id}/reject`, { reason });
+      await apiPost(`/accounts/leads/${lead.log_id}/reject`, { reason: rejectReason });
+      setRejectReason('');
       load();
     } catch (err) { alert(err.message); }
     finally { setSubmitting(false); }
-  };
-
-  const handleGenerateReceipt = async () => {
-    if (!lead) return;
-    setReceiptLoading(true);
-    try {
-      const body = {};
-      if (form.pan_input.trim()) body.pan_number = form.pan_input.trim();
-      if (form.mode_input.trim()) body.mode = form.mode_input.trim();
-      const res = await apiGenerateReceipt(logId, body);
-      setReceipt(res.receipt);
-      setShowModal(true);
-    } catch (err) { alert(err.message); }
-    finally { setReceiptLoading(false); }
   };
 
   const handleDownload = async () => {
@@ -216,7 +206,6 @@ export default function LeadDetail({ logId, onBack }) {
   const projectId = (l.donor_project || '').toLowerCase();
   const templateId = getTemplateId(projectId);
   const ReceiptComp = TEMPLATES[templateId];
-  const canGenerate = l.accounts_status === 'verified';
   const donor = receipt ? buildDonor(receipt) : null;
 
   return (
@@ -231,7 +220,7 @@ export default function LeadDetail({ logId, onBack }) {
             <>
               <span className="pill pill-green">Verified</span>
               {receipt && (
-                <button className="btn btn-sm btn-primary" onClick={() => setShowModal(true)}>
+                <button className="btn btn-sm btn-primary" onClick={() => setShowReceipt(true)}>
                   View Receipt
                 </button>
               )}
@@ -275,36 +264,23 @@ export default function LeadDetail({ logId, onBack }) {
                 <div><div className="label">Amount</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.amount)}</div></div>
                 <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>({l.agent_login})</span></div></div>
                 <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div></div>
-                <div><div className="label">Status</div><div>
-                  {l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
-                   l.accounts_status === 'rejected' ? <span className="pill pill-red">Rejected</span> :
-                   <span className="pill pill-yellow">Pending</span>}
-                </div></div>
+                <div>
+                  <div className="label">Payment Mode</div>
+                  <select className="field-input" value={form.payment_mode} onChange={e => setField('payment_mode', e.target.value)}>
+                    {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
                 <div>
                   <div className="label">UPI Transaction ID</div>
                   <input className="field-input" value={form.upi_transaction_id} onChange={e => setField('upi_transaction_id', e.target.value)} placeholder="e.g. UPI123456789" />
                 </div>
                 <div>
                   <div className="label">Date</div>
-                  <DatePicker
-                    selected={form.transaction_date}
-                    onChange={date => setField('transaction_date', date)}
-                    dateFormat="dd/MM/yyyy"
-                    placeholderText="Select date"
-                    isClearable
-                    showYearDropdown
-                    scrollableYearDropdown
-                    yearDropdownItemNumber={50}
-                    className="datepicker-input"
-                  />
+                  <DatePicker selected={form.transaction_date} onChange={date => setField('transaction_date', date)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" />
                 </div>
                 <div>
                   <div className="label">Time</div>
-                  <TimePicker
-                    value={form.transaction_time}
-                    onChange={e => setField('transaction_time', e.target.value)}
-                    placeholder="Select time"
-                  />
+                  <TimePicker value={form.transaction_time} onChange={e => setField('transaction_time', e.target.value)} placeholder="Select time" />
                 </div>
                 <div>
                   <div className="label">From (Sender Name)</div>
@@ -318,30 +294,12 @@ export default function LeadDetail({ logId, onBack }) {
             <div className="card-head"><h3>Donor Information</h3></div>
             <div className="card-pad">
               <div className="info-grid">
-                <div>
-                  <div className="label">Name</div>
-                  <input className="field-input" value={form.donor_name} onChange={e => setField('donor_name', e.target.value)} placeholder="Donor name" />
-                </div>
-                <div>
-                  <div className="label">Mobile</div>
-                  <input className="field-input" value={form.donor_mobile} onChange={e => setField('donor_mobile', e.target.value)} placeholder="Mobile number" />
-                </div>
-                <div>
-                  <div className="label">City</div>
-                  <input className="field-input" value={form.donor_city} onChange={e => setField('donor_city', e.target.value)} placeholder="City" />
-                </div>
-                <div>
-                  <div className="label">Email</div>
-                  <input className="field-input" value={form.donor_email} onChange={e => setField('donor_email', e.target.value)} placeholder="donor@email.com" />
-                </div>
-                <div>
-                  <div className="label">Address</div>
-                  <input className="field-input" value={form.donor_address} onChange={e => setField('donor_address', e.target.value)} placeholder="Address" />
-                </div>
-                <div>
-                  <div className="label">PAN</div>
-                  <input className="field-input" value={form.donor_pan} onChange={e => setField('donor_pan', e.target.value)} placeholder="ABCDE1234F" />
-                </div>
+                <div><div className="label">Name</div><input className="field-input" value={form.donor_name} onChange={e => setField('donor_name', e.target.value)} placeholder="Donor name" /></div>
+                <div><div className="label">Mobile</div><input className="field-input" value={form.donor_mobile} onChange={e => setField('donor_mobile', e.target.value)} placeholder="Mobile number" /></div>
+                <div><div className="label">City</div><input className="field-input" value={form.donor_city} onChange={e => setField('donor_city', e.target.value)} placeholder="City" /></div>
+                <div><div className="label">Email</div><input className="field-input" value={form.donor_email} onChange={e => setField('donor_email', e.target.value)} placeholder="donor@email.com" /></div>
+                <div><div className="label">Address</div><input className="field-input" value={form.donor_address} onChange={e => setField('donor_address', e.target.value)} placeholder="Address" /></div>
+                <div><div className="label">PAN</div><input className="field-input" value={form.donor_pan} onChange={e => setField('donor_pan', e.target.value)} placeholder="ABCDE1234F" /></div>
                 <div><div className="label">DOB</div><div className="value">{l.donor_dob || '\u2014'}</div></div>
                 <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
                 <div><div className="label">Donations</div><div className="value">{l.donation_count || 0} times</div></div>
@@ -367,27 +325,6 @@ export default function LeadDetail({ logId, onBack }) {
         </div>
       </div>
 
-      {canGenerate && !receipt && (
-        <div className="card">
-          <div className="card-head"><h3>Generate Receipt</h3></div>
-          <div className="card-pad">
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', fontSize: 13 }}>
-              <label className="field" style={{ flex: 1, minWidth: 140 }}>
-                PAN (optional)
-                <input className="field-input" value={form.pan_input} onChange={e => setField('pan_input', e.target.value)} placeholder="Enter PAN" />
-              </label>
-              <label className="field" style={{ flex: 1, minWidth: 140 }}>
-                Mode (optional)
-                <input className="field-input" value={form.mode_input} onChange={e => setField('mode_input', e.target.value)} placeholder="e.g. UPI, Cash" />
-              </label>
-              <button className="btn btn-primary" onClick={handleGenerateReceipt} disabled={receiptLoading} style={{ marginBottom: 4 }}>
-                {receiptLoading ? 'Generating...' : 'Generate Receipt'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showScreenshot && l.screenshot_url && (
         <div className="modal-overlay" onClick={() => setShowScreenshot(false)} style={{ cursor: 'zoom-out' }}>
           <img src={l.screenshot_url} alt="Payment screenshot" style={{ maxWidth: '90%', maxHeight: '90%', borderRadius: 8 }} />
@@ -397,28 +334,62 @@ export default function LeadDetail({ logId, onBack }) {
       {l.accounts_status === 'pending' && (
         <div className="action-bar">
           <div style={{ display: 'flex', gap: 12, maxWidth: 600, margin: '0 auto', width: '100%' }}>
-            <button onClick={handleReject} disabled={submitting} className="reject-btn" style={{ flex: 1 }}>
+            <button onClick={() => setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{ flex: 1 }}>
               {submitting ? 'Rejecting...' : '\u2716 Reject'}
             </button>
-            <button onClick={handleVerify} disabled={submitting} className="verify-btn" style={{ flex: 2 }}>
+            <button onClick={() => setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{ flex: 2 }}>
               {submitting ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />Saving</span> : '\u2714 Verify & Save'}
             </button>
           </div>
         </div>
       )}
 
-      {showModal && receipt && donor && ReceiptComp && (
+      {confirmOpen && (
         <>
-          <div className="modal-overlay" onClick={() => setShowModal(false)} />
+          <div className="modal-overlay" onClick={() => setConfirmOpen(false)} />
+          <div className="modal" style={{ maxWidth: 420, width: '90%' }}>
+            <div className="modal-header"><h3>Confirm Verification</h3></div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              <p style={{ margin: '0 0 6px', fontSize: 14 }}>Verify this lead and mark amount as collected?</p>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>A receipt will be auto-generated on verification.</p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button className="btn btn-sm" onClick={() => setConfirmOpen(false)}>Cancel</button>
+                <button className="verify-btn" onClick={handleVerify}>{'\u2714 Confirm & Save'}</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {rejectOpen && (
+        <>
+          <div className="modal-overlay" onClick={() => setRejectOpen(false)} />
+          <div className="modal" style={{ maxWidth: 420, width: '90%' }}>
+            <div className="modal-header"><h3>Reject Lead</h3></div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              <label className="field" style={{ display: 'block', marginBottom: 16 }}>
+                <span style={{ fontSize: 11, color: 'var(--ink-soft)', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Reason</span>
+                <textarea className="field-input" value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Enter rejection reason..." rows={3} style={{ resize: 'vertical' }} autoFocus />
+              </label>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-sm" onClick={() => { setRejectOpen(false); setRejectReason(''); }}>Cancel</button>
+                <button className="reject-btn" onClick={handleReject} disabled={!rejectReason.trim()} style={{ background: '#dc2626', color: '#fff', border: 'none' }}>Reject</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showReceipt && receipt && donor && ReceiptComp && (
+        <>
+          <div className="modal-overlay" onClick={() => setShowReceipt(false)} />
           <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto' }}>
             <div className="modal-header">
               <h3>Receipt Preview</h3>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-primary btn-sm" onClick={handleDownload}>Download PDF</button>
-                <button className="btn btn-sm" style={{ background: '#25D366', color: '#fff' }} onClick={handleSendWhatsApp}>
-                  Send via WhatsApp
-                </button>
-                <button className="btn btn-sm" onClick={() => setShowModal(false)}>Close</button>
+                <button className="btn btn-sm" style={{ background: '#25D366', color: '#fff' }} onClick={handleSendWhatsApp}>Send via WhatsApp</button>
+                <button className="btn btn-sm" onClick={() => setShowReceipt(false)}>Close</button>
               </div>
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
@@ -432,141 +403,52 @@ export default function LeadDetail({ logId, onBack }) {
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        .verify-btn {
-          padding: 10px 22px; font-size: 13px; font-weight: 600;
-          background: linear-gradient(135deg, #059669, #047857);
-          color: #fff; border: none; border-radius: 10px; cursor: pointer;
-          transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-          box-shadow: 0 2px 8px rgba(5,150,105,0.25);
-          letter-spacing: 0.3px;
-        }
-        .verify-btn:hover:not(:disabled) {
-          background: linear-gradient(135deg, #047857, #065f46);
-          transform: translateY(-1px); box-shadow: 0 6px 20px rgba(5,150,105,0.35);
-        }
-        .verify-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-
-        .reject-btn {
-          padding: 10px 22px; font-size: 13px; font-weight: 500;
-          background: #fff; color: #dc2626;
-          border: 1.5px solid #fecaca; border-radius: 10px; cursor: pointer;
-          transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-          letter-spacing: 0.3px;
-        }
-        .reject-btn:hover:not(:disabled) {
-          background: #fef2f2; border-color: #fca5a5;
-          transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.1);
-        }
-        .reject-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-        .field-input {
-          width: 100%; box-sizing: border-box;
-          padding: 8px 12px; font-size: 13px;
-          border: 1px solid #e5e7eb; border-radius: 8px;
-          outline: none; background: #f9fafb; color: #1f2937;
-          transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-        }
-        .field-input:focus {
-          border-color: var(--sage, #5B6B4E);
-          box-shadow: 0 0 0 3px rgba(91,107,78,0.08);
-          background: #fff;
-        }
-        .field-input::placeholder { color: #9ca3af; }
-
-        .action-bar {
-          position: fixed; bottom: 0; left: 240px; right: 0; z-index: 50;
-          background: rgba(255,255,255,0.97);
-          backdrop-filter: blur(16px);
-          border-top: 1px solid #e5e7eb;
-          padding: 10px 24px;
-          display: flex; justify-content: center;
-          box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
-        }
-        @media (max-width: 952px) {
-          .action-bar { left: 0; }
-        }
-
-        .datepicker-input {
-          width: 100%; box-sizing: border-box;
-          padding: 8px 12px; font-size: 13px;
-          border: 1px solid #e5e7eb; border-radius: 8px;
-          outline: none; background: #f9fafb; color: #1f2937;
-        }
-        .datepicker-input:focus {
-          border-color: var(--sage, #4ade80);
-          box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
-        }
-
-        .react-datepicker {
-          font-family: inherit; font-size: 13px;
-          border: 1px solid #e5e7eb; border-radius: 10px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        }
-        .react-datepicker__header {
-          background: #f0fdf4; border-bottom: 1px solid #dcfce7;
-          border-radius: 10px 10px 0 0; padding-top: 10px;
-        }
-        .react-datepicker__current-month {
-          font-weight: 600; color: #166534; font-size: 14px;
-        }
-        .react-datepicker__day-name {
-          color: #6b7280; font-weight: 500; font-size: 11px; width: 32px;
-        }
-        .react-datepicker__day {
-          width: 32px; height: 32px; line-height: 32px; border-radius: 8px;
-          margin: 1px; color: #374151;
-        }
-        .react-datepicker__day:hover {
-          background: #dcfce7; border-radius: 8px;
-        }
-        .react-datepicker__day--selected, .react-datepicker__day--keyboard-selected {
-          background: #166534 !important; color: #fff !important; border-radius: 8px;
-        }
-        .react-datepicker__day--today {
-          font-weight: 700; color: #166534; background: #f0fdf4;
-        }
-        .react-datepicker__navigation {
-          top: 10px;
-        }
-        .react-datepicker__year-dropdown-container {
-          margin-left: 5px;
-        }
-        .react-datepicker__year-select {
-          padding: 2px 6px; font-size: 13px;
-          border: 1px solid #d1d5db; border-radius: 4px;
-          background: #fff; color: #166534; font-weight: 600;
-          cursor: pointer; outline: none;
-        }
-        .react-datepicker__close-icon::after {
-          background: #9ca3af; font-size: 14px; height: 16px; width: 16px;
-        }
-        .react-datepicker__triangle { display: none; }
-
-        .modal-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .modal-header {
-          display: flex; justify-content: space-between; align-items: center;
-          padding: 14px 20px; border-bottom: 1px solid #e5e7eb;
-        }
-        .modal-header h3 { margin: 0; font-size: 16px; }
-        .modal-body { overflow: auto; max-height: calc(90vh - 70px); }
+        .verify-btn { padding:10px 22px; font-size:13px; font-weight:600; background:linear-gradient(135deg,#059669,#047857); color:#fff; border:none; border-radius:10px; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; justify-content:center; gap:6px; box-shadow:0 2px 8px rgba(5,150,105,.25); letter-spacing:.3px; }
+        .verify-btn:hover:not(:disabled) { background:linear-gradient(135deg,#047857,#065f46); transform:translateY(-1px); box-shadow:0 6px 20px rgba(5,150,105,.35); }
+        .verify-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+        .reject-btn { padding:10px 22px; font-size:13px; font-weight:500; background:#fff; color:#dc2626; border:1.5px solid #fecaca; border-radius:10px; cursor:pointer; transition:all .2s; display:inline-flex; align-items:center; justify-content:center; gap:6px; letter-spacing:.3px; }
+        .reject-btn:hover:not(:disabled) { background:#fef2f2; border-color:#fca5a5; transform:translateY(-1px); box-shadow:0 4px 12px rgba(220,38,38,.1); }
+        .reject-btn:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+        .field-input { width:100%; box-sizing:border-box; padding:8px 12px; font-size:13px; border:1px solid #e5e7eb; border-radius:8px; outline:none; background:#f9fafb; color:#1f2937; transition:border-color .15s,box-shadow .15s,background .15s; }
+        .field-input:focus { border-color:var(--sage,#5B6B4E); box-shadow:0 0 0 3px rgba(91,107,78,.08); background:#fff; }
+        .field-input::placeholder { color:#9ca3af; }
+        .action-bar { position:fixed; bottom:0; left:240px; right:0; z-index:50; background:rgba(255,255,255,.97); backdrop-filter:blur(16px); border-top:1px solid #e5e7eb; padding:10px 24px; display:flex; justify-content:center; box-shadow:0 -2px 12px rgba(0,0,0,.06); }
+        @media (max-width:952px) { .action-bar { left:0; } }
+        .datepicker-input { width:100%; box-sizing:border-box; padding:8px 12px; font-size:13px; border:1px solid #e5e7eb; border-radius:8px; outline:none; background:#f9fafb; color:#1f2937; }
+        .datepicker-input:focus { border-color:var(--sage,#4ade80); box-shadow:0 0 0 2px rgba(74,222,128,.15); }
+        .react-datepicker { font-family:inherit; font-size:13px; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,.08); }
+        .react-datepicker__header { background:#f0fdf4; border-bottom:1px solid #dcfce7; border-radius:10px 10px 0 0; padding-top:10px; }
+        .react-datepicker__current-month { font-weight:600; color:#166534; font-size:14px; }
+        .react-datepicker__day-name { color:#6b7280; font-weight:500; font-size:11px; width:32px; }
+        .react-datepicker__day { width:32px; height:32px; line-height:32px; border-radius:8px; margin:1px; color:#374151; }
+        .react-datepicker__day:hover { background:#dcfce7; border-radius:8px; }
+        .react-datepicker__day--selected,.react-datepicker__day--keyboard-selected { background:#166534!important; color:#fff!important; border-radius:8px; }
+        .react-datepicker__day--today { font-weight:700; color:#166534; background:#f0fdf4; }
+        .react-datepicker__navigation { top:10px; }
+        .react-datepicker__year-dropdown-container { margin-left:5px; }
+        .react-datepicker__year-select { padding:2px 6px; font-size:13px; border:1px solid #d1d5db; border-radius:4px; background:#fff; color:#166534; font-weight:600; cursor:pointer; outline:none; }
+        .react-datepicker__close-icon::after { background:#9ca3af; font-size:14px; height:16px; width:16px; }
+        .react-datepicker__triangle { display:none; }
+        select.field-input { cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position:right 8px center; background-repeat:no-repeat; background-size:16px; padding-right:32px; }
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:999; display:flex; align-items:center; justify-content:center; }
+        .modal { position:relative; background:#fff; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,.2); z-index:1000; }
+        .modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid #e5e7eb; }
+        .modal-header h3 { margin:0; font-size:16px; }
+        .modal-body { overflow:auto; max-height:calc(90vh - 70px); }
         @media print {
-          @page { size: A4 portrait; margin: 8mm; }
-          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-          body * { visibility: hidden; }
-          [data-receipt-print], [data-receipt-print] * { visibility: visible; }
-          .modal-overlay { display: none !important; }
-          .modal-header { display: none !important; }
-          .modal { position: static !important; transform: none !important; width: 100% !important; max-width: none !important; max-height: none !important; overflow: visible !important; box-shadow: none !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; }
-          .modal-body { padding: 0 !important; margin: 0 !important; max-height: none !important; overflow: visible !important; display: flex !important; justify-content: center !important; }
-          [data-receipt-print] { position: relative; width: 100%; margin: -8mm 0 0 !important; padding: 0 !important; display: flex !important; justify-content: center !important; }
-          [data-receipt-print] [data-receipt-sheet] { margin: 0 auto !important; max-width: none !important; break-inside: avoid; page-break-inside: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          [data-receipt-print] [data-pdf-width="1000"] { zoom: 0.68; }
-          [data-receipt-print] [data-pdf-width="900"] { zoom: 0.75; }
-          [data-receipt-print] [data-pdf-width="794"] { zoom: 0.85; }
+          @page{size:A4 portrait;margin:8mm}
+          html,body{margin:0!important;padding:0!important;background:#fff!important}
+          body *{visibility:hidden}
+          [data-receipt-print],[data-receipt-print] *{visibility:visible}
+          .modal-overlay{display:none!important}
+          .modal-header{display:none!important}
+          .modal{position:static!important;transform:none!important;width:100%!important;max-width:none!important;max-height:none!important;overflow:visible!important;box-shadow:none!important;border-radius:0!important;margin:0!important;padding:0!important}
+          .modal-body{padding:0!important;margin:0!important;max-height:none!important;overflow:visible!important;display:flex!important;justify-content:center!important}
+          [data-receipt-print]{position:relative;width:100%;margin:-8mm 0 0!important;padding:0!important;display:flex!important;justify-content:center!important}
+          [data-receipt-print] [data-receipt-sheet]{margin:0 auto!important;max-width:none!important;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          [data-receipt-print] [data-pdf-width="1000"]{zoom:.68}
+          [data-receipt-print] [data-pdf-width="900"]{zoom:.75}
+          [data-receipt-print] [data-pdf-width="794"]{zoom:.85}
         }
       `}</style>
     </div>
