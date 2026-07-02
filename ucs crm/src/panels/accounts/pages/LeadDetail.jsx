@@ -269,6 +269,52 @@ export default function LeadDetail({ logId, onBack }) {
       <div className="two-col detail-layout">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
+            <div className="card-head"><h3>Payment & Transaction Details</h3></div>
+            <div className="card-pad">
+              <div className="info-grid">
+                <div><div className="label">Amount</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.amount)}</div></div>
+                <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>({l.agent_login})</span></div></div>
+                <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div></div>
+                <div><div className="label">Status</div><div>
+                  {l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
+                   l.accounts_status === 'rejected' ? <span className="pill pill-red">Rejected</span> :
+                   <span className="pill pill-yellow">Pending</span>}
+                </div></div>
+                <div>
+                  <div className="label">UPI Transaction ID</div>
+                  <input className="field-input" value={form.upi_transaction_id} onChange={e => setField('upi_transaction_id', e.target.value)} placeholder="e.g. UPI123456789" />
+                </div>
+                <div>
+                  <div className="label">Date</div>
+                  <DatePicker
+                    selected={form.transaction_date}
+                    onChange={date => setField('transaction_date', date)}
+                    dateFormat="dd/MM/yyyy"
+                    placeholderText="Select date"
+                    isClearable
+                    showYearDropdown
+                    scrollableYearDropdown
+                    yearDropdownItemNumber={50}
+                    className="datepicker-input"
+                  />
+                </div>
+                <div>
+                  <div className="label">Time</div>
+                  <TimePicker
+                    value={form.transaction_time}
+                    onChange={e => setField('transaction_time', e.target.value)}
+                    placeholder="Select time"
+                  />
+                </div>
+                <div>
+                  <div className="label">From (Sender Name)</div>
+                  <input className="field-input" value={form.payment_from} onChange={e => setField('payment_from', e.target.value)} placeholder="e.g. Name on UPI" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
             <div className="card-head"><h3>Donor Information</h3></div>
             <div className="card-pad">
               <div className="info-grid">
@@ -300,60 +346,6 @@ export default function LeadDetail({ logId, onBack }) {
                 <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
                 <div><div className="label">Donations</div><div className="value">{l.donation_count || 0} times</div></div>
                 <div><div className="label">Total Donated</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.total_donated)}</div></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head"><h3>Payment Details</h3></div>
-            <div className="card-pad">
-              <div className="info-grid">
-                <div><div className="label">Amount</div><div className="value-mono" style={{ color: 'var(--sage)' }}>{currency(l.amount)}</div></div>
-                <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>({l.agent_login})</span></div></div>
-                <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div></div>
-                <div><div className="label">Status</div><div>
-                  {l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
-                   l.accounts_status === 'rejected' ? <span className="pill pill-red">Rejected</span> :
-                   <span className="pill pill-yellow">Pending</span>}
-                </div></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head"><h3>Transaction Details</h3></div>
-            <div className="card-pad">
-              <div className="info-grid">
-                <div>
-                  <div className="label">UPI Transaction ID</div>
-                  <input className="field-input" value={form.upi_transaction_id} onChange={e => setField('upi_transaction_id', e.target.value)} placeholder="e.g. UPI123456789" />
-                </div>
-                <div>
-                  <div className="label">Date</div>
-                  <DatePicker
-                    selected={form.transaction_date}
-                    onChange={date => setField('transaction_date', date)}
-                    dateFormat="dd/MM/yyyy"
-                    placeholderText="Select date"
-                    isClearable
-                    showYearDropdown
-                    scrollableYearDropdown
-                    yearDropdownItemNumber={50}
-                    className="datepicker-input"
-                  />
-                </div>
-                <div>
-                  <div className="label">Time</div>
-                  <TimePicker
-                    value={form.transaction_time}
-                    onChange={e => setField('transaction_time', e.target.value)}
-                    placeholder="Select time"
-                  />
-                </div>
-                <div>
-                  <div className="label">From (Sender Name)</div>
-                  <input className="field-input" value={form.payment_from} onChange={e => setField('payment_from', e.target.value)} placeholder="e.g. Name on UPI" />
-                </div>
               </div>
             </div>
           </div>
