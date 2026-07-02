@@ -406,12 +406,13 @@ export const getMyDonors = async (req, res) => {
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
-    const { data: recentActivity } = await supabase
+    const { data: recentActivity, error: recentError } = await supabase
       .from('fro_donor_logs')
       .select('donor_id')
       .in('donor_id', donorIds)
       .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
       .gte('created_at', oneYearAgo.toISOString());
+    if (recentError) throw recentError;
 
     const activeDonorIds = new Set((recentActivity || []).map(l => l.donor_id));
 
@@ -471,7 +472,7 @@ export const getMyDonors = async (req, res) => {
     const leadDoneDonorIds = result.filter(r => r.status === 'lead_done').map(r => r.donor_id);
     let hiddenLeadDoneIds = new Set();
     if (leadDoneDonorIds.length > 0) {
-      const { data: leadDoneLogs } = await supabase
+      const { data: leadDoneLogs, error: leadError } = await supabase
         .from('fro_donor_logs')
         .select('donor_id')
         .in('donor_id', leadDoneDonorIds)
@@ -479,6 +480,7 @@ export const getMyDonors = async (req, res) => {
         .eq('action', 'disposition')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
+      if (leadError) throw leadError;
       hiddenLeadDoneIds = new Set((leadDoneLogs || []).map(l => l.donor_id));
     }
 
