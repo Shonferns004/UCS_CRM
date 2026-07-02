@@ -234,22 +234,6 @@ export default function LeadDetail({ logId, onBack }) {
           <div style={{ fontSize: 14, fontWeight: 600 }}>Lead Details</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {l.accounts_status === 'pending' && (
-            <>
-              <button
-                onClick={handleVerify} disabled={submitting}
-                className="verify-btn"
-              >
-                {submitting ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />Saving</span> : '\u2714 Verify'}
-              </button>
-              <button
-                onClick={handleReject} disabled={submitting}
-                className="reject-btn"
-              >
-                {submitting ? '...' : '\u2716 Reject'}
-              </button>
-            </>
-          )}
           {l.accounts_status === 'verified' && (
             <>
               <span className="pill pill-green">Verified</span>
@@ -425,6 +409,19 @@ export default function LeadDetail({ logId, onBack }) {
         </div>
       )}
 
+      {l.accounts_status === 'pending' && (
+        <div className="action-bar">
+          <div style={{ display: 'flex', gap: 12, maxWidth: 600, margin: '0 auto', width: '100%' }}>
+            <button onClick={handleReject} disabled={submitting} className="reject-btn" style={{ flex: 1 }}>
+              {submitting ? 'Rejecting...' : '\u2716 Reject'}
+            </button>
+            <button onClick={handleVerify} disabled={submitting} className="verify-btn" style={{ flex: 2 }}>
+              {submitting ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />Saving</span> : '\u2714 Verify & Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {showModal && receipt && donor && ReceiptComp && (
         <>
           <div className="modal-overlay" onClick={() => setShowModal(false)} />
@@ -474,6 +471,15 @@ export default function LeadDetail({ logId, onBack }) {
           transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.12);
         }
         .reject-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .action-bar {
+          position: sticky; bottom: 0; z-index: 50;
+          background: linear-gradient(0deg, rgba(255,255,255,0.97), rgba(245,246,250,0.95));
+          backdrop-filter: blur(12px);
+          border-top: 1px solid #e5e7eb;
+          padding: 14px 24px; margin: 20px -24px -24px;
+          display: flex; justify-content: center;
+        }
 
         .datepicker-input {
           width: 100%; box-sizing: border-box;
