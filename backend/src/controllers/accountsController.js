@@ -73,7 +73,11 @@ export const getLeadList = async (req, res) => {
 export const verifyLead = async (req, res) => {
   try {
     const { logId } = req.params;
-    const { pan_number, notes } = req.body;
+    const {
+      pan_number, notes,
+      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address,
+      upi_transaction_id, transaction_datetime, payment_from,
+    } = req.body;
 
     const { data: log, error: logError } = await supabase
       .from('fro_donor_logs')
@@ -94,15 +98,20 @@ export const verifyLead = async (req, res) => {
       return res.status(400).json({ message: 'Associated assignment not found' });
     }
 
+    const logUpdate = {
+      accounts_status: 'verified',
+      verified_at: new Date().toISOString(),
+      verified_by: req.user.id,
+      pan_number: pan_number || log.pan_number || null,
+      notes: notes || log.notes || null,
+    };
+    if (upi_transaction_id !== undefined) logUpdate.upi_transaction_id = upi_transaction_id || null;
+    if (transaction_datetime !== undefined) logUpdate.transaction_datetime = transaction_datetime || null;
+    if (payment_from !== undefined) logUpdate.payment_from = payment_from || null;
+
     const { error: updateLogError } = await supabase
       .from('fro_donor_logs')
-      .update({
-        accounts_status: 'verified',
-        verified_at: new Date().toISOString(),
-        verified_by: req.user.id,
-        pan_number: pan_number || log.pan_number || null,
-        notes: notes || log.notes || null,
-      })
+      .update(logUpdate)
       .eq('id', logId);
 
     if (updateLogError) throw updateLogError;
@@ -119,7 +128,12 @@ export const verifyLead = async (req, res) => {
 
     if (log.fro_assignments?.donor_id) {
       const donorUpdate = { updated_at: new Date().toISOString() };
-      if (pan_number) donorUpdate.pan_number = pan_number;
+      if (donor_name !== undefined) donorUpdate.name = donor_name || null;
+      if (donor_mobile !== undefined) donorUpdate.mobile_number = donor_mobile || null;
+      if (donor_city !== undefined) donorUpdate.city = donor_city || null;
+      if (donor_email !== undefined) donorUpdate.email = donor_email || null;
+      if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
+      if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
       try {
         const { data: donor } = await supabase
           .from('donor_profiles')

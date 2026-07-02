@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiGet, apiPost, apiPatch } from '../api/auth';
+import { useState, useEffect, useRef } from 'react';
+import { apiGet, apiPost } from '../api/auth';
 import { getReceipt, generateReceipt as apiGenerateReceipt } from '../api/receipts';
 import { generateReceiptPDF } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
@@ -30,117 +30,6 @@ function buildDonor(receipt) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
-function toDatetimeLocal(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${y}-${m}-${day}T${h}:${min}`;
-  } catch {
-    return '';
-  }
-}
-
-function formatDatetime(iso) {
-  if (!iso) return '\u2014';
-  try {
-    return new Date(iso).toLocaleDateString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function EditableField({ value, field, logId, onSave, type = 'text', placeholder = '' }) {
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [saving, setSaving] = useState(false);
-  const inputRef = useRef(null);
-
-  const startEdit = () => {
-    const v = type === 'datetime-local' ? toDatetimeLocal(value) : (value || '');
-    setInputValue(v);
-    setEditing(true);
-  };
-
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus();
-      if (type === 'text') inputRef.current.select();
-    }
-  }, [editing]);
-
-  const save = useCallback(async () => {
-    const newVal = inputValue.trim();
-    if (newVal === (value || '')) {
-      setEditing(false);
-      return;
-    }
-    setSaving(true);
-    try {
-      await apiPatch(`/accounts/leads/${logId}/field`, { field, value: newVal });
-      onSave(field, newVal || null);
-      setEditing(false);
-    } catch (err) {
-      alert('Failed to update: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
-  }, [inputValue, value, field, logId, onSave]);
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); save(); }
-    if (e.key === 'Escape') { setEditing(false); }
-  };
-
-  if (editing) {
-    return (
-      <div style={{ position: 'relative' }}>
-        {type === 'datetime-local' ? (
-          <input
-            ref={inputRef}
-            type="datetime-local"
-            value={inputValue}
-            onChange={e => setInputValue(e.target.value)}
-            onBlur={save}
-            onKeyDown={handleKeyDown}
-            disabled={saving}
-            className="editable-input"
-          />
-        ) : (
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputValue}
-            onChange={e => setInputValue(e.target.value)}
-            onBlur={save}
-            onKeyDown={handleKeyDown}
-            disabled={saving}
-            placeholder={placeholder}
-            className="editable-input"
-          />
-        )}
-        {saving && (
-          <span style={{ position: 'absolute', right: 6, top: 6, fontSize: 11, color: 'var(--ink-soft)' }}>...</span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="editable-value" onClick={startEdit} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span>{value || '\u2014'}</span>
-      <span className="edit-icon" style={{ fontSize: 12, opacity: 0.3, transition: 'opacity 0.15s' }}>&#9998;</span>
-    </div>
-  );
-}
-
 function ScreenshotImage({ src, onClick }) {
   const [loaded, setLoaded] = useState(false);
   return (
@@ -163,6 +52,13 @@ function ScreenshotImage({ src, onClick }) {
   );
 }
 
+const inputStyle = {
+  width: '100%', boxSizing: 'border-box',
+  padding: '6px 10px', fontSize: 13,
+  border: '1px solid #d1d5db', borderRadius: 6,
+  outline: 'none', background: '#fff', color: '#1f2937',
+};
+
 export default function LeadDetail({ logId, onBack }) {
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -171,15 +67,39 @@ export default function LeadDetail({ logId, onBack }) {
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showScreenshot, setShowScreenshot] = useState(false);
-  const [panInput, setPanInput] = useState('');
-  const [modeInput, setModeInput] = useState('');
+
+  const [form, setForm] = useState({
+    donor_name: '', donor_mobile: '', donor_city: '', donor_email: '', donor_address: '', donor_pan: '',
+    upi_transaction_id: '', transaction_datetime: '', payment_from: '',
+    pan_input: '', mode_input: '',
+  });
+
   const receiptRef = useRef(null);
+  const hasInitRef = useRef(false);
 
   const load = () => {
     setLoading(true);
     apiGet('/accounts/leads')
-      .then(all => all.find(l => l.log_id === parseInt(logId)))
-      .then(l => setLead(l || null))
+      .then(all => all.find(ll => ll.log_id === parseInt(logId)))
+      .then(ll => { setLead(ll || null); return ll; })
+      .then(ll => {
+        if (ll && !hasInitRef.current) {
+          setForm({
+            donor_name: ll.donor_name || '',
+            donor_mobile: ll.donor_mobile || '',
+            donor_city: ll.donor_city || '',
+            donor_email: ll.donor_email || '',
+            donor_address: ll.donor_address || '',
+            donor_pan: ll.pan_number || ll.donor_pan || '',
+            upi_transaction_id: ll.upi_transaction_id || '',
+            transaction_datetime: toDatetimeLocal(ll.transaction_datetime),
+            payment_from: ll.payment_from || '',
+            pan_input: ll.pan_number || ll.donor_pan || '',
+            mode_input: '',
+          });
+          hasInitRef.current = true;
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -192,20 +112,29 @@ export default function LeadDetail({ logId, onBack }) {
       .finally(() => setReceiptLoading(false));
   };
 
-  useEffect(load, [logId]);
+  useEffect(() => { load(); }, [logId]);
   useEffect(() => {
     if (lead && lead.accounts_status === 'verified') loadReceipt();
   }, [lead?.accounts_status]);
 
-  const handleFieldSave = (field, value) => {
-    setLead(prev => ({ ...prev, [field]: value }));
-  };
+  const setField = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
   const handleVerify = async () => {
     if (!lead || !window.confirm('Verify this lead and mark amount as collected?')) return;
     setSubmitting(true);
     try {
-      await apiPost(`/accounts/leads/${lead.log_id}/verify`, { pan_number: lead.pan_number || lead.donor_pan || null });
+      await apiPost(`/accounts/leads/${lead.log_id}/verify`, {
+        pan_number: form.donor_pan || form.pan_input || null,
+        donor_name: form.donor_name || null,
+        donor_mobile: form.donor_mobile || null,
+        donor_city: form.donor_city || null,
+        donor_email: form.donor_email || null,
+        donor_pan: form.donor_pan || null,
+        donor_address: form.donor_address || null,
+        upi_transaction_id: form.upi_transaction_id || null,
+        transaction_datetime: form.transaction_datetime || null,
+        payment_from: form.payment_from || null,
+      });
       load();
     } catch (err) { alert(err.message); }
     finally { setSubmitting(false); }
@@ -228,8 +157,8 @@ export default function LeadDetail({ logId, onBack }) {
     setReceiptLoading(true);
     try {
       const body = {};
-      if (panInput.trim()) body.pan_number = panInput.trim();
-      if (modeInput.trim()) body.mode = modeInput.trim();
+      if (form.pan_input.trim()) body.pan_number = form.pan_input.trim();
+      if (form.mode_input.trim()) body.mode = form.mode_input.trim();
       const res = await apiGenerateReceipt(logId, body);
       setReceipt(res.receipt);
       setShowModal(true);
@@ -278,14 +207,14 @@ export default function LeadDetail({ logId, onBack }) {
           <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 1 }}>Lead Details</div>
           <h2 style={{ margin: 0, fontSize: 16 }}>{l.donor_name}</h2>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {l.accounts_status === 'pending' && (
             <>
-              <button className="btn btn-primary btn-sm" onClick={handleVerify} disabled={submitting}>
-                {submitting ? 'Verifying...' : '\u2714\uFE0F Verify'}
+              <button className="btn btn-primary btn-sm" onClick={handleVerify} disabled={submitting} style={{ minWidth: 90 }}>
+                {submitting ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span className="spin" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />Saving</span> : '\u2714 Verify'}
               </button>
-              <button className="btn btn-sm btn-danger" onClick={handleReject} disabled={submitting}>
-                {submitting ? 'Rejecting...' : '\u2716\uFE0F Reject'}
+              <button className="btn btn-sm btn-danger" onClick={handleReject} disabled={submitting} style={{ minWidth: 80 }}>
+                {submitting ? '...' : '\u2716 Reject'}
               </button>
             </>
           )}
@@ -336,27 +265,27 @@ export default function LeadDetail({ logId, onBack }) {
               <div className="info-grid">
                 <div>
                   <div className="label">Name</div>
-                  <EditableField value={l.donor_name} field="donor_name" logId={l.log_id} onSave={handleFieldSave} />
+                  <input style={inputStyle} value={form.donor_name} onChange={e => setField('donor_name', e.target.value)} placeholder="Donor name" />
                 </div>
                 <div>
                   <div className="label">Mobile</div>
-                  <EditableField value={l.donor_mobile} field="donor_mobile" logId={l.log_id} onSave={handleFieldSave} />
+                  <input style={inputStyle} value={form.donor_mobile} onChange={e => setField('donor_mobile', e.target.value)} placeholder="Mobile number" />
                 </div>
                 <div>
                   <div className="label">City</div>
-                  <EditableField value={l.donor_city} field="donor_city" logId={l.log_id} onSave={handleFieldSave} />
+                  <input style={inputStyle} value={form.donor_city} onChange={e => setField('donor_city', e.target.value)} placeholder="City" />
                 </div>
                 <div>
                   <div className="label">Email</div>
-                  <EditableField value={l.donor_email} field="donor_email" logId={l.log_id} onSave={handleFieldSave} placeholder="donor@email.com" />
+                  <input style={inputStyle} value={form.donor_email} onChange={e => setField('donor_email', e.target.value)} placeholder="donor@email.com" />
                 </div>
                 <div>
                   <div className="label">Address</div>
-                  <EditableField value={l.donor_address} field="donor_address" logId={l.log_id} onSave={handleFieldSave} />
+                  <input style={inputStyle} value={form.donor_address} onChange={e => setField('donor_address', e.target.value)} placeholder="Address" />
                 </div>
                 <div>
                   <div className="label">PAN</div>
-                  <EditableField value={l.pan_number || l.donor_pan} field="donor_pan" logId={l.log_id} onSave={handleFieldSave} placeholder="ABCDE1234F" />
+                  <input style={inputStyle} value={form.donor_pan} onChange={e => setField('donor_pan', e.target.value)} placeholder="ABCDE1234F" />
                 </div>
                 <div><div className="label">DOB</div><div className="value">{l.donor_dob || '\u2014'}</div></div>
                 <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
@@ -388,33 +317,15 @@ export default function LeadDetail({ logId, onBack }) {
               <div className="info-grid">
                 <div>
                   <div className="label">UPI Transaction ID</div>
-                  <EditableField
-                    value={l.upi_transaction_id}
-                    field="upi_transaction_id"
-                    logId={l.log_id}
-                    onSave={handleFieldSave}
-                    placeholder="e.g. UPI123456789"
-                  />
+                  <input style={inputStyle} value={form.upi_transaction_id} onChange={e => setField('upi_transaction_id', e.target.value)} placeholder="e.g. UPI123456789" />
                 </div>
                 <div>
                   <div className="label">Transaction Date & Time</div>
-                  <EditableField
-                    value={l.transaction_datetime}
-                    field="transaction_datetime"
-                    logId={l.log_id}
-                    onSave={handleFieldSave}
-                    type="datetime-local"
-                  />
+                  <input type="datetime-local" style={inputStyle} value={form.transaction_datetime} onChange={e => setField('transaction_datetime', e.target.value)} />
                 </div>
                 <div>
                   <div className="label">From (Sender Name)</div>
-                  <EditableField
-                    value={l.payment_from}
-                    field="payment_from"
-                    logId={l.log_id}
-                    onSave={handleFieldSave}
-                    placeholder="e.g. Name on UPI"
-                  />
+                  <input style={inputStyle} value={form.payment_from} onChange={e => setField('payment_from', e.target.value)} placeholder="e.g. Name on UPI" />
                 </div>
               </div>
             </div>
@@ -424,7 +335,6 @@ export default function LeadDetail({ logId, onBack }) {
         <div>
           {l.screenshot_url ? (
             <div className="card" style={{ position: 'sticky', top: 16, overflow: 'hidden' }}>
-              <div className="card-head"><h3>Payment Screenshot</h3></div>
               <ScreenshotImage src={l.screenshot_url} onClick={() => setShowScreenshot(true)} />
             </div>
           ) : (
@@ -445,11 +355,11 @@ export default function LeadDetail({ logId, onBack }) {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', fontSize: 13 }}>
               <label className="field" style={{ flex: 1, minWidth: 140 }}>
                 PAN (optional)
-                <input value={panInput} onChange={e => setPanInput(e.target.value)} placeholder={l.pan_number || l.donor_pan || 'Enter PAN'} />
+                <input value={form.pan_input} onChange={e => setField('pan_input', e.target.value)} placeholder="Enter PAN" />
               </label>
               <label className="field" style={{ flex: 1, minWidth: 140 }}>
                 Mode (optional)
-                <input value={modeInput} onChange={e => setModeInput(e.target.value)} placeholder="e.g. UPI, Cash" />
+                <input value={form.mode_input} onChange={e => setField('mode_input', e.target.value)} placeholder="e.g. UPI, Cash" />
               </label>
               <button className="btn btn-primary" onClick={handleGenerateReceipt} disabled={receiptLoading} style={{ marginBottom: 4 }}>
                 {receiptLoading ? 'Generating...' : 'Generate Receipt'}
@@ -489,6 +399,7 @@ export default function LeadDetail({ logId, onBack }) {
       )}
 
       <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
         .modal-overlay {
           position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999;
           display: flex; align-items: center; justify-content: center;
@@ -499,22 +410,6 @@ export default function LeadDetail({ logId, onBack }) {
         }
         .modal-header h3 { margin: 0; font-size: 16px; }
         .modal-body { overflow: auto; max-height: calc(90vh - 70px); }
-
-        .editable-value:hover .edit-icon { opacity: 0.7 !important; }
-        .editable-value { min-height: 20px; }
-        .editable-input {
-          width: 100%; box-sizing: border-box;
-          padding: 4px 8px; font-size: 13px;
-          border: 1px solid var(--sage, #4ade80);
-          border-radius: 4px; outline: none;
-          background: var(--paper, #fff);
-          color: var(--ink, #1f2937);
-        }
-        .editable-input:focus {
-          border-color: var(--sage-dark, #16a34a);
-          box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.15);
-        }
-
         @media print {
           @page { size: A4 portrait; margin: 8mm; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
@@ -533,4 +428,19 @@ export default function LeadDetail({ logId, onBack }) {
       `}</style>
     </div>
   );
+}
+
+function toDatetimeLocal(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
+  } catch {
+    return '';
+  }
 }
