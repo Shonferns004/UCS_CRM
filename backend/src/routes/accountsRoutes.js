@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { getLeadList, verifyLead, rejectLead, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, patchLeadField, extractUpiDetails } from '../controllers/accountsController.js';
+import { getLeadList, verifyLead, rejectLead, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, patchLeadField } from '../controllers/accountsController.js';
 
 const router = Router();
 
@@ -10,7 +10,6 @@ router.get('/leads', getLeadList);
 router.post('/leads/:logId/verify', verifyLead);
 router.post('/leads/:logId/reject', rejectLead);
 router.patch('/leads/:logId/field', patchLeadField);
-router.post('/leads/:logId/extract-upi', extractUpiDetails);
 
 router.get('/suspense', getSuspenseList);
 router.post('/suspense', createSuspense);

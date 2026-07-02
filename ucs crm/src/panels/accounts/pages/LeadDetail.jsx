@@ -173,7 +173,6 @@ export default function LeadDetail({ logId, onBack }) {
   const [showScreenshot, setShowScreenshot] = useState(false);
   const [panInput, setPanInput] = useState('');
   const [modeInput, setModeInput] = useState('');
-  const [extracting, setExtracting] = useState(false);
   const receiptRef = useRef(null);
 
   const load = () => {
@@ -200,21 +199,6 @@ export default function LeadDetail({ logId, onBack }) {
 
   const handleFieldSave = (field, value) => {
     setLead(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleExtractUpi = async () => {
-    if (!lead) return;
-    setExtracting(true);
-    try {
-      const data = await apiPost(`/accounts/leads/${lead.log_id}/extract-upi`);
-      setLead(prev => ({
-        ...prev,
-        upi_transaction_id: data.upi_transaction_id || null,
-        transaction_datetime: data.transaction_datetime || null,
-        payment_from: data.payment_from || null,
-      }));
-    } catch (err) { alert('Extraction failed: ' + err.message); }
-    finally { setExtracting(false); }
   };
 
   const handleVerify = async () => {
@@ -350,12 +334,30 @@ export default function LeadDetail({ logId, onBack }) {
             <div className="card-head"><h3>Donor Information</h3></div>
             <div className="card-pad">
               <div className="info-grid">
-                <div><div className="label">Name</div><div className="value">{l.donor_name}</div></div>
-                <div><div className="label">Mobile</div><div className="value">{l.donor_mobile}</div></div>
-                <div><div className="label">City</div><div className="value">{l.donor_city || '\u2014'}</div></div>
-                <div><div className="label">Email</div><div className="value">{l.donor_email || '\u2014'}</div></div>
-                <div><div className="label">Address</div><div className="value">{l.donor_address || '\u2014'}</div></div>
-                <div><div className="label">PAN</div><div className="value">{l.pan_number || l.donor_pan || '\u2014'}</div></div>
+                <div>
+                  <div className="label">Name</div>
+                  <EditableField value={l.donor_name} field="donor_name" logId={l.log_id} onSave={handleFieldSave} />
+                </div>
+                <div>
+                  <div className="label">Mobile</div>
+                  <EditableField value={l.donor_mobile} field="donor_mobile" logId={l.log_id} onSave={handleFieldSave} />
+                </div>
+                <div>
+                  <div className="label">City</div>
+                  <EditableField value={l.donor_city} field="donor_city" logId={l.log_id} onSave={handleFieldSave} />
+                </div>
+                <div>
+                  <div className="label">Email</div>
+                  <EditableField value={l.donor_email} field="donor_email" logId={l.log_id} onSave={handleFieldSave} placeholder="donor@email.com" />
+                </div>
+                <div>
+                  <div className="label">Address</div>
+                  <EditableField value={l.donor_address} field="donor_address" logId={l.log_id} onSave={handleFieldSave} />
+                </div>
+                <div>
+                  <div className="label">PAN</div>
+                  <EditableField value={l.pan_number || l.donor_pan} field="donor_pan" logId={l.log_id} onSave={handleFieldSave} placeholder="ABCDE1234F" />
+                </div>
                 <div><div className="label">DOB</div><div className="value">{l.donor_dob || '\u2014'}</div></div>
                 <div><div className="label">Project</div><div className="value">{l.donor_project || '\u2014'}</div></div>
                 <div><div className="label">Donations</div><div className="value">{l.donation_count || 0} times</div></div>
@@ -381,19 +383,7 @@ export default function LeadDetail({ logId, onBack }) {
           </div>
 
           <div className="card">
-            <div className="card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3>Transaction Details</h3>
-              {l.screenshot_url && (
-                <button
-                  className="btn btn-sm"
-                  onClick={handleExtractUpi}
-                  disabled={extracting}
-                  style={{ background: 'var(--sage-light, #dcfce7)', color: 'var(--sage-dark, #166534)' }}
-                >
-                  {extracting ? '\u23F3 Extracting...' : '\u{1F50D} Extract from Screenshot'}
-                </button>
-              )}
-            </div>
+            <div className="card-head"><h3>Transaction Details</h3></div>
             <div className="card-pad">
               <div className="info-grid">
                 <div>

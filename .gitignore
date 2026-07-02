@@ -4,7 +4,6 @@ ufs crm/dist/
 *.log
 .DS_Store
 backend/private-key.json
-backend/tessdata/
 app-debug.apk
 app-release.apk
 *.apk
