@@ -64,6 +64,8 @@ export default function MyDonors() {
   const [panError, setPanError] = useState('');
   const [leadDob, setLeadDob] = useState('');
   const [projectName, setProjectName] = useState('');
+  const [leadRemark, setLeadRemark] = useState('');
+  const [showRemark, setShowRemark] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [showDonationModal, setShowDonationModal] = useState(false);
@@ -214,6 +216,7 @@ export default function MyDonors() {
         logData.donor_dob = leadDob || null;
         logData.project_name = projectName || null;
         logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
+        logData.remark = leadRemark || null;
       }
       await addDonorLog(donor.id, logData);
       setDonors(prev => prev.map(d =>
@@ -221,7 +224,7 @@ export default function MyDonors() {
           ? { ...d, status: selected, notes: notes || d.notes }
           : d
       ));
-      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName('');
+      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadRemark(''); setShowRemark(false);
       if (index < donors.length - 1) setIndex(i => i + 1);
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
@@ -486,6 +489,21 @@ export default function MyDonors() {
                       <input type="date" value={leadDob} onChange={e => setLeadDob(e.target.value)} />
                     </div>
                   </div>
+                  <div className="detail-field-row">
+                    <div className="fld">
+                      <button onClick={() => setShowRemark(!showRemark)}
+                        style={{ padding:'6px 14px', border:`1px solid ${showRemark ? 'var(--sage)' : 'var(--line)'}`, borderRadius:6, background: showRemark ? 'var(--sage)' : '#fff', color: showRemark ? '#fff' : 'var(--ink)', fontSize:10, fontWeight:700, fontFamily:'inherit', cursor:'pointer', transition:'all .12s' }}>
+                        {showRemark ? 'Hide Remark' : 'Add Remark'}
+                      </button>
+                    </div>
+                  </div>
+                  {showRemark && (
+                    <div className="detail-field-row">
+                      <div className="fld">
+                        <textarea value={leadRemark} onChange={e => setLeadRemark(e.target.value)} rows={2} placeholder="Enter remark..." style={{ width:'100%', padding:'6px 8px', border:'1px solid var(--line)', borderRadius:6, fontSize:11, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
