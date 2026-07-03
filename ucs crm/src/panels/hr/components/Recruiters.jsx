@@ -12,12 +12,8 @@ const calcAge = (dob) => {
 const STATUSES = [
   { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
   { key: 'call_back', label: 'Call Back', color: '#06b6d4' },
-  { key: 'interested', label: 'Interested Candidate', color: '#06b6d4' },
-  { key: 'hold', label: 'Hold', color: '#f59e0b' },
-  { key: 'selected', label: 'Selected', color: '#22c55e' },
-  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
+  { key: 'connection_status', label: 'Connection Status', color: '#06b6d4' },
   { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
-  { key: 'joined', label: 'Joined', color: '#8b5cf6' },
 ];
 const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
 
@@ -38,7 +34,7 @@ export default function Recruiters() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'hold', notes: [], recruiter_id: '' });
+  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'followed_up', notes: [], recruiter_id: '' });
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
 
@@ -68,11 +64,7 @@ export default function Recruiters() {
     newToday: leads.filter(l => l.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
     scheduled: leads.filter(l => l.status === 'scheduled').length,
     scheduledTomorrow: leads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
-    rejected: leads.filter(l => l.status === 'rejected').length,
-    selected: leads.filter(l => l.status === 'selected').length,
-    joined: leads.filter(l => l.status === 'joined').length,
-    active: leads.filter(l => !['rejected', 'joined'].includes(l.status)).length,
-    conversion: leads.length > 0 ? ((leads.filter(l => l.status === 'joined').length / Math.max(1, leads.filter(l => l.status === 'joined' || l.status === 'rejected').length)) * 100).toFixed(1) : 0,
+
   };
 
   const openForm = (lead) => {
@@ -91,7 +83,7 @@ export default function Recruiters() {
       });
       setEditingLead(lead);
     } else {
-      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'hold', notes: [], recruiter_id: '' });
+      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'followed_up', notes: [], recruiter_id: '' });
       setEditingLead(null);
     }
     setNewNote('');

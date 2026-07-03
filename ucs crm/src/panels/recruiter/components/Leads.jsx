@@ -11,7 +11,7 @@ const calcAge = (dob) => {
 };
 
 const statusPill = (s) => {
-  const m = { rejected:'pill-danger', selected:'pill-green', hold:'pill-gold', scheduled:'pill-clay', joined:'pill-gray' };
+  const m = { scheduled:'pill-clay' };
   const st = LEAD_STATUSES.find(st => st.value === s);
   return <span className={`pill ${m[s] || 'pill-gray'}`}>{st ? st.label : s}</span>;
 };
@@ -33,7 +33,6 @@ const SkeletonRow = ({ cols }) => (
 const TABS = [
   { key:'leads', label:'Leads' },
   { key:'scheduled', label:'Scheduled' },
-  { key:'rejected', label:'Rejected' },
 ];
 
 export default function Leads() {
@@ -43,7 +42,7 @@ export default function Leads() {
   const [dob, setDob] = useState('');
   const [source, setSource] = useState('Walk-in');
   const [customSource, setCustomSource] = useState('');
-  const [status, setStatus] = useState('hold');
+  const [status, setStatus] = useState('followed_up');
   const [scheduledDate, setScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
@@ -67,7 +66,7 @@ export default function Leads() {
       const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
       if (status === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus('hold'); setScheduledDate(''); setFormNotes([]);
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus('followed_up'); setScheduledDate(''); setFormNotes([]);
     } catch (err) { alert(err.message); }
   };
 
@@ -95,9 +94,7 @@ export default function Leads() {
     return true;
   });
 
-  const activeLeads = filteredLeads.filter(l => l.status === 'hold' || l.status === 'selected' || l.status === 'joined');
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
-  const closedLeads = filteredLeads.filter(l => l.status === 'rejected');
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
 
   const showScheduledDateInput = status === 'scheduled';
@@ -210,8 +207,8 @@ export default function Leads() {
 
       <div className="tabs" style={{marginBottom:0}}>
         {TABS.map(t => {
-          const counts = { leads: leads.length, scheduled: scheduledLeads.length, rejected: leads.filter(l => l.status === 'rejected').length };
-          const dots = { leads: '#5B6B4E', scheduled: '#3b82f6', rejected: '#ef4444' };
+          const counts = { leads: leads.length, scheduled: scheduledLeads.length };
+          const dots = { leads: '#5B6B4E', scheduled: '#3b82f6' };
           return (
             <button key={t.key} className={`tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
               {t.label}
@@ -314,39 +311,7 @@ export default function Leads() {
         </div>
       )}
 
-      {tab === 'rejected' && (
-        <div className="card" style={{marginTop:20}}>
-          <div className="card-head"><h3>Rejected</h3><span className="sub">{closedLeads.length} leads</span></div>
-          {leadsLoading ? (
-            <table><tbody>{[1,2,3].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table>
-          ) : closedLeads.length === 0 ? (
-            <div className="empty">No rejected leads.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Created by</th>
-                </tr>
-              </thead>
-              <tbody>
-                {closedLeads.map(l => {
-                  const displayAge = l.dob ? calcAge(l.dob) : l.age;
-                  return (
-                    <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>
-                      <td style={{fontWeight:500}}>{l.name}</td>
-                      <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
-                      <td>{displayAge || '—'}</td>
-                      <td>{l.source}</td>
-                      <td>{statusPill(l.status)}</td>
-                      <td style={{color:'var(--ink-soft)'}}>{l.created_by_name || '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+
     </>
   );
 }

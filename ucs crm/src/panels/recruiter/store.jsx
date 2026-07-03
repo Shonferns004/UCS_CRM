@@ -16,12 +16,8 @@ export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Other
 export const LEAD_STATUSES = [
   { value:'followed_up', label:'Followed Up' },
   { value:'call_back', label:'Call Back' },
-  { value:'interested', label:'Interested Candidate' },
-  { value:'hold', label:'Hold' },
-  { value:'selected', label:'Selected' },
-  { value:'rejected', label:'Rejected' },
+  { value:'connection_status', label:'Connection Status' },
   { value:'scheduled', label:'Scheduled' },
-  { value:'joined', label:'Joined' },
 ]
 
 let _id = 100
