@@ -35,7 +35,7 @@ export default function Recruiters() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', status: 'hold', notes: [], recruiter_id: '' });
+  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'hold', notes: [], recruiter_id: '' });
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
 
@@ -81,13 +81,14 @@ export default function Recruiters() {
         phone: lead.phone || '',
         dob: lead.dob || '',
         source: lead.source || 'Walk-in',
+        customSource: '',
         status: lead.status,
         notes,
         recruiter_id: lead.recruiter_id || '',
       });
       setEditingLead(lead);
     } else {
-      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', status: 'hold', notes: [], recruiter_id: '' });
+      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'hold', notes: [], recruiter_id: '' });
       setEditingLead(null);
     }
     setNewNote('');
@@ -112,11 +113,12 @@ export default function Recruiters() {
   const submitForm = async () => {
     if (!form.name.trim()) return;
     try {
+      const finalSource = form.source === 'Other' ? (form.customSource.trim() || 'Other') : form.source;
       const payload = {
         name: form.name.trim(),
         phone: form.phone || null,
         dob: form.dob || null,
-        source: form.source,
+        source: finalSource,
         status: form.status,
         notes: JSON.stringify(form.notes),
         recruiter_id: form.recruiter_id || null,
@@ -329,8 +331,9 @@ export default function Recruiters() {
 
               <div className="form-row">
                 <label className="field">Source
-                  <Dropdown value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
+                  <Dropdown value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value, customSource: e.target.value !== 'Other' ? '' : f.customSource }))}
                     options={SOURCES.map(s => ({value:s, label:s}))} />
+                  {form.source === 'Other' && <input value={form.customSource} onChange={e => setForm(f => ({ ...f, customSource: e.target.value }))} placeholder="Specify source..." style={{marginTop:6}} />}
                 </label>
                 <label className="field">Status
                   <Dropdown value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}

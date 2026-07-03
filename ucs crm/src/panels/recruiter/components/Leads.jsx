@@ -41,6 +41,7 @@ export default function Leads() {
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
   const [source, setSource] = useState('Walk-in');
+  const [customSource, setCustomSource] = useState('');
   const [status, setStatus] = useState('hold');
   const [scheduledDate, setScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
@@ -61,10 +62,11 @@ export default function Leads() {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return;
     try {
-      const payload = { name: name.trim(), phone, dob: dob || null, source, status, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
+      const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
+      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
       if (status === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setStatus('hold'); setScheduledDate(''); setFormNotes([]);
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus('hold'); setScheduledDate(''); setFormNotes([]);
     } catch (err) { alert(err.message); }
   };
 
@@ -117,7 +119,8 @@ export default function Leads() {
                 {age !== null && <span style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>Age: {age}</span>}
               </label>
               <label className="field">Source
-                <Dropdown value={source} onChange={e=>setSource(e.target.value)} options={LEAD_SOURCES} />
+                <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} />
+                {source === 'Other' && <input value={customSource} onChange={e=>setCustomSource(e.target.value)} placeholder="Specify source..." style={{marginTop:6}} />}
               </label>
               <label className="field">Status
                 <Dropdown value={status} onChange={e=>setStatus(e.target.value)} options={LEAD_STATUSES} />
@@ -172,7 +175,8 @@ export default function Leads() {
               {age !== null && <span style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>Age: {age}</span>}
             </label>
             <label className="field">Source
-              <Dropdown value={source} onChange={e=>setSource(e.target.value)} options={LEAD_SOURCES} />
+              <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} />
+              {source === 'Other' && <input value={customSource} onChange={e=>setCustomSource(e.target.value)} placeholder="Specify source..." style={{marginTop:6}} />}
             </label>
             <label className="field">Status
               <Dropdown value={status} onChange={e=>setStatus(e.target.value)} options={LEAD_STATUSES} />
