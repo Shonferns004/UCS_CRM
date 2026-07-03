@@ -116,7 +116,7 @@ export const getSuperAdminDashboard = async (req, res) => {
     /* ── Attendance ── */
     const { data: attendance } = await supabase
       .from('attendance')
-      .select('status, date, worker_id')
+      .select('status, date, worker_id, punch_in_time')
       .gte('date', range.from)
       .lte('date', range.to);
 
@@ -125,12 +125,27 @@ export const getSuperAdminDashboard = async (req, res) => {
     workerCreated.forEach(w => { workerDept[w.id] = w.department; });
 
     const deptPivot = {};
+    const workerMap = {};
+    workers.forEach(w => { workerMap[w.id] = { name: w.name, department: w.department }; });
+
+    const attendanceDetails = { present: [], late: [], absent: [] };
+
     (attendance || []).forEach(a => {
       if (attendanceStatus[a.status] !== undefined) attendanceStatus[a.status]++;
       const dept = workerDept[a.worker_id];
       if (dept) {
         if (!deptPivot[dept]) deptPivot[dept] = { department: dept, present: 0, late: 0, absent: 0 };
         if (deptPivot[dept][a.status] !== undefined) deptPivot[dept][a.status]++;
+      }
+      if (attendanceDetails[a.status]) {
+        const w = workerMap[a.worker_id];
+        attendanceDetails[a.status].push({
+          name: w?.name || 'Unknown',
+          dept: w?.department || '',
+          time: a.punch_in_time
+            ? new Date(a.punch_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+            : '',
+        });
       }
     });
     const deptAttendance = Object.values(deptPivot);
@@ -220,6 +235,7 @@ export const getSuperAdminDashboard = async (req, res) => {
       deptWorkers,
       genderCounts,
       attendanceStatus,
+      attendanceDetails,
       pendingLeaves: pendingLeaves || 0,
       monthlyAttendance,
       totalSalaryPayable,

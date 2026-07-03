@@ -10,6 +10,7 @@ import WorkerDetail from './pages/WorkerDetail'
 import Leaves from './pages/Leaves'
 import DataManagement from './pages/DataManagement'
 import Tickets from './pages/Tickets'
+import Events from './pages/Events'
 
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', icon: GridFour },
@@ -215,6 +216,7 @@ export default function SuperAdminPanel() {
         <Route path="employees/:id" element={<WorkerDetailPage />} />
         <Route path="leaves" element={<Leaves />} />
         <Route path="tickets" element={<Tickets />} />
+        <Route path="events" element={<Events />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
     </PageShell>
