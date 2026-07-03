@@ -133,6 +133,7 @@ export default function MyDonors() {
     }
     if (detailId === 'lead_done') {
       setProjectName(donor?.donor_project || '');
+      setLeadAmount('');
       setPanError('');
     } else {
       setLeadScreenshot(null);
@@ -222,12 +223,18 @@ export default function MyDonors() {
       const newDonors = await getMyDonors(filterStatus);
       const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
       setDonors(newDonors);
-      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadRemark(''); setShowRemark(false);
+      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
       if (stillExists) {
         const newIdx = newDonors.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
-        if (newIdx < newDonors.length - 1) setIndex(newIdx + 1);
+        if (newIdx < newDonors.length - 1) {
+          setIndex(newIdx + 1);
+        } else {
+          setIndex(0);
+        }
       } else {
-        if (index >= newDonors.length) setIndex(Math.max(0, newDonors.length - 1));
+        if (index >= newDonors.length) {
+          setIndex(0);
+        }
       }
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
