@@ -19,11 +19,18 @@ export const LEAD_STATUSES = [
   { value:'call_back', label:'Call Back' },
   { value:'scheduled', label:'Scheduled' },
 ]
-export const CONNECTION_SUB_STATUSES = [
+export const CONNECTION_TYPES = [
   { value:'connected', label:'Connected' },
+  { value:'not_connected', label:'Not Connected' },
 ]
-export const CONNECTED_SUB_STATUSES = [
-  { value:'followed_up', label:'Followed Up' },
+export const NOT_CONNECTED_OPTIONS = [
+  { value:'ringing', label:'Ringing' },
+  { value:'unreachable', label:'Unreachable' },
+  { value:'busy', label:'Busy' },
+  { value:'switched_off', label:'Switched Off' },
+  { value:'wrong_number', label:'Wrong Number' },
+  { value:'invalid', label:'Invalid' },
+  { value:'rejected', label:'Rejected' },
 ]
 
 let _id = 100
