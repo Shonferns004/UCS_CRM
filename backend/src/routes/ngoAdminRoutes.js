@@ -27,6 +27,8 @@ import {
   distributeNewData,
   getAlerts,
   acknowledgeAlert,
+  getRejectedLeads,
+  acknowledgeRejectedLead,
   getDataRequests,
   resolveDataRequest,
   transferStationData,
@@ -76,6 +78,9 @@ router.post('/new-data/distribute', distributeNewData);
 
 router.get('/alerts', getAlerts);
 router.put('/alerts/:id/acknowledge', acknowledgeAlert);
+
+router.get('/rejected-leads', getRejectedLeads);
+router.put('/rejected-leads/:id/acknowledge', acknowledgeRejectedLead);
 
 router.get('/database-requests', getDataRequests);
 router.put('/database-requests/:id/resolve', resolveDataRequest);

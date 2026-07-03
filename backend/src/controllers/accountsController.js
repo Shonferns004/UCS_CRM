@@ -326,6 +326,36 @@ export const rejectLead = async (req, res) => {
       await supabase.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
 
+    const froWorkerId = log.fro_assignments?.fro_worker_id;
+    const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
+
+    if (froWorkerId) {
+      await supabase.from('notification_log').insert({
+        worker_id: froWorkerId,
+        type: 'lead_rejected',
+        title: 'Lead Rejected by Accounts',
+        body: `Your lead for ${donorName} (₹${log.amount_collected || 0}) was rejected. Reason: ${reason}`,
+        reference_id: parseInt(logId),
+        sent_at: new Date().toISOString(),
+      });
+
+      const { data: worker } = await supabase
+        .from('workers')
+        .select('ngo_id')
+        .eq('id', froWorkerId)
+        .maybeSingle();
+
+      await supabase.from('rejected_lead_tickets').insert({
+        fro_donor_log_id: parseInt(logId),
+        fro_worker_id: froWorkerId,
+        ngo_id: worker?.ngo_id || null,
+        donor_name: donorName,
+        amount: log.amount_collected || 0,
+        rejection_reason: reason,
+        status: 'pending_review',
+      });
+    }
+
     return res.json({ message: 'Lead rejected' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
