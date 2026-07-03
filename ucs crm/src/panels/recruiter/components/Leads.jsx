@@ -124,19 +124,25 @@ export default function Leads() {
               </label>
               <label className="field">Connection Status
                 <div style={{display:'flex',gap:8,marginTop:6}}>
-                  <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
-                    style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)'}}>Connected</div>
-                  <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
-                    style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)'}}>Not Connected</div>
-                </div>
-                <div style={{display:'inline-flex',flexWrap:'wrap',alignItems:'center',gap:8,marginTop:6}}>
-                  {status === 'connected' && (
-                    <><span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                      <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} /></>
-                  )}
-                  {status === 'not_connected' && (
-                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'auto'}} />
-                  )}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                    {status === 'connected' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                        <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                    {status === 'not_connected' && (
+                      <div style={{marginTop:6}}>
+                        <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'auto'}} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </label>
             </div>
@@ -188,19 +194,25 @@ export default function Leads() {
             </label>
             <label className="field">Connection Status
               <div style={{display:'flex',gap:8,marginTop:6}}>
-                <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
-                  style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)'}}>Connected</div>
-                <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
-                  style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)'}}>Not Connected</div>
-              </div>
-              <div style={{display:'inline-flex',flexWrap:'wrap',alignItems:'center',gap:8,marginTop:6}}>
-                {status === 'connected' && (
-                  <><span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                    <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} /></>
-                )}
-                {status === 'not_connected' && (
-                  <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'auto'}} />
-                )}
+                <div style={{flex:1,minWidth:0}}>
+                  <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                  {status === 'connected' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                      <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                    </div>
+                  )}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                  {status === 'not_connected' && (
+                    <div style={{marginTop:6}}>
+                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'auto'}} />
+                    </div>
+                  )}
+                </div>
               </div>
             </label>
           </div>

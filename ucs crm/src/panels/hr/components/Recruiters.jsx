@@ -350,20 +350,26 @@ export default function Recruiters() {
                 </label>
                 <label className="field">Connection Status
                   <div style={{display:'flex',gap:8,marginTop:6}}>
-                    <div onClick={()=>setForm(f => ({ ...f, status: 'connected', notConnectedOption: '', followUpDateTime: '' }))}
-                      style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)'}}>Connected</div>
-                    <div onClick={()=>setForm(f => ({ ...f, status: 'not_connected', notConnectedOption: '', followUpDateTime: '' }))}
-                      style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)'}}>Not Connected</div>
-                  </div>
-                  <div style={{display:'inline-flex',flexWrap:'wrap',alignItems:'center',gap:8,marginTop:6}}>
-                    {form.status === 'connected' && (
-                      <><span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                        <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{width:'auto'}} /></>
-                    )}
-                    {form.status === 'not_connected' && (
-                      <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
-                        options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'auto'}} />
-                    )}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div onClick={()=>setForm(f => ({ ...f, status: 'connected', notConnectedOption: '', followUpDateTime: '' }))}
+                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                      {form.status === 'connected' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                          <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div onClick={()=>setForm(f => ({ ...f, status: 'not_connected', notConnectedOption: '', followUpDateTime: '' }))}
+                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                      {form.status === 'not_connected' && (
+                        <div style={{marginTop:6}}>
+                          <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
+                            options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </label>
               </div>
