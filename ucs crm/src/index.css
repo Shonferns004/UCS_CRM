@@ -853,7 +853,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-accounts .snav-item:hover, .panel-ngo-admin .snav-item:hover, .panel-fro .snav-item:hover { background:var(--bg); color:var(--ink); }
 .panel-accounts .snav-item.active, .panel-ngo-admin .snav-item.active, .panel-fro .snav-item.active { background:#5B6B4E12; color:var(--sage); font-weight:600; }
 .panel-accounts .snav-item .ico, .panel-ngo-admin .snav-item .ico, .panel-fro .snav-item .ico { width:18px; height:18px; flex-shrink:0; }
-.panel-accounts .main, .panel-ngo-admin .main, .panel-fro .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.panel-accounts .main, .panel-ngo-admin .main, .panel-fro .main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .panel-ngo-admin .sidebar { position:fixed; top:0; height:100vh; }
 .panel-ngo-admin .main { margin-left:240px; }
 .panel-accounts .topbar, .panel-ngo-admin .topbar, .panel-fro .topbar { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--line); }

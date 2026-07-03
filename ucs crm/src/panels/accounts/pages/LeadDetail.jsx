@@ -103,8 +103,8 @@ export default function LeadDetail({ logId, onBack }) {
 
   const loadHistory = async () => {
     if (!l?.donor_id) return;
-    setHistoryLoading(true);
-    try { const d = await apiGet(`/accounts/donor/${l.donor_id}/history`); setHistory(d||[]); setHistoryOpen(true); }
+    setHistory([]); setHistoryOpen(true); setHistoryLoading(true);
+    try { const d = await apiGet(`/accounts/donor/${l.donor_id}/history`); setHistory(d||[]); }
     catch { setHistory([]); }
     finally { setHistoryLoading(false); }
   };
@@ -396,6 +396,7 @@ export default function LeadDetail({ logId, onBack }) {
 
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes sk-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
         .verify-btn{padding:10px 22px;font-size:13px;font-weight:600;background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:10px;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 2px 8px rgba(5,150,105,.25)}
         .verify-btn:hover:not(:disabled){background:linear-gradient(135deg,#047857,#065f46);transform:translateY(-1px);box-shadow:0 6px 20px rgba(5,150,105,.35)}
         .verify-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
