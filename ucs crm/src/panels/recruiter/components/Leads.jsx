@@ -53,7 +53,7 @@ export default function Leads() {
   const [noteText, setNoteText] = useState('');
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [searchInput, setSearchInput] = useState(leadFilters.search || '');
-  const [tab, setTab] = useState('active');
+  const [tab, setTab] = useState('leads');
 
   const addNoteToForm = () => {
     if (!noteText.trim()) return;
