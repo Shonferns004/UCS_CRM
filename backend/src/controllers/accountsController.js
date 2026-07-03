@@ -364,8 +364,7 @@ export const rejectLead = async (req, res) => {
       } catch (err) { console.error('Failed to create rejected lead ticket:', err.message); }
     }
 
-    return res.json({ message: 'Lead rejected', froWorkerId, froNotified, ticketCreated });
-  } catch (error) {
+    return res.json({ message: 'Lead rejected', froWorkerId, froNotified, ticketCreated });  } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
