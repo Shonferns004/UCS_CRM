@@ -351,39 +351,38 @@ export default function Recruiters() {
                   <Dropdown value={form.source} onChange={v => setForm(f => ({ ...f, source: v, customSource: v !== 'Other' ? '' : f.customSource }))}
                     options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
-                <label className="field">Connection Status
-                  <div style={{display:'flex',gap:8,marginTop:6}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div onClick={()=>setForm(f => ({ ...f, status: f.status==='connected'?'':'connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
-                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
-                      {form.status === 'connected' && (
-                        <div style={{marginTop:6}}>
-                          <Dropdown value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '' }))} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
-                          {form.connectedOption === 'follow_up' && (
-                            <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                              <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                              <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{width:'auto'}} />
-                            </div>
-                          )}
-                          {form.connectedOption === 'call_back' && (
-                            <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                              <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                              <input type="time" value={form.callBackTime} onChange={e => setForm(f => ({ ...f, callBackTime: e.target.value }))} style={{width:'auto'}} />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div onClick={()=>setForm(f => ({ ...f, status: f.status==='not_connected'?'':'not_connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
-                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
-                      {form.status === 'not_connected' && (
-                        <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
-                          options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'100%',marginTop:6}} />
-                      )}
-                    </div>
+                <label className="field" style={{marginBottom:0}}>Connection Status</label>
+                <div style={{display:'flex',gap:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div onClick={()=>setForm(f => ({ ...f, status: f.status==='connected'?'':'connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
+                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                    {form.status === 'connected' && (
+                      <div style={{marginTop:6}}>
+                        <Dropdown value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '' }))} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
+                        {form.connectedOption === 'follow_up' && (
+                          <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                            <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                            <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{width:'auto'}} />
+                          </div>
+                        )}
+                        {form.connectedOption === 'call_back' && (
+                          <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                            <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                            <input type="time" value={form.callBackTime} onChange={e => setForm(f => ({ ...f, callBackTime: e.target.value }))} style={{width:'auto'}} />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </label>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div onClick={()=>setForm(f => ({ ...f, status: f.status==='not_connected'?'':'not_connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
+                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                    {form.status === 'not_connected' && (
+                      <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
+                        options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'100%',marginTop:6}} />
+                    )}
+                  </div>
+                </div>
               </div>
 
               <label className="field">Assigned to
