@@ -4,7 +4,7 @@ import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
 import { useRealtime } from '../../hooks/useRealtime'
-import { supabase } from '../../config/supabase'
+import { api } from '../../api/auth'
 import DispositionModal from './components/DispositionModal'
 import Dashboard from './pages/Dashboard'
 import MyDonors from './pages/MyDonors'
@@ -74,13 +74,8 @@ export default function FROPanel() {
   const loadRejectedCount = () => {
     const workerId = user?.id;
     if (!workerId) return;
-    supabase
-      .from('notification_log')
-      .select('id', { count: 'exact', head: true })
-      .eq('worker_id', workerId)
-      .eq('type', 'lead_rejected')
-      .is('read_at', null)
-      .then(({ count, error }) => { if (!error) setRejectedCount(count || 0); })
+    api(`/notifications/${workerId}/unread-count`, { _prefix: 'ucs' })
+      .then(count => setRejectedCount(typeof count === 'number' ? count : (count?.count || 0)))
       .catch(() => {});
   };
   useEffect(() => { loadRejectedCount(); }, [user?.id]);

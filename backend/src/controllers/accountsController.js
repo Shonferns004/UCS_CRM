@@ -328,6 +328,8 @@ export const rejectLead = async (req, res) => {
 
     const froWorkerId = log.fro_assignments?.fro_worker_id;
     const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
+    let froNotified = false;
+    let ticketCreated = false;
 
     if (froWorkerId) {
       try {
@@ -339,6 +341,7 @@ export const rejectLead = async (req, res) => {
           reference_id: parseInt(logId),
           sent_at: new Date().toISOString(),
         });
+        froNotified = true;
       } catch (err) { console.error('Failed to create notification:', err.message); }
 
       try {
@@ -357,10 +360,11 @@ export const rejectLead = async (req, res) => {
           rejection_reason: reason,
           status: 'pending_review',
         });
+        ticketCreated = true;
       } catch (err) { console.error('Failed to create rejected lead ticket:', err.message); }
     }
 
-    return res.json({ message: 'Lead rejected' });
+    return res.json({ message: 'Lead rejected', froWorkerId, froNotified, ticketCreated });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
