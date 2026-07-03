@@ -208,7 +208,7 @@ export default function Dashboard() {
 
   const {
     stats = {}, deptWorkers = {}, ngoUserCounts = [],
-    attendanceStatus = {},
+    attendanceStatus = {}, attendanceWorkerCounts = {},
     kpiChanges = {}, attendancePercent = 0,
     recentNotices = [], upcomingEvents = [],
     // NEW data (backend can provide; safe defaults otherwise)
@@ -246,10 +246,10 @@ export default function Dashboard() {
     .sort((a, b) => b.value - a.value)
   const totalDeptWorkers = deptData.reduce((s, d) => s + d.value, 0) || 1
 
-  /* -------- attendance -------- */
-  const attPresent = attendanceStatus?.present || 0
-  const attLate = attendanceStatus?.late || 0
-  const attAbsent = attendanceStatus?.absent || 0
+  /* -------- attendance (unique workers per status) -------- */
+  const attPresent = attendanceWorkerCounts?.present ?? attendanceStatus?.present ?? 0
+  const attLate = attendanceWorkerCounts?.late ?? attendanceStatus?.late ?? 0
+  const attAbsent = attendanceWorkerCounts?.absent ?? attendanceStatus?.absent ?? 0
 
   const attSegments = []
   if (attPresent > 0) attSegments.push({ label: 'Present', value: attPresent, color: MINT, icon: 'verified' })

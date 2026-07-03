@@ -121,6 +121,7 @@ export const getSuperAdminDashboard = async (req, res) => {
       .lte('date', range.to);
 
     const attendanceStatus = { present: 0, late: 0, absent: 0, leave: 0 };
+    const uniquePills = { present: new Set(), late: new Set(), absent: new Set(), leave: new Set() };
     const workerDept = {};
     workerCreated.forEach(w => { workerDept[w.id] = w.department; });
 
@@ -131,7 +132,10 @@ export const getSuperAdminDashboard = async (req, res) => {
     const attendanceDetails = { present: [], late: [], absent: [] };
 
     (attendance || []).forEach(a => {
-      if (attendanceStatus[a.status] !== undefined) attendanceStatus[a.status]++;
+      if (attendanceStatus[a.status] !== undefined) {
+        attendanceStatus[a.status]++;
+        uniquePills[a.status].add(a.worker_id);
+      }
       const dept = workerDept[a.worker_id];
       if (dept) {
         if (!deptPivot[dept]) deptPivot[dept] = { department: dept, present: 0, late: 0, absent: 0 };
@@ -139,15 +143,27 @@ export const getSuperAdminDashboard = async (req, res) => {
       }
       if (attendanceDetails[a.status]) {
         const w = workerMap[a.worker_id];
+        const time = a.punch_in_time
+          ? (() => {
+              const ms = new Date(a.punch_in_time).getTime() + 5.5 * 60 * 60 * 1000;
+              const d = new Date(ms);
+              return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+            })()
+          : '';
         attendanceDetails[a.status].push({
           name: w?.name || 'Unknown',
           dept: w?.department || '',
-          time: a.punch_in_time
-            ? new Date(a.punch_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-            : '',
+          time,
         });
       }
     });
+
+    const attendanceWorkerCounts = {
+      present: uniquePills.present.size,
+      late: uniquePills.late.size,
+      absent: uniquePills.absent.size,
+      leave: uniquePills.leave.size,
+    };
     const deptAttendance = Object.values(deptPivot);
 
     const totalAtt = Object.values(attendanceStatus).reduce((s, v) => s + v, 0);
@@ -235,6 +251,7 @@ export const getSuperAdminDashboard = async (req, res) => {
       deptWorkers,
       genderCounts,
       attendanceStatus,
+      attendanceWorkerCounts,
       attendanceDetails,
       pendingLeaves: pendingLeaves || 0,
       monthlyAttendance,
