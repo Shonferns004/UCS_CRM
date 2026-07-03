@@ -14,8 +14,16 @@ const now = () => new Date().toLocaleString('en-GB',{day:'numeric',month:'short'
 export const STAGES = ['New','Screening','Interview','Offer','Hired']
 export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Other']
 export const LEAD_STATUSES = [
-  { value:'connected', label:'Connected' },
-  { value:'not_connected', label:'Not Connected' },
+  { value:'followed_up', label:'Followed Up' },
+  { value:'call_back', label:'Call Back' },
+  { value:'scheduled', label:'Scheduled' },
+  { value:'ringing', label:'Ringing' },
+  { value:'unreachable', label:'Unreachable' },
+  { value:'busy', label:'Busy' },
+  { value:'switched_off', label:'Switched Off' },
+  { value:'wrong_number', label:'Wrong Number' },
+  { value:'invalid', label:'Invalid' },
+  { value:'rejected', label:'Rejected' },
 ]
 export const NOT_CONNECTED_OPTIONS = [
   { value:'ringing', label:'Ringing' },

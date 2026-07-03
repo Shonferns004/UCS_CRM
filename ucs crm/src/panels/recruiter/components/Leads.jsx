@@ -123,7 +123,12 @@ export default function Leads() {
                 <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
               </label>
               <label className="field">Connection Status
-                <Dropdown value={status} onChange={e=>{setStatus(e.target.value);setNotConnectedOption('');setFollowUpDateTime('')}} options={LEAD_STATUSES} />
+                <div style={{display:'flex',gap:8,marginTop:6}}>
+                  <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                    style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)'}}>Connected</div>
+                  <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                    style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)'}}>Not Connected</div>
+                </div>
                 {status === 'connected' && (
                   <>
                     <div style={{marginTop:8,fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</div>
@@ -187,7 +192,12 @@ export default function Leads() {
               <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
             </label>
             <label className="field">Connection Status
-              <Dropdown value={status} onChange={e=>{setStatus(e.target.value);setNotConnectedOption('');setFollowUpDateTime('')}} options={LEAD_STATUSES} />
+              <div style={{display:'flex',gap:8,marginTop:6}}>
+                <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                  style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)'}}>Connected</div>
+                <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                  style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)'}}>Not Connected</div>
+              </div>
               {status === 'connected' && (
                 <>
                   <div style={{marginTop:8,fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</div>

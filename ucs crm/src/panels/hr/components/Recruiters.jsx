@@ -10,8 +10,16 @@ const calcAge = (dob) => {
 };
 
 const STATUSES = [
-  { key: 'connected', label: 'Connected', color: '#06b6d4' },
-  { key: 'not_connected', label: 'Not Connected', color: '#ef4444' },
+  { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
+  { key: 'call_back', label: 'Call Back', color: '#06b6d4' },
+  { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
+  { key: 'ringing', label: 'Ringing', color: '#ef4444' },
+  { key: 'unreachable', label: 'Unreachable', color: '#ef4444' },
+  { key: 'busy', label: 'Busy', color: '#ef4444' },
+  { key: 'switched_off', label: 'Switched Off', color: '#ef4444' },
+  { key: 'wrong_number', label: 'Wrong Number', color: '#ef4444' },
+  { key: 'invalid', label: 'Invalid', color: '#ef4444' },
+  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
 ];
 const NOT_CONNECTED_OPTIONS = [
   { key: 'ringing', label: 'Ringing', color: '#f59e0b' },
@@ -341,8 +349,12 @@ export default function Recruiters() {
                     options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
                 <label className="field">Connection Status
-                  <Dropdown value={form.status} onChange={v => setForm(f => ({ ...f, status: v, notConnectedOption: '', followUpDateTime: '' }))}
-                    options={STATUSES.map(s => ({value:s.key, label:s.label}))} />
+                  <div style={{display:'flex',gap:8,marginTop:6}}>
+                    <div onClick={()=>setForm(f => ({ ...f, status: 'connected', notConnectedOption: '', followUpDateTime: '' }))}
+                      style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)'}}>Connected</div>
+                    <div onClick={()=>setForm(f => ({ ...f, status: 'not_connected', notConnectedOption: '', followUpDateTime: '' }))}
+                      style={{flex:1,padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)'}}>Not Connected</div>
+                  </div>
                   {form.status === 'connected' && (
                     <>
                       <div style={{marginTop:8,fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</div>
