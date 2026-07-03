@@ -331,7 +331,7 @@ export default function Recruiters() {
 
               <div className="form-row">
                 <label className="field">Source
-                  <Dropdown value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value, customSource: e.target.value !== 'Other' ? '' : f.customSource }))}
+                  <Dropdown value={form.source} onChange={v => setForm(f => ({ ...f, source: v, customSource: v !== 'Other' ? '' : f.customSource }))}
                     options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
                 <label className="field">Status
