@@ -326,8 +326,45 @@ export const rejectLead = async (req, res) => {
       await supabase.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
 
-    return res.json({ message: 'Lead rejected' });
-  } catch (error) {
+    const froWorkerId = log.fro_assignments?.fro_worker_id;
+    const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
+    let froNotified = false;
+    let ticketCreated = false;
+
+    if (froWorkerId) {
+      try {
+        await supabase.from('notification_log').insert({
+          worker_id: froWorkerId,
+          type: 'lead_rejected',
+          title: 'Lead Rejected by Accounts',
+          body: `Your lead for ${donorName} (₹${log.amount_collected || 0}) was rejected. Reason: ${reason}`,
+          reference_id: parseInt(logId),
+          sent_at: new Date().toISOString(),
+        });
+        froNotified = true;
+      } catch (err) { console.error('Failed to create notification:', err.message); }
+
+      try {
+        const { data: worker } = await supabase
+          .from('workers')
+          .select('ngo_id')
+          .eq('id', froWorkerId)
+          .maybeSingle();
+
+        await supabase.from('rejected_lead_tickets').insert({
+          fro_donor_log_id: logId,
+          fro_worker_id: froWorkerId,
+          ngo_id: worker?.ngo_id || null,
+          donor_name: donorName,
+          amount: log.amount_collected || 0,
+          rejection_reason: reason,
+          status: 'pending_review',
+        });
+        ticketCreated = true;
+      } catch (err) { console.error('Failed to create rejected lead ticket:', err.message); }
+    }
+
+    return res.json({ message: 'Lead rejected', froWorkerId, froNotified, ticketCreated });  } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
@@ -493,6 +530,57 @@ export const getReceiptList = async (req, res) => {
   try {
     const receipts = await listAllReceipts(200);
     return res.json(receipts);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDonorHistory = async (req, res) => {
+  try {
+    const { donorId } = req.params;
+
+    const { data: logs, error } = await supabase
+      .from('fro_donor_logs')
+      .select(`
+        id, action, disposition_detail, amount_collected, accounts_status,
+        payment_mode, upi_transaction_id, transaction_datetime, payment_from,
+        created_at, verified_at, payment_screenshot_url,
+        fro_assignments!inner(donor_id, fro_worker_id, workers!inner(id, name, login_id))
+      `)
+      .eq('fro_assignments.donor_id', donorId)
+      .or('action.eq.donation,and(disposition_detail.eq.lead_done,accounts_status.eq.verified)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const logIds = (logs || []).map(l => l.id);
+    const { data: receipts, error: rError } = logIds.length > 0
+      ? await supabase.from('receipts').select('*').in('log_id', logIds)
+      : { data: [], error: null };
+
+    const receiptMap = {};
+    if (!rError && receipts) {
+      for (const r of receipts) receiptMap[r.log_id] = r;
+    }
+
+    const result = (logs || []).map(l => ({
+      log_id: l.id,
+      amount: l.amount_collected,
+      payment_mode: l.payment_mode,
+      upi_transaction_id: l.upi_transaction_id,
+      transaction_datetime: l.transaction_datetime,
+      payment_from: l.payment_from,
+      accounts_status: l.accounts_status,
+      created_at: l.created_at,
+      verified_at: l.verified_at,
+      screenshot_url: l.payment_screenshot_url,
+      agent_name: l.fro_assignments?.workers?.name || 'Unknown',
+      agent_login: l.fro_assignments?.workers?.login_id || '',
+      type: l.action === 'donation' ? 'Donation' : 'Lead',
+      receipt_no: receiptMap[l.id]?.receipt_no || null,
+    }));
+
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

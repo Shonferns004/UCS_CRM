@@ -1479,6 +1479,59 @@ export const getAlerts = async (req, res) => {
   }
 };
 
+export const getRejectedLeads = async (req, res) => {
+  try {
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.json([]);
+
+    const { data, error } = await supabase
+      .from('rejected_lead_tickets')
+      .select('*')
+      .in('ngo_id', ngoIds)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (error) throw error;
+
+    const workerIds = [...new Set((data || []).map(t => t.fro_worker_id).filter(Boolean))];
+    const workerMap = {};
+    if (workerIds.length > 0) {
+      const { data: workers } = await supabase.from('workers').select('id, name').in('id', workerIds);
+      if (workers) for (const w of workers) workerMap[w.id] = w.name;
+    }
+
+    const result = (data || []).map(t => ({ ...t, fro_name: workerMap[t.fro_worker_id] || 'Unknown' }));
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const acknowledgeRejectedLead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ngoIds = await getUserNgoIds(req.user);
+
+    const { data: ticket, error } = await supabase
+      .from('rejected_lead_tickets')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !ticket) return res.status(404).json({ message: 'Ticket not found' });
+    if (!ngoIds.includes(ticket.ngo_id)) return res.status(403).json({ message: 'Access denied' });
+
+    await supabase
+      .from('rejected_lead_tickets')
+      .update({ status: 'acknowledged', reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
+      .eq('id', id);
+
+    return res.json({ message: 'Ticket acknowledged' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const acknowledgeAlert = async (req, res) => {
   try {
     const rawId = req.params.id;
