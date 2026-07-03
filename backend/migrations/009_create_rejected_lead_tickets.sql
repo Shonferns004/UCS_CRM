@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS rejected_lead_tickets (
   id SERIAL PRIMARY KEY,
   fro_donor_log_id INTEGER NOT NULL REFERENCES fro_donor_logs(id),
   fro_worker_id INTEGER REFERENCES workers(id),
+  ngo_id INTEGER,
   donor_name TEXT,
   amount NUMERIC,
   rejection_reason TEXT,
@@ -10,5 +11,3 @@ CREATE TABLE IF NOT EXISTS rejected_lead_tickets (
   reviewed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
-ALTER TABLE public.rejected_lead_tickets ENABLE REPLICA IDENTITY FULL;
