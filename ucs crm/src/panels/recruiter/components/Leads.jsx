@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useRec, LEAD_SOURCES, LEAD_STATUSES } from '../store';
+import { useRec, LEAD_SOURCES, LEAD_STATUSES, CONNECTION_SUB_STATUSES, CONNECTED_SUB_STATUSES } from '../store';
 import { Plus, Users, Search, RefreshCw } from '../icons';
 import { Dropdown } from './ui';
 import LeadDetail from './LeadDetail';
@@ -43,6 +43,9 @@ export default function Leads() {
   const [source, setSource] = useState('Walk-in');
   const [customSource, setCustomSource] = useState('');
   const [status, setStatus] = useState('followed_up');
+  const [connectionSubStatus, setConnectionSubStatus] = useState('');
+  const [connectedSubStatus, setConnectedSubStatus] = useState('');
+  const [followUpDateTime, setFollowUpDateTime] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
@@ -63,10 +66,12 @@ export default function Leads() {
     if (!name.trim() || !phone.trim()) return;
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
-      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
+      const finalStatus = connectedSubStatus === 'followed_up' ? 'followed_up' : status === 'connection_status' ? 'connection_status' : status;
+      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
+      if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (status === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus('followed_up'); setScheduledDate(''); setFormNotes([]);
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus('followed_up'); setConnectionSubStatus(''); setConnectedSubStatus(''); setFollowUpDateTime(''); setScheduledDate(''); setFormNotes([]);
     } catch (err) { alert(err.message); }
   };
 
@@ -97,7 +102,6 @@ export default function Leads() {
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
 
-  const showScheduledDateInput = status === 'scheduled';
 
   if (selectedLead) {
     return (
@@ -120,9 +124,18 @@ export default function Leads() {
                 <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
               </label>
               <label className="field">Status
-                <Dropdown value={status} onChange={e=>setStatus(e.target.value)} options={LEAD_STATUSES} />
+                <Dropdown value={status} onChange={e=>{setStatus(e.target.value);setConnectionSubStatus('');setConnectedSubStatus('');setFollowUpDateTime('')}} options={LEAD_STATUSES} />
+                {status === 'connection_status' && (
+                  <Dropdown value={connectionSubStatus} onChange={e=>{setConnectionSubStatus(e.target.value);setConnectedSubStatus('');setFollowUpDateTime('')}} options={CONNECTION_SUB_STATUSES} style={{marginTop:6}} />
+                )}
+                {connectionSubStatus === 'connected' && (
+                  <Dropdown value={connectedSubStatus} onChange={e=>{setConnectedSubStatus(e.target.value);setFollowUpDateTime('')}} options={CONNECTED_SUB_STATUSES} style={{marginTop:6}} />
+                )}
+                {connectedSubStatus === 'followed_up' && (
+                  <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{marginTop:6}} />
+                )}
               </label>
-              {showScheduledDateInput && (
+              {status === 'scheduled' && (
                 <label className="field">Interview date
                   <input type="date" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} />
                 </label>
@@ -175,9 +188,18 @@ export default function Leads() {
               <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
             </label>
             <label className="field">Status
-              <Dropdown value={status} onChange={e=>setStatus(e.target.value)} options={LEAD_STATUSES} />
+              <Dropdown value={status} onChange={e=>{setStatus(e.target.value);setConnectionSubStatus('');setConnectedSubStatus('');setFollowUpDateTime('')}} options={LEAD_STATUSES} />
+              {status === 'connection_status' && (
+                <Dropdown value={connectionSubStatus} onChange={e=>{setConnectionSubStatus(e.target.value);setConnectedSubStatus('');setFollowUpDateTime('')}} options={CONNECTION_SUB_STATUSES} style={{marginTop:6}} />
+              )}
+              {connectionSubStatus === 'connected' && (
+                <Dropdown value={connectedSubStatus} onChange={e=>{setConnectedSubStatus(e.target.value);setFollowUpDateTime('')}} options={CONNECTED_SUB_STATUSES} style={{marginTop:6}} />
+              )}
+              {connectedSubStatus === 'followed_up' && (
+                <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{marginTop:6}} />
+              )}
             </label>
-            {showScheduledDateInput && (
+            {status === 'scheduled' && (
               <label className="field">Interview date
                 <input type="date" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} />
               </label>

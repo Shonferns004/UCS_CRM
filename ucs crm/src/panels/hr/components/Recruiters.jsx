@@ -10,10 +10,16 @@ const calcAge = (dob) => {
 };
 
 const STATUSES = [
+  { key: 'connection_status', label: 'Connection Status', color: '#06b6d4' },
   { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
   { key: 'call_back', label: 'Call Back', color: '#06b6d4' },
-  { key: 'connection_status', label: 'Connection Status', color: '#06b6d4' },
   { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
+];
+const CONNECTION_SUB_STATUSES = [
+  { key: 'connected', label: 'Connected', color: '#06b6d4' },
+];
+const CONNECTED_SUB_STATUSES = [
+  { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
 ];
 const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
 
@@ -34,7 +40,7 @@ export default function Recruiters() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'followed_up', notes: [], recruiter_id: '' });
+  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'followed_up', connectionSubStatus: '', connectedSubStatus: '', followUpDateTime: '', notes: [], recruiter_id: '' });
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
 
@@ -78,12 +84,15 @@ export default function Recruiters() {
         source: lead.source || 'Walk-in',
         customSource: '',
         status: lead.status,
+        connectionSubStatus: '',
+        connectedSubStatus: '',
+        followUpDateTime: '',
         notes,
         recruiter_id: lead.recruiter_id || '',
       });
       setEditingLead(lead);
     } else {
-      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'followed_up', notes: [], recruiter_id: '' });
+      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: 'followed_up', connectionSubStatus: '', connectedSubStatus: '', followUpDateTime: '', notes: [], recruiter_id: '' });
       setEditingLead(null);
     }
     setNewNote('');
@@ -109,15 +118,17 @@ export default function Recruiters() {
     if (!form.name.trim()) return;
     try {
       const finalSource = form.source === 'Other' ? (form.customSource.trim() || 'Other') : form.source;
+      const finalStatus = form.connectedSubStatus === 'followed_up' ? 'followed_up' : form.status === 'connection_status' ? 'connection_status' : form.status;
       const payload = {
         name: form.name.trim(),
         phone: form.phone || null,
         dob: form.dob || null,
         source: finalSource,
-        status: form.status,
+        status: finalStatus,
         notes: JSON.stringify(form.notes),
         recruiter_id: form.recruiter_id || null,
       };
+      if (finalStatus === 'followed_up' && form.followUpDateTime) payload.follow_up_date = form.followUpDateTime;
       if (editingLead) {
         await updateLead(editingLead.id, payload);
       } else {
@@ -330,8 +341,19 @@ export default function Recruiters() {
                     options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
                 <label className="field">Status
-                  <Dropdown value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                  <Dropdown value={form.status} onChange={v => setForm(f => ({ ...f, status: v, connectionSubStatus: '', connectedSubStatus: '', followUpDateTime: '' }))}
                     options={STATUSES.map(s => ({value:s.key, label:s.label}))} />
+                  {form.status === 'connection_status' && (
+                    <Dropdown value={form.connectionSubStatus} onChange={v => setForm(f => ({ ...f, connectionSubStatus: v, connectedSubStatus: '', followUpDateTime: '' }))}
+                      options={CONNECTION_SUB_STATUSES.map(s => ({value:s.key, label:s.label}))} style={{marginTop:6}} />
+                  )}
+                  {form.connectionSubStatus === 'connected' && (
+                    <Dropdown value={form.connectedSubStatus} onChange={v => setForm(f => ({ ...f, connectedSubStatus: v, followUpDateTime: '' }))}
+                      options={CONNECTED_SUB_STATUSES.map(s => ({value:s.key, label:s.label}))} style={{marginTop:6}} />
+                  )}
+                  {form.connectedSubStatus === 'followed_up' && (
+                    <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{marginTop:6}} />
+                  )}
                 </label>
               </div>
 

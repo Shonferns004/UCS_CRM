@@ -14,10 +14,16 @@ const now = () => new Date().toLocaleString('en-GB',{day:'numeric',month:'short'
 export const STAGES = ['New','Screening','Interview','Offer','Hired']
 export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Other']
 export const LEAD_STATUSES = [
+  { value:'connection_status', label:'Connection Status' },
   { value:'followed_up', label:'Followed Up' },
   { value:'call_back', label:'Call Back' },
-  { value:'connection_status', label:'Connection Status' },
   { value:'scheduled', label:'Scheduled' },
+]
+export const CONNECTION_SUB_STATUSES = [
+  { value:'connected', label:'Connected' },
+]
+export const CONNECTED_SUB_STATUSES = [
+  { value:'followed_up', label:'Followed Up' },
 ]
 
 let _id = 100
