@@ -78,8 +78,11 @@ export default function FROPanel() {
   const [refetch, setRefetch] = useState(0);
   const [showNotifList, setShowNotifList] = useState(false);
   const [rejectedCount, setRejectedCount] = useState(0);
+  const [verifiedCount, setVerifiedCount] = useState(0);
   const [rejectedItems, setRejectedItems] = useState([]);
+  const [verifiedItems, setVerifiedItems] = useState([]);
   const [allNotifs, setAllNotifs] = useState([]);
+  const [allVerified, setAllVerified] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const seenNotifIds = useRef(new Set());
   const notifRef = useRef(null);
@@ -112,39 +115,51 @@ export default function FROPanel() {
     setModalNotifId(null);
     setModalDonor(null);
     setRefetch(n => n + 1);
-    loadRejectedNotifications();
+    loadNotifications();
     loadReminders();
   };
 
-  const loadRejectedNotifications = () => {
+  const loadNotifications = () => {
     const workerId = user?.id;
     if (!workerId) return;
     api(`/notifications/${workerId}`, { _prefix: 'ucs' })
       .then(data => {
-        const all = (data || []).filter(n => n.type === 'lead_rejected' && !n.read_at);
-        const items = all.slice(0, 20);
-        items.forEach(n => {
+        const allNotifs = data || [];
+        const rejected = allNotifs.filter(n => n.type === 'lead_rejected' && !n.read_at);
+        const verified = allNotifs.filter(n => n.type === 'lead_verified' && !n.read_at);
+        const rejectedSlice = rejected.slice(0, 20);
+        const verifiedSlice = verified.slice(0, 20);
+        rejectedSlice.forEach(n => {
           if (!seenNotifIds.current.has(n.id)) {
             seenNotifIds.current.add(n.id);
             showDesktopNotification(n.title, n.body);
           }
         });
-        setAllNotifs(all);
-        setRejectedItems(items);
-        setRejectedCount(all.length);
+        verifiedSlice.forEach(n => {
+          if (!seenNotifIds.current.has(n.id)) {
+            seenNotifIds.current.add(n.id);
+            showDesktopNotification(n.title, n.body);
+          }
+        });
+        setAllNotifs(rejected);
+        setAllVerified(verified);
+        setRejectedItems(rejectedSlice);
+        setVerifiedItems(verifiedSlice);
+        setRejectedCount(rejected.length);
+        setVerifiedCount(verified.length);
       })
       .catch(() => {});
   };
   useEffect(() => {
-    loadRejectedNotifications();
+    loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadRejectedNotifications(), 30000);
+    pollRef.current = setInterval(() => loadNotifications(), 30000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('notification_log', {
     filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadRejectedNotifications(),
+    onInsert: () => loadNotifications(),
     enabled: !!user?.id,
   });
 
@@ -182,11 +197,11 @@ export default function FROPanel() {
   const dueItems = dedupedRows.filter(r => r.scheduled_at && new Date(r.scheduled_at) <= new Date());
   const dueCount = dueItems.length;
 
-  const dropdownItems = [];
   const rejectedToShow = rejectedItems.slice(0, MAX_DROPDOWN);
-  const dueToShow = dueItems.slice(0, MAX_DROPDOWN - rejectedToShow.length);
-  const totalShown = rejectedToShow.length + dueToShow.length;
-  const totalHidden = rejectedCount + dueCount - totalShown;
+  const verifiedToShow = verifiedItems.slice(0, MAX_DROPDOWN - rejectedToShow.length);
+  const dueToShow = dueItems.slice(0, MAX_DROPDOWN - rejectedToShow.length - verifiedToShow.length);
+  const totalShown = rejectedToShow.length + verifiedToShow.length + dueToShow.length;
+  const totalHidden = rejectedCount + verifiedCount + dueCount - totalShown;
 
   const meta = NAV.find(n => location.pathname === n.path)
   const userName = user?.name || 'User'
@@ -194,6 +209,7 @@ export default function FROPanel() {
 
   const drawerSections = [
     { label: 'Rejected Leads', type: 'rejected', items: allNotifs },
+    { label: 'Verified Leads', type: 'verified', items: allVerified },
     { label: 'Follow Up / Callback', type: 'schedule', items: dueItems },
   ];
 
@@ -218,13 +234,13 @@ export default function FROPanel() {
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <div ref={notifRef} style={{ position:'relative' }}>
               <div onClick={() => setShowNotifList(!showNotifList)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s', background: showNotifList ? '#f3f4f6' : 'transparent' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={rejectedCount + dueCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={rejectedCount + verifiedCount + dueCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
                 </svg>
-                {rejectedCount + dueCount > 0 && (
+                {rejectedCount + verifiedCount + dueCount > 0 && (
                   <span style={{ position:'absolute', top:0, right:0, background:'#dc2626', color:'#fff', borderRadius:'50%', minWidth:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1, padding:'0 3px' }}>
-                    {rejectedCount + dueCount > 9 ? '9+' : rejectedCount + dueCount}
+                    {rejectedCount + verifiedCount + dueCount > 9 ? '9+' : rejectedCount + verifiedCount + dueCount}
                   </span>
                 )}
               </div>
@@ -233,10 +249,10 @@ export default function FROPanel() {
                   {/* Header */}
                   <div style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <span style={{ fontSize:13, fontWeight:700 }}>Notifications</span>
-                    <span style={{ fontSize:11, color:'var(--ink-soft)' }}>{rejectedCount + dueCount} pending</span>
+                    <span style={{ fontSize:11, color:'var(--ink-soft)' }}>{rejectedCount + verifiedCount + dueCount} pending</span>
                   </div>
 
-                  {rejectedCount + dueCount === 0 && (
+                  {rejectedCount + verifiedCount + dueCount === 0 && (
                     <div style={{ padding:24, fontSize:12, color:'var(--ink-soft)', textAlign:'center' }}>No pending items</div>
                   )}
 
@@ -257,6 +273,28 @@ export default function FROPanel() {
                             <span style={{ fontWeight:600, fontSize:12 }}>{item.body?.replace(/^Your lead for /, '').replace(/ \(.*$/, '') || 'Lead'}</span>
                           </div>
                           <div style={{ color:'#6b7280', fontSize:11, lineHeight:1.3 }}>{item.body?.replace(/^.*Reason: /, '')}</div>
+                          <div style={{ color:'#9ca3af', fontSize:10, marginTop:2 }}>{item.sent_at ? new Date(item.sent_at).toLocaleString('en-GB') : ''}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Verified items */}
+                  {verifiedToShow.map((item, i) => (
+                    <div key={`vr-${item.id}`}
+                      style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', fontSize:12, cursor:'default' }}
+                      onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
+                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+                        <div style={{ width:28, height:28, borderRadius:6, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', color:'#16a34a', flexShrink:0, marginTop:1 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
+                            <span style={{ background:'#16a34a', color:'#fff', fontSize:9, padding:'1px 5px', borderRadius:4, fontWeight:700, lineHeight:'14px' }}>VERIFIED</span>
+                            <span style={{ fontWeight:600, fontSize:12 }}>{item.body?.replace(/^Your lead for /, '').replace(/ \(.*$/, '') || 'Lead'}</span>
+                          </div>
+                          <div style={{ color:'#6b7280', fontSize:11, lineHeight:1.3 }}>{item.body?.replace(/^.*has been verified\. /, '')}</div>
                           <div style={{ color:'#9ca3af', fontSize:10, marginTop:2 }}>{item.sent_at ? new Date(item.sent_at).toLocaleString('en-GB') : ''}</div>
                         </div>
                       </div>
