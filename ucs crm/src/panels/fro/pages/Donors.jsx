@@ -30,6 +30,8 @@ export default function Donors() {
   const [modalLoading, setModalLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
   const [unlocked, setUnlocked] = useState(false);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
 
   useEffect(() => {
     let mounted = true;
@@ -40,6 +42,8 @@ export default function Donors() {
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, [period]);
+
+  useEffect(() => { setPage(1); }, [search, filter, period, perPage]);
 
   const openModal = useCallback(async (d) => {
     setModalDonor(d);
@@ -99,6 +103,9 @@ export default function Donors() {
     if (filter === 'inactive') return !d.has_donated_current_fy;
     return true;
   });
+
+  const totalPages = Math.ceil(filtered.length / perPage) || 1;
+  const paginatedDonors = filtered.slice((page - 1) * perPage, page * perPage);
 
   const filteredLogs = useMemo(() => {
     if (!modalDetail?.logs) return [];
@@ -163,7 +170,7 @@ export default function Donors() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
         <input type="text" placeholder="Search by name or mobile..." value={search} onChange={e => setSearch(e.target.value)}
           style={{ flex: 1, padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
-        <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>{filtered.length} donor{filtered.length !== 1 ? 's' : ''}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>{filtered.length} donor{filtered.length !== 1 ? 's' : ''} &middot; Page {page} of {totalPages}</span>
       </div>
 
       <div style={{ display: 'flex', gap: 6, padding: '8px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
@@ -198,7 +205,7 @@ export default function Donors() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(d => (
+              {paginatedDonors.map(d => (
                 <tr key={`${d.id}-${d.ngo_id}`} onClick={() => openModal(d)}
                   style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer', background: modalDonor?.id === d.id ? '#f0fdf4' : 'transparent' }}
                   onMouseOver={e => e.currentTarget.style.background = modalDonor?.id === d.id ? '#e6f7e6' : 'var(--bg)'}
@@ -215,6 +222,25 @@ export default function Donors() {
               ))}
             </tbody>
           </table>
+        )}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              style={{ padding: '4px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', opacity: page === 1 ? 0.4 : 1 }}>
+              &larr; Prev
+            </button>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)' }}>Page {page} of {totalPages}</span>
+            <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); }}
+              style={{ padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 5, fontSize: 10, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <option value={10}>10 / page</option>
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+            </select>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+              style={{ padding: '4px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', opacity: page === totalPages ? 0.4 : 1 }}>
+              Next &rarr;
+            </button>
+          </div>
         )}
       </div>
 
