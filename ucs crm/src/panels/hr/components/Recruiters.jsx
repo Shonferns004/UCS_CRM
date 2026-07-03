@@ -382,8 +382,12 @@ export default function Recruiters() {
                     </div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                      <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
-                        options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))]} style={{width:'100%'}} />
+                      <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                        {NOT_CONNECTED_OPTIONS.map(o => (
+                          <div key={o.key} onClick={()=>setForm(f => ({ ...f, notConnectedOption: f.notConnectedOption === o.key ? '' : o.key }))}
+                            style={{padding:'6px 10px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',fontSize:12,fontWeight:500,textAlign:'center',background:form.notConnectedOption===o.key?'var(--sage-soft)':'transparent',color:form.notConnectedOption===o.key?'var(--sage)':'var(--ink)'}}>{o.label}</div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>

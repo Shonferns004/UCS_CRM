@@ -155,7 +155,12 @@ export default function Leads() {
                   </div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                      {NOT_CONNECTED_OPTIONS.map(o => (
+                        <div key={o.value} onClick={()=>setNotConnectedOption(p => p===o.value ? '' : o.value)}
+                          style={{padding:'6px 10px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',fontSize:12,fontWeight:500,textAlign:'center',background:notConnectedOption===o.value?'var(--sage-soft)':'transparent',color:notConnectedOption===o.value?'var(--sage)':'var(--ink)'}}>{o.label}</div>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
@@ -220,7 +225,12 @@ export default function Leads() {
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                  <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                  <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                    {NOT_CONNECTED_OPTIONS.map(o => (
+                      <div key={o.value} onClick={()=>setNotConnectedOption(p => p===o.value ? '' : o.value)}
+                        style={{padding:'6px 10px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',fontSize:12,fontWeight:500,textAlign:'center',background:notConnectedOption===o.value?'var(--sage-soft)':'transparent',color:notConnectedOption===o.value?'var(--sage)':'var(--ink)'}}>{o.label}</div>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
