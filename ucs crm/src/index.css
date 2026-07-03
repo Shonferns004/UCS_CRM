@@ -844,7 +844,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 
 .panel-accounts .app, .panel-ngo-admin .app, .panel-fro .app { display:flex; min-height:100vh; }
 .panel-accounts .app { height:100vh; overflow:hidden; }
-.panel-accounts .sidebar, .panel-ngo-admin .sidebar, .panel-fro .sidebar { width:240px; background:var(--card-bg); border-right:1px solid var(--line); padding:20px 0; flex-shrink:0; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; }
+.panel-accounts .sidebar, .panel-ngo-admin .sidebar, .panel-fro .sidebar { width:200px; background:var(--card-bg); border-right:1px solid var(--line); padding:20px 0; flex-shrink:0; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; }
 .panel-accounts .sidebar-brand, .panel-ngo-admin .sidebar-brand, .panel-fro .sidebar-brand { padding:0 20px 20px; border-bottom:1px solid var(--line); margin-bottom:12px; display:flex; align-items:center; gap:10px; }
 .panel-accounts .brand-mark, .panel-ngo-admin .brand-mark, .panel-fro .brand-mark { width:36px; height:36px; background:var(--sage); color:#fff; border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; }
 .panel-accounts .sidebar-brand h1, .panel-ngo-admin .sidebar-brand h1, .panel-fro .sidebar-brand h1 { font-size:16px; font-weight:600; }
@@ -856,7 +856,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-accounts .snav-item .ico, .panel-ngo-admin .snav-item .ico, .panel-fro .snav-item .ico { width:18px; height:18px; flex-shrink:0; }
 .panel-accounts .main, .panel-ngo-admin .main, .panel-fro .main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .panel-ngo-admin .sidebar { position:fixed; top:0; height:100vh; }
-.panel-ngo-admin .main { margin-left:240px; }
+.panel-ngo-admin .main { margin-left:200px; }
 .panel-accounts .topbar, .panel-ngo-admin .topbar, .panel-fro .topbar { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--line); }
 .panel-accounts .topbar .eyebrow, .panel-ngo-admin .topbar .eyebrow, .panel-fro .topbar .eyebrow { font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.5px; }
 .panel-accounts .topbar h2, .panel-ngo-admin .topbar h2, .panel-fro .topbar h2 { font-size:18px; font-weight:600; margin-top:1px; }

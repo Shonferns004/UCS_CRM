@@ -195,7 +195,9 @@ export default function NgoAdminPanel() {
                     onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
                     onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                     <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                      <div style={{ width:28, height:28, borderRadius:6, background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', fontSize:12, flexShrink:0, marginTop:1 }}>{'\u2716'}</div>
+                      <div style={{ width:28, height:28, borderRadius:6, background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', flexShrink:0, marginTop:1 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                      </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
                           <span style={{ fontWeight:600, fontSize:12 }}>{item.donor_name}</span>
