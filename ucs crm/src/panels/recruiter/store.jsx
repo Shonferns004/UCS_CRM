@@ -12,7 +12,7 @@ export const avatarTint = (hex) => hex + '22'
 
 const now = () => new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
 export const STAGES = ['New','Screening','Interview','Offer','Hired']
-export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Campus','Social Media','Other']
+export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Other']
 export const LEAD_STATUSES = ['rejected','selected','hold','scheduled','joined']
 
 let _id = 100

@@ -16,7 +16,7 @@ const STATUSES = [
   { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
   { key: 'joined', label: 'Joined', color: '#8b5cf6' },
 ];
-const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Campus', 'Social Media', 'Other'];
+const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
 
 const formatDT = (ts) => {
   if (!ts) return '—';
