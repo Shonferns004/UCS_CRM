@@ -426,7 +426,7 @@ export const getMyDonors = async (req, res) => {
       assignments.sort((a, b) => (statusRank[a.status] ?? 999) - (statusRank[b.status] ?? 999));
     }
 
-    const result = [];
+    let result = [];
     const seen = new Set();
     for (const a of assignments || []) {
       const d = donorMap[a.donor_id];
