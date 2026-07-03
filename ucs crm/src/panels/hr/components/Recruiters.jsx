@@ -351,13 +351,17 @@ export default function Recruiters() {
                   <Dropdown value={form.source} onChange={v => setForm(f => ({ ...f, source: v, customSource: v !== 'Other' ? '' : f.customSource }))}
                     options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
-                <label className="field">Connection Status
-                  <div style={{display:'flex',gap:8}}>
+              </div>
+              <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+                <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+                <div className="card-pad">
+                  <div style={{display:'flex',gap:16}}>
                     <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                       <div onClick={()=>setForm(f => ({ ...f, status: f.status==='connected'?'':'connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
-                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Connected</div>
                       {form.status === 'connected' && (
-                        <div style={{marginTop:6}}>
+                        <div>
                           <Dropdown value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '' }))} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
                           {form.connectedOption === 'follow_up' && (
                             <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
@@ -375,15 +379,16 @@ export default function Recruiters() {
                       )}
                     </div>
                     <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                       <div onClick={()=>setForm(f => ({ ...f, status: f.status==='not_connected'?'':'not_connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
-                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                        style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Not Connected</div>
                       {form.status === 'not_connected' && (
                         <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
-                          options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'100%',marginTop:6}} />
+                          options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'100%'}} />
                       )}
                     </div>
                   </div>
-                </label>
+                </div>
               </div>
 
               <label className="field">Assigned to

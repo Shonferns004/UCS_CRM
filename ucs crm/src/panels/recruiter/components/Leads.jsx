@@ -125,13 +125,17 @@ export default function Leads() {
               <label className="field">Source
                 <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
               </label>
-              <label className="field">Connection Status
-                <div style={{display:'flex',gap:8}}>
+            </div>
+            <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+              <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+              <div className="card-pad">
+                <div style={{display:'flex',gap:16}}>
                   <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                     <div onClick={()=>{setStatus(p=>p==='connected'?'':'connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Connected</div>
                     {status === 'connected' && (
-                      <div style={{marginTop:6}}>
+                      <div>
                         <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
                         {connectedOption === 'follow_up' && (
                           <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
@@ -149,33 +153,33 @@ export default function Leads() {
                     )}
                   </div>
                   <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                     <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Not Connected</div>
                     {status === 'not_connected' && (
-                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
+                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%'}} />
                     )}
                   </div>
                 </div>
-              </label>
-            </div>
-            <div style={{marginTop:12}}>
-              <label className="field">Notes
-                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:4}}>
-                  {formNotes.map((n,i) => (
-                    <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
-                      {n.text}
-                      <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
-                    </span>
-                  ))}
+                <div style={{marginTop:16}}>
+                  <label className="field" style={{gap:2}}>NOTES
+                    <textarea rows={3} value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Add notes here..." style={{width:'100%',resize:'vertical',fontSize:13,marginTop:2}} />
+                    <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
+                      {formNotes.map((n,i) => (
+                        <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
+                          {n.text}
+                          <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  </label>
+                  <button type="button" className="btn btn-sm" onClick={addNoteToForm} style={{marginTop:4}}>+ Add note</button>
                 </div>
-                <div style={{display:'flex',gap:8,marginTop:6}}>
-                  <input value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Type a note and add..." style={{flex:1}} />
-                  <button type="button" className="btn btn-sm" onClick={addNoteToForm}>+ Add</button>
+                <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
+                  <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary"><Plus width={15}/> Save</button>
                 </div>
-              </label>
-            </div>
-            <div style={{marginTop:14}}>
-              <button className="btn btn-primary"><Plus width={15}/> Create lead</button>
+              </div>
             </div>
           </form>
         </div>
@@ -204,13 +208,17 @@ export default function Leads() {
             <label className="field">Source
               <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
             </label>
-            <label className="field">Connection Status
-              <div style={{display:'flex',gap:8}}>
+          </div>
+          <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+            <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+            <div className="card-pad">
+              <div style={{display:'flex',gap:16}}>
                 <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                   <div onClick={()=>{setStatus(p=>p==='connected'?'':'connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
+                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Connected</div>
                   {status === 'connected' && (
-                    <div style={{marginTop:6}}>
+                    <div>
                       <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
                       {connectedOption === 'follow_up' && (
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
@@ -228,33 +236,32 @@ export default function Leads() {
                   )}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                   <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
+                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Not Connected</div>
                   {status === 'not_connected' && (
-                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
+                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%'}} />
                   )}
                 </div>
               </div>
-            </label>
-          </div>
-          <div style={{marginTop:12}}>
-            <label className="field">Notes
-              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:4}}>
-                {formNotes.map((n,i) => (
-                  <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
-                    {n.text}
-                    <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
-                  </span>
-                ))}
+              <div style={{marginTop:16}}>
+                <label className="field" style={{gap:2}}>NOTES
+                  <textarea rows={3} value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Add notes here..." style={{width:'100%',resize:'vertical',fontSize:13,marginTop:2}} />
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
+                    {formNotes.map((n,i) => (
+                      <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
+                        {n.text}
+                        <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                </label>
+                <button type="button" className="btn btn-sm" onClick={addNoteToForm} style={{marginTop:4}}>+ Add note</button>
               </div>
-              <div style={{display:'flex',gap:8,marginTop:6}}>
-                <input value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Type a note and add..." style={{flex:1}} />
-                <button type="button" className="btn btn-sm" onClick={addNoteToForm}>+ Add</button>
+              <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
+                <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
               </div>
-            </label>
-          </div>
-          <div style={{marginTop:14}}>
-            <button className="btn btn-primary"><Plus width={15}/> Create lead</button>
+            </div>
           </div>
         </form>
       </div>
