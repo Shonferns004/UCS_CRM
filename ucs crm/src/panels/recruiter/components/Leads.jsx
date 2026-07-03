@@ -289,7 +289,7 @@ export default function Leads() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Notes</th><th>Created by</th><th>Action</th>
+                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Notes</th><th>Created by</th>
                 </tr>
               </thead>
               <tbody>
@@ -308,10 +308,7 @@ export default function Leads() {
                         <Dropdown className="inline-select" value={l.status} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
                       ) : statusPill(l.status)}</td>
                       <td><span className="sub">{parsed.length > 0 ? parsed.length + ' note' + (parsed.length!==1?'s':'') : '—'}</span></td>
-                      <td style={{color:'var(--ink-soft)'}}>{l.created_by_name || '—'}</td>
-                      <td onClick={e => e.stopPropagation()} style={{whiteSpace:'nowrap'}}>
-                        <span onClick={() => setDeleteConfirm(l)} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,display:'inline-flex',alignItems:'center',gap:4}}><Trash width={14}/> Delete</span>
-                      </td>
+                      <td style={{color:'var(--ink-soft)'}}>{l.created_by_name || '—'} <span onClick={e => { e.stopPropagation(); setDeleteConfirm(l); }} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,marginLeft:8,display:'inline-flex',alignItems:'center',gap:3}}><Trash width={12}/> Delete</span></td>
                     </tr>
                   );
                 })}
