@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 
 export function Dropdown({ value, onChange, options, placeholder, renderOption, renderValue, customTrigger, customValue, onCustomChange }) {
   const [open, setOpen] = useState(false)
+  const [up, setUp] = useState(false)
   const inputRef = useRef(null)
   const ref = useRef(null)
 
@@ -15,11 +16,27 @@ export function Dropdown({ value, onChange, options, placeholder, renderOption, 
     if (open && value === customTrigger && inputRef.current) inputRef.current.focus()
   }, [open, value, customTrigger])
 
+  const openMenu = () => {
+    setOpen(true)
+    requestAnimationFrame(() => {
+      if (ref.current) {
+        const trigger = ref.current.querySelector('.dropdown-trigger')
+        const menu = ref.current.querySelector('.dropdown-menu')
+        if (trigger && menu) {
+          const rect = trigger.getBoundingClientRect()
+          const menuH = menu.offsetHeight
+          const spaceBelow = window.innerHeight - rect.bottom - 8
+          setUp(menuH > spaceBelow && rect.top > menuH)
+        }
+      }
+    })
+  }
+
   const selected = options.find(o => (typeof o === 'string' ? o : o.value) === value)
 
   return (
-    <div className="dropdown" ref={ref}>
-      <button type="button" className="dropdown-trigger" onClick={() => setOpen(!open)}>
+    <div className={`dropdown${up ? ' up' : ''}`} ref={ref}>
+      <button type="button" className="dropdown-trigger" onClick={() => open ? setOpen(false) : openMenu()}>
         {renderValue ? renderValue(selected) : (selected ? (typeof selected === 'string' ? selected : selected.label) : (placeholder || 'Select...'))}
         <ChevronDown />
       </button>

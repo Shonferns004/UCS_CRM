@@ -12,6 +12,7 @@ function ChevronDown(props) {
 
 export function Dropdown({ value, onChange, options, placeholder, className, style, renderOption, renderValue, customTrigger, customValue, onCustomChange }) {
   const [open, setOpen] = useState(false)
+  const [up, setUp] = useState(false)
   const inputRef = useRef(null)
   const ref = useRef(null)
 
@@ -28,6 +29,22 @@ export function Dropdown({ value, onChange, options, placeholder, className, sty
     if (open && value === customTrigger && inputRef.current) inputRef.current.focus()
   }, [open, value, customTrigger])
 
+  const openMenu = () => {
+    setOpen(true)
+    requestAnimationFrame(() => {
+      if (ref.current) {
+        const trigger = ref.current.querySelector('.dropdown-trigger')
+        const menu = ref.current.querySelector('.dropdown-menu')
+        if (trigger && menu) {
+          const rect = trigger.getBoundingClientRect()
+          const menuH = menu.offsetHeight
+          const spaceBelow = window.innerHeight - rect.bottom - 8
+          setUp(menuH > spaceBelow && rect.top > menuH)
+        }
+      }
+    })
+  }
+
   const opts = (options || []).map(o =>
     typeof o === 'string' || typeof o === 'number' ? { value: o, label: String(o) } : o
   )
@@ -35,9 +52,9 @@ export function Dropdown({ value, onChange, options, placeholder, className, sty
   const display = selected ? (renderValue ? renderValue(selected) : selected.label) : (placeholder || '')
 
   return (
-    <div ref={ref} className={`dropdown ${open ? 'open' : ''} ${className || ''}`} style={style}
+    <div ref={ref} className={`dropdown ${open ? 'open' : ''} ${up ? 'up' : ''} ${className || ''}`} style={style}
       tabIndex={0} onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}>
-      <button className="dropdown-trigger" type="button" onClick={() => setOpen(!open)}>
+      <button className="dropdown-trigger" type="button" onClick={() => open ? setOpen(false) : openMenu()}>
         <span className="dropdown-label">{display || placeholder || ''}</span>
         <ChevronDown className={`dropdown-arrow ${open ? 'up' : ''}`} />
       </button>
