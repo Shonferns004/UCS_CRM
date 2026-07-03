@@ -358,12 +358,7 @@ export default function Recruiters() {
                         style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
                       {form.status === 'connected' && (
                         <div style={{marginTop:6}}>
-                          <div style={{display:'flex',gap:6}}>
-                            <div onClick={()=>setForm(f => ({ ...f, connectedOption: f.connectedOption==='follow_up'?'':'follow_up', followUpDateTime: '', callBackTime: '' }))}
-                              style={{flex:1,padding:'8px 12px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:12,fontWeight:500,background:form.connectedOption==='follow_up'?'var(--sage-soft)':'transparent',color:form.connectedOption==='follow_up'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Follow Up</div>
-                            <div onClick={()=>setForm(f => ({ ...f, connectedOption: f.connectedOption==='call_back'?'':'call_back', followUpDateTime: '', callBackTime: '' }))}
-                              style={{flex:1,padding:'8px 12px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:12,fontWeight:500,background:form.connectedOption==='call_back'?'var(--sage-soft)':'transparent',color:form.connectedOption==='call_back'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Call Back</div>
-                          </div>
+                          <Dropdown value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '' }))} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
                           {form.connectedOption === 'follow_up' && (
                             <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                               <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -383,12 +378,8 @@ export default function Recruiters() {
                       <div onClick={()=>setForm(f => ({ ...f, status: f.status==='not_connected'?'':'not_connected', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '' }))}
                         style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                       {form.status === 'not_connected' && (
-                        <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:6}}>
-                          {NOT_CONNECTED_OPTIONS.map(opt => (
-                            <div key={opt.key} onClick={()=>setForm(f => ({ ...f, notConnectedOption: f.notConnectedOption===opt.key?'':opt.key }))}
-                              style={{padding:'6px 10px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:11,fontWeight:500,background:form.notConnectedOption===opt.key?'var(--danger-soft)':'transparent',color:form.notConnectedOption===opt.key?'var(--danger)':'var(--ink)',whiteSpace:'nowrap'}}>{opt.label}</div>
-                          ))}
-                        </div>
+                        <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
+                          options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'100%',marginTop:6}} />
                       )}
                     </div>
                   </div>

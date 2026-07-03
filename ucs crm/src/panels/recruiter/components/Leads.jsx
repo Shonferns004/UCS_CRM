@@ -132,12 +132,7 @@ export default function Leads() {
                       style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
                     {status === 'connected' && (
                       <div style={{marginTop:6}}>
-                        <div style={{display:'flex',gap:6}}>
-                          <div onClick={()=>{setConnectedOption(p=>p==='follow_up'?'':'follow_up');setFollowUpDateTime('');setCallBackTime('')}}
-                            style={{flex:1,padding:'8px 12px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:12,fontWeight:500,background:connectedOption==='follow_up'?'var(--sage-soft)':'transparent',color:connectedOption==='follow_up'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Follow Up</div>
-                          <div onClick={()=>{setConnectedOption(p=>p==='call_back'?'':'call_back');setFollowUpDateTime('');setCallBackTime('')}}
-                            style={{flex:1,padding:'8px 12px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:12,fontWeight:500,background:connectedOption==='call_back'?'var(--sage-soft)':'transparent',color:connectedOption==='call_back'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Call Back</div>
-                        </div>
+                        <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
                         {connectedOption === 'follow_up' && (
                           <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                             <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -157,12 +152,7 @@ export default function Leads() {
                     <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
                       style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                     {status === 'not_connected' && (
-                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:6}}>
-                        {NOT_CONNECTED_OPTIONS.map(opt => (
-                          <div key={opt.value} onClick={()=>{setNotConnectedOption(p=>p===opt.value?'':opt.value)}}
-                            style={{padding:'6px 10px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:11,fontWeight:500,background:notConnectedOption===opt.value?'var(--danger-soft)':'transparent',color:notConnectedOption===opt.value?'var(--danger)':'var(--ink)',whiteSpace:'nowrap'}}>{opt.label}</div>
-                        ))}
-                      </div>
+                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
                     )}
                   </div>
                 </div>
@@ -221,12 +211,7 @@ export default function Leads() {
                     style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
                   {status === 'connected' && (
                     <div style={{marginTop:6}}>
-                      <div style={{display:'flex',gap:6}}>
-                        <div onClick={()=>{setConnectedOption(p=>p==='follow_up'?'':'follow_up');setFollowUpDateTime('');setCallBackTime('')}}
-                          style={{flex:1,padding:'8px 12px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:12,fontWeight:500,background:connectedOption==='follow_up'?'var(--sage-soft)':'transparent',color:connectedOption==='follow_up'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Follow Up</div>
-                        <div onClick={()=>{setConnectedOption(p=>p==='call_back'?'':'call_back');setFollowUpDateTime('');setCallBackTime('')}}
-                          style={{flex:1,padding:'8px 12px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:12,fontWeight:500,background:connectedOption==='call_back'?'var(--sage-soft)':'transparent',color:connectedOption==='call_back'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Call Back</div>
-                      </div>
+                      <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
                       {connectedOption === 'follow_up' && (
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                           <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -246,12 +231,7 @@ export default function Leads() {
                   <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
                     style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                   {status === 'not_connected' && (
-                    <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:6}}>
-                      {NOT_CONNECTED_OPTIONS.map(opt => (
-                        <div key={opt.value} onClick={()=>{setNotConnectedOption(p=>p===opt.value?'':opt.value)}}
-                          style={{padding:'6px 10px',borderRadius:6,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:11,fontWeight:500,background:notConnectedOption===opt.value?'var(--danger-soft)':'transparent',color:notConnectedOption===opt.value?'var(--danger)':'var(--ink)',whiteSpace:'nowrap'}}>{opt.label}</div>
-                      ))}
-                    </div>
+                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
                   )}
                 </div>
               </div>
