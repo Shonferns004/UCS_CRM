@@ -417,6 +417,15 @@ export const getMyDonors = async (req, res) => {
 
     const activeDonorIds = new Set((recentActivity || []).map(l => l.donor_id));
 
+    // Sort assignments so completed/connected statuses come before pending
+    // (dedup picks the first occurrence)
+    if (req.query.verified_only === 'true') {
+      const statusOrder = ['donation_collected', 'lead_done', 'follow_up', 'scheduled', 'contacted', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'pending', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected'];
+      const statusRank = {};
+      for (let i = 0; i < statusOrder.length; i++) statusRank[statusOrder[i]] = i;
+      assignments.sort((a, b) => (statusRank[a.status] ?? 999) - (statusRank[b.status] ?? 999));
+    }
+
     const result = [];
     const seen = new Set();
     for (const a of assignments || []) {
@@ -460,6 +469,24 @@ export const getMyDonors = async (req, res) => {
       });
     }
 
+    // Attach latest accounts_status from fro_donor_logs (for verified_only view)
+    if (req.query.verified_only === 'true' && result.length > 0) {
+      const donorIdsForStatus = result.map(r => r.donor_id);
+      const { data: statusLogs } = await supabase
+        .from('fro_donor_logs')
+        .select('donor_id, accounts_status')
+        .in('donor_id', donorIdsForStatus)
+        .in('accounts_status', ['verified', 'rejected', 'pending'])
+        .order('created_at', { ascending: false });
+      const latestStatus = {};
+      for (const log of statusLogs || []) {
+        if (!latestStatus[log.donor_id]) latestStatus[log.donor_id] = log.accounts_status;
+      }
+      for (const r of result) {
+        r.accounts_status = latestStatus[r.donor_id] || r.status;
+      }
+    }
+
     // --- Period filter ---
     const periodFilter = req.query.period;
     if (periodFilter && periodFilter !== 'all' && donorIds.length > 0) {
@@ -474,15 +501,13 @@ export const getMyDonors = async (req, res) => {
         periodCutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString();
       } else if (periodFilter === 'yearly') {
         periodCutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
-      } else if (periodFilter === 'tenyears') {
-        periodCutoff = new Date(now.getTime() - 3650 * 24 * 60 * 60 * 1000).toISOString();
       }
       if (periodCutoff) {
         const { data: periodActivity, error: periodError } = await supabase
           .from('fro_donor_logs')
           .select('donor_id')
           .in('donor_id', donorIds)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+          .not('action', 'eq', 'note')
           .gte('created_at', periodCutoff);
         if (periodError) throw periodError;
         const periodDonorIds = new Set((periodActivity || []).map(l => l.donor_id));
