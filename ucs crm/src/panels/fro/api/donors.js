@@ -46,6 +46,10 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
+export async function getRejectedLeads() {
+  return api('/fro/rejected-leads', { _prefix: 'ucs' })
+}
+
 export async function getMyHistory() {
   return api('/fro/history', { _prefix: 'ucs' })
 }

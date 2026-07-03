@@ -410,7 +410,7 @@ export default function LeadDetail({ logId, onBack }) {
         .field-input:focus{border-color:var(--sage,#5B6B4E);box-shadow:0 0 0 3px rgba(91,107,78,.08);background:#fff}
         .field-input::placeholder{color:#9ca3af}
         .field-picker button{height:36px!important;padding:8px 12px!important;font-size:13px!important;border:1px solid #e5e7eb!important;border-radius:8px!important;background:#f9fafb!important;color:#1f2937!important;display:flex!important;align-items:center!important;box-sizing:border-box!important}
-        .action-bar{position:fixed;bottom:0;left:240px;right:0;z-index:50;background:rgba(255,255,255,.97);backdrop-filter:blur(16px);border-top:1px solid #e5e7eb;padding:10px 24px;display:flex;justify-content:center;box-shadow:0 -2px 12px rgba(0,0,0,.06)}
+        .action-bar{position:fixed;bottom:0;left:200px;right:0;z-index:50;background:rgba(255,255,255,.97);backdrop-filter:blur(16px);border-top:1px solid #e5e7eb;padding:10px 24px;display:flex;justify-content:center;box-shadow:0 -2px 12px rgba(0,0,0,.06)}
         @media(max-width:952px){.action-bar{left:0}}
         .datepicker-input{width:100%;box-sizing:border-box;padding:8px 12px;font-size:13px;border:1px solid #e5e7eb;border-radius:8px;outline:none;background:#f9fafb;color:#1f2937;height:36px}
         .datepicker-input:focus{border-color:var(--sage,#4ade80);box-shadow:0 0 0 2px rgba(74,222,128,.15)}

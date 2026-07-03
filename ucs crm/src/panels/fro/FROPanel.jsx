@@ -11,6 +11,7 @@ import NotificationDrawer from '../../components/NotificationDrawer'
 import Dashboard from './pages/Dashboard'
 import MyDonors from './pages/MyDonors'
 import TransferredLeads from './pages/TransferredLeads'
+import RejectedLeads from './pages/RejectedLeads'
 import Donors from './pages/Donors'
 import Scheduled from './pages/Scheduled'
 import IncentiveInfo from './pages/IncentiveInfo'
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'transferred-leads', path: '/fro/transferred-leads', label: 'Transferred', icon: 'swap_horiz' },
   { id: 'donors', path: '/fro/donors', label: 'Donors', icon: 'card_giftcard' },
   { id: 'logs', path: '/fro/logs', label: 'Call Logs', icon: 'call_log' },
+  { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', icon: 'heart_broken' },
   { id: 'target', path: '/fro/target', label: 'My Target', icon: 'track_changes' },
 ]
 
@@ -105,8 +107,8 @@ export default function FROPanel() {
     }
   };
 
-  const handlePopDone = () => {
-    if (modalNotifId) markRead(modalNotifId);
+  const handlePopDone = async () => {
+    if (modalNotifId) await markRead(modalNotifId);
     setModalNotifId(null);
     setModalDonor(null);
     setRefetch(n => n + 1);
@@ -246,7 +248,9 @@ export default function FROPanel() {
                       onMouseOver={e => e.currentTarget.style.background = '#fef2f2'}
                       onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                       <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ width:28, height:28, borderRadius:6, background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', fontSize:12, flexShrink:0, marginTop:1 }}>{'\u2716'}</div>
+                        <div style={{ width:28, height:28, borderRadius:6, background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', flexShrink:0, marginTop:1 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                        </div>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
                             <span style={{ background:'#dc2626', color:'#fff', fontSize:9, padding:'1px 5px', borderRadius:4, fontWeight:700, lineHeight:'14px' }}>REJECTED</span>
@@ -267,7 +271,9 @@ export default function FROPanel() {
                       onMouseOver={e => e.currentTarget.style.background = '#f5f5f5'}
                       onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                       <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ width:28, height:28, borderRadius:6, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', color:'#16a34a', fontSize:12, flexShrink:0, marginTop:1 }}>{'\u23F0'}</div>
+                        <div style={{ width:28, height:28, borderRadius:6, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', color:'#16a34a', flexShrink:0, marginTop:1 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </div>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontWeight:600, fontSize:12, marginBottom:2 }}>{item.donor_name}</div>
                           <div style={{ color:'var(--ink-soft)', fontSize:11, display:'flex', alignItems:'center', gap:4 }}>
@@ -322,6 +328,7 @@ export default function FROPanel() {
             <Route path="scheduled" element={<Scheduled />} />
             <Route path="my-leads" element={<MyDonors />} />
             <Route path="transferred-leads" element={<TransferredLeads />} />
+            <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="donors" element={<Donors />} />
             <Route path="logs" element={<CallLogs />} />
             <Route path="target" element={<MyTarget />} />
