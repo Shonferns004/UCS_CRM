@@ -68,10 +68,11 @@ export default function Leads() {
     if (!name.trim() || !phone.trim()) return;
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
-      const finalStatus = connectedOption === 'follow_up' && followUpDateTime ? 'followed_up' : connectedOption === 'call_back' && callBackTime ? 'call_back' : notConnectedOption || status;
+      const finalStatus = connectedOption === 'follow_up' && followUpDateTime ? 'followed_up' : connectedOption === 'call_back' && callBackTime ? 'call_back' : connectedOption === 'schedule' && scheduledDate ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption || status;
       const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
+      if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
       setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]);
     } catch (err) { alert(err.message); }
@@ -132,7 +133,7 @@ export default function Leads() {
                 <div style={{display:'flex',gap:16}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                    <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
+                    <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
                     {connectedOption === 'follow_up' && (
                       <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                         <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -145,6 +146,12 @@ export default function Leads() {
                         <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
                       </div>
                     )}
+                    {connectedOption === 'schedule' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                        <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
                   </div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
@@ -153,7 +160,7 @@ export default function Leads() {
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                   <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary"><Plus width={15}/> Save</button>
+                  <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
                 </div>
               </div>
             </div>
@@ -191,7 +198,7 @@ export default function Leads() {
               <div style={{display:'flex',gap:16}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                  <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
+                  <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
                   {connectedOption === 'follow_up' && (
                     <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                       <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -202,6 +209,12 @@ export default function Leads() {
                     <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                       <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
                       <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
+                    </div>
+                  )}
+                  {connectedOption === 'schedule' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                      <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
                     </div>
                   )}
                 </div>

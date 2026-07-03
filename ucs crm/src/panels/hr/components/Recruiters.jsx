@@ -49,7 +49,7 @@ export default function Recruiters() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', notes: [], recruiter_id: '' });
+  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
 
@@ -97,12 +97,13 @@ export default function Recruiters() {
         notConnectedOption: '',
         followUpDateTime: '',
         callBackTime: '',
+        scheduledDate: '',
         notes,
         recruiter_id: lead.recruiter_id || '',
       });
       setEditingLead(lead);
     } else {
-      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', notes: [], recruiter_id: '' });
+      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
       setEditingLead(null);
     }
     setNewNote('');
@@ -128,7 +129,7 @@ export default function Recruiters() {
     if (!form.name.trim()) return;
     try {
       const finalSource = form.source === 'Other' ? (form.customSource.trim() || 'Other') : form.source;
-      const finalStatus = form.connectedOption === 'follow_up' && form.followUpDateTime ? 'followed_up' : form.connectedOption === 'call_back' && form.callBackTime ? 'call_back' : form.notConnectedOption || form.status;
+      const finalStatus = form.connectedOption === 'follow_up' && form.followUpDateTime ? 'followed_up' : form.connectedOption === 'call_back' && form.callBackTime ? 'call_back' : form.connectedOption === 'schedule' && form.scheduledDate ? 'scheduled' : form.connectedOption === 'not_interested' ? 'not_interested' : form.notConnectedOption || form.status;
       const payload = {
         name: form.name.trim(),
         phone: form.phone || null,
@@ -140,6 +141,7 @@ export default function Recruiters() {
       };
       if (finalStatus === 'followed_up' && form.followUpDateTime) payload.follow_up_date = form.followUpDateTime;
       if (finalStatus === 'call_back' && form.callBackTime) payload.call_back_time = form.callBackTime;
+      if (finalStatus === 'scheduled' && form.scheduledDate) payload.scheduled_date = form.scheduledDate;
       if (editingLead) {
         await updateLead(editingLead.id, payload);
       } else {
@@ -358,7 +360,7 @@ export default function Recruiters() {
                   <div style={{display:'flex',gap:16}}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                      <Dropdown value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '' }))} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
+                      <Dropdown value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '', scheduledDate: '' }))} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
                       {form.connectedOption === 'follow_up' && (
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                           <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -369,6 +371,12 @@ export default function Recruiters() {
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                           <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
                           <input type="time" value={form.callBackTime} onChange={e => setForm(f => ({ ...f, callBackTime: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {form.connectedOption === 'schedule' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                          <input type="datetime-local" value={form.scheduledDate} onChange={e => setForm(f => ({ ...f, scheduledDate: e.target.value }))} style={{width:'auto'}} />
                         </div>
                       )}
                     </div>
