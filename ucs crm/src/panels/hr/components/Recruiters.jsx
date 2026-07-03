@@ -351,7 +351,7 @@ export default function Recruiters() {
                 <label className="field">Connection Status
                   <div style={{display:'flex',gap:8,marginTop:6}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div onClick={()=>setForm(f => ({ ...f, status: 'connected', notConnectedOption: '', followUpDateTime: '' }))}
+                      <div onClick={()=>setForm(f => ({ ...f, status: f.status==='connected'?'':'connected', notConnectedOption: '', followUpDateTime: '' }))}
                         style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='connected'?'var(--sage-soft)':'transparent',color:form.status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
                       {form.status === 'connected' && (
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
@@ -361,7 +361,7 @@ export default function Recruiters() {
                       )}
                     </div>
                     <div style={{flex:1,minWidth:0}}>
-                      <div onClick={()=>setForm(f => ({ ...f, status: 'not_connected', notConnectedOption: '', followUpDateTime: '' }))}
+                      <div onClick={()=>setForm(f => ({ ...f, status: f.status==='not_connected'?'':'not_connected', notConnectedOption: '', followUpDateTime: '' }))}
                         style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                       {form.status === 'not_connected' && (
                         <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}

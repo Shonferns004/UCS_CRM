@@ -125,7 +125,7 @@ export default function Leads() {
               <label className="field">Connection Status
                 <div style={{display:'flex',gap:8,marginTop:6}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                    <div onClick={()=>{setStatus(p=>p==='connected'?'':'connected');setNotConnectedOption('');setFollowUpDateTime('')}}
                       style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
                     {status === 'connected' && (
                       <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
@@ -135,7 +135,7 @@ export default function Leads() {
                     )}
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                    <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
                       style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                     {status === 'not_connected' && (
                       <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
@@ -193,7 +193,7 @@ export default function Leads() {
             <label className="field">Connection Status
               <div style={{display:'flex',gap:8,marginTop:6}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div onClick={()=>{setStatus('connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                  <div onClick={()=>{setStatus(p=>p==='connected'?'':'connected');setNotConnectedOption('');setFollowUpDateTime('')}}
                     style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Connected</div>
                   {status === 'connected' && (
                     <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
@@ -203,7 +203,7 @@ export default function Leads() {
                   )}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
+                  <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
                     style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                     {status === 'not_connected' && (
                       <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
