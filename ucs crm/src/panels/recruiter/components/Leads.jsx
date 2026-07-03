@@ -138,9 +138,7 @@ export default function Leads() {
                     <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
                       style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                     {status === 'not_connected' && (
-                      <div style={{marginTop:6}}>
-                        <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'auto'}} />
-                      </div>
+                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
                     )}
                   </div>
                 </div>
@@ -207,11 +205,9 @@ export default function Leads() {
                 <div style={{flex:1,minWidth:0}}>
                   <div onClick={()=>{setStatus('not_connected');setNotConnectedOption('');setFollowUpDateTime('')}}
                     style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
-                  {status === 'not_connected' && (
-                    <div style={{marginTop:6}}>
-                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'auto'}} />
-                    </div>
-                  )}
+                    {status === 'not_connected' && (
+                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%',marginTop:6}} />
+                    )}
                 </div>
               </div>
             </label>

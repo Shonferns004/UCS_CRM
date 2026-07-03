@@ -364,10 +364,8 @@ export default function Recruiters() {
                       <div onClick={()=>setForm(f => ({ ...f, status: 'not_connected', notConnectedOption: '', followUpDateTime: '' }))}
                         style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:form.status==='not_connected'?'var(--sage-soft)':'transparent',color:form.status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap'}}>Not Connected</div>
                       {form.status === 'not_connected' && (
-                        <div style={{marginTop:6}}>
-                          <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
-                            options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'auto'}} />
-                        </div>
+                        <Dropdown value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
+                          options={NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))} style={{width:'100%',marginTop:6}} />
                       )}
                     </div>
                   </div>
