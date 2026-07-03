@@ -308,8 +308,8 @@ export default function Leads() {
                       ) : statusPill(l.status)}</td>
                       <td><span className="sub">{parsed.length > 0 ? parsed.length + ' note' + (parsed.length!==1?'s':'') : '—'}</span></td>
                       <td style={{color:'var(--ink-soft)'}}>{l.created_by_name || '—'}</td>
-                      <td onClick={e => e.stopPropagation()}>
-                        <button className="btn btn-sm" style={{color:'var(--danger)',padding:'4px 6px',lineHeight:1}} onClick={() => setDeleteConfirm(l)} title="Delete lead"><Trash width={14}/></button>
+                      <td onClick={e => e.stopPropagation()} style={{whiteSpace:'nowrap'}}>
+                        <span onClick={() => setDeleteConfirm(l)} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,display:'inline-flex',alignItems:'center',gap:4}}><Trash width={14}/> Delete</span>
                       </td>
                     </tr>
                   );
