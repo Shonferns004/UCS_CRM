@@ -1215,6 +1215,36 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-fro .bento-nav button:hover { border-color:var(--md-primary); color:var(--md-primary); }
 .panel-fro .bento-nav button:disabled { opacity:.4; cursor:not-allowed; }
 
+/* ── FRO Donor Modal ── */
+.panel-fro .donor-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; }
+.panel-fro .donor-modal { background:#fff; border-radius:12px; width:600px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 8px 40px rgba(0,0,0,.18); overflow:hidden; }
+.panel-fro .donor-modal-header { padding:16px 18px 12px; border-bottom:1px solid var(--line); flex-shrink:0; }
+.panel-fro .donor-modal-title-row { display:flex; align-items:center; gap:8px; }
+.panel-fro .donor-modal-name { font-size:17px; font-weight:700; flex:1; }
+.panel-fro .donor-modal-close { background:none; border:none; font-size:22px; color:var(--ink-soft); cursor:pointer; padding:0 4px; line-height:1; }
+.panel-fro .donor-modal-close:hover { color:var(--ink); }
+.panel-fro .donor-modal-info { display:flex; flex-wrap:wrap; gap:4px; font-size:11px; color:var(--ink-soft); margin-top:6px; }
+.panel-fro .donor-modal-sep { color:var(--line); }
+.panel-fro .donor-modal-project { font-size:11px; color:var(--ink-soft); margin-top:4px; }
+.panel-fro .donor-modal-address { font-size:11px; color:var(--ink-soft); margin-top:2px; }
+.panel-fro .donor-modal-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border-bottom:1px solid var(--line); flex-shrink:0; }
+.panel-fro .donor-modal-stat-item { padding:10px 12px; background:#fff; text-align:center; }
+.panel-fro .donor-modal-stat-label { font-size:9px; color:var(--ink-soft); font-weight:600; text-transform:uppercase; margin-bottom:2px; }
+.panel-fro .donor-modal-stat-value { font-size:14px; font-weight:700; }
+.panel-fro .donor-modal-history-filters { display:flex; align-items:center; gap:5px; padding:8px 12px; border-bottom:1px solid var(--line); flex-shrink:0; flex-wrap:wrap; }
+.panel-fro .donor-modal-hf-btn { padding:3px 10px; border:1px solid var(--line); border-radius:5px; background:#fff; font-size:9px; font-weight:700; font-family:inherit; cursor:pointer; color:var(--ink); transition:all .12s; }
+.panel-fro .donor-modal-hf-btn:hover { border-color:var(--sage); }
+.panel-fro .donor-modal-hf-btn.active { background:var(--sage); border-color:var(--sage); color:#fff; }
+.panel-fro .donor-modal-unlock-btn { padding:3px 10px; border:1px solid #f59e0b; border-radius:5px; background:#fffbeb; font-size:9px; font-weight:700; font-family:inherit; cursor:pointer; color:#92400e; margin-left:auto; transition:all .12s; }
+.panel-fro .donor-modal-unlock-btn:hover { background:#fef3c7; }
+.panel-fro .donor-modal-unlocked-badge { padding:3px 10px; border:1px solid var(--sage); border-radius:5px; background:#f0fdf4; font-size:9px; font-weight:700; color:#166534; margin-left:auto; }
+.panel-fro .donor-modal-logs { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:3px; padding:8px 12px; }
+.panel-fro .donor-modal-empty { text-align:center; padding:20px; font-size:11px; color:var(--ink-soft); }
+.panel-fro .donor-modal-log-row { display:flex; justify-content:space-between; align-items:center; padding:7px 8px; border-radius:4px; background:var(--bg); font-size:11px; }
+.panel-fro .donor-modal-log-left { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.panel-fro .donor-modal-log-amount { font-weight:700; font-size:12px; }
+.panel-fro .donor-modal-log-date { color:var(--ink-soft); font-size:10px; white-space:nowrap; margin-left:8px; }
+
 /* ── RECRUITER PANEL (.panel-recruiter) ── */
 .panel-recruiter { --sand:#F3EFE7; --paper:#FBFAF6; --ink:#232019; --ink-soft:#6F6857; --line:#E4DECF; --sage:#5B6B4E; --sage-soft:#E8EDE1; --clay:#B5603A; --clay-soft:#F4E4DA; --gold:#C08A2E; --gold-soft:#F6EAD0; --danger:#9E3B2E; --danger-soft:#F3DDD8; --radius:12px; --radius-sm:8px; --shadow:0 1px 2px rgba(35,32,25,.04),0 8px 24px rgba(35,32,25,.05); background:var(--sand); color:var(--ink); }
 .panel-recruiter h1, .panel-recruiter h2, .panel-recruiter h3 { font-family:'Fraunces',Georgia,serif; font-weight:500; line-height:1.15; }
