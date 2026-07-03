@@ -9,6 +9,7 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (statusGroup) params.set('status_group', statusGroup);
   else if (status) params.set('status', status);
   if (options.verifiedOnly) params.set('verified_only', 'true');
+  if (options.period) params.set('period', options.period);
   const qs = params.toString();
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
@@ -91,4 +92,11 @@ export async function getMonthlyDonors(month) {
 export async function getDonorHistory(donorId, period) {
   const params = period ? `?period=${period}` : ''
   return api(`/fro/donors/${donorId}/history${params}`, { _prefix: 'ucs' })
+}
+
+export async function getFullDonorHistory(donorId, ngoId, unlockAll) {
+  const params = new URLSearchParams();
+  if (ngoId) params.set('ngo_id', ngoId);
+  if (unlockAll) params.set('unlock_all', 'true');
+  return api(`/fro/donors/${donorId}/full-history?${params}`, { _prefix: 'ucs' })
 }

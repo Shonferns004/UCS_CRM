@@ -377,9 +377,10 @@ export const getMyDonors = async (req, res) => {
         .in('donor_id', donorIds)
         .eq('accounts_status', 'verified');
       const verifiedDonorIds = new Set((verifiedLogs || []).map(l => l.donor_id));
-      assignments = assignments.filter(a => verifiedDonorIds.has(a.donor_id));
-      donorIds = [...new Set(assignments.map(a => a.donor_id))];
-      if (donorIds.length === 0) return res.json([]);
+      if (verifiedDonorIds.size > 0) {
+        assignments = assignments.filter(a => verifiedDonorIds.has(a.donor_id));
+        donorIds = [...new Set(assignments.map(a => a.donor_id))];
+      }
     }
     const { data: donors } = await supabase
       .from('donor_profiles')
@@ -457,6 +458,36 @@ export const getMyDonors = async (req, res) => {
         schedule_id: s?.id || null,
         schedule_notes: s?.notes || null,
       });
+    }
+
+    // --- Period filter ---
+    const periodFilter = req.query.period;
+    if (periodFilter && periodFilter !== 'all' && donorIds.length > 0) {
+      let periodCutoff;
+      const now = new Date();
+      if (periodFilter === 'today') {
+        const d = new Date(); d.setHours(0, 0, 0, 0);
+        periodCutoff = d.toISOString();
+      } else if (periodFilter === 'monthly') {
+        periodCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (periodFilter === 'sixmonths') {
+        periodCutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (periodFilter === 'yearly') {
+        periodCutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (periodFilter === 'tenyears') {
+        periodCutoff = new Date(now.getTime() - 3650 * 24 * 60 * 60 * 1000).toISOString();
+      }
+      if (periodCutoff) {
+        const { data: periodActivity, error: periodError } = await supabase
+          .from('fro_donor_logs')
+          .select('donor_id')
+          .in('donor_id', donorIds)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+          .gte('created_at', periodCutoff);
+        if (periodError) throw periodError;
+        const periodDonorIds = new Set((periodActivity || []).map(l => l.donor_id));
+        result = result.filter(r => periodDonorIds.has(r.donor_id));
+      }
     }
 
     // --- Ordering logic ---
@@ -1387,6 +1418,57 @@ export const getDonorHistory = async (req, res) => {
 
     return res.json({ donor: donors || null, logs: logs || [] });
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getFullDonorHistory = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const donorId = parseInt(req.params.id);
+    const ngoId = parseInt(req.query.ngo_id) || null;
+    const unlockAll = req.query.unlock_all === 'true';
+
+    const stationNames = await getMyStationNames(workerId);
+    if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
+
+    const { data: donor } = await supabase
+      .from('donor_profiles')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .eq('id', donorId)
+      .maybeSingle();
+
+    let query = supabase
+      .from('fro_assignments')
+      .select('id')
+      .eq('donor_id', donorId)
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
+    if (ngoId) query = query.eq('ngo_id', ngoId);
+
+    const { data: assignments } = await query;
+    if (!assignments || assignments.length === 0) return res.json({ donor, logs: [] });
+
+    const assignmentIds = assignments.map(a => a.id);
+
+    let logsQuery = supabase
+      .from('fro_donor_logs')
+      .select('*')
+      .in('assignment_id', assignmentIds)
+      .order('created_at', { ascending: false });
+
+    if (!unlockAll) {
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      logsQuery = logsQuery.gte('created_at', twoYearsAgo.toISOString());
+    }
+
+    const { data: logs, error } = await logsQuery;
+    if (error) throw error;
+
+    return res.json({ donor: donor || null, logs: logs || [] });
+  } catch (error) {
+    console.error('getFullDonorHistory error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

@@ -21,6 +21,7 @@ import {
   getLeadStats,
   getMonthlyDonors,
   getDonorHistory,
+  getFullDonorHistory,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -74,5 +75,6 @@ router.get('/follow-ups', getFollowUps);
 router.get('/lead-stats', getLeadStats);
 router.get('/monthly-donors', getMonthlyDonors);
 router.get('/donors/:id/history', getDonorHistory);
+router.get('/donors/:id/full-history', getFullDonorHistory);
 
 export default router;
