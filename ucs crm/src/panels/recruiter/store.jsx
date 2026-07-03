@@ -78,10 +78,16 @@ export function RecProvider({ children }) {
   }, [token, fetchLeads])
 
   const addLead = useCallback(async (data) => {
-    await api('/leads', { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
-    await fetchLeads(true)
+    const temp = { ...data, id: -Date.now(), created_at: new Date().toISOString() }
+    setLeads(p => [temp, ...p])
+    try {
+      const res = await api('/leads', { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
+      setLeads(p => p.map(l => l.id === temp.id ? { ...res, ...data, id: res.id || l.id } : l))
+    } catch {
+      setLeads(p => p.filter(l => l.id !== temp.id))
+    }
     log(`Lead created \u2014 ${data.name}`)
-  }, [fetchLeads, log])
+  }, [log])
 
   const updateLead = useCallback(async (id, data) => {
     await api('/leads/' + id, { method: 'PUT', body: JSON.stringify(data), _prefix: 'ucs' })

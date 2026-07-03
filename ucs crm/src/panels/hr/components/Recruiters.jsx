@@ -144,13 +144,21 @@ export default function Recruiters() {
       if (finalStatus === 'scheduled' && form.scheduledDate) payload.scheduled_date = form.scheduledDate;
       if (editingLead) {
         await updateLead(editingLead.id, payload);
+        setShowForm(false);
+        setEditingLead(null);
+        setLeadsLoading(true);
+        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
       } else {
-        await addLead(payload);
+        const temp = { ...payload, id: -Date.now(), created_at: new Date().toISOString(), name: form.name.trim() };
+        setLeads(p => [temp, ...p]);
+        setShowForm(false);
+        try {
+          const res = await addLead(payload);
+          setLeads(p => p.map(l => l.id === temp.id ? { ...res, ...payload, id: res?.id || l.id } : l));
+        } catch {
+          setLeads(p => p.filter(l => l.id !== temp.id));
+        }
       }
-      setShowForm(false);
-      setEditingLead(null);
-      setLeadsLoading(true);
-      fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
     } catch {}
   };
 
