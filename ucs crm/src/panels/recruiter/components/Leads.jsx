@@ -281,10 +281,11 @@ export default function Leads() {
             </div>
           </div>
           {leadsLoading ? (
-            <table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={9}/>)}</tbody></table>
+            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={9}/>)}</tbody></table></div>
           ) : filteredLeads.length === 0 ? (
             <div className="empty">No leads found.</div>
           ) : (
+            <div style={{overflowX:'auto'}}>
             <table>
               <thead>
                 <tr>
@@ -316,6 +317,7 @@ export default function Leads() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}
