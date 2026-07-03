@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMyDonors, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations } from '../api/donors';
 import { SkeletonProfile } from '../../../components/Skeleton';
+import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 
@@ -90,6 +91,11 @@ export default function MyDonors() {
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
   }, [filterStatus]);
+
+  const reloadDonors = useCallback(() => {
+    getMyDonors(filterStatus).then(r => { setDonors(r); }).catch(() => {});
+  }, [filterStatus]);
+  useRealtime('fro_assignments', { onUpdate: () => reloadDonors(), onInsert: () => reloadDonors() });
 
   const donor = donors[index];
 

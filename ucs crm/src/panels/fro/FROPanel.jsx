@@ -3,6 +3,8 @@ import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'reac
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
+import { useRealtime } from '../../hooks/useRealtime'
+import { supabase } from '../../config/supabase'
 import DispositionModal from './components/DispositionModal'
 import Dashboard from './pages/Dashboard'
 import MyDonors from './pages/MyDonors'
@@ -66,7 +68,27 @@ export default function FROPanel() {
   const [rows, setRows] = useState([]);
   const [refetch, setRefetch] = useState(0);
   const [showNotifList, setShowNotifList] = useState(false);
+  const [rejectedCount, setRejectedCount] = useState(0);
   const notifRef = useRef(null);
+
+  const loadRejectedCount = () => {
+    const workerId = user?.id;
+    if (!workerId) return;
+    supabase
+      .from('notification_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('worker_id', workerId)
+      .eq('type', 'lead_rejected')
+      .is('read_at', null)
+      .then(({ count, error }) => { if (!error) setRejectedCount(count || 0); })
+      .catch(() => {});
+  };
+  useEffect(() => { loadRejectedCount(); }, [user?.id]);
+
+  useRealtime('notification_log', {
+    filter: `worker_id=eq.${user?.id}`,
+    onInsert: () => loadRejectedCount(),
+  });
 
   useEffect(() => {
     const handler = (e) => {
@@ -103,6 +125,7 @@ export default function FROPanel() {
   const dedupedRows = rows.filter((r, i, a) => i === a.findIndex(x => x.id === r.id));
   const dueItems = dedupedRows.filter(r => r.scheduled_at && new Date(r.scheduled_at) <= new Date());
   const dueCount = dueItems.length;
+  const totalNotifCount = dueCount + rejectedCount;
 
   const meta = NAV.find(n => location.pathname === n.path)
   const userName = user?.name || 'User'
@@ -119,10 +142,10 @@ export default function FROPanel() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <div ref={notifRef} style={{ position:'relative' }}>
-              <span className="material-symbols-outlined" style={{ fontSize:20, cursor:'pointer', color: dueCount > 0 ? 'var(--sage)' : 'var(--ink-soft)' }}
+              <span className="material-symbols-outlined" style={{ fontSize:20, cursor:'pointer', color: totalNotifCount > 0 ? 'var(--sage)' : 'var(--ink-soft)' }}
                 onClick={() => setShowNotifList(!showNotifList)}>notifications</span>
-              {dueCount > 0 && (
-                <span style={{ position:'absolute', top:-4, right:-4, background:'#dc2626', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1 }}>{dueCount}</span>
+              {totalNotifCount > 0 && (
+                <span style={{ position:'absolute', top:-4, right:-4, background:'#dc2626', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1 }}>{totalNotifCount}</span>
               )}
               {showNotifList && (
                 <div style={{ position:'absolute', top:'100%', right:0, marginTop:4, background:'#fff', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 4px 12px rgba(0,0,0,.1)', width:280, maxHeight:320, overflowY:'auto', zIndex:100 }}>
