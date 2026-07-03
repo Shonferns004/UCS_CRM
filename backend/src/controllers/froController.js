@@ -469,22 +469,22 @@ export const getMyDonors = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
-    const leadDoneDonorIds = result.filter(r => r.status === 'lead_done').map(r => r.donor_id);
-    let hiddenLeadDoneIds = new Set();
-    if (leadDoneDonorIds.length > 0) {
+    // Use ALL donor_ids in the station (before dedup) to find hidden lead_done
+    const hiddenLeadDoneIds = new Set();
+    if (donorIds.length > 0) {
       const { data: leadDoneLogs, error: leadError } = await supabase
         .from('fro_donor_logs')
         .select('donor_id')
-        .in('donor_id', leadDoneDonorIds)
+        .in('donor_id', donorIds)
         .eq('disposition_detail', 'lead_done')
         .eq('action', 'disposition')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
       if (leadError) throw leadError;
-      hiddenLeadDoneIds = new Set((leadDoneLogs || []).map(l => l.donor_id));
+      for (const log of leadDoneLogs || []) hiddenLeadDoneIds.add(log.donor_id);
     }
 
-    const filtered = result.filter(r => !(r.status === 'lead_done' && hiddenLeadDoneIds.has(r.donor_id)));
+    const filtered = result.filter(r => !hiddenLeadDoneIds.has(r.donor_id));
 
     const notConnectedSet = new Set(NOT_CONNECTED_STATUSES);
     const connectedSet = new Set(CONNECTED_STATUSES);

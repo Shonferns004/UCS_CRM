@@ -84,7 +84,7 @@ export default function MyDonors() {
           const { id, ngo_id, idx } = JSON.parse(saved);
           const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
           if (found >= 0) { setIndex(found); return; }
-          if (typeof idx === 'number' && idx < r.length) { setIndex(idx); return; }
+          if (typeof idx === 'number') { setIndex(Math.min(idx, Math.max(0, r.length - 1))); return; }
         } catch { }
       }
       setIndex(0);
