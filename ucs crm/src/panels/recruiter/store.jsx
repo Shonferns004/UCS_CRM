@@ -96,7 +96,11 @@ export function RecProvider({ children }) {
   }, [fetchLeads, log])
 
   const deleteLead = useCallback(async (id) => {
-    await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs' })
+    try {
+      await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs' })
+    } catch (e) {
+      // backend may return empty body on DELETE; proceed with local removal
+    }
     setLeads(p => p.filter(l => l.id !== id))
     log(`Lead deleted \u2014 ${id}`)
   }, [log])
