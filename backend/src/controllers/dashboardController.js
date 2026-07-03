@@ -2,6 +2,8 @@ import { getAllNgos } from '../models/ngoModel.js';
 import { getAllUsers, getUsersCountByRole } from '../models/userModel.js';
 import { getAllHRs } from '../models/hrModel.js';
 import { getAllWorkers } from '../models/workerModel.js';
+import { getDashboardStats } from '../models/froAssignmentModel.js';
+import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import supabase from '../config/supabase.js';
 
 function calcDateRange(period) {
@@ -130,6 +132,7 @@ export const getSuperAdminDashboard = async (req, res) => {
     workers.forEach(w => { workerMap[w.id] = { name: w.name, department: w.department }; });
 
     const attendanceDetails = { present: [], late: [], absent: [] };
+    const detailAdded = { present: new Set(), late: new Set(), absent: new Set() };
 
     (attendance || []).forEach(a => {
       if (attendanceStatus[a.status] !== undefined) {
@@ -141,7 +144,8 @@ export const getSuperAdminDashboard = async (req, res) => {
         if (!deptPivot[dept]) deptPivot[dept] = { department: dept, present: 0, late: 0, absent: 0 };
         if (deptPivot[dept][a.status] !== undefined) deptPivot[dept][a.status]++;
       }
-      if (attendanceDetails[a.status]) {
+      if (attendanceDetails[a.status] && !detailAdded[a.status].has(a.worker_id)) {
+        detailAdded[a.status].add(a.worker_id);
         const w = workerMap[a.worker_id];
         const time = a.punch_in_time
           ? (() => {
@@ -170,6 +174,48 @@ export const getSuperAdminDashboard = async (req, res) => {
     const attendancePercent = totalAtt > 0
       ? Math.round((attendanceStatus.present / totalAtt) * 1000) / 10
       : 0;
+
+    /* ── Today attendance (for Daily Check-ins pills) ── */
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    const todayDate = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}-${String(istNow.getUTCDate()).padStart(2, '0')}`;
+
+    const { data: todayRows } = await supabase
+      .from('attendance')
+      .select('status, worker_id, punch_in_time')
+      .eq('date', todayDate);
+
+    const todayUnique = { present: new Set(), late: new Set(), absent: new Set(), leave: new Set() };
+    const todayAdded = { present: new Set(), late: new Set(), absent: new Set() };
+    const todayAttendanceDetails = { present: [], late: [], absent: [] };
+
+    (todayRows || []).forEach(a => {
+      if (todayUnique[a.status] !== undefined) todayUnique[a.status].add(a.worker_id);
+      if (todayAttendanceDetails[a.status] && !todayAdded[a.status].has(a.worker_id)) {
+        todayAdded[a.status].add(a.worker_id);
+        const w = workerMap[a.worker_id];
+        const time = a.punch_in_time
+          ? (() => {
+              const ms = new Date(a.punch_in_time).getTime() + istOffset;
+              const d = new Date(ms);
+              return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+            })()
+          : '';
+        todayAttendanceDetails[a.status].push({
+          name: w?.name || 'Unknown',
+          dept: w?.department || '',
+          time,
+        });
+      }
+    });
+
+    const todayAttendance = {
+      present: todayUnique.present.size,
+      late: todayUnique.late.size,
+      absent: todayUnique.absent.size,
+      leave: todayUnique.leave.size,
+    };
 
     /* ── Previous period attendance for comparison ── */
     const { data: prevAtt } = await supabase
@@ -252,7 +298,9 @@ export const getSuperAdminDashboard = async (req, res) => {
       genderCounts,
       attendanceStatus,
       attendanceWorkerCounts,
+      todayAttendance,
       attendanceDetails,
+      todayAttendanceDetails,
       pendingLeaves: pendingLeaves || 0,
       monthlyAttendance,
       totalSalaryPayable,
@@ -439,6 +487,58 @@ export const getTelecallerDashboard = async (req, res) => {
 export const getTeamLeadDashboard = async (req, res) => {
   try {
     return res.json({ stats: { teamSize: 0, pendingTasks: 0 } });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getFroWorkerDashboard = async (req, res) => {
+  try {
+    const { workerId } = req.params;
+
+    const [stats] = await Promise.all([
+      getDashboardStats(workerId),
+    ]);
+
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999));
+
+    const [totalDonations, dailyDonations] = await Promise.all([
+      getTotalCollectedByWorker(workerId, '1970-01-01T00:00:00.000Z', '2099-12-31T23:59:59.999Z'),
+      getTotalCollectedByWorker(workerId, todayStart.toISOString(), todayEnd.toISOString()),
+    ]);
+
+    const { data: leadDoneData } = await supabase
+      .from('fro_donor_logs')
+      .select('donor_id, created_at, fro_assignments!inner(fro_worker_id)')
+      .eq('fro_assignments.fro_worker_id', workerId)
+      .eq('action', 'disposition')
+      .eq('disposition_detail', 'lead_done');
+
+    const earliestLead = {};
+    for (const log of leadDoneData || []) {
+      if (!earliestLead[log.donor_id] || log.created_at < earliestLead[log.donor_id]) {
+        earliestLead[log.donor_id] = log.created_at;
+      }
+    }
+    const newDonorsToday = Object.values(earliestLead).filter(
+      d => d >= todayStart.toISOString() && d <= todayEnd.toISOString()
+    ).length;
+
+    const dataUsed = (stats.contacted || 0) + (stats.donation_collected || 0) + (stats.follow_up || 0);
+    const dataUnused = (stats.total || 0) - dataUsed;
+
+    return res.json({
+      total_donations: totalDonations,
+      daily_donations: dailyDonations,
+      new_donors_today: newDonorsToday,
+      assigned_data: stats.total || 0,
+      data_used: dataUsed,
+      data_unused: dataUnused,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

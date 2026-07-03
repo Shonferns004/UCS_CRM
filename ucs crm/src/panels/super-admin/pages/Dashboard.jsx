@@ -208,11 +208,11 @@ export default function Dashboard() {
 
   const {
     stats = {}, deptWorkers = {}, ngoUserCounts = [],
-    attendanceStatus = {}, attendanceWorkerCounts = {},
+    attendanceStatus = {}, attendanceWorkerCounts = {}, todayAttendance = {},
     kpiChanges = {}, attendancePercent = 0,
     recentNotices = [], upcomingEvents = [],
     // NEW data (backend can provide; safe defaults otherwise)
-    attendanceDetails = {},   // { present: [{name, dept, time}], late: [...], absent: [...] }
+    attendanceDetails = {}, todayAttendanceDetails = {},
     froAssignments = [],      // [{ name: 'Ramesh', ngos: ['MAN', 'AFLF'] }]
   } = data
 
@@ -246,10 +246,14 @@ export default function Dashboard() {
     .sort((a, b) => b.value - a.value)
   const totalDeptWorkers = deptData.reduce((s, d) => s + d.value, 0) || 1
 
-  /* -------- attendance (unique workers per status) -------- */
-  const attPresent = attendanceWorkerCounts?.present ?? attendanceStatus?.present ?? 0
-  const attLate = attendanceWorkerCounts?.late ?? attendanceStatus?.late ?? 0
-  const attAbsent = attendanceWorkerCounts?.absent ?? attendanceStatus?.absent ?? 0
+  /* -------- attendance (today — daily check-ins) -------- */
+  const hasTodayData = todayAttendance?.present !== undefined
+  const attSrc = hasTodayData ? todayAttendance : attendanceWorkerCounts
+  const detSrc = hasTodayData ? todayAttendanceDetails : attendanceDetails
+
+  const attPresent = attSrc?.present ?? 0
+  const attLate = attSrc?.late ?? 0
+  const attAbsent = attSrc?.absent ?? 0
 
   const attSegments = []
   if (attPresent > 0) attSegments.push({ label: 'Present', value: attPresent, color: MINT, icon: 'verified' })
@@ -262,7 +266,7 @@ export default function Dashboard() {
     setModal({
       title: `${label} Workers`,
       color: seg?.color || PRIMARY,
-      names: attendanceDetails[key] || [],
+      names: detSrc?.[key] || [],
     })
   }
 
@@ -270,7 +274,7 @@ export default function Dashboard() {
     setModal({
       title: 'Absent Workers',
       color: CORAL,
-      names: attendanceDetails.absent || [],
+      names: detSrc?.absent || [],
     })
   }
 

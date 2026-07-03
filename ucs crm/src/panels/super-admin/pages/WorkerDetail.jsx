@@ -5,6 +5,7 @@ export default function WorkerDetail({ workerId, onBack }) {
   const [worker, setWorker] = useState(null)
   const [allocations, setAllocations] = useState([])
   const [salary, setSalary] = useState(null)
+  const [froStats, setFroStats] = useState(null)
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -16,6 +17,12 @@ export default function WorkerDetail({ workerId, onBack }) {
       setWorker(w); setAllocations(a || []); setSalary(s)
     }).catch(e => setErr(e.message))
   }, [workerId])
+
+  useEffect(() => {
+    if (worker?.department?.toLowerCase() === 'fro') {
+      api(`/dashboard/fro-worker/${workerId}`).then(setFroStats).catch(() => {})
+    }
+  }, [workerId, worker?.department])
 
   if (err) return <div className="sa-err-card">{err}</div>
   if (!worker) return (
@@ -96,6 +103,38 @@ export default function WorkerDetail({ workerId, onBack }) {
             {salary.sundayBonus?.incentiveAKI ? <div className="sa-stat-card"><div className="sa-stat-label">Incentive AKI</div><div className="sa-stat-value">{formatMoney(salary.sundayBonus.incentiveAKI)}</div></div> : null}
             {salary.sundayBonus?.incentiveMonthly ? <div className="sa-stat-card"><div className="sa-stat-label">Monthly Incentive</div><div className="sa-stat-value">{formatMoney(salary.sundayBonus.incentiveMonthly)}</div></div> : null}
             {salary.sundayBonus?.bonusAmount ? <div className="sa-stat-card"><div className="sa-stat-label">Sunday Bonus</div><div className="sa-stat-value">{formatMoney(salary.sundayBonus.bonusAmount)}</div></div> : null}
+          </div>
+        </div>
+      )}
+
+      {froStats && (
+        <div className="sa-card">
+          <h3 className="sa-card-title">FRO Performance</h3>
+          <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))'}}>
+            <a className="sa-stat-card" style={{cursor:'pointer',textDecoration:'none',color:'inherit'}} href={`/sa/fro-donations/${workerId}`} target="_blank" rel="noopener noreferrer">
+              <div className="sa-stat-label">Total Donation</div>
+              <div className="sa-stat-value">₹{Number(froStats.total_donations || 0).toLocaleString()}</div>
+            </a>
+            <a className="sa-stat-card" style={{cursor:'pointer',textDecoration:'none',color:'inherit'}} href={`/sa/fro-donations/${workerId}?period=today`} target="_blank" rel="noopener noreferrer">
+              <div className="sa-stat-label">Daily Donation</div>
+              <div className="sa-stat-value">₹{Number(froStats.daily_donations || 0).toLocaleString()}</div>
+            </a>
+            <a className="sa-stat-card" style={{cursor:'pointer',textDecoration:'none',color:'inherit'}} href={`/sa/fro-new-donors/${workerId}`} target="_blank" rel="noopener noreferrer">
+              <div className="sa-stat-label">New Donors Today</div>
+              <div className="sa-stat-value">{froStats.new_donors_today || 0}</div>
+            </a>
+            <a className="sa-stat-card" style={{cursor:'pointer',textDecoration:'none',color:'inherit'}} href={`/sa/fro-assignments/${workerId}`} target="_blank" rel="noopener noreferrer">
+              <div className="sa-stat-label">Assigned Data</div>
+              <div className="sa-stat-value">{froStats.assigned_data || 0}</div>
+            </a>
+            <a className="sa-stat-card" style={{cursor:'pointer',textDecoration:'none',color:'inherit'}} href={`/sa/fro-assignments/${workerId}?status=contacted`} target="_blank" rel="noopener noreferrer">
+              <div className="sa-stat-label">Data Used</div>
+              <div className="sa-stat-value">{froStats.data_used || 0}</div>
+            </a>
+            <a className="sa-stat-card" style={{cursor:'pointer',textDecoration:'none',color:'inherit'}} href={`/sa/fro-assignments/${workerId}?status=pending`} target="_blank" rel="noopener noreferrer">
+              <div className="sa-stat-label">Data Unused</div>
+              <div className="sa-stat-value">{froStats.data_unused || 0}</div>
+            </a>
           </div>
         </div>
       )}
