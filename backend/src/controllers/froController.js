@@ -527,17 +527,22 @@ export const getMyDonors = async (req, res) => {
 
     // Use ALL donor_ids in the station (before dedup) to find hidden lead_done
     const hiddenLeadDoneIds = new Set();
+    const rejectedLeadDoneIds = new Set();
     if (donorIds.length > 0) {
       const { data: leadDoneLogs, error: leadError } = await supabase
         .from('fro_donor_logs')
-        .select('donor_id')
+        .select('donor_id, accounts_status')
         .in('donor_id', donorIds)
         .eq('disposition_detail', 'lead_done')
         .eq('action', 'disposition')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
       if (leadError) throw leadError;
-      for (const log of leadDoneLogs || []) hiddenLeadDoneIds.add(log.donor_id);
+      for (const log of leadDoneLogs || []) {
+        hiddenLeadDoneIds.add(log.donor_id);
+        if (log.accounts_status === 'rejected') rejectedLeadDoneIds.add(log.donor_id);
+      }
+      for (const id of rejectedLeadDoneIds) hiddenLeadDoneIds.delete(id);
     }
 
     const filtered = req.query.verified_only === 'true'
