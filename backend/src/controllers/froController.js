@@ -484,7 +484,9 @@ export const getMyDonors = async (req, res) => {
       for (const log of leadDoneLogs || []) hiddenLeadDoneIds.add(log.donor_id);
     }
 
-    const filtered = result.filter(r => !hiddenLeadDoneIds.has(r.donor_id));
+    const filtered = req.query.verified_only === 'true'
+      ? result
+      : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id));
 
     const notConnectedSet = new Set(NOT_CONNECTED_STATUSES);
     const connectedSet = new Set(CONNECTED_STATUSES);
