@@ -371,7 +371,7 @@ export const rejectLead = async (req, res) => {
 
         if (worker?.ngo_id) {
           try {
-            await supabase.from('alerts').insert({
+            const { error: alertErr } = await supabase.from('alerts').insert({
               ngo_id: worker.ngo_id,
               type: 'lead_rejected',
               title: 'Lead Rejected',
@@ -379,6 +379,7 @@ export const rejectLead = async (req, res) => {
               donor_name: donorName,
               reference_id: parseInt(logId),
             });
+            if (alertErr) console.error('Failed to create alert:', alertErr.message, alertErr.details, alertErr.code);
           } catch (err) { console.error('Failed to create alert:', err.message); }
         }
       } catch (err) { console.error('Failed to create rejected lead ticket:', err.message); }

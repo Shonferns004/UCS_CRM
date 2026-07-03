@@ -1496,14 +1496,16 @@ export const getRejectedLeads = async (req, res) => {
     const workerIds = [...new Set((data || []).map(t => t.fro_worker_id).filter(Boolean))];
     const workerMap = {};
     if (workerIds.length > 0) {
-      const { data: workers } = await supabase.from('workers').select('id, name').in('id', workerIds);
+      const { data: workers, error: wErr } = await supabase.from('workers').select('id, name').in('id', workerIds);
+      if (wErr) throw wErr;
       if (workers) for (const w of workers) workerMap[w.id] = w.name;
     }
 
     const result = (data || []).map(t => ({ ...t, fro_name: workerMap[t.fro_worker_id] || 'Unknown' }));
     return res.json(result);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    console.error('getRejectedLeads error:', error);
+    return res.status(500).json({ message: error.message, details: error.details || null, code: error.code || null });
   }
 };
 
