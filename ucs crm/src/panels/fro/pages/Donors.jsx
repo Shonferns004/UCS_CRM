@@ -2,12 +2,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getMyDonors, getDonorDetail, getFullDonorHistory } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 
-const STATUS_PILL = {
-  verified: 'pill-green',
-  rejected: 'pill-red',
-  pending: 'pill-yellow',
-};
-
 const PERIOD_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'today', label: 'Today' },
@@ -108,7 +102,9 @@ export default function Donors() {
 
   const filteredLogs = useMemo(() => {
     if (!modalDetail?.logs) return [];
-    const logs = modalDetail.logs;
+    let filtered = modalDetail.logs.filter(l =>
+      l.action === 'donation' || (l.disposition_detail === 'lead_done' && l.accounts_status === 'verified')
+    );
     let cutoff;
     if (historyFilter === 'tenyears') {
       cutoff = new Date();
@@ -124,9 +120,9 @@ export default function Donors() {
       cutoff.setDate(cutoff.getDate() - 30);
     }
     if (cutoff) {
-      return logs.filter(l => l.created_at && new Date(l.created_at) >= cutoff);
+      filtered = filtered.filter(l => l.created_at && new Date(l.created_at) >= cutoff);
     }
-    return logs;
+    return filtered;
   }, [modalDetail, historyFilter]);
 
   const modalStats = useMemo(() => {
@@ -198,7 +194,6 @@ export default function Donors() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Name</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Status</th>
                 <th style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Activity</th>
               </tr>
             </thead>
@@ -209,9 +204,6 @@ export default function Donors() {
                   onMouseOver={e => e.currentTarget.style.background = modalDonor?.id === d.id ? '#e6f7e6' : 'var(--bg)'}
                   onMouseOut={e => e.currentTarget.style.background = modalDonor?.id === d.id ? '#f0fdf4' : 'transparent'}>
                   <td style={{ padding: '8px 10px', fontWeight: 600 }}>{d.donor_name || '—'}</td>
-                  <td style={{ padding: '8px 10px' }}>
-                    <span className={`pill ${STATUS_PILL[d.accounts_status] || 'pill-gray'}`}>{d.accounts_status?.replace(/_/g, ' ') || '—'}</span>
-                  </td>
                   <td style={{ padding: '8px 10px' }}>
                     {d.has_donated_current_fy ? (
                       <span className="pill pill-green">Active</span>
