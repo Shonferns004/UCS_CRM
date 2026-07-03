@@ -131,49 +131,23 @@ export default function Leads() {
               <div className="card-pad">
                 <div style={{display:'flex',gap:16}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                    <div onClick={()=>{setStatus(p=>p==='connected'?'':'connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Connected</div>
-                    {status === 'connected' && (
-                      <div>
-                        <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
-                        {connectedOption === 'follow_up' && (
-                          <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                            <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                            <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
-                          </div>
-                        )}
-                        {connectedOption === 'call_back' && (
-                          <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                            <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                            <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
-                          </div>
-                        )}
+                    <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
+                    {connectedOption === 'follow_up' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                        <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                    {connectedOption === 'call_back' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                        <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
                       </div>
                     )}
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                    <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                      style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Not Connected</div>
-                    {status === 'not_connected' && (
-                      <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%'}} />
-                    )}
+                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
                   </div>
-                </div>
-                <div style={{marginTop:16}}>
-                  <label className="field" style={{gap:2}}>NOTES
-                    <textarea rows={3} value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Add notes here..." style={{width:'100%',resize:'vertical',fontSize:13,marginTop:2}} />
-                    <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
-                      {formNotes.map((n,i) => (
-                        <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
-                          {n.text}
-                          <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
-                        </span>
-                      ))}
-                    </div>
-                  </label>
-                  <button type="button" className="btn btn-sm" onClick={addNoteToForm} style={{marginTop:4}}>+ Add note</button>
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                   <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
@@ -214,49 +188,23 @@ export default function Leads() {
             <div className="card-pad">
               <div style={{display:'flex',gap:16}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                  <div onClick={()=>{setStatus(p=>p==='connected'?'':'connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='connected'?'var(--sage-soft)':'transparent',color:status==='connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Connected</div>
-                  {status === 'connected' && (
-                    <div>
-                      <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'- Select -'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
-                      {connectedOption === 'follow_up' && (
-                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                          <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
-                        </div>
-                      )}
-                      {connectedOption === 'call_back' && (
-                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                          <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
-                        </div>
-                      )}
+                  <Dropdown value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'}]} style={{width:'100%'}} />
+                  {connectedOption === 'follow_up' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                      <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                    </div>
+                  )}
+                  {connectedOption === 'call_back' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                      <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
                     </div>
                   )}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                  <div onClick={()=>{setStatus(p=>p==='not_connected'?'':'not_connected');setConnectedOption('');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('')}}
-                    style={{padding:'10px 14px',borderRadius:8,border:'1.5px solid var(--line)',cursor:'pointer',textAlign:'center',fontSize:13,fontWeight:500,background:status==='not_connected'?'var(--sage-soft)':'transparent',color:status==='not_connected'?'var(--sage)':'var(--ink)',whiteSpace:'nowrap',marginBottom:6}}>Not Connected</div>
-                  {status === 'not_connected' && (
-                    <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={NOT_CONNECTED_OPTIONS} style={{width:'100%'}} />
-                  )}
+                  <Dropdown value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
                 </div>
-              </div>
-              <div style={{marginTop:16}}>
-                <label className="field" style={{gap:2}}>NOTES
-                  <textarea rows={3} value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Add notes here..." style={{width:'100%',resize:'vertical',fontSize:13,marginTop:2}} />
-                  <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
-                    {formNotes.map((n,i) => (
-                      <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
-                        {n.text}
-                        <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
-                      </span>
-                    ))}
-                  </div>
-                </label>
-                <button type="button" className="btn btn-sm" onClick={addNoteToForm} style={{marginTop:4}}>+ Add note</button>
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                 <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
