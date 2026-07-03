@@ -68,11 +68,13 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
                   <div style={{
                     width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: section.type === 'rejected' ? '#fef2f2' : '#f0fdf4',
+                    background: section.type === 'rejected' ? '#fef2f2' : section.type === 'verified' ? '#f0fdf4' : '#f0fdf4',
                     color: section.type === 'rejected' ? '#dc2626' : '#16a34a',
                   }}>
                     {section.type === 'rejected' ? (
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    ) : section.type === 'verified' ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                     ) : (
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     )}
@@ -82,6 +84,9 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
                       {item.donor_name}
                       {section.type === 'rejected' && (
                         <span style={{ background: '#dc2626', color: '#fff', fontSize: 9, padding: '1px 5px', borderRadius: 4, fontWeight: 700, lineHeight: '14px' }}>REJECTED</span>
+                      )}
+                      {section.type === 'verified' && (
+                        <span style={{ background: '#16a34a', color: '#fff', fontSize: 9, padding: '1px 5px', borderRadius: 4, fontWeight: 700, lineHeight: '14px' }}>VERIFIED</span>
                       )}
                     </div>
                     {section.type === 'rejected' && (
