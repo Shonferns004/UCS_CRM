@@ -178,7 +178,7 @@ export default function Leads() {
                   </div>
                 </div>
                 <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB ROLE</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION</div>
                   <Dropdown menuInset value={selectedJobRole} onChange={e=>setSelectedJobRole(e.target.value)} options={[{value:'',label:'Select a role'},...jobs.map(j => ({value:j.title,label:j.title}))]} style={{width:'100%'}} />
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
@@ -247,7 +247,7 @@ export default function Leads() {
                 </div>
               </div>
               <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
-                <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB ROLE</div>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION</div>
                 <Dropdown menuInset value={selectedJobRole} onChange={e=>setSelectedJobRole(e.target.value)} options={[{value:'',label:'Select a role'},...jobs.map(j => ({value:j.title,label:j.title}))]} style={{width:'100%'}} />
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
