@@ -6,6 +6,32 @@ const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') :
 
 const COLORS = ['#5B6B4E', '#B5603A', '#C08A2E', '#4F6472', '#7A5C7E', '#88693D', '#2E7D6F', '#9B59B6'];
 
+function SkeletonStat() {
+  return (
+    <div className="stat-card" style={{ opacity: 0.6 }}>
+      <div className="stat-icon" style={{ background: '#e5e7eb' }}>
+        <div style={{ width: 18, height: 18, borderRadius: 4, background: '#d1d5db' }} />
+      </div>
+      <div className="stat-info">
+        <div className="stat-num" style={{ height: 22, width: '60%', borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+        <div className="stat-lbl" style={{ height: 12, width: '40%', borderRadius: 4, marginTop: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonTableRows({ rows, cols }) {
+  return Array.from({ length: rows }, (_, i) => (
+    <tr key={i}>
+      {Array.from({ length: cols }, (_, j) => (
+        <td key={j}>
+          <div style={{ height: 12, width: j === 2 ? 60 : j === 5 ? 100 : 70, borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
 export default function BankAudit() {
   const [entries, setEntries] = useState([]);
   const [sources, setSources] = useState([]);
@@ -142,27 +168,54 @@ export default function BankAudit() {
 
   const totalAmount = entries.reduce((s, e) => s + Number(e.amount || 0), 0);
 
+  const SvgX = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  );
+
+  const SvgBank = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+  );
+
+  const SvgChart = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+  );
+
+  const SvgActivity = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+  );
+
   return (
     <div>
       <div className="stats-grid">
-        {sources.filter(s => s.is_active !== false).map((s, i) => (
-          <div key={s.id} className="stat-card">
-            <div className="stat-icon" style={{ background: COLORS[i % COLORS.length] + '18', color: COLORS[i % COLORS.length] }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            </div>
-            <div className="stat-info">
-              <div className="stat-num">{currency(summary[s.name] || 0)}</div>
-              <div className="stat-lbl">{s.name}</div>
-            </div>
-          </div>
-        ))}
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: '#5B6B4E18', color: '#5B6B4E' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        {loading
+          ? Array.from({ length: Math.max(sources.length || 4, 4) }, (_, i) => <SkeletonStat key={i} />)
+          : sources.filter(s => s.is_active !== false).map((s, i) => (
+              <div key={s.id} className="stat-card">
+                <div className="stat-icon" style={{ background: COLORS[i % COLORS.length] + '18', color: COLORS[i % COLORS.length] }}>
+                  <SvgBank />
+                </div>
+                <div className="stat-info">
+                  <div className="stat-num">{currency(summary[s.name] || 0)}</div>
+                  <div className="stat-lbl">{s.name}</div>
+                </div>
+              </div>
+            ))}
+        <div className="stat-card" style={loading ? { opacity: 0.6 } : { border: '2px solid var(--sage)', background: 'var(--sage-light)' }}>
+          <div className="stat-icon" style={{ background: loading ? '#e5e7eb' : '#5B6B4E18', color: loading ? '#d1d5db' : '#5B6B4E' }}>
+            {loading ? <div style={{ width: 20, height: 20, borderRadius: 4, background: '#d1d5db' }} /> : <SvgActivity />}
           </div>
           <div className="stat-info">
-            <div className="stat-num">{currency(totalAmount)}</div>
-            <div className="stat-lbl">Total</div>
+            {loading ? (
+              <>
+                <div className="stat-num" style={{ height: 26, width: '70%', borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+                <div className="stat-lbl" style={{ height: 12, width: '30%', borderRadius: 4, marginTop: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+              </>
+            ) : (
+              <>
+                <div className="stat-num" style={{ fontSize: 22, fontWeight: 800 }}>{currency(totalAmount)}</div>
+                <div className="stat-lbl">Total</div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -193,10 +246,12 @@ export default function BankAudit() {
             Refresh
           </button>
           <button className="btn btn-sm" onClick={() => { setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' }); setShowAddEntry(true); }}
-            style={{ marginLeft: 'auto', background: 'var(--sage)', color: '#fff', border: 'none' }}>
-            + Add Entry
+            style={{ marginLeft: 'auto', background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Entry
           </button>
-          <button className="btn btn-sm" onClick={() => { setSourceName(''); setShowSources(true); }}>
+          <button className="btn btn-sm" onClick={() => { setSourceName(''); setShowSources(true); }} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             Manage Sources
           </button>
         </div>
@@ -216,7 +271,7 @@ export default function BankAudit() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
+                <SkeletonTableRows rows={5} cols={7} />
               ) : entries.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No entries yet</td></tr>
               ) : (
@@ -247,7 +302,7 @@ export default function BankAudit() {
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
               <h3>Add Bank Entry</h3>
-              <button className="btn btn-sm" onClick={() => setShowAddEntry(false)}>\u2715</button>
+              <button className="btn btn-sm" onClick={() => setShowAddEntry(false)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
             </div>
             <div className="modal-body">
               <label className="field" style={{ marginBottom: 10 }}>
@@ -295,7 +350,7 @@ export default function BankAudit() {
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
               <h3>Edit Entry</h3>
-              <button className="btn btn-sm" onClick={() => setShowEditEntry(null)}>\u2715</button>
+              <button className="btn btn-sm" onClick={() => setShowEditEntry(null)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
             </div>
             <div className="modal-body">
               <label className="field" style={{ marginBottom: 10 }}>
@@ -343,7 +398,7 @@ export default function BankAudit() {
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <h3>Manage Sources</h3>
-              <button className="btn btn-sm" onClick={() => setShowSources(false)}>\u2715</button>
+              <button className="btn btn-sm" onClick={() => setShowSources(false)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
             </div>
             <div className="modal-body">
               <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
