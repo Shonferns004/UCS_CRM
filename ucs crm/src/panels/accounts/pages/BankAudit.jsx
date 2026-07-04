@@ -34,10 +34,11 @@ export default function BankAudit() {
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
       const q = params.toString();
+      const path = '/accounts/bank-audit';
       const [entriesData, sourcesData, summaryData] = await Promise.all([
-        apiGet('/accounts/bank-audit/entries' + (q ? '?' + q : '')),
-        apiGet('/accounts/bank-audit/sources'),
-        apiGet('/accounts/bank-audit/summary' + (q ? '?' + q : '')),
+        apiGet(path + '/entries' + (q ? '?' + q : '')).catch(() => []),
+        apiGet(path + '/sources').catch(() => []),
+        apiGet(path + '/summary' + (q ? '?' + q : '')).catch(() => ({})),
       ]);
       setEntries(entriesData);
       setSources(sourcesData);
