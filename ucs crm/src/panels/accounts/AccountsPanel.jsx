@@ -5,11 +5,13 @@ import { themes, applyTheme } from '../hr/theme'
 import Dashboard from './pages/Dashboard'
 import SuspensePage from './pages/SuspensePage'
 import ReceiptHistory from './pages/ReceiptHistory'
+import BankAudit from './pages/BankAudit'
 
 const NAV = [
   { id: 'leads', path: '/accounts/leads', label: 'Lead Verification', icon: '\u{1F4B0}' },
   { id: 'suspense', path: '/accounts/suspense', label: 'Suspense', icon: '\u{2753}' },
   { id: 'receipts', path: '/accounts/receipts', label: 'Receipt History', icon: '\u{1F4C4}' },
+  { id: 'bank-audit', path: '/accounts/bank-audit', label: 'Bank Audit', icon: '\u{1F3E6}' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -106,6 +108,7 @@ export default function AccountsPanel() {
             <Route path="leads" element={<Dashboard />} />
             <Route path="suspense" element={<SuspensePage />} />
             <Route path="receipts" element={<ReceiptHistory />} />
+            <Route path="bank-audit" element={<BankAudit />} />
             <Route path="*" element={<Navigate to="leads" replace />} />
           </Routes>
         </div>
