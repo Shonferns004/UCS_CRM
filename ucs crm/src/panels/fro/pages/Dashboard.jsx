@@ -108,15 +108,15 @@ export default function Dashboard() {
 
   return (
     <div>
-      {(todayStats?.calls > 0 || todayStats?.skippedDonors > 0) && (
-        <div className="card" style={{ marginBottom: 14, padding: '14px 18px', border: `1.5px solid ${todayStats?.skippedDonors > 0 ? '#fde68a' : '#bbf7d0'}`, background: todayStats?.skippedDonors > 0 ? 'linear-gradient(135deg, #fefce8 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
+      {(todayStats?.calls > 0 || todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0) && (
+        <div className="card" style={{ marginBottom: 14, padding: '14px 18px', border: `1.5px solid ${todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'}`, background: todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0 ? 'linear-gradient(135deg, #fefce8 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: todayStats?.skippedDonors > 0 ? '#f59e0b' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0 ? '#f59e0b' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 20 }}>phone_in_talk</span>
             </div>
             <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3 }}>Today's Call Activity</span>
-              <div style={{ display: 'flex', gap: 20, marginTop: 4, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3 }}>Today's Activity</span>
+              <div style={{ display: 'flex', gap: 16, marginTop: 4, flexWrap: 'wrap' }}>
                 {todayStats?.calls > 0 && (
                   <>
                     <div>
@@ -143,11 +143,19 @@ export default function Dashboard() {
                       <span style={{ fontSize: 20, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats.idleSeconds)}</span>
                       <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>idle</span>
                     </div>
-                    <div>
-                      <span style={{ fontSize: 20, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{Math.round((todayStats.totalSeconds / (todayStats.totalSeconds + todayStats.idleSeconds)) * 100)}%</span>
-                      <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>productive</span>
-                    </div>
                   </>
+                )}
+                {todayStats?.breakSeconds > 0 && (
+                  <div>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats.breakSeconds)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>break</span>
+                  </div>
+                )}
+                {todayStats?.totalSeconds + todayStats?.idleSeconds > 0 && (
+                  <div>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{Math.round((todayStats.totalSeconds / (todayStats.totalSeconds + todayStats.idleSeconds)) * 100)}%</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>productive</span>
+                  </div>
                 )}
               </div>
             </div>

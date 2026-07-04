@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS fro_live_status (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   worker_id UUID UNIQUE REFERENCES workers(id),
   status TEXT NOT NULL DEFAULT 'offline'
-    CHECK (status IN ('online', 'on_call', 'idle', 'offline')),
+    CHECK (status IN ('online', 'on_call', 'idle', 'offline', 'break')),
   current_donor_name TEXT,
   current_donor_id INT,
   call_started_at TIMESTAMPTZ,
@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS fro_live_status (
   today_talk_seconds INT DEFAULT 0,
   today_skipped INT DEFAULT 0,
   today_idle_seconds INT DEFAULT 0,
+  today_break_seconds INT DEFAULT 0,
+  on_break BOOLEAN DEFAULT false,
+  break_started_at TIMESTAMPTZ,
+  break_type TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

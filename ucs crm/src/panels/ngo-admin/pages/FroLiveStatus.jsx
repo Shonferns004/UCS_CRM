@@ -14,6 +14,7 @@ const STATUS_META = {
   on_call: { label: 'On Call', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
   online: { label: 'Online', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
   idle: { label: 'Idle', color: '#f59e0b', bg: '#fefce8', border: '#fde68a' },
+  break: { label: 'Break', color: '#d97706', bg: '#fefce8', border: '#fde68a' },
   offline: { label: 'Offline', color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb' },
 }
 
@@ -94,7 +95,7 @@ export default function FroLiveStatus() {
                   </div>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, display: 'inline-block',
-                      animation: fs.status === 'on_call' ? 'pulse 1s ease-in-out infinite' : 'none' }} />
+                      animation: fs.status === 'on_call' || fs.status === 'break' ? 'pulse 1s ease-in-out infinite' : 'none' }} />
                     <span style={{ fontSize: 11, fontWeight: 600, color: meta.color }}>{meta.label}</span>
                   </span>
                 </div>
@@ -111,6 +112,18 @@ export default function FroLiveStatus() {
                   </div>
                 )}
 
+                {fs.status === 'break' && (
+                  <div style={{ padding: '8px 10px', borderRadius: 6, background: '#fefce8', border: '1px solid #fde68a', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 14 }}>{fs.break_type === 'tea' ? '☕' : fs.break_type === 'lunch' ? '🍽️' : '⏱️'}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#92400e', flex: 1 }}>{fs.break_type ? fs.break_type.charAt(0).toUpperCase() + fs.break_type.slice(1) : 'Break'}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>
+                        {fs.break_started_at ? fmt(Math.floor((Date.now() - new Date(fs.break_started_at).getTime()) / 1000)) : '00:00'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10, color: 'var(--ink-soft)' }}>
                   <span>📞 <strong style={{ color: 'var(--ink)' }}>{fs.today_calls || 0}</strong></span>
                   <span style={{ fontVariantNumeric: 'tabular-nums' }}>Talk: <strong style={{ color: 'var(--ink)' }}>{fmt(fs.today_talk_seconds || 0)}</strong></span>
@@ -119,6 +132,10 @@ export default function FroLiveStatus() {
                       <span>⏳ <strong style={{ color: '#d97706' }}>{fs.today_skipped}</strong></span>
                       <span style={{ fontVariantNumeric: 'tabular-nums' }}>Idle: <strong style={{ color: '#d97706' }}>{fmt(fs.today_idle_seconds || 0)}</strong></span>
                     </>
+                  )}
+                  {fs.today_break_seconds > 0 && (
+                    <><span style={{ fontSize: 12 }}>☕</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>Break: <strong style={{ color: '#d97706' }}>{fmt(fs.today_break_seconds || 0)}</strong></span></>
                   )}
                   {productivity !== null && (
                     <span style={{ color: productivity < 50 ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
