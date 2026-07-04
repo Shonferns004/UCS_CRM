@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost } from '../api/auth';
+import * as XLSX from 'xlsx';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -7,51 +8,73 @@ function SkeletonBar({ w }) {
   return <div style={{ height: 14, width: w || '60%', borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>;
 }
 
+const printStyle = `
+  @media print {
+    .no-print { display: none !important; }
+    body { font-family: 'Inter', sans-serif; padding: 20px; color: #000; }
+    .report-header { text-align: center; margin-bottom: 20px; }
+    .report-header h1 { font-size: 20px; margin: 0 0 4px; }
+    .report-header .sub { font-size: 12px; color: #666; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px; }
+    th, td { padding: 6px 10px; border: 1px solid #999; text-align: left; }
+    th { background: #f0f0f0; font-weight: 600; }
+    .summary-row { display: flex; gap: 24; margin-bottom: 16px; }
+    .summary-item { border: 1px solid #ccc; padding: 8px 14px; border-radius: 4px; }
+    .summary-item .lbl { font-size: 10px; color: #666; }
+    .summary-item .val { font-size: 16px; font-weight: 700; }
+  }
+`;
+
 export default function Reports() {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [tab, setTab] = useState('day');
   const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [reportMonth, setReportMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const printRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setSent(false);
     try {
-      const data = await apiGet('/accounts/day-end-report?date=' + reportDate);
+      const params = tab === 'day'
+        ? '?date=' + reportDate
+        : '?month=' + reportMonth;
+      const data = await apiGet('/accounts/day-end-report' + params);
       setReport(data);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); }
-  }, [reportDate]);
+  }, [tab, reportDate, reportMonth]);
 
   useEffect(() => { load(); }, [load]);
 
   const sendReport = async () => {
+    if (!report) return;
     setSending(true);
     setSent(false);
     try {
-      const lines = [];
-      lines.push('Day End Report - ' + report.date);
-      lines.push('');
-      lines.push('FRO-wise Breakdown:');
+      const label = report.isMonth ? 'Month End Report' : 'Day End Report';
+      const lines = [label + ' - ' + report.date, '',
+        'FRO-wise Breakdown:'];
       report.froWorkers.forEach(w => {
         lines.push('  ' + w.name + ' (' + w.login + '): Submitted ' + currency(w.submitted) + ' | Collected ' + currency(w.collected));
       });
-      lines.push('');
-      lines.push('Total Submitted: ' + currency(report.totalSubmitted));
+      lines.push('', 'Total Submitted: ' + currency(report.totalSubmitted));
       lines.push('Total Collected: ' + currency(report.totalCollected));
-      lines.push('');
-      lines.push('Suspense (Unverified Bank Entries): ' + currency(report.suspenseAmount) + ' (' + report.suspenseCount + ' entries)');
+      lines.push('', 'Suspense: ' + currency(report.suspenseAmount) + ' (' + report.suspenseCount + ' entries)');
       if (report.suspenseEntries.length > 0) {
-        lines.push('');
-        lines.push('Suspense Details:');
+        lines.push('', 'Suspense Details:');
         report.suspenseEntries.forEach(e => {
           lines.push('  ' + (e.payment_id || 'No ID') + ' - ' + currency(e.amount) + ' (' + (e.bank_audit_sources?.name || 'Unknown') + ')');
         });
       }
-
       await apiPost('/admin/notifications/send-now', {
-        title: 'Day End Report - ' + report.date,
+        title: label + ' - ' + report.date,
         body: lines.join('\n'),
         role: 'super_admin',
       });
@@ -60,13 +83,66 @@ export default function Reports() {
     finally { setSending(false); }
   };
 
+  const exportExcel = () => {
+    if (!report) return;
+    const rows = [['FRO Name', 'Login ID', 'Submitted', 'Collected', 'Pending']];
+    report.froWorkers.forEach(w => {
+      rows.push([w.name, w.login, w.submitted, w.collected, Math.max(0, w.submitted - w.collected)]);
+    });
+    rows.push([]);
+    rows.push(['Total Submitted', '', report.totalSubmitted, '', '']);
+    rows.push(['Total Collected', '', report.totalCollected, '', '']);
+    rows.push(['Suspense Amount', '', report.suspenseAmount, '', '']);
+    if (report.suspenseEntries.length > 0) {
+      rows.push([]);
+      rows.push(['Suspense Details', '', '', '', '']);
+      rows.push(['Payment ID', 'Source', 'Amount', '', '']);
+      report.suspenseEntries.forEach(e => {
+        rows.push([e.payment_id || '---', e.bank_audit_sources?.name || 'Unknown', e.amount, '', '']);
+      });
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    const label = report.isMonth ? 'Month-End-Report' : 'Day-End-Report';
+    XLSX.writeFile(wb, label + '-' + report.date + '.xlsx');
+  };
+
+  const handlePrint = () => {
+    const w = window.open('', '_blank');
+    w.document.write('<html><head><title>Report</title><style>' + printStyle + '</style></head><body>');
+    w.document.write(printRef.current?.innerHTML || '');
+    w.document.write('</body></html>');
+    w.document.close();
+    w.print();
+  };
+
+  const label = report?.isMonth ? 'Month End Report' : 'Day End Report';
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Day End Report</h3>
+      <style>{printStyle}</style>
+
+      <div className="no-print" style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '2px solid var(--line)' }}>
+        <button onClick={() => setTab('day')}
+          style={{ padding: '8px 18px', fontSize: 13, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', color: tab === 'day' ? 'var(--sage)' : 'var(--ink-soft)', borderBottom: tab === 'day' ? '2px solid var(--sage)' : '2px solid transparent', marginBottom: -2 }}>
+          Day End
+        </button>
+        <button onClick={() => setTab('month')}
+          style={{ padding: '8px 18px', fontSize: 13, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', color: tab === 'month' ? 'var(--sage)' : 'var(--ink-soft)', borderBottom: tab === 'month' ? '2px solid var(--sage)' : '2px solid transparent', marginBottom: -2 }}>
+          Month End
+        </button>
+      </div>
+
+      <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{label}</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
-            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }} />
+          {tab === 'day'
+            ? <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
+                style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }} />
+            : <input type="month" value={reportMonth} onChange={e => setReportMonth(e.target.value)}
+                style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }} />
+          }
           <button className="btn btn-sm" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
             Refresh
@@ -80,29 +156,27 @@ export default function Reports() {
           {[1, 2, 3].map(i => <div key={i} className="stat-card"><SkeletonBar w="60%" /><SkeletonBar w="30%" /></div>)}
         </div>
       ) : report ? (
-        <>
-          <div className="stats-grid">
-            <div className="stat-card" style={{ gridColumn: '1 / -1', border: '2px solid #5B6B4E30', background: '#5B6B4E08', padding: '14px 18px' }}>
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 4 }}>{report.date}</div>
-              <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
-                <div>
-                  <div className="stat-lbl">Total Submitted</div>
-                  <div className="stat-num" style={{ fontSize: 22, color: '#B5603A' }}>{currency(report.totalSubmitted)}</div>
-                </div>
-                <div>
-                  <div className="stat-lbl">Total Collected</div>
-                  <div className="stat-num" style={{ fontSize: 22, color: '#5B6B4E' }}>{currency(report.totalCollected)}</div>
-                </div>
-                <div>
-                  <div className="stat-lbl">Suspense</div>
-                  <div className="stat-num" style={{ fontSize: 22, color: '#dc2626' }}>{currency(report.suspenseAmount)}</div>
-                  <div className="stat-lbl" style={{ fontSize: 10 }}>({report.suspenseCount} unverified entries)</div>
-                </div>
-              </div>
-            </div>
+        <div ref={printRef}>
+          <div className="report-header" style={{ textAlign: 'center', marginBottom: 16 }}>
+            <h1 style={{ fontSize: 18, margin: '0 0 2px', fontWeight: 700 }}>{label}</h1>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{report.date}</div>
           </div>
 
-          <div className="card">
+          <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Total Submitted', value: currency(report.totalSubmitted), color: '#B5603A' },
+              { label: 'Total Collected', value: currency(report.totalCollected), color: '#5B6B4E' },
+              { label: 'Suspense', value: currency(report.suspenseAmount), color: '#dc2626', sub: report.suspenseCount + ' unverified' },
+            ].map(s => (
+              <div key={s.label} style={{ border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', minWidth: 140 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>{s.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+                {s.sub && <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{s.sub}</div>}
+              </div>
+            ))}
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-head"><h3>FRO-wise Breakdown</h3></div>
             <div className="table-wrap">
               <table>
@@ -117,7 +191,7 @@ export default function Reports() {
                 </thead>
                 <tbody>
                   {report.froWorkers.length === 0 ? (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No activity today</td></tr>
+                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No activity</td></tr>
                   ) : (
                     report.froWorkers.map(w => (
                       <tr key={w.id}>
@@ -135,7 +209,7 @@ export default function Reports() {
           </div>
 
           {report.suspenseEntries.length > 0 && (
-            <div className="card">
+            <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Suspense Details</h3></div>
               <div className="table-wrap">
                 <table>
@@ -159,17 +233,27 @@ export default function Reports() {
               </div>
             </div>
           )}
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-            {sent && <span style={{ fontSize: 13, color: 'var(--sage)', fontWeight: 600, alignSelf: 'center' }}>Report sent to Super Admin</span>}
-            <button className="btn btn-primary" onClick={sendReport} disabled={sending} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-              {sending ? 'Sending...' : 'Send Report to Super Admin'}
-            </button>
-          </div>
-        </>
+        </div>
       ) : (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>No data for this date</div>
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>No data for this period</div>
+      )}
+
+      {report && (
+        <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          {sent && <span style={{ fontSize: 13, color: 'var(--sage)', fontWeight: 600, alignSelf: 'center' }}>Report sent to Super Admin</span>}
+          <button className="btn" onClick={exportExcel} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export Excel
+          </button>
+          <button className="btn" onClick={handlePrint} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            Print
+          </button>
+          <button className="btn btn-primary" onClick={sendReport} disabled={sending} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            {sending ? 'Sending...' : 'Send to Super Admin'}
+          </button>
+        </div>
       )}
     </div>
   );
