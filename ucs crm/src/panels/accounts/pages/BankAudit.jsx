@@ -200,20 +200,20 @@ export default function BankAudit() {
                 </div>
               </div>
             ))}
-        <div className="stat-card" style={loading ? { opacity: 0.6 } : { border: '2px solid var(--sage)', background: 'var(--sage-light)' }}>
-          <div className="stat-icon" style={{ background: loading ? '#e5e7eb' : '#5B6B4E18', color: loading ? '#d1d5db' : '#5B6B4E' }}>
-            {loading ? <div style={{ width: 20, height: 20, borderRadius: 4, background: '#d1d5db' }} /> : <SvgActivity />}
+        <div className="stat-card" style={loading ? { opacity: 0.6 } : { gridColumn: '1 / -1', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)', padding: '18px 22px' }}>
+          <div className="stat-icon" style={{ background: loading ? '#e5e7eb' : '#5B6B4E20', color: loading ? '#d1d5db' : '#5B6B4E', width: 44, height: 44, borderRadius: 12 }}>
+            {loading ? <div style={{ width: 22, height: 22, borderRadius: 4, background: '#d1d5db' }} /> : <SvgActivity />}
           </div>
           <div className="stat-info">
             {loading ? (
               <>
-                <div className="stat-num" style={{ height: 26, width: '70%', borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
-                <div className="stat-lbl" style={{ height: 12, width: '30%', borderRadius: 4, marginTop: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+                <div className="stat-num" style={{ height: 30, width: '40%', borderRadius: 4, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
+                <div className="stat-lbl" style={{ height: 14, width: '15%', borderRadius: 4, marginTop: 6, background: 'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }}>&nbsp;</div>
               </>
             ) : (
               <>
-                <div className="stat-num" style={{ fontSize: 22, fontWeight: 800 }}>{currency(totalAmount)}</div>
-                <div className="stat-lbl">Total</div>
+                <div className="stat-num" style={{ fontSize: 28, fontWeight: 800, color: '#5B6B4E' }}>{currency(totalAmount)}</div>
+                <div className="stat-lbl" style={{ fontSize: 13, fontWeight: 600, color: '#5B6B4E', opacity: 0.7 }}>Total Collected</div>
               </>
             )}
           </div>
