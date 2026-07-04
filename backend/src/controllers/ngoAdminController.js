@@ -1479,6 +1479,76 @@ export const getAlerts = async (req, res) => {
   }
 };
 
+export const getRejectedLeads = async (req, res) => {
+  try {
+    const ngoIds = await getUserNgoIds(req.user);
+    if (ngoIds.length === 0) return res.json([]);
+
+    let data = [];
+    try {
+      const result = await supabase
+        .from('rejected_lead_tickets')
+        .select('*')
+        .in('ngo_id', ngoIds)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (result.error) throw result.error;
+      data = result.data || [];
+    } catch (dbErr) {
+      console.error('rejected_lead_tickets query failed:', dbErr.message);
+      return res.json([]);
+    }
+
+    const workerIds = [...new Set(data.map(t => t.fro_worker_id).filter(Boolean))];
+    const workerMap = {};
+    if (workerIds.length > 0) {
+      const { data: workers, error: wErr } = await supabase.from('workers').select('id, name').in('id', workerIds);
+      if (wErr) { console.error('workers query failed:', wErr.message); }
+      else if (workers) for (const w of workers) workerMap[w.id] = w.name;
+    }
+
+    const result = data.map(t => ({ ...t, fro_name: workerMap[t.fro_worker_id] || 'Unknown' }));
+    return res.json(result);
+  } catch (error) {
+    console.error('getRejectedLeads error:', error);
+    return res.json([]);
+  }
+};
+
+export const acknowledgeRejectedLead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ngoIds = await getUserNgoIds(req.user);
+
+    let ticket;
+    try {
+      const result = await supabase
+        .from('rejected_lead_tickets')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (result.error) throw result.error;
+      ticket = result.data;
+    } catch (dbErr) {
+      console.error('rejected_lead_tickets query failed:', dbErr.message);
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+
+    if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+    if (!ngoIds.includes(ticket.ngo_id)) return res.status(403).json({ message: 'Access denied' });
+
+    await supabase
+      .from('rejected_lead_tickets')
+      .update({ status: 'acknowledged', reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
+      .eq('id', id);
+
+    return res.json({ message: 'Ticket acknowledged' });
+  } catch (error) {
+    console.error('acknowledgeRejectedLead error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const acknowledgeAlert = async (req, res) => {
   try {
     const rawId = req.params.id;
