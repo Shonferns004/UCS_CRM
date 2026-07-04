@@ -15,13 +15,13 @@ const printStyle = `
     .report-header { text-align: center; margin-bottom: 20px; }
     .report-header h1 { font-size: 20px; margin: 0 0 4px; }
     .report-header .sub { font-size: 12px; color: #666; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px; }
+    .card { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 16px; }
+    .card-head { padding: 10px 14px; border-bottom: 1px solid #ddd; font-size: 14px; font-weight: 600; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
     th, td { padding: 6px 10px; border: 1px solid #999; text-align: left; }
     th { background: #f0f0f0; font-weight: 600; }
-    .summary-row { display: flex; gap: 24; margin-bottom: 16px; }
-    .summary-item { border: 1px solid #ccc; padding: 8px 14px; border-radius: 4px; }
-    .summary-item .lbl { font-size: 10px; color: #666; }
-    .summary-item .val { font-size: 16px; font-weight: 700; }
+    .pill-gray { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; background: #eee; color: #666; }
   }
 `;
 
@@ -63,7 +63,7 @@ export default function Reports() {
         'Total Submitted: ' + currency(report.totalSubmitted),
         'Total Collected: ' + currency(report.totalCollected),
         'Suspense: ' + currency(report.suspenseAmount) + ' (' + report.suspenseCount + ' entries)'];
-      if (report.sourceBreakdown?.length > 0) {
+      if ((report.sourceBreakdown || []).length > 0) {
         lines.push('', 'Source-wise Collection:');
         report.sourceBreakdown.forEach(s => lines.push('  ' + s.name + ': ' + currency(s.amount)));
       }
@@ -85,10 +85,11 @@ export default function Reports() {
 
   const exportExcel = () => {
     if (!report) return;
+    const srcBreakdown = report.sourceBreakdown || [];
     const rows = [];
-    if (report.sourceBreakdown?.length) {
-      rows.push(report.sourceBreakdown.map(s => s.name).concat('Total'));
-      rows.push(report.sourceBreakdown.map(s => s.amount).concat(report.sourceBreakdown.reduce((t, s) => t + s.amount, 0)));
+    if (srcBreakdown.length) {
+      rows.push(srcBreakdown.map(s => s.name).concat('Total'));
+      rows.push(srcBreakdown.map(s => s.amount).concat(srcBreakdown.reduce((t, s) => t + s.amount, 0)));
       rows.push([]);
     }
     rows.push(['Total Submitted', 'Total Collected', 'Suspense']);
@@ -184,7 +185,7 @@ export default function Reports() {
             </div>
           </div>
 
-          {report.sourceBreakdown && report.sourceBreakdown.length > 0 && (
+          {(report.sourceBreakdown || []).length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Source-wise Collection</h3></div>
               <div className="table-wrap">
