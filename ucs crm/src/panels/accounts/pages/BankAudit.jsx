@@ -37,8 +37,7 @@ export default function BankAudit() {
   const [sources, setSources] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [showAddEntry, setShowAddEntry] = useState(false);
   const [showEditEntry, setShowEditEntry] = useState(null);
@@ -48,16 +47,14 @@ export default function BankAudit() {
   const [sourceName, setSourceName] = useState('');
   const [error, setError] = useState('');
 
-  const dateFromRef = useRef(dateFrom);
-  const dateToRef = useRef(dateTo);
+  const dateRef = useRef(selectedDate);
 
-  async function doLoad(df, dt) {
+  async function doLoad(dt) {
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
-      if (df) params.set('date_from', df);
-      if (dt) params.set('date_to', dt);
+      if (dt) { params.set('date_from', dt); params.set('date_to', dt); }
       const q = params.toString();
       const path = '/accounts/bank-audit';
       const results = await Promise.allSettled([
@@ -78,21 +75,17 @@ export default function BankAudit() {
 
   useEffect(() => {
     const d = new Date();
-    const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    const to = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    setDateFrom(from);
-    setDateTo(to);
-    dateFromRef.current = from;
-    dateToRef.current = to;
-    doLoad(from, to);
+    const today = d.toISOString().split('T')[0];
+    setSelectedDate(today);
+    dateRef.current = today;
+    doLoad(today);
   }, []);
 
   useRealtime('bank_audit_entries', {
     event: '*',
-    onInsert: () => doLoad(dateFromRef.current, dateToRef.current),
-    onUpdate: () => doLoad(dateFromRef.current, dateToRef.current),
-    onDelete: () => doLoad(dateFromRef.current, dateToRef.current),
+    onInsert: () => doLoad(dateRef.current),
+    onUpdate: () => doLoad(dateRef.current),
+    onDelete: () => doLoad(dateRef.current),
   });
 
   const handleAddEntry = async () => {
@@ -105,7 +98,7 @@ export default function BankAudit() {
       await apiPost('/accounts/bank-audit/entries', entryForm);
       setShowAddEntry(false);
       setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
-      doLoad(dateFrom, dateTo);
+      doLoad(selectedDate);
     } catch (err) { alert(err.message); }
     finally { setSaving(false); }
   };
@@ -117,7 +110,7 @@ export default function BankAudit() {
       await apiPut('/accounts/bank-audit/entries/' + showEditEntry.id, entryForm);
       setShowEditEntry(null);
       setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
-      doLoad(dateFrom, dateTo);
+      doLoad(selectedDate);
     } catch (err) { alert(err.message); }
     finally { setSaving(false); }
   };
@@ -126,7 +119,7 @@ export default function BankAudit() {
     if (!confirm('Delete this entry?')) return;
     try {
       await apiDelete('/accounts/bank-audit/entries/' + id);
-      doLoad(dateFrom, dateTo);
+      doLoad(selectedDate);
     } catch (err) { alert(err.message); }
   };
 
@@ -187,22 +180,11 @@ export default function BankAudit() {
   return (
     <div>
       <div className="stats-grid">
-        {loading
-          ? Array.from({ length: Math.max(sources.length || 4, 4) }, (_, i) => <SkeletonStat key={i} />)
-          : sources.filter(s => s.is_active !== false).map((s, i) => (
-              <div key={s.id} className="stat-card">
-                <div className="stat-icon" style={{ background: COLORS[i % COLORS.length] + '18', color: COLORS[i % COLORS.length] }}>
-                  <SvgBank />
-                </div>
-                <div className="stat-info">
-                  <div className="stat-num">{currency(summary[s.name] || 0)}</div>
-                  <div className="stat-lbl">{s.name}</div>
-                </div>
-              </div>
-            ))}
-        <div className="stat-card" style={loading ? { opacity: 0.6 } : { gridColumn: '1 / -1', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)', padding: '18px 22px' }}>
-          <div className="stat-icon" style={{ background: loading ? '#e5e7eb' : '#5B6B4E20', color: loading ? '#d1d5db' : '#5B6B4E', width: 44, height: 44, borderRadius: 12 }}>
-            {loading ? <div style={{ width: 22, height: 22, borderRadius: 4, background: '#d1d5db' }} /> : <SvgActivity />}
+        <div className="stat-card" style={loading ? { opacity: 0.6, gridColumn: '1 / -1' } : { gridColumn: '1 / -1', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)', padding: '18px 22px' }}>
+          <div className="stat-icon" style={{ background: loading ? '#e5e7eb' : '#5B6B4E20', color: loading ? '#d1d5db' : '#5B6B4E', width: 48, height: 48, borderRadius: 14 }}>
+            {loading ? <div style={{ width: 24, height: 24, borderRadius: 4, background: '#d1d5db' }} /> : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v12"/><path d="M9 9h5a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2H9"/></svg>
+            )}
           </div>
           <div className="stat-info">
             {loading ? (
@@ -218,6 +200,19 @@ export default function BankAudit() {
             )}
           </div>
         </div>
+        {loading
+          ? Array.from({ length: Math.max(sources.length || 4, 4) }, (_, i) => <SkeletonStat key={i} />)
+          : sources.filter(s => s.is_active !== false).map((s, i) => (
+              <div key={s.id} className="stat-card">
+                <div className="stat-icon" style={{ background: COLORS[i % COLORS.length] + '18', color: COLORS[i % COLORS.length] }}>
+                  <SvgBank />
+                </div>
+                <div className="stat-info">
+                  <div className="stat-num">{currency(summary[s.name] || 0)}</div>
+                  <div className="stat-lbl">{s.name}</div>
+                </div>
+              </div>
+            ))}
       </div>
 
       {error && <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'8px 12px', marginBottom:12, fontSize:13, color:'#991b1b' }}>{error}</div>}
@@ -225,14 +220,9 @@ export default function BankAudit() {
       <div className="card">
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-            From
-            <input type="date" value={dateFrom} onChange={e => { const v = e.target.value; setDateFrom(v); dateFromRef.current = v; doLoad(v, dateTo); }}
-              style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 130 }} />
-          </label>
-          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-            To
-            <input type="date" value={dateTo} onChange={e => { const v = e.target.value; setDateTo(v); dateToRef.current = v; doLoad(dateFrom, v); }}
-              style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 130 }} />
+            Date
+            <input type="date" value={selectedDate} onChange={e => { const v = e.target.value; setSelectedDate(v); dateRef.current = v; doLoad(v); }}
+              style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 150 }} />
           </label>
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
             style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)' }}>
@@ -241,7 +231,7 @@ export default function BankAudit() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-          <button className="btn btn-sm" onClick={() => doLoad(dateFrom, dateTo)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-sm" onClick={() => doLoad(selectedDate)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
             Refresh
           </button>
