@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS bank_audit_entries (
   check_id TEXT,
   transaction_date DATE NOT NULL,
   remarks TEXT,
-  created_by UUID REFERENCES users(id),
+  created_by UUID,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
