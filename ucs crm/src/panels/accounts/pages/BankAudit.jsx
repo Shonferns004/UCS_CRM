@@ -52,9 +52,9 @@ export default function BankAudit() {
 
   useEffect(() => {
     const d = new Date();
-    const to = d.toISOString().split('T')[0];
-    d.setDate(1);
-    const from = d.toISOString().split('T')[0];
+    const from = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const to = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     setDateFrom(from);
     setDateTo(to);
     dateFromRef.current = from;
