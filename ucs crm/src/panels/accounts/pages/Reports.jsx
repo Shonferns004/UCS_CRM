@@ -183,6 +183,30 @@ export default function Reports() {
             </div>
           </div>
 
+          {report.sourceBreakdown && report.sourceBreakdown.length > 0 && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head"><h3>Source-wise Collection</h3></div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Source</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.sourceBreakdown.map(s => (
+                      <tr key={s.name}>
+                        <td><span className="pill pill-gray">{s.name}</span></td>
+                        <td style={{ color: 'var(--sage)', fontWeight: 600 }}>{currency(s.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {report.suspenseEntries.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Suspense Details</h3></div>
