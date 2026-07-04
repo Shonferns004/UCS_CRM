@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 
@@ -21,22 +21,15 @@ export default function BankAudit() {
   const [saving, setSaving] = useState(false);
   const [sourceName, setSourceName] = useState('');
 
-  const mountedRef = useRef(true);
-  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
+  const dateFromRef = useRef(dateFrom);
+  const dateToRef = useRef(dateTo);
 
-  useEffect(() => {
-    const d = new Date();
-    setDateTo(d.toISOString().split('T')[0]);
-    d.setDate(1);
-    setDateFrom(d.toISOString().split('T')[0]);
-  }, []);
-
-  const load = useCallback(async () => {
+  async function doLoad(df, dt) {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (dateFrom) params.set('date_from', dateFrom);
-      if (dateTo) params.set('date_to', dateTo);
+      if (df) params.set('date_from', df);
+      if (dt) params.set('date_to', dt);
       const q = params.toString();
       const path = '/accounts/bank-audit';
       const [entriesData, sourcesData, summaryData] = await Promise.all([
@@ -44,22 +37,30 @@ export default function BankAudit() {
         apiGet(path + '/sources').catch(() => []),
         apiGet(path + '/summary' + (q ? '?' + q : '')).catch(() => ({})),
       ]);
-      if (mountedRef.current) {
-        setEntries(entriesData);
-        setSources(sourcesData);
-        setSummary(summaryData);
-      }
-    } catch (err) { alert(err.message); }
-    finally { if (mountedRef.current) setLoading(false); }
-  }, [dateFrom, dateTo]);
+      setEntries(entriesData);
+      setSources(sourcesData);
+      setSummary(summaryData);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  }
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const d = new Date();
+    const to = d.toISOString().split('T')[0];
+    d.setDate(1);
+    const from = d.toISOString().split('T')[0];
+    setDateFrom(from);
+    setDateTo(to);
+    dateFromRef.current = from;
+    dateToRef.current = to;
+    doLoad(from, to);
+  }, []);
 
   useRealtime('bank_audit_entries', {
     event: '*',
-    onInsert: () => load(),
-    onUpdate: () => load(),
-    onDelete: () => load(),
+    onInsert: () => doLoad(dateFromRef.current, dateToRef.current),
+    onUpdate: () => doLoad(dateFromRef.current, dateToRef.current),
+    onDelete: () => doLoad(dateFromRef.current, dateToRef.current),
   });
 
   const handleAddEntry = async () => {
@@ -72,7 +73,7 @@ export default function BankAudit() {
       await apiPost('/accounts/bank-audit/entries', entryForm);
       setShowAddEntry(false);
       setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
-      load();
+      doLoad(dateFrom, dateTo);
     } catch (err) { alert(err.message); }
     finally { setSaving(false); }
   };
@@ -84,7 +85,7 @@ export default function BankAudit() {
       await apiPut('/accounts/bank-audit/entries/' + showEditEntry.id, entryForm);
       setShowEditEntry(null);
       setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
-      load();
+      doLoad(dateFrom, dateTo);
     } catch (err) { alert(err.message); }
     finally { setSaving(false); }
   };
@@ -93,7 +94,7 @@ export default function BankAudit() {
     if (!confirm('Delete this entry?')) return;
     try {
       await apiDelete('/accounts/bank-audit/entries/' + id);
-      load();
+      doLoad(dateFrom, dateTo);
     } catch (err) { alert(err.message); }
   };
 
@@ -164,12 +165,12 @@ export default function BankAudit() {
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
             From
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            <input type="date" value={dateFrom} onChange={e => { const v = e.target.value; setDateFrom(v); dateFromRef.current = v; doLoad(v, dateTo); }}
               style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 130 }} />
           </label>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
             To
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            <input type="date" value={dateTo} onChange={e => { const v = e.target.value; setDateTo(v); dateToRef.current = v; doLoad(dateFrom, v); }}
               style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 130 }} />
           </label>
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
@@ -179,7 +180,7 @@ export default function BankAudit() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-          <button className="btn btn-sm" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-sm" onClick={() => doLoad(dateFrom, dateTo)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
             Refresh
           </button>
