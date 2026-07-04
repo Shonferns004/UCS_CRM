@@ -74,11 +74,8 @@ export default function BankAudit() {
   }
 
   useEffect(() => {
-    const d = new Date();
-    const today = d.toISOString().split('T')[0];
-    setSelectedDate(today);
-    dateRef.current = today;
-    doLoad(today);
+    dateRef.current = '';
+    doLoad('');
   }, []);
 
   useRealtime('bank_audit_entries', {
@@ -220,9 +217,10 @@ export default function BankAudit() {
       <div className="card">
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-            Date
+            {selectedDate ? <span>Date</span> : <span style={{ color: 'var(--sage)', fontWeight: 600 }}>All Dates</span>}
             <input type="date" value={selectedDate} onChange={e => { const v = e.target.value; setSelectedDate(v); dateRef.current = v; doLoad(v); }}
               style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 150 }} />
+            {selectedDate && <button className="btn btn-sm" onClick={() => { setSelectedDate(''); dateRef.current = ''; doLoad(''); }} style={{ fontSize: 11, padding: '2px 6px' }}>Clear</button>}
           </label>
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
             style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)' }}>
