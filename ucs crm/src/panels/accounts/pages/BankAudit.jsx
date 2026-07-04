@@ -37,6 +37,7 @@ export default function BankAudit() {
   const [sources, setSources] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
+  const [statusTab, setStatusTab] = useState('unverified');
   const [selectedDate, setSelectedDate] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [showAddEntry, setShowAddEntry] = useState(false);
@@ -47,20 +48,22 @@ export default function BankAudit() {
   const [sourceName, setSourceName] = useState('');
   const [error, setError] = useState('');
 
-  const dateRef = useRef(selectedDate);
+  const statusRef = useRef(statusTab);
 
-  async function doLoad(dt) {
+  async function doLoad(dt, st) {
+    const sv = st || statusRef.current;
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
       if (dt) { params.set('date_from', dt); params.set('date_to', dt); }
+      params.set('status', sv);
       const q = params.toString();
       const path = '/accounts/bank-audit';
       const results = await Promise.allSettled([
-        apiGet(path + '/entries' + (q ? '?' + q : '')),
+        apiGet(path + '/entries?' + q),
         apiGet(path + '/sources'),
-        apiGet(path + '/summary' + (q ? '?' + q : '')),
+        apiGet(path + '/summary?' + q),
       ]);
       const [entriesRes, sourcesRes, summaryRes] = results;
       if (entriesRes.status === 'fulfilled') setEntries(entriesRes.value);
@@ -74,15 +77,19 @@ export default function BankAudit() {
   }
 
   useEffect(() => {
-    dateRef.current = '';
-    doLoad('');
-  }, []);
+    statusRef.current = statusTab;
+    doLoad(selectedDate, statusTab);
+  }, [statusTab]);
+
+  useEffect(() => {
+    doLoad(selectedDate, statusTab);
+  }, [selectedDate]);
 
   useRealtime('bank_audit_entries', {
     event: '*',
-    onInsert: () => doLoad(dateRef.current),
-    onUpdate: () => doLoad(dateRef.current),
-    onDelete: () => doLoad(dateRef.current),
+    onInsert: () => doLoad(statusRef.current === 'unverified' ? selectedDate : selectedDate, statusRef.current),
+    onUpdate: () => doLoad(selectedDate, statusRef.current),
+    onDelete: () => doLoad(selectedDate, statusRef.current),
   });
 
   const handleAddEntry = async () => {
@@ -95,7 +102,7 @@ export default function BankAudit() {
       await apiPost('/accounts/bank-audit/entries', entryForm);
       setShowAddEntry(false);
       setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
-      doLoad(selectedDate);
+      doLoad(selectedDate, statusTab);
     } catch (err) { alert(err.message); }
     finally { setSaving(false); }
   };
@@ -107,7 +114,7 @@ export default function BankAudit() {
       await apiPut('/accounts/bank-audit/entries/' + showEditEntry.id, entryForm);
       setShowEditEntry(null);
       setEntryForm({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
-      doLoad(selectedDate);
+      doLoad(selectedDate, statusTab);
     } catch (err) { alert(err.message); }
     finally { setSaving(false); }
   };
@@ -116,7 +123,7 @@ export default function BankAudit() {
     if (!confirm('Delete this entry?')) return;
     try {
       await apiDelete('/accounts/bank-audit/entries/' + id);
-      doLoad(selectedDate);
+      doLoad(selectedDate, statusTab);
     } catch (err) { alert(err.message); }
   };
 
@@ -214,13 +221,24 @@ export default function BankAudit() {
 
       {error && <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'8px 12px', marginBottom:12, fontSize:13, color:'#991b1b' }}>{error}</div>}
 
+      <div style={{ display:'flex', gap:0, marginBottom:16, borderBottom:'2px solid var(--line)' }}>
+        <button onClick={() => setStatusTab('unverified')}
+          style={{ padding:'8px 18px', fontSize:13, fontWeight:600, border:'none', background:'none', cursor:'pointer', color: statusTab === 'unverified' ? 'var(--sage)' : 'var(--ink-soft)', borderBottom: statusTab === 'unverified' ? '2px solid var(--sage)' : '2px solid transparent', marginBottom:-2 }}>
+          Pending
+        </button>
+        <button onClick={() => setStatusTab('verified')}
+          style={{ padding:'8px 18px', fontSize:13, fontWeight:600, border:'none', background:'none', cursor:'pointer', color: statusTab === 'verified' ? 'var(--sage)' : 'var(--ink-soft)', borderBottom: statusTab === 'verified' ? '2px solid var(--sage)' : '2px solid transparent', marginBottom:-2 }}>
+          History
+        </button>
+      </div>
+
       <div className="card">
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
             {selectedDate ? <span>Date</span> : <span style={{ color: 'var(--sage)', fontWeight: 600 }}>All Dates</span>}
-            <input type="date" value={selectedDate} onChange={e => { const v = e.target.value; setSelectedDate(v); dateRef.current = v; doLoad(v); }}
+            <input type="date" value={selectedDate} onChange={e => { const v = e.target.value; setSelectedDate(v); doLoad(v, statusTab); }}
               style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 150 }} />
-            {selectedDate && <button className="btn btn-sm" onClick={() => { setSelectedDate(''); dateRef.current = ''; doLoad(''); }} style={{ fontSize: 11, padding: '2px 6px' }}>Clear</button>}
+            {selectedDate && <button className="btn btn-sm" onClick={() => { setSelectedDate(''); doLoad('', statusTab); }} style={{ fontSize: 11, padding: '2px 6px' }}>Clear</button>}
           </label>
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
             style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)' }}>
@@ -229,7 +247,7 @@ export default function BankAudit() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-          <button className="btn btn-sm" onClick={() => doLoad(selectedDate)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-sm" onClick={() => doLoad(selectedDate, statusTab)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
             Refresh
           </button>

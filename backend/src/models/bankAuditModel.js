@@ -47,6 +47,7 @@ export const getEntries = async (filters = {}) => {
   if (filters.date_from) query = query.gte('transaction_date', filters.date_from);
   if (filters.date_to) query = query.lte('transaction_date', filters.date_to);
   if (filters.source_id) query = query.eq('source_id', filters.source_id);
+  if (filters.status) query = query.eq('status', filters.status);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -99,4 +100,38 @@ export const getSourceSummary = async (filters = {}) => {
     summary[name] = (summary[name] || 0) + Number(row.amount);
   }
   return summary;
+};
+
+export const suggestEntries = async (searchTerm) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .select('id, payment_id, amount, transaction_date, bank_audit_sources(name)')
+    .ilike('payment_id', `%${searchTerm}%`)
+    .eq('status', 'unverified')
+    .order('transaction_date', { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  return data || [];
+};
+
+export const getEntryByPaymentId = async (paymentId) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .select('*, bank_audit_sources(name)')
+    .eq('payment_id', paymentId)
+    .eq('status', 'unverified')
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+};
+
+export const verifyEntry = async (id) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .update({ status: 'verified', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*, bank_audit_sources(name)')
+    .single();
+  if (error) throw error;
+  return data;
 };

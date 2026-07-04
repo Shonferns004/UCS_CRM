@@ -49,8 +49,8 @@ export const removeSource = async (req, res) => {
 
 export const listEntries = async (req, res) => {
   try {
-    const { date_from, date_to, source_id } = req.query;
-    const entries = await BankAudit.getEntries({ date_from, date_to, source_id });
+    const { date_from, date_to, source_id, status } = req.query;
+    const entries = await BankAudit.getEntries({ date_from, date_to, source_id, status });
     return res.json(entries);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -108,9 +108,30 @@ export const removeEntry = async (req, res) => {
 
 export const getSummary = async (req, res) => {
   try {
-    const { date_from, date_to } = req.query;
-    const summary = await BankAudit.getSourceSummary({ date_from, date_to });
+    const { date_from, date_to, status } = req.query;
+    const summary = await BankAudit.getSourceSummary({ date_from, date_to, status });
     return res.json(summary);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const suggestEntries = async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json([]);
+    const entries = await BankAudit.suggestEntries(q);
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const markEntryVerified = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const entry = await BankAudit.verifyEntry(id);
+    return res.json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
