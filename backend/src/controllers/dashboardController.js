@@ -312,6 +312,58 @@ export const getSuperAdminDashboard = async (req, res) => {
   }
 };
 
+export const getFroLiveStatus = async (req, res) => {
+  try {
+    const allWorkers = await getAllWorkers();
+    const froWorkers = allWorkers.filter(w => (w.department || '').toLowerCase().trim() === 'fro');
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const { data: todayAttendance } = await supabase
+      .from('attendance')
+      .select('worker_id, status')
+      .eq('date', todayStr)
+      .in('worker_id', froWorkers.map(w => w.id));
+
+    const punchedIn = new Set();
+    (todayAttendance || []).forEach(a => {
+      if (a.status === 'present' || a.status === 'late') punchedIn.add(a.worker_id);
+    });
+
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999));
+
+    const result = await Promise.all(froWorkers.map(async (w) => {
+      const [stats, todayCollection] = await Promise.all([
+        getDashboardStats(w.id),
+        getTotalCollectedByWorker(w.id, todayStart.toISOString(), todayEnd.toISOString()),
+      ]);
+
+      const dataUsed = (stats.contacted || 0) + (stats.donation_collected || 0) + (stats.follow_up || 0);
+      const dataUnused = (stats.total || 0) - dataUsed;
+
+      return {
+        id: w.id,
+        name: w.name,
+        login_id: w.login_id,
+        is_active: w.is_active !== false,
+        is_punched_in: punchedIn.has(w.id),
+        total_data: stats.total || 0,
+        data_used: dataUsed,
+        data_unused: dataUnused,
+        today_collection: todayCollection,
+      };
+    }));
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getHrDashboard = async (req, res) => {
   try {
     const workers = await getAllWorkers();

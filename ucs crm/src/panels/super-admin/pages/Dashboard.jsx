@@ -2,9 +2,9 @@
 
 
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard } from '../api/endpoints'
+import { getDashboard, getFroLiveStatus } from '../api/endpoints'
 
 const MINT = '#3EB489'
 const CORAL = '#FF7F50'
@@ -129,6 +129,75 @@ function DonutChart({ segments, size, centerValue, centerLabel, animated, onSegm
   )
 }
 
+/* ================= FRO LIVE MODAL ================= */
+function FroLiveModal({ froLive, loadingFro, onClose, onRefresh }) {
+  return (
+    <div className="nd-modal-overlay" onClick={onClose}>
+      <div className="nd-modal fro-modal" onClick={e => e.stopPropagation()}>
+        <div className="nd-modal-head" style={{ borderColor: '#8b5cf630' }}>
+          <span className="material-symbols-outlined" style={{ color: '#8b5cf6', fontSize: 22 }}>groups</span>
+          <h3 className="nd-modal-title">FRO Live Status</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 4 }}>
+            {loadingFro && <span className="material-symbols-outlined fro-spin" style={{ fontSize: 18, color: '#94a3b8' }}>refresh</span>}
+            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+              {froLive.filter(f => f.is_punched_in).length}/{froLive.length} active
+            </span>
+            <button className="fro-refresh-btn" onClick={onRefresh} title="Refresh">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
+            </button>
+          </div>
+          <button className="nd-modal-close" onClick={onClose}>
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div className="nd-modal-body" style={{ padding: 0 }}>
+          <div className="fro-live-table-wrap">
+            {froLive.length === 0 && !loadingFro ? (
+              <p className="nd-muted" style={{ padding: 24, textAlign: 'center' }}>No FRO workers found.</p>
+            ) : (
+              <table className="fro-live-table">
+                <thead>
+                  <tr>
+                    <th>FRO Name</th>
+                    <th>Status</th>
+                    <th>Punch In</th>
+                    <th>Total Data</th>
+                    <th>Used</th>
+                    <th>Unused</th>
+                    <th>Today Collection</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {froLive.map(f => (
+                    <tr key={f.id}>
+                      <td>
+                        <span className="fro-name">{f.name || f.login_id || 'Unknown'}</span>
+                        {f.login_id && <span className="fro-login-id">{f.login_id}</span>}
+                      </td>
+                      <td>
+                        <span className={`fro-status-dot ${f.is_active ? 'active' : 'inactive'}`} />
+                        {f.is_active ? 'Active' : 'Inactive'}
+                      </td>
+                      <td>{f.is_punched_in ? <span className="fro-badge fro-badge-green">Punched</span> : <span className="fro-badge fro-badge-red">Not yet</span>}</td>
+                      <td className="fro-num">{f.total_data}</td>
+                      <td className="fro-num">{f.data_used}</td>
+                      <td className="fro-num">{f.data_unused}</td>
+                      <td className="fro-num fro-amt">₹{(f.today_collection || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="fro-live-footer" style={{ padding: '10px 16px' }}>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>Auto-refreshes every 30s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ================= NAME LIST MODAL ================= */
 function NameListModal({ title, color, names, onClose }) {
   return (
@@ -178,6 +247,10 @@ export default function Dashboard() {
   const [err, setErr] = useState('')
   const [animated, setAnimated] = useState(false)
   const [modal, setModal] = useState(null) // { title, color, names }
+  const [froLive, setFroLive] = useState([])
+  const [loadingFro, setLoadingFro] = useState(false)
+  const [showFroModal, setShowFroModal] = useState(false)
+  const froTimer = useRef(null)
   const navigate = useNavigate()
 
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
@@ -190,6 +263,24 @@ export default function Dashboard() {
       .finally(() => setLoading(false))
   }, [period])
 
+  function fetchFroLive() {
+    setLoadingFro(true)
+    getFroLiveStatus()
+      .then(setFroLive)
+      .catch(() => {})
+      .finally(() => setLoadingFro(false))
+  }
+
+  useEffect(() => {
+    if (!showFroModal) {
+      clearInterval(froTimer.current)
+      return
+    }
+    fetchFroLive()
+    froTimer.current = setInterval(fetchFroLive, 30000)
+    return () => clearInterval(froTimer.current)
+  }, [showFroModal])
+
   if (err) return <div className="sa-err-card">Error: {err}</div>
   if (!data) return (
     <div className="dash-page">
@@ -201,7 +292,7 @@ export default function Dashboard() {
         <div className="sk" style={{ width: 140, height: 32, borderRadius: 6 }} />
       </div>
       <div className="metrics-grid">
-        {[1, 2, 3, 4].map(i => <div key={i} className="clay-card"><div className="sk" style={{ height: 80 }} /></div>)}
+        {[1, 2, 3, 4, 5].map(i => <div key={i} className="clay-card"><div className="sk" style={{ height: 80 }} /></div>)}
       </div>
     </div>
   )
@@ -227,6 +318,7 @@ export default function Dashboard() {
     { label: 'Total Workers', value: stats.totalWorkers || 0, icon: 'badge', changeKey: 'totalWorkers' },
     { label: 'Active Workers', value: stats.activeWorkers || 0, icon: 'bolt', changeKey: 'reach' },
     { label: 'Attendance %', value: attendancePercent, suffix: '%', icon: 'event_available', changeKey: 'attendancePercent' },
+    { label: 'ALL FRO', value: froLive.length || '\u2014', icon: 'groups', isFroCard: true, onClick: () => setShowFroModal(true) },
   ]
 
   function getTrend(changeKey) {
@@ -441,6 +533,61 @@ export default function Dashboard() {
         .nd-modal-name { display: block; font-size: 13.5px; font-weight: 600; color: ${PRIMARY}; }
         .nd-modal-dept { display: block; font-size: 11px; color: #94a3b8; }
         .nd-modal-time { margin-left: auto; font-size: 11.5px; color: #64748b; font-weight: 600; }
+
+        /* ALL FRO card */
+        .nd-fro-card { border: 1px solid rgba(139,92,246,0.15); transition: border-color 0.2s, box-shadow 0.2s; cursor: pointer; }
+        .nd-fro-card:hover { border-color: rgba(139,92,246,0.4); box-shadow: 0 2px 4px rgba(139,92,246,0.08), 0 8px 24px -12px rgba(139,92,246,0.15); }
+
+        /* FRO Live Modal - wider */
+        .fro-modal { max-width: 800px !important; }
+
+        /* FRO Live Panel */
+        .fro-live-panel { animation: ndUp 0.4s cubic-bezier(0.22,1,0.36,1) forwards; }
+        .fro-live-header {
+          display: flex; justify-content: space-between; align-items: center;
+          padding-bottom: 14px; border-bottom: 1px solid #f1f4f8; margin-bottom: 4px;
+        }
+        .fro-live-table-wrap { overflow-x: auto; }
+        .fro-live-table {
+          width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .fro-live-table th {
+          text-align: left; padding: 12px 10px 8px; font-size: 11px; font-weight: 700;
+          color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px;
+          border-bottom: 1px solid #f1f4f8; white-space: nowrap;
+        }
+        .fro-live-table td {
+          padding: 10px; border-bottom: 1px solid #f8f9fc; vertical-align: middle;
+        }
+        .fro-live-table tbody tr:hover { background: #fafbfd; }
+        .fro-name { display: block; font-weight: 700; color: ${PRIMARY}; }
+        .fro-login-id { display: block; font-size: 11px; color: #94a3b8; margin-top: 1px; }
+        .fro-status-dot {
+          display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+          margin-right: 6px; vertical-align: middle;
+        }
+        .fro-status-dot.active { background: ${MINT}; box-shadow: 0 0 0 2px rgba(62,180,137,0.2); }
+        .fro-status-dot.inactive { background: #e2e8f0; }
+        .fro-badge {
+          display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px;
+          border-radius: 99px;
+        }
+        .fro-badge-green { background: rgba(62,180,137,0.12); color: ${MINT}; }
+        .fro-badge-red { background: rgba(244,63,94,0.1); color: #f43f5e; }
+        .fro-num { font-size: 14px; font-weight: 700; color: ${PRIMARY}; }
+        .fro-amt { color: ${MINT}; }
+        .fro-live-footer {
+          border-top: 1px solid #f1f4f8; padding-top: 12px; margin-top: 4px;
+          display: flex; justify-content: flex-end;
+        }
+        .fro-refresh-btn {
+          border: none; background: #f4f6f9; border-radius: 8px; width: 30px; height: 30px;
+          display: flex; align-items: center; justify-content: center; cursor: pointer;
+          color: #64748b; font-size: 13px; font-family: inherit;
+        }
+        .fro-refresh-btn:hover { background: #e9edf2; }
+        .fro-spin { animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
 
       {/* ============ HEADER ============ */}
@@ -516,25 +663,37 @@ export default function Dashboard() {
       <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         {metricCards.map((card, i) => {
           const trend = getTrend(card.changeKey)
+          const isFro = card.isFroCard
           return (
-            <div key={card.label} className="nd-card nd-metric nd-appear" style={{ animationDelay: `${0.08 * (i + 1)}s` }}>
+            <div
+              key={card.label}
+              className={`nd-card nd-metric nd-appear${isFro ? ' nd-fro-card' : ''}`}
+              style={{ animationDelay: `${0.08 * (i + 1)}s`, cursor: isFro ? 'pointer' : 'default' }}
+              onClick={card.onClick}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>
                   {card.label}
                 </span>
                 <div style={{
                   width: 38, height: 38, borderRadius: 12,
-                  background: 'rgba(62,180,137,0.1)',
+                  background: isFro ? 'rgba(139,92,246,0.12)' : 'rgba(62,180,137,0.1)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <span className="material-symbols-outlined" style={{ color: MINT, fontSize: 20 }}>{card.icon}</span>
+                  <span className="material-symbols-outlined" style={{ color: isFro ? '#8b5cf6' : MINT, fontSize: 20 }}>{card.icon}</span>
                 </div>
               </div>
               <div style={{ marginTop: 10 }}>
                 <span style={{ fontSize: 34, fontWeight: 800, color: PRIMARY, lineHeight: 1 }}>
                   {typeof card.value === 'number' ? card.value.toLocaleString() : card.value}{card.suffix || ''}
                 </span>
-                {trend && (
+                {isFro && (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#8b5cf6' }}>visibility</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#8b5cf6' }}>Live Status</span>
+                  </div>
+                )}
+                {trend && !isFro && (
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span
                       className="material-symbols-outlined"
@@ -782,7 +941,17 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ============ MODAL ============ */}
+      {/* ============ FRO LIVE MODAL ============ */}
+      {showFroModal && (
+        <FroLiveModal
+          froLive={froLive}
+          loadingFro={loadingFro}
+          onClose={() => setShowFroModal(false)}
+          onRefresh={fetchFroLive}
+        />
+      )}
+
+      {/* ============ NAME LIST MODAL ============ */}
       {modal && (
         <NameListModal
           title={modal.title}
