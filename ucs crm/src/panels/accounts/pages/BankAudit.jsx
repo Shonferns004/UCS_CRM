@@ -287,45 +287,49 @@ export default function BankAudit() {
 
       {showAddEntry && (
         <div className="modal-overlay" onClick={() => setShowAddEntry(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
             <div className="modal-head">
-              <h3>Add Bank Entry</h3>
-              <button className="btn btn-sm" onClick={() => setShowAddEntry(false)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
+              <h3 style={{ fontSize: 16, fontWeight: 700 }}>Add Bank Entry</h3>
+              <button className="btn btn-sm btn-icon" onClick={() => setShowAddEntry(false)} style={{ padding: 4 }}><SvgX /></button>
             </div>
-            <div className="modal-body">
-              <label className="field" style={{ marginBottom: 10 }}>
-                Source *
-                <select value={entryForm.source_id} onChange={e => setEntryForm(p => ({ ...p, source_id: e.target.value }))}>
+            <div className="modal-body" style={{ padding: '18px 22px' }}>
+              <label className="field" style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Source *</span>
+                <select value={entryForm.source_id} onChange={e => setEntryForm(p => ({ ...p, source_id: e.target.value }))} style={{ marginTop: 4 }}>
                   <option value="">Select source...</option>
                   {sources.filter(s => s.is_active !== false).map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
               </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Amount *
-                <input type="number" step="0.01" value={entryForm.amount} onChange={e => setEntryForm(p => ({ ...p, amount: e.target.value }))} placeholder="e.g. 5000" />
+              <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Amount *</span>
+                  <input type="number" step="0.01" value={entryForm.amount} onChange={e => setEntryForm(p => ({ ...p, amount: e.target.value }))} placeholder="e.g. 5000" style={{ marginTop: 4 }} />
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Date *</span>
+                  <input type="date" value={entryForm.transaction_date} onChange={e => setEntryForm(p => ({ ...p, transaction_date: e.target.value }))} style={{ marginTop: 4 }} />
+                </label>
+              </div>
+              <label className="field" style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Payment ID</span>
+                <input value={entryForm.payment_id} onChange={e => setEntryForm(p => ({ ...p, payment_id: e.target.value }))} placeholder="UPI ref / transaction ID" style={{ marginTop: 4 }} />
               </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Transaction Date *
-                <input type="date" value={entryForm.transaction_date} onChange={e => setEntryForm(p => ({ ...p, transaction_date: e.target.value }))} />
-              </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Payment ID
-                <input value={entryForm.payment_id} onChange={e => setEntryForm(p => ({ ...p, payment_id: e.target.value }))} placeholder="UPI ref / transaction ID" />
-              </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Check ID
-                <input value={entryForm.check_id} onChange={e => setEntryForm(p => ({ ...p, check_id: e.target.value }))} placeholder="Check number" />
-              </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Remarks
-                <textarea value={entryForm.remarks} onChange={e => setEntryForm(p => ({ ...p, remarks: e.target.value }))} placeholder="Any notes..." rows={2} style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
-              </label>
+              <div style={{ display: 'flex', gap: 14 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Check ID</span>
+                  <input value={entryForm.check_id} onChange={e => setEntryForm(p => ({ ...p, check_id: e.target.value }))} placeholder="Check number" style={{ marginTop: 4 }} />
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Remarks</span>
+                  <input value={entryForm.remarks} onChange={e => setEntryForm(p => ({ ...p, remarks: e.target.value }))} placeholder="Any notes..." style={{ marginTop: 4 }} />
+                </label>
+              </div>
             </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setShowAddEntry(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleAddEntry} disabled={saving}>
+            <div className="modal-foot" style={{ padding: '12px 22px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={() => setShowAddEntry(false)} style={{ minWidth: 80 }}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddEntry} disabled={saving} style={{ minWidth: 80 }}>
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
@@ -335,45 +339,49 @@ export default function BankAudit() {
 
       {showEditEntry && (
         <div className="modal-overlay" onClick={() => setShowEditEntry(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540 }}>
             <div className="modal-head">
-              <h3>Edit Entry</h3>
-              <button className="btn btn-sm" onClick={() => setShowEditEntry(null)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
+              <h3 style={{ fontSize: 16, fontWeight: 700 }}>Edit Entry</h3>
+              <button className="btn btn-sm btn-icon" onClick={() => setShowEditEntry(null)} style={{ padding: 4 }}><SvgX /></button>
             </div>
-            <div className="modal-body">
-              <label className="field" style={{ marginBottom: 10 }}>
-                Source *
-                <select value={entryForm.source_id} onChange={e => setEntryForm(p => ({ ...p, source_id: e.target.value }))}>
+            <div className="modal-body" style={{ padding: '18px 22px' }}>
+              <label className="field" style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Source *</span>
+                <select value={entryForm.source_id} onChange={e => setEntryForm(p => ({ ...p, source_id: e.target.value }))} style={{ marginTop: 4 }}>
                   <option value="">Select source...</option>
                   {sources.filter(s => s.is_active !== false).map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
               </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Amount *
-                <input type="number" step="0.01" value={entryForm.amount} onChange={e => setEntryForm(p => ({ ...p, amount: e.target.value }))} />
+              <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Amount *</span>
+                  <input type="number" step="0.01" value={entryForm.amount} onChange={e => setEntryForm(p => ({ ...p, amount: e.target.value }))} style={{ marginTop: 4 }} />
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Date *</span>
+                  <input type="date" value={entryForm.transaction_date} onChange={e => setEntryForm(p => ({ ...p, transaction_date: e.target.value }))} style={{ marginTop: 4 }} />
+                </label>
+              </div>
+              <label className="field" style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Payment ID</span>
+                <input value={entryForm.payment_id} onChange={e => setEntryForm(p => ({ ...p, payment_id: e.target.value }))} style={{ marginTop: 4 }} />
               </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Transaction Date *
-                <input type="date" value={entryForm.transaction_date} onChange={e => setEntryForm(p => ({ ...p, transaction_date: e.target.value }))} />
-              </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Payment ID
-                <input value={entryForm.payment_id} onChange={e => setEntryForm(p => ({ ...p, payment_id: e.target.value }))} />
-              </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Check ID
-                <input value={entryForm.check_id} onChange={e => setEntryForm(p => ({ ...p, check_id: e.target.value }))} />
-              </label>
-              <label className="field" style={{ marginBottom: 10 }}>
-                Remarks
-                <textarea value={entryForm.remarks} onChange={e => setEntryForm(p => ({ ...p, remarks: e.target.value }))} rows={2} style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
-              </label>
+              <div style={{ display: 'flex', gap: 14 }}>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Check ID</span>
+                  <input value={entryForm.check_id} onChange={e => setEntryForm(p => ({ ...p, check_id: e.target.value }))} style={{ marginTop: 4 }} />
+                </label>
+                <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Remarks</span>
+                  <input value={entryForm.remarks} onChange={e => setEntryForm(p => ({ ...p, remarks: e.target.value }))} style={{ marginTop: 4 }} />
+                </label>
+              </div>
             </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setShowEditEntry(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleEditEntry} disabled={saving}>
+            <div className="modal-foot" style={{ padding: '12px 22px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={() => setShowEditEntry(null)} style={{ minWidth: 80 }}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditEntry} disabled={saving} style={{ minWidth: 80 }}>
                 {saving ? 'Saving...' : 'Update'}
               </button>
             </div>
