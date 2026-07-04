@@ -36,7 +36,7 @@ const TABS = [
 ];
 
 export default function Leads() {
-  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters } = useRec();
+  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters, jobs } = useRec();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
@@ -51,6 +51,7 @@ export default function Leads() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
+  const [selectedJobRole, setSelectedJobRole] = useState('');
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [searchInput, setSearchInput] = useState(leadFilters.search || '');
   const [tab, setTab] = useState('leads');
@@ -92,7 +93,7 @@ export default function Leads() {
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]);
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole('');
     } catch (err) { alert(err.message); }
   };
 
@@ -176,6 +177,10 @@ export default function Leads() {
                     <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
                   </div>
                 </div>
+                <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB ROLE</div>
+                  <Dropdown menuInset value={selectedJobRole} onChange={e=>setSelectedJobRole(e.target.value)} options={[{value:'',label:'Select a role'},...jobs.map(j => ({value:j.title,label:j.title}))]} style={{width:'100%'}} />
+                </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                   <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
                   <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
@@ -240,6 +245,10 @@ export default function Leads() {
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
                   <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
                 </div>
+              </div>
+              <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB ROLE</div>
+                <Dropdown menuInset value={selectedJobRole} onChange={e=>setSelectedJobRole(e.target.value)} options={[{value:'',label:'Select a role'},...jobs.map(j => ({value:j.title,label:j.title}))]} style={{width:'100%'}} />
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                 <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
