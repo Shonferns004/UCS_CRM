@@ -96,7 +96,7 @@ export default function Leads() {
     if (!name.trim() || !phone.trim()) return;
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
-      const finalStatus = connectedOption === 'follow_up' && followUpDateTime ? 'followed_up' : connectedOption === 'call_back' && callBackTime ? 'call_back' : connectedOption === 'schedule' && scheduledDate ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption || status;
+      const finalStatus = connectedOption === 'follow_up' ? 'followed_up' : connectedOption === 'call_back' ? 'call_back' : connectedOption === 'schedule' ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption || status;
       const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
       const notesArr = [...formNotes];
       if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
