@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
+import { useRealtime } from '../../../hooks/useRealtime';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -19,6 +20,9 @@ export default function BankAudit() {
   const [entryForm, setEntryForm] = useState({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
   const [saving, setSaving] = useState(false);
   const [sourceName, setSourceName] = useState('');
+
+  const mountedRef = useRef(true);
+  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
   useEffect(() => {
     const d = new Date();
@@ -40,14 +44,23 @@ export default function BankAudit() {
         apiGet(path + '/sources').catch(() => []),
         apiGet(path + '/summary' + (q ? '?' + q : '')).catch(() => ({})),
       ]);
-      setEntries(entriesData);
-      setSources(sourcesData);
-      setSummary(summaryData);
+      if (mountedRef.current) {
+        setEntries(entriesData);
+        setSources(sourcesData);
+        setSummary(summaryData);
+      }
     } catch (err) { alert(err.message); }
-    finally { setLoading(false); }
+    finally { if (mountedRef.current) setLoading(false); }
   }, [dateFrom, dateTo]);
 
   useEffect(() => { load(); }, [load]);
+
+  useRealtime('bank_audit_entries', {
+    event: '*',
+    onInsert: () => load(),
+    onUpdate: () => load(),
+    onDelete: () => load(),
+  });
 
   const handleAddEntry = async () => {
     if (!entryForm.source_id || !entryForm.amount || !entryForm.transaction_date) {
