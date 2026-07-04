@@ -23,11 +23,16 @@ import {
   getDonorHistory,
   getFullDonorHistory,
   getRejectedLeads,
+  updateLiveStatus,
+  getLiveStatuses,
 } from '../controllers/froController.js';
+import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
 router.use(authenticate);
+
+router.get('/status', authenticateRole('super_admin', 'hoadmin'), getLiveStatuses);
 
 const requireFro = (req, res, next) => {
   if (!req.user.department || req.user.department.toLowerCase().trim() !== 'fro') {
@@ -67,6 +72,7 @@ router.post('/donors/:id/schedule', scheduleContact);
 router.post('/upload-payment-screenshot', uploadPaymentScreenshot);
 router.get('/scheduled', getFroScheduled);
 router.get('/callbacks', getFroCallbacks);
+router.put('/status', updateLiveStatus);
 router.get('/history', getMyHistory);
 router.get('/target', getMyTarget);
 router.get('/debug/my-stations', debugMyStations);
