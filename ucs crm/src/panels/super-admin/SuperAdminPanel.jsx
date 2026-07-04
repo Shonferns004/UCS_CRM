@@ -150,22 +150,18 @@ function PageShell({ children }) {
 
   return (
     <div className="app">
-      <div className="sa-mobile-top">
-        <button className="sa-hamburger" onClick={() => setMobileSidebar(true)} aria-label="Open menu">
-          <span /><span /><span />
-        </button>
-        <div className="sa-mtop-brand">
-          <div className="sa-logo" style={{width:28,height:28,fontSize:12}}>SA</div>
-          <span>UFS</span>
-        </div>
-      </div>
       <div className={`sa-sidebar-overlay${mobileSidebar ? ' open' : ''}`} onClick={() => setMobileSidebar(false)} />
       <Sidebar mobileOpen={mobileSidebar} />
       <div className="main">
         <header className="topbar">
-          <div>
-            <div className="eyebrow">{meta?.label || 'Dashboard'}</div>
-            <h2>{meta?.label || 'Dashboard'}</h2>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <button className="sa-hamburger sa-top-hamburger" onClick={() => setMobileSidebar(o => !o)} aria-label="Toggle menu">
+              <span /><span /><span />
+            </button>
+            <div>
+              <div className="eyebrow">{meta?.label || 'Dashboard'}</div>
+              <h2>{meta?.label || 'Dashboard'}</h2>
+            </div>
           </div>
           <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
             <div className="topbar-user-text">
