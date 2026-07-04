@@ -295,7 +295,7 @@ export default function Leads() {
             </div>
           </div>
           {leadsLoading ? (
-            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={7}/>)}</tbody></table></div>
+            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={5}/>)}</tbody></table></div>
           ) : filteredLeads.length === 0 ? (
             <div className="empty">No leads found.</div>
           ) : (
@@ -303,7 +303,7 @@ export default function Leads() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Notes</th><th>Action</th>
+                  <th>Name</th><th>Phone</th><th>Source</th><th>Status</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -316,12 +316,10 @@ export default function Leads() {
                     <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>
                       <td style={{fontWeight:500}}>{l.name}</td>
                       <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
-                      <td>{displayAge || '—'}</td>
                       <td>{l.source}</td>
                       <td>{isOwner ? (
                         <Dropdown className="inline-select" value={l.status} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
                       ) : statusPill(l.status)}</td>
-                      <td><span className="sub">{parsed.length > 0 ? parsed.length + ' note' + (parsed.length!==1?'s':'') : '—'}</span></td>
                       <td onClick={e => e.stopPropagation()}>
                         <span onClick={() => setDeleteConfirm(l)} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,display:'inline-flex',alignItems:'center'}}><Trash width={16}/></span>
                       </td>
