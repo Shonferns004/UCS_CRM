@@ -669,8 +669,18 @@ export const getDonorHistory = async (req, res) => {
 
 export const getDayEndReport = async (req, res) => {
   try {
-    const { date } = req.query;
-    const reportDate = date || new Date().toISOString().split('T')[0];
+    const { date, month } = req.query;
+    let dateFrom, dateTo;
+    if (month) {
+      const [y, m] = month.split('-');
+      dateFrom = `${y}-${m}-01`;
+      const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+      dateTo = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+    } else {
+      const reportDate = date || new Date().toISOString().split('T')[0];
+      dateFrom = reportDate + 'T00:00:00Z';
+      dateTo = reportDate + 'T23:59:59Z';
+    }
 
     const { data: froLogs, error: fErr } = await supabase
       .from('fro_donor_logs')
@@ -678,8 +688,8 @@ export const getDayEndReport = async (req, res) => {
         amount_collected, accounts_status, verified_at, created_at,
         fro_assignments!inner(fro_worker_id, workers!inner(id, name, login_id))
       `)
-      .gte('created_at', reportDate + 'T00:00:00Z')
-      .lte('created_at', reportDate + 'T23:59:59Z');
+      .gte('created_at', dateFrom)
+      .lte('created_at', dateTo);
     if (fErr) throw fErr;
 
     const froMap = {};
@@ -706,7 +716,8 @@ export const getDayEndReport = async (req, res) => {
     const suspenseAmount = (suspenseEntries || []).reduce((s, e) => s + Number(e.amount || 0), 0);
 
     return res.json({
-      date: reportDate,
+      date: month || (date || new Date().toISOString().split('T')[0]),
+      isMonth: !!month,
       froWorkers: Object.values(froMap),
       totalSubmitted,
       totalCollected,
