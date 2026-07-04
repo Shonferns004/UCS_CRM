@@ -715,6 +715,19 @@ export const getDayEndReport = async (req, res) => {
 
     const suspenseAmount = (suspenseEntries || []).reduce((s, e) => s + Number(e.amount || 0), 0);
 
+    // Source-wise breakdown from bank audit entries
+    const { data: allBankEntries, error: bErr } = await supabase
+      .from('bank_audit_entries')
+      .select('amount, bank_audit_sources(name)');
+    if (bErr) throw bErr;
+
+    const sourceMap = {};
+    for (const e of allBankEntries || []) {
+      const name = e.bank_audit_sources?.name || 'Unknown';
+      sourceMap[name] = (sourceMap[name] || 0) + Number(e.amount || 0);
+    }
+    const sourceBreakdown = Object.entries(sourceMap).map(([name, amount]) => ({ name, amount }));
+
     return res.json({
       date: month || (date || new Date().toISOString().split('T')[0]),
       isMonth: !!month,
@@ -724,6 +737,7 @@ export const getDayEndReport = async (req, res) => {
       suspenseCount: (suspenseEntries || []).length,
       suspenseAmount,
       suspenseEntries: suspenseEntries || [],
+      sourceBreakdown,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

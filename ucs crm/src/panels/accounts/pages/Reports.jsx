@@ -15,13 +15,13 @@ const printStyle = `
     .report-header { text-align: center; margin-bottom: 20px; }
     .report-header h1 { font-size: 20px; margin: 0 0 4px; }
     .report-header .sub { font-size: 12px; color: #666; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 16px; }
+    .card { border: 1px solid #ccc; border-radius: 6px; margin-bottom: 16px; }
+    .card-head { padding: 10px 14px; border-bottom: 1px solid #ddd; font-size: 14px; font-weight: 600; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
     th, td { padding: 6px 10px; border: 1px solid #999; text-align: left; }
     th { background: #f0f0f0; font-weight: 600; }
-    .summary-row { display: flex; gap: 24; margin-bottom: 16px; }
-    .summary-item { border: 1px solid #ccc; padding: 8px 14px; border-radius: 4px; }
-    .summary-item .lbl { font-size: 10px; color: #666; }
-    .summary-item .val { font-size: 16px; font-weight: 700; }
+    .pill-gray { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; background: #eee; color: #666; }
   }
 `;
 
@@ -46,6 +46,16 @@ export default function Reports() {
         ? '?date=' + reportDate
         : '?month=' + reportMonth;
       const data = await apiGet('/accounts/day-end-report' + params);
+
+      // Compute source breakdown from bank audit entries (always works, no backend deploy needed)
+      const allEntries = await apiGet('/accounts/bank-audit/entries').catch(() => []);
+      const srcMap = {};
+      for (const e of allEntries) {
+        const name = e.bank_audit_sources?.name || 'Unknown';
+        srcMap[name] = (srcMap[name] || 0) + Number(e.amount || 0);
+      }
+      data.sourceBreakdown = Object.entries(srcMap).map(([name, amount]) => ({ name, amount }));
+
       setReport(data);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); }
@@ -60,13 +70,13 @@ export default function Reports() {
     try {
       const label = report.isMonth ? 'Month End Report' : 'Day End Report';
       const lines = [label + ' - ' + report.date, '',
-        'FRO-wise Breakdown:'];
-      report.froWorkers.forEach(w => {
-        lines.push('  ' + w.name + ' (' + w.login + '): Submitted ' + currency(w.submitted) + ' | Collected ' + currency(w.collected));
-      });
-      lines.push('', 'Total Submitted: ' + currency(report.totalSubmitted));
-      lines.push('Total Collected: ' + currency(report.totalCollected));
-      lines.push('', 'Suspense: ' + currency(report.suspenseAmount) + ' (' + report.suspenseCount + ' entries)');
+        'Total Submitted: ' + currency(report.totalSubmitted),
+        'Total Collected: ' + currency(report.totalCollected),
+        'Suspense: ' + currency(report.suspenseAmount) + ' (' + report.suspenseCount + ' entries)'];
+      if ((report.sourceBreakdown || []).length > 0) {
+        lines.push('', 'Source-wise Collection:');
+        report.sourceBreakdown.forEach(s => lines.push('  ' + s.name + ': ' + currency(s.amount)));
+      }
       if (report.suspenseEntries.length > 0) {
         lines.push('', 'Suspense Details:');
         report.suspenseEntries.forEach(e => {
@@ -85,14 +95,16 @@ export default function Reports() {
 
   const exportExcel = () => {
     if (!report) return;
-    const rows = [['FRO Name', 'Login ID', 'Submitted', 'Collected', 'Pending']];
-    report.froWorkers.forEach(w => {
-      rows.push([w.name, w.login, w.submitted, w.collected, Math.max(0, w.submitted - w.collected)]);
-    });
+    const srcBreakdown = report.sourceBreakdown || [];
+    const rows = [];
+    if (srcBreakdown.length) {
+      rows.push(srcBreakdown.map(s => s.name).concat('Total'));
+      rows.push(srcBreakdown.map(s => s.amount).concat(srcBreakdown.reduce((t, s) => t + s.amount, 0)));
+      rows.push([]);
+    }
+    rows.push(['Total Submitted', 'Total Collected', 'Suspense']);
+    rows.push([report.totalSubmitted, report.totalCollected, report.suspenseAmount]);
     rows.push([]);
-    rows.push(['Total Submitted', '', report.totalSubmitted, '', '']);
-    rows.push(['Total Collected', '', report.totalCollected, '', '']);
-    rows.push(['Suspense Amount', '', report.suspenseAmount, '', '']);
     if (report.suspenseEntries.length > 0) {
       rows.push([]);
       rows.push(['Suspense Details', '', '', '', '']);
@@ -162,53 +174,52 @@ export default function Reports() {
             <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{report.date}</div>
           </div>
 
-          <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
-            {[
-              { label: 'Total Submitted', value: currency(report.totalSubmitted), color: '#B5603A' },
-              { label: 'Total Collected', value: currency(report.totalCollected), color: '#5B6B4E' },
-              { label: 'Suspense', value: currency(report.suspenseAmount), color: '#dc2626', sub: report.suspenseCount + ' unverified' },
-            ].map(s => (
-              <div key={s.label} style={{ border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', minWidth: 140 }}>
-                <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>{s.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
-                {s.sub && <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{s.sub}</div>}
-              </div>
-            ))}
-          </div>
-
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-head"><h3>FRO-wise Breakdown</h3></div>
-            <div className="table-wrap">
-              <table>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr>
-                    <th>FRO Name</th>
-                    <th>Login ID</th>
-                    <th>Submitted</th>
-                    <th>Collected</th>
-                    <th>Pending</th>
+                  <tr style={{ background: '#5B6B4E08' }}>
+                    <th style={{ padding: '10px 14px', borderBottom: '2px solid var(--line)', textAlign: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>Total Submitted</th>
+                    <th style={{ padding: '10px 14px', borderBottom: '2px solid var(--line)', textAlign: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>Total Collected</th>
+                    <th style={{ padding: '10px 14px', borderBottom: '2px solid var(--line)', textAlign: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--ink-soft)' }}>Suspense</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {report.froWorkers.length === 0 ? (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No activity</td></tr>
-                  ) : (
-                    report.froWorkers.map(w => (
-                      <tr key={w.id}>
-                        <td><strong>{w.name}</strong></td>
-                        <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{w.login}</td>
-                        <td style={{ color: '#B5603A', fontWeight: 600 }}>{currency(w.submitted)}</td>
-                        <td style={{ color: 'var(--sage)', fontWeight: 600 }}>{currency(w.collected)}</td>
-                        <td style={{ color: '#dc2626', fontWeight: 600 }}>{currency(Math.max(0, w.submitted - w.collected))}</td>
-                      </tr>
-                    ))
-                  )}
+                  <tr>
+                    <td style={{ padding: '12px 14px', textAlign: 'center', color: '#B5603A', fontSize: 24, fontWeight: 700 }}>{currency(report.totalSubmitted)}</td>
+                    <td style={{ padding: '12px 14px', textAlign: 'center', color: '#5B6B4E', fontSize: 24, fontWeight: 700 }}>{currency(report.totalCollected)}</td>
+                    <td style={{ padding: '12px 14px', textAlign: 'center', color: '#dc2626', fontSize: 24, fontWeight: 700 }}>{currency(report.suspenseAmount)}<br /><span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}>{report.suspenseCount} unverified entries</span></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          {report.suspenseEntries.length > 0 && (
+          {(report.sourceBreakdown || []).length > 0 ? (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head"><h3>Source-wise Collection</h3></div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {report.sourceBreakdown.map(s => <th key={s.name} style={{ textAlign: 'center' }}>{s.name}</th>)}
+                      <th style={{ textAlign: 'center', color: 'var(--sage)' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {report.sourceBreakdown.map(s => <td key={s.name} style={{ textAlign: 'center', color: 'var(--sage)', fontWeight: 600, fontSize: 16 }}>{currency(s.amount)}</td>)}
+                      <td style={{ textAlign: 'center', color: '#5B6B4E', fontWeight: 700, fontSize: 18 }}>{currency(report.sourceBreakdown.reduce((t, s) => t + s.amount, 0))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No bank audit entries found</div>
+          )}
+
+          {report.suspenseEntries.length > 0 ? (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Suspense Details</h3></div>
               <div className="table-wrap">
@@ -232,6 +243,8 @@ export default function Reports() {
                 </table>
               </div>
             </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No suspense entries</div>
           )}
         </div>
       ) : (
