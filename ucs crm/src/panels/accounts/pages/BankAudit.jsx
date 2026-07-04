@@ -20,27 +20,33 @@ export default function BankAudit() {
   const [entryForm, setEntryForm] = useState({ source_id: '', amount: '', payment_id: '', check_id: '', transaction_date: '', remarks: '' });
   const [saving, setSaving] = useState(false);
   const [sourceName, setSourceName] = useState('');
+  const [error, setError] = useState('');
 
   const dateFromRef = useRef(dateFrom);
   const dateToRef = useRef(dateTo);
 
   async function doLoad(df, dt) {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams();
       if (df) params.set('date_from', df);
       if (dt) params.set('date_to', dt);
       const q = params.toString();
       const path = '/accounts/bank-audit';
-      const [entriesData, sourcesData, summaryData] = await Promise.all([
-        apiGet(path + '/entries' + (q ? '?' + q : '')).catch(() => []),
-        apiGet(path + '/sources').catch(() => []),
-        apiGet(path + '/summary' + (q ? '?' + q : '')).catch(() => ({})),
+      const results = await Promise.allSettled([
+        apiGet(path + '/entries' + (q ? '?' + q : '')),
+        apiGet(path + '/sources'),
+        apiGet(path + '/summary' + (q ? '?' + q : '')),
       ]);
-      setEntries(entriesData);
-      setSources(sourcesData);
-      setSummary(summaryData);
-    } catch (err) { console.error(err); }
+      const [entriesRes, sourcesRes, summaryRes] = results;
+      if (entriesRes.status === 'fulfilled') setEntries(entriesRes.value);
+      else { console.error('entries failed:', entriesRes.reason); setError('Failed to load entries: ' + entriesRes.reason.message); }
+      if (sourcesRes.status === 'fulfilled') setSources(sourcesRes.value);
+      else console.error('sources failed:', sourcesRes.reason);
+      if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value);
+      else console.error('summary failed:', summaryRes.reason);
+    } catch (err) { console.error(err); setError(err.message); }
     finally { setLoading(false); }
   }
 
@@ -160,6 +166,8 @@ export default function BankAudit() {
           </div>
         </div>
       </div>
+
+      {error && <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'8px 12px', marginBottom:12, fontSize:13, color:'#991b1b' }}>{error}</div>}
 
       <div className="card">
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
