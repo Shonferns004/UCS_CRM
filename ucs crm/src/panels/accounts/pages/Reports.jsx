@@ -85,7 +85,13 @@ export default function Reports() {
 
   const exportExcel = () => {
     if (!report) return;
-    const rows = [['FRO Name', 'Login ID', 'Submitted', 'Collected', 'Pending']];
+    const rows = [];
+    if (report.sourceBreakdown?.length) {
+      rows.push(report.sourceBreakdown.map(s => s.name).concat('Total'));
+      rows.push(report.sourceBreakdown.map(s => s.amount).concat(report.sourceBreakdown.reduce((t, s) => t + s.amount, 0)));
+      rows.push([]);
+    }
+    rows.push(['FRO Name', 'Login ID', 'Submitted', 'Collected', 'Pending']);
     report.froWorkers.forEach(w => {
       rows.push([w.name, w.login, w.submitted, w.collected, Math.max(0, w.submitted - w.collected)]);
     });
@@ -190,17 +196,15 @@ export default function Reports() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Source</th>
-                      <th>Amount</th>
+                      {report.sourceBreakdown.map(s => <th key={s.name} style={{ textAlign: 'center' }}>{s.name}</th>)}
+                      <th style={{ textAlign: 'center', color: 'var(--sage)' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.sourceBreakdown.map(s => (
-                      <tr key={s.name}>
-                        <td><span className="pill pill-gray">{s.name}</span></td>
-                        <td style={{ color: 'var(--sage)', fontWeight: 600 }}>{currency(s.amount)}</td>
-                      </tr>
-                    ))}
+                    <tr>
+                      {report.sourceBreakdown.map(s => <td key={s.name} style={{ textAlign: 'center', color: 'var(--sage)', fontWeight: 600, fontSize: 16 }}>{currency(s.amount)}</td>)}
+                      <td style={{ textAlign: 'center', color: '#5B6B4E', fontWeight: 700, fontSize: 18 }}>{currency(report.sourceBreakdown.reduce((t, s) => t + s.amount, 0))}</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
