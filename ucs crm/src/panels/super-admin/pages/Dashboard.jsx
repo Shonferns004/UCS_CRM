@@ -763,6 +763,30 @@ export default function Dashboard() {
         .lead-status-dot.contacted { background: #8b5cf6; }
         .lead-status-dot.follow_up { background: #f5b301; }
 
+        /* Panel link cards */
+        .panel-link-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 14px;
+          margin-top: 20px;
+        }
+        .panel-link-card {
+          border-radius: 16px; padding: 22px 18px; cursor: pointer;
+          display: flex; flex-direction: column; gap: 6px;
+          color: #fff; transition: transform 0.2s, box-shadow 0.2s;
+          animation: ndUp 0.5s cubic-bezier(0.22,1,0.36,1) forwards;
+          opacity: 0; box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        }
+        .panel-link-card:nth-child(1) { animation-delay: 0.1s; }
+        .panel-link-card:nth-child(2) { animation-delay: 0.15s; }
+        .panel-link-card:nth-child(3) { animation-delay: 0.2s; }
+        .panel-link-card:nth-child(4) { animation-delay: 0.25s; }
+        .panel-link-card:nth-child(5) { animation-delay: 0.3s; }
+        .panel-link-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+        .panel-link-card .material-symbols-outlined { font-size: 28px; }
+        .panel-link-label { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+        .panel-link-sub { font-size: 11px; opacity: 0.8; font-weight: 500; }
+
         /* ALL FRO card */
         .nd-fro-card { border: 1px solid rgba(139,92,246,0.15); transition: border-color 0.2s, box-shadow 0.2s; cursor: pointer; }
         .nd-fro-card:hover { border-color: rgba(139,92,246,0.4); box-shadow: 0 2px 4px rgba(139,92,246,0.08), 0 8px 24px -12px rgba(139,92,246,0.15); }
@@ -944,6 +968,35 @@ export default function Dashboard() {
             </div>
           )
         })}
+      </div>
+
+      {/* ============ PANEL LINKS ============ */}
+      <div className="panel-link-grid">
+        <div className="panel-link-card" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }} onClick={() => navigate('/accounts/leads')}>
+          <span className="material-symbols-outlined">receipt_long</span>
+          <span className="panel-link-label">Accounts</span>
+          <span className="panel-link-sub">Verify & manage leads</span>
+        </div>
+        <div className="panel-link-card" style={{ background: 'linear-gradient(135deg, #3EB489, #2d8f6e)' }} onClick={() => navigate('/fro/dashboard')}>
+          <span className="material-symbols-outlined">groups</span>
+          <span className="panel-link-label">FRO</span>
+          <span className="panel-link-sub">Field operations & donors</span>
+        </div>
+        <div className="panel-link-card" style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)' }} onClick={() => navigate('/hr/overview')}>
+          <span className="material-symbols-outlined">badge</span>
+          <span className="panel-link-label">HR</span>
+          <span className="panel-link-sub">Employees & attendance</span>
+        </div>
+        <div className="panel-link-card" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={() => navigate('/ngo-admin/dashboard')}>
+          <span className="material-symbols-outlined">corporate_fare</span>
+          <span className="panel-link-label">NGO Admin</span>
+          <span className="panel-link-sub">NGO management & donors</span>
+        </div>
+        <div className="panel-link-card" style={{ background: 'linear-gradient(135deg, #f5b301, #d49500)' }} onClick={() => navigate('/recruiter/dashboard')}>
+          <span className="material-symbols-outlined">person_search</span>
+          <span className="panel-link-label">Recruiter</span>
+          <span className="panel-link-sub">Lead pipeline & candidates</span>
+        </div>
       </div>
 
       {/* ============ ACCOUNTS SUMMARY ============ */}
