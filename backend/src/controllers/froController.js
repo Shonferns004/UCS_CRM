@@ -1529,7 +1529,7 @@ export const getDonorHistory = async (req, res) => {
 export const updateLiveStatus = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds } = req.body;
+    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type } = req.body;
 
     const payload = {
       status,
@@ -1541,12 +1541,23 @@ export const updateLiveStatus = async (req, res) => {
     if (today_talk_seconds !== undefined) payload.today_talk_seconds = today_talk_seconds;
     if (today_skipped !== undefined) payload.today_skipped = today_skipped;
     if (today_idle_seconds !== undefined) payload.today_idle_seconds = today_idle_seconds;
+    if (today_break_seconds !== undefined) payload.today_break_seconds = today_break_seconds;
+    if (on_break !== undefined) payload.on_break = on_break;
+    if (break_type !== undefined) payload.break_type = break_type;
 
     if (status === 'on_call' && current_donor_name) {
       payload.call_started_at = new Date().toISOString();
     }
     if (status === 'idle' || status === 'online') {
       payload.call_started_at = null;
+    }
+    if (status === 'break') {
+      payload.break_started_at = new Date().toISOString();
+      payload.on_break = true;
+    }
+    if (status !== 'break') {
+      payload.break_started_at = null;
+      payload.on_break = false;
     }
 
     const { data: existing } = await supabase

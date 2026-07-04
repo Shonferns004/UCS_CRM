@@ -305,8 +305,8 @@ export default function MyDonors() {
   };
 
   return (<>
-    {(todayStats.calls > 0 || todayStats.skippedDonors > 0) && (
-      <div style={{ marginBottom: 10, padding: '8px 14px', borderRadius: 8, background: todayStats.skippedDonors > 0 ? '#fefce8' : '#f0fdf4', border: `1px solid ${todayStats.skippedDonors > 0 ? '#fde68a' : '#bbf7d0'}`, display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: todayStats.skippedDonors > 0 ? '#92400e' : '#166534', flexWrap: 'wrap' }}>
+    {(todayStats.calls > 0 || todayStats.skippedDonors > 0 || todayStats.breakSeconds > 0) && (
+      <div style={{ marginBottom: 10, padding: '8px 14px', borderRadius: 8, background: todayStats.skippedDonors > 0 || todayStats.breakSeconds > 0 ? '#fefce8' : '#f0fdf4', border: `1px solid ${todayStats.skippedDonors > 0 || todayStats.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'}`, display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: todayStats.skippedDonors > 0 || todayStats.breakSeconds > 0 ? '#92400e' : '#166534', flexWrap: 'wrap' }}>
         {todayStats.calls > 0 && (
           <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_in_talk</span>
           <span><strong>{todayStats.calls}</strong> calls</span>
@@ -314,13 +314,16 @@ export default function MyDonors() {
           <span style={{ fontVariantNumeric: 'tabular-nums' }}>Avg: <strong>{todayStats.calls > 0 ? fmt(Math.round(todayStats.totalSeconds / todayStats.calls)) : '00:00'}</strong></span></>
         )}
         {todayStats.skippedDonors > 0 && (
-          <><span style={{ marginLeft: todayStats.calls > 0 ? 0 : 0 }}>·</span>
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>schedule</span>
+          <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>schedule</span>
           <span>Skipped: <strong>{todayStats.skippedDonors}</strong></span>
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>Idle: <strong>{fmt(todayStats.idleSeconds)}</strong></span>
-          {todayStats.totalSeconds + todayStats.idleSeconds > 0 && (
-            <span style={{ fontVariantNumeric: 'tabular-nums' }}>Prod: <strong>{Math.round((todayStats.totalSeconds / (todayStats.totalSeconds + todayStats.idleSeconds)) * 100)}%</strong></span>
-          )}</>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>Idle: <strong>{fmt(todayStats.idleSeconds)}</strong></span></>
+        )}
+        {todayStats.breakSeconds > 0 && (
+          <><span style={{ fontSize: 16 }}>☕</span>
+          <span style={{ color: todayStats.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{todayStats.breakCount || 0} breaks: <strong>{fmt(todayStats.breakSeconds)}</strong>{todayStats.breakSeconds > 3600 && ' 🔴'}</span></>
+        )}
+        {todayStats.totalSeconds + todayStats.idleSeconds > 0 && (
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>Prod: <strong>{Math.round((todayStats.totalSeconds / (todayStats.totalSeconds + todayStats.idleSeconds)) * 100)}%</strong></span>
         )}
       </div>
     )}
@@ -333,7 +336,6 @@ export default function MyDonors() {
             <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div className="detail-avatar">{initials(donor.donor_name)}</div>
               <div className="detail-name">{donor.donor_name}</div>
-              <div className="detail-phone">{donor.donor_mobile || '—'}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                 {donor.is_new && (
                   <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>

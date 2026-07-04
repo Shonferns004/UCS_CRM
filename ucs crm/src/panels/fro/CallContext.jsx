@@ -4,11 +4,12 @@ import { api } from './api/auth'
 const CallContext = createContext()
 
 const STATS_KEY = 'fro_call_stats'
+const BREAK_LIMIT = 3600
 
 function loadStats(userId) {
   try {
     const raw = localStorage.getItem(STATS_KEY)
-    if (!raw) return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0 }
+    if (!raw) return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
     const data = JSON.parse(raw)
     const today = new Date().toISOString().slice(0, 10)
     if (data.date === today && data.userId === userId) {
@@ -17,10 +18,12 @@ function loadStats(userId) {
         totalSeconds: data.totalSeconds || 0,
         skippedDonors: data.skippedDonors || 0,
         idleSeconds: data.idleSeconds || 0,
+        breakSeconds: data.breakSeconds || 0,
+        breakCount: data.breakCount || 0,
       }
     }
-    return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0 }
-  } catch { return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0 } }
+    return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 }
+  } catch { return { calls: 0, totalSeconds: 0, skippedDonors: 0, idleSeconds: 0, breakSeconds: 0, breakCount: 0 } }
 }
 
 function saveStats(userId, stats) {
@@ -32,14 +35,18 @@ function saveStats(userId, stats) {
       totalSeconds: stats.totalSeconds,
       skippedDonors: stats.skippedDonors,
       idleSeconds: stats.idleSeconds,
+      breakSeconds: stats.breakSeconds,
+      breakCount: stats.breakCount,
     }))
   } catch {}
 }
 
 function fmt(seconds) {
   if (seconds == null) return '00:00'
-  const m = Math.floor(seconds / 60)
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
   const s = seconds % 60
+  if (h > 0) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
@@ -50,33 +57,63 @@ export function CallProvider({ children, userId }) {
   const [todayStats, setTodayStats] = useState(() => loadStats(userId))
   const donorViewStartRef = useRef(null)
   const lastDonorIdRef = useRef(null)
+  const [onBreak, setOnBreak] = useState(false)
+  const [breakElapsed, setBreakElapsed] = useState(0)
+  const breakTimerRef = useRef(null)
+
+  const clearTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null } }
+  const clearBreakTimer = () => { if (breakTimerRef.current) { clearInterval(breakTimerRef.current); breakTimerRef.current = null } }
+
+  const totalBreakWithCurrent = todayStats.breakSeconds + (onBreak ? breakElapsed : 0)
+  const isBreakOvertime = totalBreakWithCurrent > BREAK_LIMIT
+
+  const syncAllStats = useCallback((extra = {}) => {
+    const status = onBreak ? 'break' : (activeCall ? 'on_call' : (todayStats.idleSeconds > 0 ? 'idle' : 'online'))
+    api('/fro/status', {
+      method: 'PUT',
+      body: JSON.stringify({
+        status,
+        current_donor_name: activeCall?.donorName || null,
+        current_donor_id: activeCall?.donorId || null,
+        today_calls: todayStats.calls,
+        today_talk_seconds: todayStats.totalSeconds,
+        today_skipped: todayStats.skippedDonors,
+        today_idle_seconds: todayStats.idleSeconds,
+        today_break_seconds: todayStats.breakSeconds,
+        on_break: onBreak,
+        ...extra,
+      }),
+    }).catch(() => {})
+  }, [activeCall, onBreak, todayStats])
+
+  useEffect(() => {
+    syncAllStats()
+    return () => { api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch(() => {}) }
+  }, [])
 
   useEffect(() => {
     if (activeCall) {
+      clearBreakTimer()
       timerRef.current = setInterval(() => {
         setElapsed(Math.floor((Date.now() - activeCall.startTime) / 1000))
       }, 1000)
-      return () => clearInterval(timerRef.current)
+      return clearTimer
     } else {
       setElapsed(0)
     }
   }, [activeCall])
 
   useEffect(() => {
-    api('/fro/status', {
-      method: 'PUT',
-      body: JSON.stringify({
-        status: 'online',
-        today_calls: todayStats.calls,
-        today_talk_seconds: todayStats.totalSeconds,
-        today_skipped: todayStats.skippedDonors,
-        today_idle_seconds: todayStats.idleSeconds,
-      }),
-    }).catch(() => {})
-    return () => {
-      api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch(() => {})
+    if (onBreak) {
+      clearTimer()
+      breakTimerRef.current = setInterval(() => {
+        setBreakElapsed(prev => prev + 1)
+      }, 1000)
+      return clearBreakTimer
+    } else {
+      setBreakElapsed(0)
     }
-  }, [])
+  }, [onBreak])
 
   const startDonorView = useCallback((donorId) => {
     donorViewStartRef.current = Date.now()
@@ -102,6 +139,7 @@ export function CallProvider({ children, userId }) {
   }, [userId])
 
   const startCall = useCallback((donor) => {
+    if (onBreak) toggleBreak()
     donorViewStartRef.current = null
     setActiveCall({
       donorId: donor.id || donor.donorId,
@@ -109,32 +147,7 @@ export function CallProvider({ children, userId }) {
       donorMobile: donor.donor_mobile || donor.donorMobile,
       startTime: Date.now(),
     })
-    api('/fro/status', {
-      method: 'PUT',
-      body: JSON.stringify({
-        status: 'on_call',
-        current_donor_name: donor.donor_name || donor.donorName,
-        current_donor_id: donor.id || donor.donorId,
-        today_calls: todayStats.calls,
-        today_talk_seconds: todayStats.totalSeconds,
-        today_skipped: todayStats.skippedDonors,
-        today_idle_seconds: todayStats.idleSeconds,
-      }),
-    }).catch(() => {})
-  }, [todayStats])
-
-  const syncStats = useCallback(() => {
-    api('/fro/status', {
-      method: 'PUT',
-      body: JSON.stringify({
-        status: todayStats.idleSeconds > 0 ? 'idle' : 'online',
-        today_calls: todayStats.calls,
-        today_talk_seconds: todayStats.totalSeconds,
-        today_skipped: todayStats.skippedDonors,
-        today_idle_seconds: todayStats.idleSeconds,
-      }),
-    }).catch(() => {})
-  }, [todayStats])
+  }, [onBreak])
 
   const endCall = useCallback(() => {
     if (activeCall) {
@@ -146,24 +159,28 @@ export function CallProvider({ children, userId }) {
       })
     }
     setActiveCall(null)
-    api('/fro/status', {
-      method: 'PUT',
-      body: JSON.stringify({
-        status: 'idle',
-        current_donor_name: null,
-        current_donor_id: null,
-        today_calls: todayStats.calls + 1,
-        today_talk_seconds: todayStats.totalSeconds + (activeCall ? Math.floor((Date.now() - activeCall.startTime) / 1000) : 0),
-        today_skipped: todayStats.skippedDonors,
-        today_idle_seconds: todayStats.idleSeconds,
-      }),
-    }).catch(() => {})
-  }, [activeCall, userId, todayStats])
+  }, [activeCall, userId])
+
+  const toggleBreak = useCallback(() => {
+    if (onBreak) {
+      setTodayStats(prev => {
+        const next = { ...prev, breakSeconds: prev.breakSeconds + breakElapsed, breakCount: prev.breakCount + 1 }
+        saveStats(userId, next)
+        return next
+      })
+      setOnBreak(false)
+      setBreakElapsed(0)
+    } else {
+      setOnBreak(true)
+      setBreakElapsed(0)
+    }
+  }, [onBreak, breakElapsed, userId])
 
   return (
     <CallContext.Provider value={{
       activeCall, elapsed, todayStats, startCall, endCall, isOnCall: !!activeCall,
-      startDonorView, endDonorView, syncStats, fmt,
+      startDonorView, endDonorView, syncAllStats, fmt,
+      onBreak, breakElapsed, toggleBreak, isBreakOvertime, BREAK_LIMIT,
     }}>
       {children}
     </CallContext.Provider>
