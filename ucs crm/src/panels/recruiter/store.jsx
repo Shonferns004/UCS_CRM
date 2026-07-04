@@ -136,8 +136,8 @@ export function RecProvider({ children }) {
     moveCandidate, addCandidate, addJob,
     leads, leadsLoading, leadFilters, setLeadFilters, leadStats,
     fetchLeads, refreshLeads, addLead, updateLead, deleteLead, fetchLeadStats, updateLeadFilters,
-    currentUser: user, user,
-  }), [candidates, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, user])
+    currentUser: user, user, STAGES,
+  }), [candidates, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, user, STAGES])
 
   return <RecContext.Provider value={value}>{children}</RecContext.Provider>
 }
