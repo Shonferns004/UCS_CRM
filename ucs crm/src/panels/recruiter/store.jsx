@@ -42,16 +42,21 @@ export function RecProvider({ children }) {
   const { token, user } = useUcs()
 
   const [candidates, setCandidates] = useState([
-    { id:1, name:'Ananya Sharma', role:'Frontend Developer', stage:'Contacted', score:82, source:'LinkedIn', skills:['React','CSS','JS'], exp:'3 yr' },
-    { id:2, name:'Rohit Verma', role:'Backend Engineer', stage:'Contacted', score:78, source:'Referral', skills:['Node','Python','SQL'], exp:'4 yr' },
-    { id:3, name:'Priya Patel', role:'UX Designer', stage:'Screening', score:91, source:'Portal', skills:['Figma','UI','Research'], exp:'5 yr' },
-    { id:4, name:'Amit Kumar', role:'Full Stack Dev', stage:'Screening', score:74, source:'Walk-in', skills:['React','Node','Mongo'], exp:'2 yr' },
-    { id:5, name:'Sneha Reddy', role:'DevOps Engineer', stage:'Interview Scheduled', score:88, source:'LinkedIn', skills:['Docker','AWS','CI/CD'], exp:'6 yr' },
-    { id:6, name:'Vikram Singh', role:'Data Analyst', stage:'Interview Scheduled', score:85, source:'Referral', skills:['Python','SQL','Excel'], exp:'3 yr' },
-    { id:7, name:'Neha Joshi', role:'Product Manager', stage:'Selected', score:79, source:'Portal', skills:['Strategy','Agile','Analytics'], exp:'7 yr' },
-    { id:8, name:'Arun Gupta', role:'QA Engineer', stage:'Offer Sent', score:72, source:'Walk-in', skills:['Selenium','JS','Testing'], exp:'4 yr' },
-    { id:9, name:'Divya Nair', role:'Marketing Lead', stage:'Offer Sent', score:90, source:'LinkedIn', skills:['SEO','Content','Brand'], exp:'6 yr' },
-    { id:10, name:'Karan Mehta', role:'iOS Developer', stage:'Rejected', score:83, source:'Referral', skills:['Swift','UIKit','Xcode'], exp:'5 yr' },
+    { id:1, name:'Ananya Sharma', role:'Frontend Developer', stage:'Contacted', score:82, source:'LinkedIn', skills:['React','CSS','JS'], exp:'3 yr', salary:'₹10L', location:'Bangalore' },
+    { id:2, name:'Rohit Verma', role:'Backend Engineer', stage:'Contacted', score:78, source:'Referral', skills:['Node','Python','SQL'], exp:'4 yr', salary:'₹12L', location:'Delhi' },
+    { id:3, name:'Priya Patel', role:'UX Designer', stage:'Screening', score:91, source:'Job Portal', skills:['Figma','UI','Research'], exp:'5 yr', salary:'₹14L', location:'Mumbai' },
+    { id:4, name:'Amit Kumar', role:'Full Stack Dev', stage:'Screening', score:74, source:'Walk-in', skills:['React','Node','Mongo'], exp:'2 yr', salary:'₹8L', location:'Pune' },
+    { id:5, name:'Sneha Reddy', role:'DevOps Engineer', stage:'Interview Scheduled', score:88, source:'LinkedIn', skills:['Docker','AWS','CI/CD'], exp:'6 yr', salary:'₹18L', location:'Hyderabad' },
+    { id:6, name:'Vikram Singh', role:'Data Analyst', stage:'Interview Scheduled', score:85, source:'Referral', skills:['Python','SQL','Excel'], exp:'3 yr', salary:'₹11L', location:'Bangalore' },
+    { id:7, name:'Neha Joshi', role:'Product Manager', stage:'Selected', score:79, source:'Job Portal', skills:['Strategy','Agile','Analytics'], exp:'7 yr', salary:'₹22L', location:'Mumbai' },
+    { id:8, name:'Arun Gupta', role:'QA Engineer', stage:'Offer Sent', score:72, source:'Walk-in', skills:['Selenium','JS','Testing'], exp:'4 yr', salary:'₹9L', location:'Noida' },
+    { id:9, name:'Divya Nair', role:'Marketing Lead', stage:'Offer Sent', score:90, source:'LinkedIn', skills:['SEO','Content','Brand'], exp:'6 yr', salary:'₹16L', location:'Bangalore' },
+    { id:10, name:'Karan Mehta', role:'iOS Developer', stage:'Rejected', score:83, source:'Referral', skills:['Swift','UIKit','Xcode'], exp:'5 yr', salary:'₹15L', location:'Chandigarh' },
+    { id:11, name:'Sanya Gupta', role:'HR Coordinator', stage:'Screening', score:76, source:'Referral', skills:['HRMS','Payroll','Onboarding'], exp:'3 yr', salary:'₹7L', location:'Delhi' },
+    { id:12, name:'Ravi Desai', role:'Cloud Architect', stage:'Interview Scheduled', score:93, source:'LinkedIn', skills:['AWS','Azure','GCP'], exp:'8 yr', salary:'₹28L', location:'Pune' },
+    { id:13, name:'Meera Iyer', role:'Content Writer', stage:'Contacted', score:69, source:'Job Portal', skills:['SEO','Copy','WordPress'], exp:'2 yr', salary:'₹6L', location:'Remote' },
+    { id:14, name:'Aditya Shah', role:'Data Engineer', stage:'Screening', score:87, source:'LinkedIn', skills:['Spark','Kafka','Hadoop'], exp:'5 yr', salary:'₹20L', location:'Hyderabad' },
+    { id:15, name:'Pooja Malhotra', role:'Business Analyst', stage:'Selected', score:81, source:'Referral', skills:['SQL','Tableau','Jira'], exp:'4 yr', salary:'₹13L', location:'Bangalore' },
   ])
   const [jobs, setJobs] = useState([])
   const [feed, setFeed] = useState([{ id:0, msg:'Recruiter workspace ready', time: now() }])
