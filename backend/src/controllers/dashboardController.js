@@ -134,7 +134,9 @@ export const getSuperAdminDashboard = async (req, res) => {
     const attendanceDetails = { present: [], late: [], absent: [] };
     const detailAdded = { present: new Set(), late: new Set(), absent: new Set() };
 
+    const allMarkedInPeriod = new Set();
     (attendance || []).forEach(a => {
+      allMarkedInPeriod.add(a.worker_id);
       if (attendanceStatus[a.status] !== undefined) {
         attendanceStatus[a.status]++;
         uniquePills[a.status].add(a.worker_id);
@@ -158,6 +160,19 @@ export const getSuperAdminDashboard = async (req, res) => {
           name: w?.name || 'Unknown',
           dept: w?.department || '',
           time,
+        });
+      }
+    });
+
+    // Active workers with no attendance record in the period → mark as absent
+    workerCreated.filter(w => w.is_active !== false).forEach(w => {
+      if (!allMarkedInPeriod.has(w.id) && !detailAdded.absent.has(w.id)) {
+        uniquePills.absent.add(w.id);
+        detailAdded.absent.add(w.id);
+        attendanceDetails.absent.push({
+          name: w.name || 'Unknown',
+          dept: w.department || '',
+          time: '',
         });
       }
     });
@@ -190,7 +205,9 @@ export const getSuperAdminDashboard = async (req, res) => {
     const todayAdded = { present: new Set(), late: new Set(), absent: new Set() };
     const todayAttendanceDetails = { present: [], late: [], absent: [] };
 
+    const todayMarked = new Set();
     (todayRows || []).forEach(a => {
+      todayMarked.add(a.worker_id);
       if (todayUnique[a.status] !== undefined) todayUnique[a.status].add(a.worker_id);
       if (todayAttendanceDetails[a.status] && !todayAdded[a.status].has(a.worker_id)) {
         todayAdded[a.status].add(a.worker_id);
@@ -207,6 +224,22 @@ export const getSuperAdminDashboard = async (req, res) => {
           dept: w?.department || '',
           time,
         });
+      }
+    });
+
+    // Active workers with no attendance record today → mark as absent
+    const activeWorkers = workers.filter(w => w.is_active !== false);
+    activeWorkers.forEach(w => {
+      if (!todayMarked.has(w.id)) {
+        todayUnique.absent.add(w.id);
+        if (!todayAdded.absent.has(w.id)) {
+          todayAdded.absent.add(w.id);
+          todayAttendanceDetails.absent.push({
+            name: w.name || 'Unknown',
+            dept: w.department || '',
+            time: '',
+          });
+        }
       }
     });
 
