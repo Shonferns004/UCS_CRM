@@ -185,7 +185,7 @@ export default function Reports() {
             </div>
           </div>
 
-          {(report.sourceBreakdown || []).length > 0 && (
+          {(report.sourceBreakdown || []).length > 0 ? (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Source-wise Collection</h3></div>
               <div className="table-wrap">
@@ -205,9 +205,11 @@ export default function Reports() {
                 </table>
               </div>
             </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No bank audit entries found</div>
           )}
 
-          {report.suspenseEntries.length > 0 && (
+          {report.suspenseEntries.length > 0 ? (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Suspense Details</h3></div>
               <div className="table-wrap">
@@ -231,6 +233,8 @@ export default function Reports() {
                 </table>
               </div>
             </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No suspense entries</div>
           )}
         </div>
       ) : (
