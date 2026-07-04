@@ -105,7 +105,8 @@ export function RecProvider({ children }) {
         const withoutTemp = p.filter(l => l.id !== temp.id && l.id !== realId)
         return [merged, ...withoutTemp]
       })
-    } catch {
+    } catch (err) {
+      console.error('addLead failed:', err?.message || err)
       setLeads(p => p.filter(l => l.id !== temp.id))
     }
     log(`Lead created — ${data.name}`)

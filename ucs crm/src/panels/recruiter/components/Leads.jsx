@@ -100,7 +100,7 @@ export default function Leads() {
       const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
       const notesArr = [...formNotes];
       if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
-      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, created_by_name: user.name };
+      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, job_role: finalJobRole || null, created_by_name: user.name };
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
