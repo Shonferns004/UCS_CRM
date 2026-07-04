@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useRec } from '../store';
+import { useRec, NOT_CONNECTED_OPTIONS } from '../store';
 import { ArrowLeft } from '../icons';
+import { Dropdown } from './ui';
 
 const calcAge = (dob) => {
   if (!dob) return null;
@@ -20,6 +21,8 @@ export default function LeadDetail({ lead, onBack }) {
   const isOwner = myId && lead.created_by === myId;
   const [noteText, setNoteText] = useState('');
   const [editScheduledDate, setEditScheduledDate] = useState(lead.scheduled_date || '');
+  const [selConnected, setSelConnected] = useState('');
+  const [selNotConnected, setSelNotConnected] = useState('');
 
   let allNotes = [];
   try { allNotes = JSON.parse(lead.notes || '[]'); } catch { allNotes = lead.notes ? [{ text: lead.notes }] : []; }
@@ -61,6 +64,33 @@ export default function LeadDetail({ lead, onBack }) {
         </div>
       </div>
       </div>
+
+      {isOwner && (
+        <div className="card-pad" style={{borderTop:'1px solid var(--line)'}}>
+          <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:8}}>CONNECTION STATUS</div>
+          <div style={{display:'flex',gap:16}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED</div>
+              <Dropdown menuInset value={selConnected} onChange={e=>{
+                setSelConnected(e.target.value);
+                setSelNotConnected('');
+                if (e.target.value) {
+                  const map = {follow_up:'followed_up',call_back:'call_back',schedule:'scheduled',not_interested:'not_interested'};
+                  updateLead(lead.id,{status:map[e.target.value]});
+                }
+              }} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED</div>
+              <Dropdown menuInset value={selNotConnected} onChange={e=>{
+                setSelNotConnected(e.target.value);
+                setSelConnected('');
+                if (e.target.value) updateLead(lead.id,{status:e.target.value});
+              }} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {lead.status === 'scheduled' && (
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,padding:'16px 22px'}}>
