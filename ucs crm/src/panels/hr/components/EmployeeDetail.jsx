@@ -450,7 +450,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   return (
     <>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-        <button className="btn back-btn" onClick={onBack} style={{ marginBottom:0 }}><ArrowLeft width={16}/> Back to Employees</button>
+        <button className="btn back-btn" onClick={onBack} style={{ marginBottom:0 }}><ArrowLeft width={16}/> Back to </button>
         {!editing ? (
           <div style={{ display:'flex', gap:4 }}>
             <button className="btn btn-icon" onClick={startEdit} title="Edit Employee"><Pencil width={16} /></button>

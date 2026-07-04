@@ -1,21 +1,35 @@
+
+
+
+
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getDashboard } from '../api/endpoints'
 
 const MINT = '#3EB489'
 const CORAL = '#FF7F50'
 const PRIMARY = '#091426'
+const GOLD = '#F5B301'
 
-const ROLE_COLORS_MAP = {
-  hoadmin: PRIMARY,
-  accounts: MINT,
-  leads: CORAL,
-  recruiter: '#8b5cf6',
-  telecaller: '#06b6d4',
-  team_lead: '#f43f5e',
-  hr: '#f97316',
+const DEPT_COLORS = [
+  { main: PRIMARY, soft: 'rgba(9,20,38,0.07)' },
+  { main: MINT, soft: 'rgba(62,180,137,0.10)' },
+  { main: CORAL, soft: 'rgba(255,127,80,0.10)' },
+  { main: '#8b5cf6', soft: 'rgba(139,92,246,0.10)' },
+  { main: '#06b6d4', soft: 'rgba(6,182,212,0.10)' },
+  { main: '#f43f5e', soft: 'rgba(244,63,94,0.10)' },
+  { main: '#6366f1', soft: 'rgba(99,102,241,0.10)' },
+  { main: '#14b8a6', soft: 'rgba(20,184,166,0.10)' },
+]
+
+const NGO_CHIP_COLORS = {}
+const NGO_PALETTE = [MINT, CORAL, '#8b5cf6', '#06b6d4', '#f43f5e', '#6366f1', GOLD, '#14b8a6']
+function ngoColor(name) {
+  if (!NGO_CHIP_COLORS[name]) {
+    NGO_CHIP_COLORS[name] = NGO_PALETTE[Object.keys(NGO_CHIP_COLORS).length % NGO_PALETTE.length]
+  }
+  return NGO_CHIP_COLORS[name]
 }
-
-const DEPT_DOT_COLORS = [PRIMARY, MINT, CORAL, '#8b5cf6', '#06b6d4', '#f43f5e', '#6366f1', '#f97316', '#14b8a6', '#ec4899']
 
 const PERIODS = [
   { key: '7d', label: '7 Days' },
@@ -25,32 +39,69 @@ const PERIODS = [
   { key: 'all', label: 'All Time' },
 ]
 
-function Sparkline({ trend }) {
-  let d
-  if (trend === 'up') d = 'M0 35 Q 25 35, 50 20 T 100 5'
-  else if (trend === 'down') d = 'M0 5 L 30 15 L 60 25 L 100 35'
-  else d = 'M0 20 L 100 20'
-  const color = trend === 'up' ? MINT : trend === 'down' ? CORAL : '#64748b'
-  return (
-    <svg className="sa-sparkline" viewBox="0 0 100 40">
-      <path d={d} fill="none" stroke={color} strokeLinecap="round" strokeWidth="4" />
-    </svg>
-  )
+/* ================= CSV / EXCEL EXPORT ================= */
+function exportToExcel(data, period) {
+  const { stats = {}, deptWorkers = {}, attendanceStatus = {}, attendancePercent = 0, froAssignments = [], ngoUserCounts = [] } = data
+  const rows = []
+  rows.push(['DASHBOARD REPORT'])
+  rows.push(['Generated', new Date().toLocaleString('en-IN')])
+  rows.push(['Period', PERIODS.find(p => p.key === period)?.label || period])
+  rows.push([])
+  rows.push(['KEY METRICS'])
+  rows.push(['Total NGOs', stats.totalNgos || 0])
+  rows.push(['Total Workers', stats.totalWorkers || 0])
+  rows.push(['Active Workers', stats.activeWorkers || 0])
+  rows.push(['Attendance %', attendancePercent + '%'])
+  rows.push([])
+  rows.push(['ATTENDANCE STATUS'])
+  rows.push(['Present', attendanceStatus.present || 0])
+  rows.push(['Late', attendanceStatus.late || 0])
+  rows.push(['Absent', attendanceStatus.absent || 0])
+  rows.push([])
+  rows.push(['WORKERS BY DEPARTMENT'])
+  rows.push(['Department', 'Workers'])
+  Object.entries(deptWorkers).forEach(([name, count]) => rows.push([name, count]))
+  rows.push([])
+  if (froAssignments.length > 0) {
+    rows.push(['NGO WISE FRO ASSIGNMENTS'])
+    rows.push(['FRO Name', 'Assigned NGOs'])
+    froAssignments.forEach(f => rows.push([f.name, (f.ngos || []).join(' | ')]))
+  } else if (ngoUserCounts.length > 0) {
+    rows.push(['NGO SUMMARY'])
+    rows.push(['NGO', 'Workers'])
+    ngoUserCounts.forEach(n => rows.push([n.name, n.workers || 0]))
+  }
+
+  const csv = '\uFEFF' + rows
+    .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\r\n')
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `dashboard-report-${period}-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
-function DonutChart({ segments, size, centerValue, centerLabel, animated }) {
+/* ================= DONUT ================= */
+function DonutChart({ segments, size, centerValue, centerLabel, animated, onSegmentClick, activeLabel }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0)
   if (total === 0) return null
   const r = 15.915
   let offset = 0
   return (
-    <div className="sa-donut-wrap" style={{ width: size, height: size }}>
-      <svg viewBox="0 0 36 36" className="sa-donut-svg">
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg viewBox="0 0 36 36" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
         <circle cx="18" cy="18" fill="transparent" r={r} stroke="#f0f2f5" strokeWidth="3" />
         {segments.map((seg) => {
           const pct = (seg.value / total) * 100
           const dash = pct.toFixed(1)
           const gap = (100 - parseFloat(dash)).toFixed(1)
+          const isActive = activeLabel === seg.label
           const el = (
             <circle
               key={seg.label}
@@ -59,8 +110,9 @@ function DonutChart({ segments, size, centerValue, centerLabel, animated }) {
               strokeDasharray={animated ? `${dash} ${gap}` : `0 100`}
               strokeDashoffset={-offset}
               strokeLinecap="round"
-              strokeWidth="4.5"
-              className="sa-donut-segment"
+              strokeWidth={isActive ? 5.5 : 4.5}
+              style={{ transition: 'stroke-dasharray 1s ease, stroke-width 0.2s ease', cursor: onSegmentClick ? 'pointer' : 'default', opacity: activeLabel && !isActive ? 0.35 : 1 }}
+              onClick={() => onSegmentClick && onSegmentClick(seg.label)}
             />
           )
           offset += animated ? parseFloat(dash) : 0
@@ -68,11 +120,53 @@ function DonutChart({ segments, size, centerValue, centerLabel, animated }) {
         })}
       </svg>
       {(centerValue !== undefined || centerLabel) && (
-        <div className="sa-donut-center">
-          {centerValue !== undefined && <span className="sa-donut-center-value">{Number(centerValue).toLocaleString()}</span>}
-          {centerLabel && <span className="sa-donut-center-label">{centerLabel}</span>}
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          {centerValue !== undefined && <span style={{ fontSize: 24, fontWeight: 800, color: PRIMARY }}>{Number(centerValue).toLocaleString()}</span>}
+          {centerLabel && <span style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>{centerLabel}</span>}
         </div>
       )}
+    </div>
+  )
+}
+
+/* ================= NAME LIST MODAL ================= */
+function NameListModal({ title, color, names, onClose }) {
+  return (
+    <div className="nd-modal-overlay" onClick={onClose}>
+      <div className="nd-modal" onClick={e => e.stopPropagation()}>
+        <div className="nd-modal-head" style={{ borderColor: `${color}30` }}>
+          <span className="nd-modal-badge" style={{ background: `${color}18`, color }}>
+            {names.length}
+          </span>
+          <h3 className="nd-modal-title">{title}</h3>
+          <button className="nd-modal-close" onClick={onClose}>
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div className="nd-modal-body">
+          {names.length === 0 ? (
+            <p className="nd-muted" style={{ padding: 16 }}>No records found for this period.</p>
+          ) : (
+            names.map((n, i) => {
+              const person = typeof n === 'string' ? { name: n } : n
+              return (
+                <div key={i} className="nd-modal-row">
+                  <span className="nd-avatar" style={{ background: `${color}18`, color }}>
+                    {person.name?.charAt(0).toUpperCase() || '?'}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <span className="nd-modal-name">{person.name}</span>
+                    {(person.dept || person.department) && (
+                      <span className="nd-modal-dept">{person.dept || person.department}</span>
+                    )}
+                  </div>
+                  {person.time && <span className="nd-modal-time">{person.time}</span>}
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -83,6 +177,8 @@ export default function Dashboard() {
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [animated, setAnimated] = useState(false)
+  const [modal, setModal] = useState(null) // { title, color, names }
+  const navigate = useNavigate()
 
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
 
@@ -97,30 +193,38 @@ export default function Dashboard() {
   if (err) return <div className="sa-err-card">Error: {err}</div>
   if (!data) return (
     <div className="dash-page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:24}}>
-        <div style={{flex:1}}>
-          <div className="sk" style={{width:200,height:20,marginBottom:8}} />
-          <div className="sk" style={{width:280,height:12}} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ flex: 1 }}>
+          <div className="sk" style={{ width: 200, height: 20, marginBottom: 8 }} />
+          <div className="sk" style={{ width: 280, height: 12 }} />
         </div>
-        <div className="sk" style={{width:140,height:32,borderRadius:6}} />
+        <div className="sk" style={{ width: 140, height: 32, borderRadius: 6 }} />
       </div>
       <div className="metrics-grid">
-        {[1,2,3,4,5].map(i => <div key={i} className="clay-card"><div className="sk" style={{height:80}} /></div>)}
+        {[1, 2, 3, 4].map(i => <div key={i} className="clay-card"><div className="sk" style={{ height: 80 }} /></div>)}
       </div>
     </div>
   )
 
   const {
-    stats = {}, deptWorkers = {}, roleDistribution = {}, ngoUserCounts = [],
-    attendanceStatus = {},
+    stats = {}, deptWorkers = {}, ngoUserCounts = [],
+    attendanceStatus = {}, attendanceWorkerCounts = {}, todayAttendance = {},
     kpiChanges = {}, attendancePercent = 0,
     recentNotices = [], upcomingEvents = [],
+    // NEW data (backend can provide; safe defaults otherwise)
+    attendanceDetails = {}, todayAttendanceDetails = {},
+    froAssignments = [],      // [{ name: 'Ramesh', ngos: ['MAN', 'AFLF'] }]
   } = data
 
+  const today = new Date()
+  const hour = today.getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const dateStr = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+  /* -------- metric cards (Total Users removed) -------- */
   const metricCards = [
     { label: 'Total NGOs', value: stats.totalNgos || 0, icon: 'corporate_fare', changeKey: 'totalNgos' },
     { label: 'Total Workers', value: stats.totalWorkers || 0, icon: 'badge', changeKey: 'totalWorkers' },
-    { label: 'Total Users', value: stats.totalUsers || 0, icon: 'person', changeKey: '' },
     { label: 'Active Workers', value: stats.activeWorkers || 0, icon: 'bolt', changeKey: 'reach' },
     { label: 'Attendance %', value: attendancePercent, suffix: '%', icon: 'event_available', changeKey: 'attendancePercent' },
   ]
@@ -134,42 +238,218 @@ export default function Dashboard() {
     return { direction: 'flat', text: 'Stable' }
   }
 
+  /* -------- departments (HR-Recruitment removed) -------- */
+  const HIDE_DEPTS = ['hr-recruitment', 'hr recruitment', 'hr_recruitment', 'hrrecruitment']
   const deptData = Object.entries(deptWorkers || {})
+    .filter(([name]) => !HIDE_DEPTS.includes(name.toLowerCase().trim()))
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value)
-  const maxDept = deptData.length > 0 ? deptData[0].value : 1
+  const totalDeptWorkers = deptData.reduce((s, d) => s + d.value, 0) || 1
 
-  const ngoChartData = (ngoUserCounts || []).slice(0, 10).map(n => ({
-    name: n.name.length > 12 ? n.name.slice(0, 12) + '\u2026' : n.name,
-    Users: n.users || 0,
-    Workers: n.workers || 0,
-  }))
-  const maxNgo = Math.max(...ngoChartData.flatMap(n => [n.Users, n.Workers]), 1)
+  /* -------- attendance (today — daily check-ins) -------- */
+  const hasTodayData = todayAttendance?.present !== undefined
+  const attSrc = hasTodayData ? todayAttendance : attendanceWorkerCounts
+  const detSrc = hasTodayData ? todayAttendanceDetails : attendanceDetails
 
-  const roleData = Object.entries(roleDistribution || {})
-    .map(([name, value]) => ({
-      name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-      value,
-      color: ROLE_COLORS_MAP[name] || '#64748b',
-    }))
-    .sort((a, b) => b.value - a.value)
-
-  const attPresent = attendanceStatus?.present || 0
-  const attLate = attendanceStatus?.late || 0
-  const attAbsent = attendanceStatus?.absent || 0
+  const attPresent = attSrc?.present ?? 0
+  const attLate = attSrc?.late ?? 0
+  const attAbsent = attSrc?.absent ?? 0
 
   const attSegments = []
-  if (attPresent > 0) attSegments.push({ label: 'Present', value: attPresent, color: MINT })
-  if (attLate > 0) attSegments.push({ label: 'Late', value: attLate, color: '#FFD700' })
-  if (attAbsent > 0) attSegments.push({ label: 'Absent', value: attAbsent, color: CORAL })
+  if (attPresent > 0) attSegments.push({ label: 'Present', value: attPresent, color: MINT, icon: 'verified' })
+  if (attLate > 0) attSegments.push({ label: 'Late', value: attLate, color: GOLD, icon: 'pace' })
+  if (attAbsent > 0) attSegments.push({ label: 'Absent', value: attAbsent, color: CORAL, icon: 'cancel' })
 
-  const iconColors = [PRIMARY, MINT]
+  function openAttendanceList(label) {
+    const key = label.toLowerCase()
+    const seg = attSegments.find(s => s.label === label)
+    setModal({
+      title: `${label} Workers`,
+      color: seg?.color || PRIMARY,
+      names: detSrc?.[key] || [],
+    })
+  }
+
+  function openAbsentees() {
+    setModal({
+      title: 'Absent Workers',
+      color: CORAL,
+      names: detSrc?.absent || [],
+    })
+  }
+
+  /* -------- NGO wise FRO assignments -------- */
+  const allNgoNames = [...new Set([
+    ...ngoUserCounts.map(n => n.name),
+    ...froAssignments.flatMap(f => f.ngos || []),
+  ])]
+  const ngoTotals = allNgoNames.map(name => ({
+    name,
+    count: froAssignments.filter(f => (f.ngos || []).includes(name)).length,
+  }))
 
   return (
     <div className="dash-page">
+      {/* ============ NEW DESIGN STYLES (single-file, scoped with nd-) ============ */}
+      <style>{`
+        .nd-card {
+          background: #fff;
+          border: 1px solid #eef1f5;
+          border-radius: 20px;
+          padding: 22px;
+          box-shadow: 0 1px 2px rgba(9,20,38,0.04), 0 8px 24px -12px rgba(9,20,38,0.08);
+          transition: box-shadow 0.25s ease, transform 0.25s ease;
+        }
+        .nd-card:hover { box-shadow: 0 2px 4px rgba(9,20,38,0.05), 0 16px 32px -12px rgba(9,20,38,0.12); }
+        .nd-section-title {
+          font-size: 13px; font-weight: 700; color: ${PRIMARY};
+          text-transform: uppercase; letter-spacing: 1.2px; margin: 0;
+        }
+        .nd-muted { color: #94a3b8; font-size: 13px; margin: 8px 0 0; }
+        .nd-appear { opacity: 0; transform: translateY(14px); animation: ndUp 0.55s cubic-bezier(0.22,1,0.36,1) forwards; }
+        @keyframes ndUp { to { opacity: 1; transform: translateY(0); } }
+        @media (prefers-reduced-motion: reduce) { .nd-appear { animation: none; opacity: 1; transform: none; } }
+
+        /* metric cards */
+        .nd-metric {
+          position: relative; overflow: hidden;
+        }
+        .nd-metric::after {
+          content: ''; position: absolute; right: -30px; top: -30px;
+          width: 100px; height: 100px; border-radius: 50%;
+          background: radial-gradient(circle, rgba(62,180,137,0.08), transparent 70%);
+        }
+
+        /* dept tiles */
+        .nd-dept-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-top: 16px; }
+        .nd-dept-tile {
+          border-radius: 16px; padding: 16px;
+          display: flex; flex-direction: column; gap: 8px;
+          border: 1px solid transparent;
+          transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .nd-dept-tile:hover { transform: translateY(-3px); }
+        .nd-dept-count { font-size: 30px; font-weight: 800; line-height: 1; color: ${PRIMARY}; }
+        .nd-dept-name { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; }
+        .nd-dept-share {
+          height: 5px; border-radius: 99px; background: rgba(9,20,38,0.06); overflow: hidden;
+        }
+        .nd-dept-share > div { height: 100%; border-radius: 99px; transition: width 0.9s cubic-bezier(0.22,1,0.36,1) 0.3s; }
+        .nd-dept-pct { font-size: 11px; color: #64748b; font-weight: 600; }
+
+        /* FRO assignment rows */
+        .nd-fro-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
+        .nd-fro-summary-pill {
+          display: flex; align-items: center; gap: 8px;
+          padding: 8px 14px; border-radius: 12px; font-size: 12.5px; font-weight: 700;
+        }
+        .nd-fro-list { max-height: 340px; overflow-y: auto; margin-top: 12px; padding-right: 6px; }
+        .nd-fro-row {
+          display: flex; align-items: center; gap: 12px;
+          padding: 11px 12px; border-radius: 14px;
+          border: 1px solid #f1f4f8; margin-bottom: 8px;
+          transition: background 0.15s ease;
+        }
+        .nd-fro-row:hover { background: #fafbfd; }
+        .nd-fro-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+        .nd-ngo-chip {
+          font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px;
+          padding: 4px 10px; border-radius: 99px;
+        }
+
+        /* clickable attendance pills */
+        .nd-att-pill {
+          display: flex; align-items: center; gap: 10px; width: 100%;
+          padding: 11px 14px; border-radius: 14px; border: 1px solid;
+          background: transparent; cursor: pointer; text-align: left;
+          font-family: inherit;
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nd-att-pill:hover { transform: translateX(3px); box-shadow: 0 4px 12px -6px rgba(9,20,38,0.15); }
+        .nd-att-pill:focus-visible { outline: 2px solid ${PRIMARY}; outline-offset: 2px; }
+
+        /* scrollable notice & event lists */
+        .nd-scroll-list {
+          max-height: 300px; overflow-y: auto; padding-right: 6px;
+          display: flex; flex-direction: column; gap: 12px; margin-top: 14px;
+          scrollbar-width: thin;
+        }
+        .nd-scroll-list::-webkit-scrollbar { width: 5px; }
+        .nd-scroll-list::-webkit-scrollbar-thumb { background: #dde3ea; border-radius: 99px; }
+        .nd-scroll-fade { position: relative; }
+        .nd-scroll-fade::after {
+          content: ''; position: absolute; left: 0; right: 10px; bottom: 0; height: 28px;
+          background: linear-gradient(transparent, #fff); pointer-events: none; border-radius: 0 0 16px 16px;
+        }
+
+        .nd-notice {
+          display: flex; gap: 12px; padding: 12px; border-radius: 14px;
+          background: #fafbfd; border: 1px solid #f1f4f8;
+        }
+        .nd-notice-icon {
+          width: 36px; height: 36px; border-radius: 11px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+        }
+
+        .nd-event {
+          display: flex; gap: 12px; align-items: center;
+          padding: 11px 12px; border-radius: 14px; border: 1px solid #f1f4f8;
+        }
+        .nd-event-date {
+          width: 46px; height: 50px; border-radius: 12px; flex-shrink: 0;
+          background: ${PRIMARY}; color: #fff;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+
+        /* modal */
+        .nd-modal-overlay {
+          position: fixed; inset: 0; z-index: 1000;
+          background: rgba(9,20,38,0.45); backdrop-filter: blur(3px);
+          display: flex; align-items: center; justify-content: center; padding: 20px;
+          animation: ndFade 0.2s ease;
+        }
+        @keyframes ndFade { from { opacity: 0; } to { opacity: 1; } }
+        .nd-modal {
+          background: #fff; border-radius: 22px; width: 100%; max-width: 420px;
+          max-height: 75vh; display: flex; flex-direction: column; overflow: hidden;
+          box-shadow: 0 24px 60px -12px rgba(9,20,38,0.35);
+          animation: ndPop 0.3s cubic-bezier(0.22,1,0.36,1);
+        }
+        @keyframes ndPop { from { opacity: 0; transform: scale(0.94) translateY(10px); } to { opacity: 1; transform: none; } }
+        .nd-modal-head {
+          display: flex; align-items: center; gap: 12px;
+          padding: 18px 20px; border-bottom: 1px solid;
+        }
+        .nd-modal-badge { font-size: 14px; font-weight: 800; padding: 6px 12px; border-radius: 10px; }
+        .nd-modal-title { margin: 0; flex: 1; font-size: 15px; font-weight: 700; color: ${PRIMARY}; }
+        .nd-modal-close {
+          border: none; background: #f4f6f9; border-radius: 10px; width: 32px; height: 32px;
+          display: flex; align-items: center; justify-content: center; cursor: pointer; color: #64748b;
+        }
+        .nd-modal-close:hover { background: #e9edf2; }
+        .nd-modal-body { overflow-y: auto; padding: 12px 16px 18px; }
+        .nd-modal-row {
+          display: flex; align-items: center; gap: 12px;
+          padding: 10px 8px; border-bottom: 1px solid #f4f6f9;
+        }
+        .nd-modal-row:last-child { border-bottom: none; }
+        .nd-avatar {
+          width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 800; font-size: 14px;
+        }
+        .nd-modal-name { display: block; font-size: 13.5px; font-weight: 600; color: ${PRIMARY}; }
+        .nd-modal-dept { display: block; font-size: 11px; color: #94a3b8; }
+        .nd-modal-time { margin-left: auto; font-size: 11.5px; color: #64748b; font-weight: 600; }
+      `}</style>
+
+      {/* ============ HEADER ============ */}
       <div className="dash-header">
         <div>
-          <h2 className="dash-header-title">Dashboard Overview</h2>
+          <span style={{ fontSize: 12, fontWeight: 600, color: MINT, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            {greeting} · {dateStr}
+          </span>
+          <h2 className="dash-header-title" style={{ marginTop: 2 }}>Dashboard Overview</h2>
           <p className="dash-header-sub">Operational insights across all NGOs and departments.</p>
         </div>
         <div className="dash-header-actions">
@@ -185,34 +465,84 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
-          <button className="btn btn-primary btn-sm">Export Report</button>
+          <button className="btn btn-primary btn-sm" onClick={() => exportToExcel(data, period)}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4 }}>download</span>
+            Export Report
+          </button>
         </div>
       </div>
 
-      <div className="metrics-grid">
+      {/* ============ LOW ATTENDANCE ALERT (clickable) ============ */}
+      {attendancePercent < 60 && (
+        <div
+          className="nd-appear"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            background: 'rgba(255,127,80,0.08)',
+            border: '1px solid rgba(255,127,80,0.3)',
+            borderRadius: 16, padding: '12px 18px', marginBottom: 20,
+            animationDelay: '0.05s',
+          }}
+        >
+          <div style={{
+            width: 36, height: 36, borderRadius: 11, flexShrink: 0,
+            background: 'rgba(255,127,80,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span className="material-symbols-outlined" style={{ color: CORAL, fontSize: 20 }}>warning</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <strong style={{ fontSize: 13.5, color: PRIMARY, display: 'block' }}>
+              Attendance is low — {attendancePercent}%
+            </strong>
+            <span style={{ fontSize: 12, color: '#64748b' }}>
+              Attendance dropped below 60% for the selected period.
+            </span>
+          </div>
+          <button
+            onClick={openAbsentees}
+            style={{
+              border: `1px solid ${CORAL}`, background: CORAL, color: '#fff',
+              borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 700,
+              cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
+            }}
+          >
+            View absentees
+          </button>
+        </div>
+      )}
+
+      {/* ============ METRIC CARDS (Total Users removed) ============ */}
+      <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         {metricCards.map((card, i) => {
           const trend = getTrend(card.changeKey)
           return (
-            <div key={card.label} className="clay-card bouncy-appear" style={{ animationDelay: `${0.1 * (i + 1)}s` }}>
-              <div className="clay-card-top">
-                <span className="clay-card-label">{card.label}</span>
-                <div className="clay-card-icon-wrap">
-                  <span className="material-symbols-outlined">{card.icon}</span>
+            <div key={card.label} className="nd-card nd-metric nd-appear" style={{ animationDelay: `${0.08 * (i + 1)}s` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  {card.label}
+                </span>
+                <div style={{
+                  width: 38, height: 38, borderRadius: 12,
+                  background: 'rgba(62,180,137,0.1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <span className="material-symbols-outlined" style={{ color: MINT, fontSize: 20 }}>{card.icon}</span>
                 </div>
               </div>
-              <div className="clay-card-body">
-                <span className="clay-card-value">
+              <div style={{ marginTop: 10 }}>
+                <span style={{ fontSize: 34, fontWeight: 800, color: PRIMARY, lineHeight: 1 }}>
                   {typeof card.value === 'number' ? card.value.toLocaleString() : card.value}{card.suffix || ''}
                 </span>
                 {trend && (
-                  <div className="clay-card-trend">
-                    <Sparkline trend={trend.direction} />
-                    <span className={`clay-card-trend-text trend-${trend.direction}`}>
-                      {trend.direction !== 'flat' && (
-                        <span className="material-symbols-outlined">
-                          {trend.direction === 'up' ? 'trending_up' : 'trending_down'}
-                        </span>
-                      )}
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span
+                      className="material-symbols-outlined"
+                      style={{ fontSize: 16, color: trend.direction === 'up' ? MINT : trend.direction === 'down' ? CORAL : '#94a3b8' }}
+                    >
+                      {trend.direction === 'up' ? 'trending_up' : trend.direction === 'down' ? 'trending_down' : 'trending_flat'}
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: trend.direction === 'up' ? MINT : trend.direction === 'down' ? CORAL : '#94a3b8' }}>
                       {trend.text}
                     </span>
                   </div>
@@ -223,81 +553,94 @@ export default function Dashboard() {
         })}
       </div>
 
+      {/* ============ MAIN GRID ============ */}
       <div className="dash-grid">
         <div className="dash-grid-main">
-          <div className="clay-card dash-card-section bouncy-appear" style={{ animationDelay: '0.6s' }}>
-            <div className="clay-section-header">
-              <h3 className="clay-section-title">Workers by Department</h3>
-              <div className="clay-section-more">
-                <span className="material-symbols-outlined">more_horiz</span>
-              </div>
+
+          {/* ---- WORKERS BY DEPARTMENT — new tile design ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.5s', marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="nd-section-title">Workers by Department</h3>
+              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{totalDeptWorkers} total</span>
             </div>
             {deptData.length === 0 ? (
-              <p className="dash-muted">No department data</p>
+              <p className="nd-muted">No department data</p>
             ) : (
-              <div className="dept-progress-list">
-                {deptData.map((d, i) => (
-                  <div key={d.name} className="dept-progress-item">
-                    <div className="dept-progress-header">
-                      <span className="dept-progress-name">
-                        <span className="dept-progress-dot" style={{ background: DEPT_DOT_COLORS[i % DEPT_DOT_COLORS.length] }} />
-                        {d.name}
-                      </span>
-                      <span className="dept-progress-count">{d.value} Workers</span>
+              <div className="nd-dept-grid">
+                {deptData.map((d, i) => {
+                  const c = DEPT_COLORS[i % DEPT_COLORS.length]
+                  const pct = Math.round((d.value / totalDeptWorkers) * 100)
+                  return (
+                    <div key={d.name} className="nd-dept-tile" style={{ background: c.soft, borderColor: `${c.main}20` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className="nd-dept-name" style={{ color: c.main }}>{d.name}</span>
+                        <span className="nd-dept-pct">{pct}%</span>
+                      </div>
+                      <span className="nd-dept-count">{d.value}</span>
+                      <div className="nd-dept-share">
+                        <div style={{ width: animated ? `${pct}%` : '0%', background: c.main }} />
+                      </div>
                     </div>
-                    <div className="dept-progress-track">
-                      <div
-                        className="dept-progress-fill"
-                        style={{
-                          width: animated ? `${(d.value / maxDept) * 100}%` : '0%',
-                          background: DEPT_DOT_COLORS[i % DEPT_DOT_COLORS.length],
-                          transitionDelay: `${i * 0.12}s`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
 
-          <div className="clay-card dash-card-section bouncy-appear" style={{ animationDelay: '0.7s' }}>
-            <div className="clay-section-header">
-              <h3 className="clay-section-title">NGOs \u2014 Users & Workers</h3>
-              <div className="clay-section-legend">
-                <span className="clay-legend-item">
-                  <span className="clay-legend-swatch" style={{ background: PRIMARY }} />
-                  Users
-                </span>
-                <span className="clay-legend-item">
-                  <span className="clay-legend-swatch" style={{ background: MINT }} />
-                  Workers
-                </span>
-              </div>
+          {/* ---- NGO WISE FRO'S ASSIGNED ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.6s' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="nd-section-title">NGO Wise FRO's Assigned</h3>
+              {froAssignments.length > 0 && (
+                <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{froAssignments.length} FROs</span>
+              )}
             </div>
-            {ngoChartData.length === 0 ? (
-              <p className="dash-muted">No NGO data</p>
+
+            {/* per-NGO totals */}
+            {ngoTotals.length > 0 && (
+              <div className="nd-fro-summary">
+                {ngoTotals.map(t => (
+                  <div key={t.name} className="nd-fro-summary-pill" style={{ background: `${ngoColor(t.name)}14`, color: ngoColor(t.name) }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: ngoColor(t.name) }} />
+                    {t.name}
+                    <span style={{
+                      background: '#fff', borderRadius: 8, padding: '1px 8px',
+                      fontSize: 11.5, color: PRIMARY,
+                    }}>
+                      {froAssignments.length > 0 ? t.count : (ngoUserCounts.find(n => n.name === t.name)?.workers || 0)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* who works for which NGO */}
+            {froAssignments.length === 0 ? (
+              <p className="nd-muted">
+                FRO assignment data not available yet. Backend should send <code style={{ background: '#f4f6f9', padding: '1px 6px', borderRadius: 6 }}>froAssignments</code> — each FRO with their assigned NGOs.
+              </p>
             ) : (
-              <div className="ngo-bar-chart">
-                {ngoChartData.map((n, i) => (
-                  <div key={n.name} className="ngo-bar-group">
-                    <div className="ngo-bars">
-                      <div
-                        className="ngo-bar ngo-bar-users"
-                        style={{
-                          height: animated ? `${(n.Users / maxNgo) * 100}%` : '0%',
-                          transitionDelay: `${0.3 + i * 0.08}s`,
-                        }}
-                      />
-                      <div
-                        className="ngo-bar ngo-bar-workers"
-                        style={{
-                          height: animated ? `${(n.Workers / maxNgo) * 100}%` : '0%',
-                          transitionDelay: `${0.3 + i * 0.08}s`,
-                        }}
-                      />
+              <div className="nd-fro-list">
+                {froAssignments.map((f, i) => (
+                  <div key={f.name + i} className="nd-fro-row">
+                    <span className="nd-avatar" style={{ background: 'rgba(9,20,38,0.06)', color: PRIMARY }}>
+                      {f.name?.charAt(0).toUpperCase() || '?'}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: PRIMARY }}>{f.name}</span>
+                      <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                        {(f.ngos || []).length === allNgoNames.length && allNgoNames.length > 1
+                          ? 'Works for all NGOs'
+                          : `${(f.ngos || []).length} NGO${(f.ngos || []).length > 1 ? 's' : ''}`}
+                      </span>
                     </div>
-                    <span className="ngo-bar-label">{n.name}</span>
+                    <div className="nd-fro-chips">
+                      {(f.ngos || []).map(ngo => (
+                        <span key={ngo} className="nd-ngo-chip" style={{ background: `${ngoColor(ngo)}16`, color: ngoColor(ngo) }}>
+                          {ngo}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -306,129 +649,148 @@ export default function Dashboard() {
         </div>
 
         <div className="dash-grid-side">
-          <div className="clay-card dash-card-section bouncy-appear" style={{ animationDelay: '0.8s' }}>
-            <h3 className="clay-section-title">Role Distribution</h3>
-            {roleData.length === 0 ? (
-              <p className="dash-muted">No user data</p>
-            ) : (
-              <div className="sa-pie-wrap">
-                <DonutChart
-                  segments={roleData}
-                  size={180}
-                  centerValue={roleData.reduce((s, r) => s + r.value, 0)}
-                  centerLabel="Active"
-                  animated={animated}
-                />
-                <div className="sa-pie-legend">
-                  {roleData.map(r => (
-                    <div key={r.name} className="sa-pie-legend-item">
-                      <span className="sa-pie-dot" style={{ background: r.color }} />
-                      <span className="sa-pie-label">{r.name}</span>
-                      <span className="sa-pie-value">{r.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
-          <div className="clay-card dash-card-section bouncy-appear" style={{ animationDelay: '0.9s' }}>
-            <h3 className="clay-section-title">Daily Check-ins</h3>
+          {/* ---- DAILY CHECK-INS — clickable ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.7s', marginBottom: 20 }}>
+            <h3 className="nd-section-title">Daily Check-ins</h3>
             {attSegments.length === 0 ? (
-              <p className="dash-muted">No attendance data</p>
+              <p className="nd-muted">No attendance data</p>
             ) : (
-              <div className="sa-checkins-wrap">
-                <DonutChart segments={attSegments} size={160} animated={animated} />
-                <div className="sa-checkins-list">
-                  {attSegments.map((s, i) => (
-                    <div
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginTop: 14 }}>
+                <DonutChart
+                  segments={attSegments}
+                  size={150}
+                  animated={animated}
+                  onSegmentClick={openAttendanceList}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                  {attSegments.map(s => (
+                    <button
                       key={s.label}
-                      className={`sa-checkin-item${animated ? ' sa-checkin-show' : ''}`}
-                      style={{
-                        background: s.label === 'Present' ? 'rgba(62,180,137,0.08)' : s.label === 'Late' ? 'rgba(255,215,0,0.08)' : 'rgba(255,127,80,0.08)',
-                        borderColor: s.label === 'Present' ? 'rgba(62,180,137,0.2)' : s.label === 'Late' ? 'rgba(255,215,0,0.2)' : 'rgba(255,127,80,0.2)',
-                        transitionDelay: `${0.3 + i * 0.12}s`,
-                      }}
+                      className="nd-att-pill"
+                      style={{ background: `${s.color}0F`, borderColor: `${s.color}30` }}
+                      onClick={() => openAttendanceList(s.label)}
                     >
-                      <div className="sa-checkin-icon-wrap" style={{
-                        background: s.label === 'Present' ? 'rgba(62,180,137,0.15)' : s.label === 'Late' ? 'rgba(255,215,0,0.15)' : 'rgba(255,127,80,0.15)',
-                      }}>
-                        <span className="material-symbols-outlined" style={{ color: s.color }}>
-                          {s.label === 'Present' ? 'verified' : s.label === 'Late' ? 'pace' : 'cancel'}
-                        </span>
-                      </div>
-                      <span className="sa-checkin-label">{s.label}</span>
-                      <span className="sa-checkin-count">{s.value}</span>
-                    </div>
+                      <span className="material-symbols-outlined" style={{ color: s.color, fontSize: 19 }}>{s.icon}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: PRIMARY, flex: 1 }}>{s.label}</span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: s.color }}>{s.value}</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#b6c0cc' }}>chevron_right</span>
+                    </button>
                   ))}
                 </div>
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>Tap any status to see worker names</span>
               </div>
             )}
           </div>
 
-          <div className="clay-card dash-card-section bouncy-appear" style={{ animationDelay: '1.0s' }}>
-            <div className="clay-section-header">
-              <h3 className="clay-section-title">Recent Notices</h3>
-              <a className="clay-section-link" href="#">VIEW ALL</a>
+          {/* ---- RECENT NOTICES — scrollable, shows all ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.8s', marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="nd-section-title">Recent Notices</h3>
+              {recentNotices.length > 0 && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: MINT,
+                  background: 'rgba(62,180,137,0.1)', borderRadius: 99, padding: '3px 10px',
+                }}>
+                  {recentNotices.length}
+                </span>
+              )}
             </div>
             {recentNotices.length === 0 ? (
-              <p className="dash-muted">No recent notices</p>
+              <p className="nd-muted">No recent notices</p>
             ) : (
-              <div className="sa-notice-list">
-                {recentNotices.slice(0, 2).map((n, i) => (
-                  <div key={n.id} className="sa-notice-item">
-                    <div className="sa-notice-icon" style={{ background: iconColors[i % iconColors.length] }}>
-                      <span className="material-symbols-outlined" style={{ color: '#fff' }}>
-                        {i % 2 === 0 ? 'priority_high' : 'verified_user'}
-                      </span>
+              <div className={recentNotices.length > 3 ? 'nd-scroll-fade' : ''}>
+                <div className="nd-scroll-list">
+                  {recentNotices.map((n, i) => (
+                    <div key={n.id || i} className="nd-notice">
+                      <div className="nd-notice-icon" style={{ background: i % 2 === 0 ? PRIMARY : MINT }}>
+                        <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 18 }}>
+                          {i % 2 === 0 ? 'priority_high' : 'campaign'}
+                        </span>
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{n.title}</h4>
+                        <p style={{ margin: '3px 0 4px', fontSize: 12, color: '#64748b', lineHeight: 1.45 }}>
+                          {n.content && n.content.length > 110 ? n.content.slice(0, 110) + '\u2026' : n.content || ''}
+                        </p>
+                        <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+                          {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </span>
+                      </div>
                     </div>
-                    <div className="sa-notice-body">
-                      <h4 className="sa-notice-title">{n.title}</h4>
-                      <p className="sa-notice-text">
-                        {n.content && n.content.length > 120 ? n.content.slice(0, 120) + '\u2026' : n.content || ''}
-                      </p>
-                      <span className="sa-notice-time">
-                        {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
-          <div className="clay-card dash-card-section bouncy-appear" style={{ animationDelay: '1.1s' }}>
-            <h3 className="clay-section-title">Upcoming Events</h3>
+          {/* ---- UPCOMING EVENTS — scrollable, shows all ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.9s' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="nd-section-title">Upcoming Events</h3>
+              {upcomingEvents.length > 0 && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: CORAL,
+                  background: 'rgba(255,127,80,0.1)', borderRadius: 99, padding: '3px 10px',
+                }}>
+                  {upcomingEvents.length}
+                </span>
+              )}
+            </div>
             {upcomingEvents.length === 0 ? (
-              <p className="dash-muted">No upcoming events</p>
+              <p className="nd-muted">No upcoming events</p>
             ) : (
               <>
-                <div className="sa-event-list">
-                  {upcomingEvents.slice(0, 2).map(ev => {
-                    const d = new Date(ev.event_date)
-                    return (
-                      <div key={ev.id} className="sa-event-item">
-                        <div className="sa-event-date">
-                          <span className="sa-event-mon">{d.toLocaleString('en-IN', { month: 'short' })}</span>
-                          <span className="sa-event-day">{d.getDate()}</span>
+                <div className={upcomingEvents.length > 3 ? 'nd-scroll-fade' : ''}>
+                  <div className="nd-scroll-list">
+                    {upcomingEvents.map((ev, i) => {
+                      const d = new Date(ev.event_date)
+                      return (
+                        <div key={ev.id || i} className="nd-event">
+                          <div className="nd-event-date">
+                            <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 }}>
+                              {d.toLocaleString('en-IN', { month: 'short' })}
+                            </span>
+                            <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{d.getDate()}</span>
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{ev.title}</h4>
+                            <p style={{ margin: '3px 0 0', fontSize: 11.5, color: '#94a3b8' }}>
+                              {ev.location && <span>{ev.location}</span>}
+                              {ev.event_time && <span> \u2022 {ev.event_time.slice(0, 5)}</span>}
+                            </p>
+                          </div>
                         </div>
-                        <div className="sa-event-body">
-                          <h4 className="sa-event-title">{ev.title}</h4>
-                          <p className="sa-event-meta">
-                            {ev.location && <span>{ev.location}</span>}
-                            {ev.event_time && <span> \u2022 {ev.event_time.slice(0, 5)}</span>}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
-                <button className="sa-event-add-btn">ADD NEW EVENT</button>
+                <button
+                  onClick={() => navigate('/sa/events')}
+                  style={{
+                    width: '100%', marginTop: 14, padding: '10px 0',
+                    border: `1.5px dashed ${MINT}`, background: 'rgba(62,180,137,0.05)',
+                    color: MINT, borderRadius: 12, fontSize: 12, fontWeight: 700,
+                    letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  + ADD NEW EVENT
+                </button>
               </>
             )}
           </div>
         </div>
       </div>
+
+      {/* ============ MODAL ============ */}
+      {modal && (
+        <NameListModal
+          title={modal.title}
+          color={modal.color}
+          names={modal.names}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import {
   getLeadsDashboard,
   getTelecallerDashboard,
   getTeamLeadDashboard,
+  getFroWorkerDashboard,
 } from '../controllers/dashboardController.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
@@ -38,5 +39,6 @@ router.get('/recruiter', authenticateRole('recruiter'), getRecruiterDashboard);
 router.get('/leads', authenticateRole('leads'), getLeadsDashboard);
 router.get('/telecaller', froTelecaller, getTelecallerDashboard);
 router.get('/team-lead', authenticateRole('team_lead'), getTeamLeadDashboard);
+router.get('/fro-worker/:workerId', authenticateRole('super_admin'), getFroWorkerDashboard);
 
 export default router;
