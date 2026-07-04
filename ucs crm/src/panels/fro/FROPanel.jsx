@@ -7,6 +7,8 @@ import { useRealtime } from '../../hooks/useRealtime'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import DispositionModal from './components/DispositionModal'
+import CallTimer from './components/CallTimer'
+import { CallProvider } from './CallContext'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import Dashboard from './pages/Dashboard'
 import MyDonors from './pages/MyDonors'
@@ -223,6 +225,7 @@ export default function FROPanel() {
   };
 
   return (
+    <CallProvider userId={user?.id}>
     <div className="app">
       <Sidebar />
       <div className="main">
@@ -231,7 +234,8 @@ export default function FROPanel() {
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <CallTimer />
             <div ref={notifRef} style={{ position:'relative' }}>
               <div onClick={() => setShowNotifList(!showNotifList)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s', background: showNotifList ? '#f3f4f6' : 'transparent' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={rejectedCount + verifiedCount + dueCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -394,5 +398,6 @@ export default function FROPanel() {
         onItemClick={handleDrawerItemClick}
       />
     </div>
+    </CallProvider>
   )
 }

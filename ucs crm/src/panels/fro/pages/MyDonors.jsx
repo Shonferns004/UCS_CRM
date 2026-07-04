@@ -4,6 +4,14 @@ import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
+import { useCall } from '../CallContext';
+
+function callFmt(seconds) {
+  if (seconds == null) return '00:00'
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 const NOT_CONNECTED = [
   { id: 'busy', label: 'Busy' }, { id: 'ringing', label: 'Ringing' },
@@ -76,6 +84,7 @@ export default function MyDonors() {
   const [donations, setDonations] = useState([]);
   const [donationYear, setDonationYear] = useState('this_year');
   const [donationLoading, setDonationLoading] = useState(false);
+  const { isOnCall, activeCall, startCall, endCall, todayStats } = useCall();
 
   useEffect(() => {
     setLoading(true);
@@ -229,6 +238,7 @@ export default function MyDonors() {
         logData.remark = leadRemark || null;
       }
       await addDonorLog(donor.id, logData);
+      if (selected) endCall();
       const newDonors = await getMyDonors(filterStatus);
       const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
       setDonors(newDonors);
@@ -255,6 +265,8 @@ export default function MyDonors() {
     if (index < donors.length - 1) { setIndex(i => i + 1); return; }
     setMessage({ type: 'error', text: 'No more donors' });
   };
+
+  const fmt = callFmt
 
   if (loading) return <SkeletonProfile />;
 
@@ -286,6 +298,14 @@ export default function MyDonors() {
   };
 
   return (<>
+    {todayStats.calls > 0 && (
+      <div style={{ marginBottom: 10, padding: '8px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: '#166534' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_in_talk</span>
+        <span><strong>{todayStats.calls}</strong> calls today</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>Talk time: <strong>{fmt(todayStats.totalSeconds)}</strong></span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>Avg: <strong>{todayStats.calls > 0 ? fmt(Math.round(todayStats.totalSeconds / todayStats.calls)) : '00:00'}</strong></span>
+      </div>
+    )}
     <div className="detail-card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div className="detail-split" style={{ flex: 1, minHeight: 0 }}>
         {/* LEFT PANEL — merged profile + details */}
@@ -307,8 +327,36 @@ export default function MyDonors() {
               </div>
             </div>
 
-            {/* Fields — plain, no container */}
-            <div style={{ flex: 1, overflowY: 'auto', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Telecaller call button */}
+            <div style={{ margin: '10px 0', borderRadius: 10, overflow: 'hidden' }}>
+              {isOnCall && activeCall?.donorId === donor.id ? (
+                <button onClick={(e) => { e.stopPropagation(); endCall() }}
+                  style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .15s' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#fff' }}>call_end</span>
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 500 }}>On Call</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats?.totalSeconds || 0)}</div>
+                  </div>
+                  <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 600 }}>Tap to end →</span>
+                </button>
+              ) : (
+                <button onClick={(e) => { e.stopPropagation(); startCall(donor) }}
+                  style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .15s' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#fff' }}>call</span>
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: 11, color: '#166534', fontWeight: 500 }}>Call Now</div>
+                    <div style={{ fontSize: 12, color: '#15803d', fontWeight: 600 }}>{donor.donor_mobile || 'No number'}</div>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#16a34a' }}>arrow_forward_ios</span>
+                </button>
+              )}
+            </div>
+            {/* Fields */}
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div className="detail-field-row">
                 <div className="fld">
                   <label>City</label>
@@ -588,6 +636,19 @@ export default function MyDonors() {
     <div className="detail-action-outer">
       <button className="btn-next" disabled={index === 0} onClick={() => setIndex(i => i - 1)} style={{ background: 'transparent', color: 'var(--sage)', border: '1px solid var(--line)' }}>← Prev</button>
       <span className="counter">{index + 1} of {donors.length}</span>
+      {isOnCall && activeCall?.donorId === donor.id ? (
+        <button onClick={endCall}
+          style={{ padding: '7px 14px', border: '1px solid #dc2626', borderRadius: 8, background: '#fef2f2', color: '#dc2626', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626', animation: 'pulse 1s ease-in-out infinite', display: 'inline-block' }} />
+          End Call
+        </button>
+      ) : (
+        <button onClick={() => startCall(donor)}
+          style={{ padding: '7px 14px', border: 'none', borderRadius: 8, background: '#16a34a', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
+          Call Now
+        </button>
+      )}
       <button className="btn-next"
         disabled={saving || !selected}
         onClick={handleButtonClick}>

@@ -4,8 +4,16 @@ import { getMyDashboard, requestMoreData, getFollowUps, getLeadStats, getMonthly
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import { cacheGet, cacheSet } from '../../../utils/cache'
+import { useCall } from '../CallContext'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
+
+function callFmt(seconds) {
+  if (seconds == null) return '00:00'
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 const Icon = ({ children, color }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color || 'var(--ink)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
@@ -21,6 +29,7 @@ const CACHE_KEY = 'fro_dashboard'
 
 export default function Dashboard() {
   const cached = cacheGet(CACHE_KEY)
+  const { todayStats } = useCall()
   const [dashData, setDashData] = useState(cached?.dash || null)
   const [targetData, setTargetData] = useState(cached?.target || null)
   const [loading, setLoading] = useState(!cached)
@@ -99,6 +108,32 @@ export default function Dashboard() {
 
   return (
     <div>
+      {todayStats?.calls > 0 && (
+        <div className="card" style={{ marginBottom: 14, padding: '14px 18px', border: '1.5px solid #bbf7d0', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>phone_in_talk</span>
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3 }}>Today's Call Activity</span>
+              <div style={{ display: 'flex', gap: 20, marginTop: 4 }}>
+                <div>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: '#16a34a' }}>{todayStats.calls}</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>calls</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats.totalSeconds)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>talk time</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(todayStats.totalSeconds / todayStats.calls))}</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-soft)', marginLeft: 4 }}>avg</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',

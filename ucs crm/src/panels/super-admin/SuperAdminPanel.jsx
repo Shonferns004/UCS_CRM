@@ -11,6 +11,8 @@ import Leaves from './pages/Leaves'
 import DataManagement from './pages/DataManagement'
 import Tickets from './pages/Tickets'
 import Events from './pages/Events'
+import LiveFroStatus from './pages/LiveFroStatus'
+import { Radio } from '@phosphor-icons/react'
 
 const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', icon: GridFour },
@@ -19,6 +21,7 @@ const NAV = [
   { id: 'employees', path: '/sa/employees', label: 'Employees', icon: Users },
   { id: 'leaves', path: '/sa/leaves', label: 'Leaves', icon: Airplane },
   { id: 'tickets', path: '/sa/tickets', label: 'Tickets', icon: Ticket },
+  { id: 'live-fro', path: '/sa/live-fro', label: 'Live FRO', icon: Radio },
 ]
 
 const navMap = {}
@@ -217,6 +220,7 @@ export default function SuperAdminPanel() {
         <Route path="leaves" element={<Leaves />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="events" element={<Events />} />
+        <Route path="live-fro" element={<LiveFroStatus />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Routes>
     </PageShell>
