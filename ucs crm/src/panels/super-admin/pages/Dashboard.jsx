@@ -200,12 +200,19 @@ function FroLiveModal({ froLive, loadingFro, onClose, onRefresh }) {
 
 /* ================= NAME LIST MODAL ================= */
 function NameListModal({ title, color, names, onClose }) {
+  const [q, setQ] = useState('')
+  const filtered = q.trim()
+    ? names.filter(n => {
+        const name = (typeof n === 'string' ? n : (n.name || '')).toLowerCase()
+        return name.includes(q.trim().toLowerCase())
+      })
+    : names
   return (
     <div className="nd-modal-overlay" onClick={onClose}>
       <div className="nd-modal" onClick={e => e.stopPropagation()}>
         <div className="nd-modal-head" style={{ borderColor: `${color}30` }}>
           <span className="nd-modal-badge" style={{ background: `${color}18`, color }}>
-            {names.length}
+            {filtered.length}/{names.length}
           </span>
           <h3 className="nd-modal-title">{title}</h3>
           <button className="nd-modal-close" onClick={onClose}>
@@ -213,10 +220,21 @@ function NameListModal({ title, color, names, onClose }) {
           </button>
         </div>
         <div className="nd-modal-body">
-          {names.length === 0 ? (
-            <p className="nd-muted" style={{ padding: 16 }}>No records found for this period.</p>
+          <div className="nd-modal-search">
+            <span className="material-symbols-outlined nd-modal-search-icon">search</span>
+            <input
+              className="nd-modal-search-input"
+              placeholder="Search by name..."
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              autoFocus
+            />
+            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
+          </div>
+          {filtered.length === 0 ? (
+            <p className="nd-muted" style={{ padding: 16 }}>{q ? 'No matching names found.' : 'No records found for this period.'}</p>
           ) : (
-            names.map((n, i) => {
+            filtered.map((n, i) => {
               const person = typeof n === 'string' ? { name: n } : n
               return (
                 <div key={i} className="nd-modal-row">
@@ -533,6 +551,27 @@ export default function Dashboard() {
         .nd-modal-name { display: block; font-size: 13.5px; font-weight: 600; color: ${PRIMARY}; }
         .nd-modal-dept { display: block; font-size: 11px; color: #94a3b8; }
         .nd-modal-time { margin-left: auto; font-size: 11.5px; color: #64748b; font-weight: 600; }
+
+        /* modal search */
+        .nd-modal-search {
+          display: flex; align-items: center; gap: 8px;
+          padding: 8px 12px; margin-bottom: 8px;
+          border: 1px solid #e2e8f0; border-radius: 12px;
+          background: #f8f9fc; transition: border-color 0.2s;
+        }
+        .nd-modal-search:focus-within { border-color: #8b5cf6; background: #fff; }
+        .nd-modal-search-icon { font-size: 18px; color: #94a3b8; }
+        .nd-modal-search-input {
+          flex: 1; border: none; background: transparent;
+          font-size: 13px; font-family: inherit; color: ${PRIMARY};
+          outline: none;
+        }
+        .nd-modal-search-input::placeholder { color: #b6c0cc; }
+        .nd-modal-search-clear {
+          border: none; background: transparent; cursor: pointer;
+          color: #94a3b8; padding: 2px; display: flex;
+        }
+        .nd-modal-search-clear:hover { color: #64748b; }
 
         /* ALL FRO card */
         .nd-fro-card { border: 1px solid rgba(139,92,246,0.15); transition: border-color 0.2s, box-shadow 0.2s; cursor: pointer; }
