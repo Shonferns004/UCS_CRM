@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getFroLiveStatus } from '../api/endpoints'
+import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads } from '../api/endpoints'
 
 const MINT = '#3EB489'
 const CORAL = '#FF7F50'
@@ -198,6 +198,172 @@ function FroLiveModal({ froLive, loadingFro, onClose, onRefresh }) {
   )
 }
 
+/* ================= ACCOUNTS DETAIL MODAL ================= */
+function AccountsDetailModal({ status, onClose }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [q, setQ] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    getAccountsLeads(status === 'verified_today' ? 'verified' : status)
+      .then(d => {
+        const list = d?.data || d || []
+        if (status === 'verified_today') {
+          const today = new Date().toISOString().slice(0, 10)
+          setItems(list.filter(r => r.verified_at?.slice(0, 10) === today))
+        } else {
+          setItems(list)
+        }
+      })
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false))
+  }, [status])
+
+  const filtered = q.trim()
+    ? items.filter(r => (r.donor_name || '').toLowerCase().includes(q.trim().toLowerCase()) || (r.donor_mobile || '').includes(q.trim()))
+    : items
+
+  const labels = { pending: 'Pending', verified: 'Verified', rejected: 'Rejected', verified_today: 'Verified Today' }
+
+  return (
+    <div className="nd-modal-overlay" onClick={onClose}>
+      <div className="nd-modal fro-modal" onClick={e => e.stopPropagation()}>
+        <div className="nd-modal-head" style={{ borderColor: '#8b5cf630' }}>
+          <h3 className="nd-modal-title">Accounts — {labels[status] || status}</h3>
+          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+        </div>
+        <div className="nd-modal-body" style={{ padding: 0 }}>
+          <div className="nd-modal-search" style={{ margin: 12 }}>
+            <input className="nd-modal-search-input" placeholder="Search donor..." value={q} onChange={e => setQ(e.target.value)} autoFocus />
+            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
+          </div>
+          {loading ? (
+            <p className="nd-muted" style={{ padding: 16 }}>Loading...</p>
+          ) : err ? (
+            <p className="nd-muted" style={{ padding: 16, color: CORAL }}>{err}</p>
+          ) : filtered.length === 0 ? (
+            <p className="nd-muted" style={{ padding: 16 }}>No records found.</p>
+          ) : (
+            <div className="fro-table-wrap">
+              <table className="fro-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Donor Name</th>
+                    <th>Mobile</th>
+                    <th>Amount</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r, i) => (
+                    <tr key={r.log_id || i}>
+                      <td>{i + 1}</td>
+                      <td>{r.donor_name}</td>
+                      <td>{r.donor_mobile}</td>
+                      <td className="fro-amt">₹{(r.amount || 0).toLocaleString('en-IN')}</td>
+                      <td>{r.created_at?.slice(0, 10) || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="fro-live-footer" style={{ padding: '10px 16px', justifyContent: 'flex-end' }}>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ================= RECRUITER DETAIL MODAL ================= */
+function RecruiterDetailModal({ type, onClose }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [q, setQ] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    getRecruiterLeads()
+      .then(d => {
+        const list = d?.data || d || []
+        if (type === 'new_today') {
+          const today = new Date().toISOString().slice(0, 10)
+          setItems(list.filter(r => r.created_at?.slice(0, 10) === today))
+        } else {
+          setItems(list)
+        }
+      })
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false))
+  }, [type])
+
+  const filtered = q.trim()
+    ? items.filter(r => (r.name || '').toLowerCase().includes(q.trim().toLowerCase()) || (r.phone || '').includes(q.trim()))
+    : items
+
+  const labels = { total_leads: 'All Leads', new_today: 'New Today', conversion_rate: 'Lead Status Overview' }
+
+  return (
+    <div className="nd-modal-overlay" onClick={onClose}>
+      <div className="nd-modal fro-modal" onClick={e => e.stopPropagation()}>
+        <div className="nd-modal-head" style={{ borderColor: '#f5b30130' }}>
+          <h3 className="nd-modal-title">Recruiter — {labels[type] || type}</h3>
+          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+        </div>
+        <div className="nd-modal-body" style={{ padding: 0 }}>
+          <div className="nd-modal-search" style={{ margin: 12 }}>
+            <input className="nd-modal-search-input" placeholder="Search lead..." value={q} onChange={e => setQ(e.target.value)} autoFocus />
+            {q && <button className="nd-modal-search-clear" onClick={() => setQ('')}><span className="material-symbols-outlined">close</span></button>}
+          </div>
+          {loading ? (
+            <p className="nd-muted" style={{ padding: 16 }}>Loading...</p>
+          ) : err ? (
+            <p className="nd-muted" style={{ padding: 16, color: CORAL }}>{err}</p>
+          ) : filtered.length === 0 ? (
+            <p className="nd-muted" style={{ padding: 16 }}>No leads found.</p>
+          ) : (
+            <div className="fro-table-wrap">
+              <table className="fro-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                    <th>Recruiter</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r, i) => (
+                    <tr key={r.id || i}>
+                      <td>{i + 1}</td>
+                      <td>{r.name}</td>
+                      <td>{r.phone}</td>
+                      <td><span className={`lead-status-dot ${r.status}`} />{r.status}</td>
+                      <td>{r.users?.name || '-'}</td>
+                      <td>{r.created_at?.slice(0, 10) || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="fro-live-footer" style={{ padding: '10px 16px', justifyContent: 'flex-end' }}>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>{filtered.length} lead{filtered.length !== 1 ? 's' : ''}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ================= NAME LIST MODAL ================= */
 function NameListModal({ title, color, names, onClose }) {
   const [q, setQ] = useState('')
@@ -268,6 +434,8 @@ export default function Dashboard() {
   const [froLive, setFroLive] = useState([])
   const [loadingFro, setLoadingFro] = useState(false)
   const [showFroModal, setShowFroModal] = useState(false)
+  const [accountsModalStatus, setAccountsModalStatus] = useState(null)
+  const [recruiterModalType, setRecruiterModalType] = useState(null)
   const froTimer = useRef(null)
   const navigate = useNavigate()
 
@@ -584,6 +752,16 @@ export default function Dashboard() {
         .mini-card-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
         .mini-card-value { font-size: 26px; font-weight: 800; color: ${PRIMARY}; line-height: 1.2; }
         .mini-card-sub { font-size: 12px; color: #64748b; font-weight: 600; }
+        .mini-card-clickable { cursor: pointer; transition: box-shadow 0.2s, transform 0.15s; }
+        .mini-card-clickable:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+        .lead-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .lead-status-dot.scheduled { background: #3b82f6; }
+        .lead-status-dot.verified { background: ${MINT}; }
+        .lead-status-dot.selected { background: ${MINT}; }
+        .lead-status-dot.rejected { background: #f43f5e; }
+        .lead-status-dot.pending { background: #f59e0b; }
+        .lead-status-dot.contacted { background: #8b5cf6; }
+        .lead-status-dot.follow_up { background: #f5b301; }
 
         /* ALL FRO card */
         .nd-fro-card { border: 1px solid rgba(139,92,246,0.15); transition: border-color 0.2s, box-shadow 0.2s; cursor: pointer; }
@@ -775,22 +953,22 @@ export default function Dashboard() {
           <h3 className="nd-section-title" style={{ margin: 0 }}>Accounts — Lead Verification</h3>
         </div>
         <div className="mini-card-grid">
-          <div className="mini-card" style={{ borderTop: `3px solid #f59e0b` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid #f59e0b` }} onClick={() => setAccountsModalStatus('pending')}>
             <span className="mini-card-label">Pending</span>
             <span className="mini-card-value">{accountsSummary.pending ?? 0}</span>
             <span className="mini-card-sub">₹{(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}</span>
           </div>
-          <div className="mini-card" style={{ borderTop: `3px solid ${MINT}` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT}` }} onClick={() => setAccountsModalStatus('verified')}>
             <span className="mini-card-label">Verified</span>
             <span className="mini-card-value">{accountsSummary.verified ?? 0}</span>
             <span className="mini-card-sub">₹{(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}</span>
           </div>
-          <div className="mini-card" style={{ borderTop: `3px solid #f43f5e` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid #f43f5e` }} onClick={() => setAccountsModalStatus('rejected')}>
             <span className="mini-card-label">Rejected</span>
             <span className="mini-card-value">{accountsSummary.rejected ?? 0}</span>
             <span className="mini-card-sub">₹{(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}</span>
           </div>
-          <div className="mini-card" style={{ borderTop: `3px solid #3b82f6` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid #3b82f6` }} onClick={() => setAccountsModalStatus('verified_today')}>
             <span className="mini-card-label">Verified Today</span>
             <span className="mini-card-value">{accountsSummary.verifiedToday ?? 0}</span>
             <span className="mini-card-sub">₹{(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}</span>
@@ -805,17 +983,17 @@ export default function Dashboard() {
           <h3 className="nd-section-title" style={{ margin: 0 }}>Recruiter — Lead Pipeline</h3>
         </div>
         <div className="mini-card-grid">
-          <div className="mini-card" style={{ borderTop: `3px solid #8b5cf6` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid #8b5cf6` }} onClick={() => setRecruiterModalType('total_leads')}>
             <span className="mini-card-label">Total Leads</span>
             <span className="mini-card-value">{(recruiterSummary.totalLeads || 0).toLocaleString()}</span>
             <span className="mini-card-sub">All time</span>
           </div>
-          <div className="mini-card" style={{ borderTop: `3px solid ${MINT}` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT}` }} onClick={() => setRecruiterModalType('new_today')}>
             <span className="mini-card-label">New Today</span>
             <span className="mini-card-value">{recruiterSummary.newToday ?? 0}</span>
             <span className="mini-card-sub">Added today</span>
           </div>
-          <div className="mini-card" style={{ borderTop: `3px solid #f5b301` }}>
+          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid #f5b301` }} onClick={() => setRecruiterModalType('conversion_rate')}>
             <span className="mini-card-label">Conversion Rate</span>
             <span className="mini-card-value">{(recruiterSummary.conversionRate ?? 0).toFixed(1)}%</span>
             <span className="mini-card-sub">Selected vs Rejected</span>
@@ -1069,6 +1247,22 @@ export default function Dashboard() {
           color={modal.color}
           names={modal.names}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {/* ============ ACCOUNTS DETAIL MODAL ============ */}
+      {accountsModalStatus && (
+        <AccountsDetailModal
+          status={accountsModalStatus}
+          onClose={() => setAccountsModalStatus(null)}
+        />
+      )}
+
+      {/* ============ RECRUITER DETAIL MODAL ============ */}
+      {recruiterModalType && (
+        <RecruiterDetailModal
+          type={recruiterModalType}
+          onClose={() => setRecruiterModalType(null)}
         />
       )}
     </div>
