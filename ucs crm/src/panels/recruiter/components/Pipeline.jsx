@@ -23,7 +23,6 @@ export default function Pipeline() {
                     <div className="ccard" key={c.id} draggable
                       onDragStart={()=>setDrag(c.id)} onDragEnd={()=>setDrag(null)}>
                       <div className="nm">{c.name}</div>
-                      <div className="rl">{c.role}</div>
                       <div className="ft"><Score value={c.score} /><span style={{fontSize:11,color:'var(--ink-soft)'}}>{c.source}</span></div>
                     </div>
                   ))}

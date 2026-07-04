@@ -1331,11 +1331,10 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-recruiter .textarea { width:100%; min-height:120px; resize:vertical; background:#fff; border:1px solid var(--line); border-radius:var(--radius-sm); padding:11px 13px; color:var(--ink); outline:none; font-size:14px; line-height:1.6; font-family:inherit; }
 .panel-recruiter .textarea:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
 .panel-recruiter .skeleton { background:linear-gradient(90deg,var(--line) 25%,var(--sand) 50%,var(--line) 75%); background-size:200% 100%; border-radius:6px; animation:sk-shimmer 1.4s infinite; }
-.panel-recruiter .pipeline { display:flex; gap:0; align-items:stretch; }
-.panel-recruiter .pcol-wrap { display:flex; align-items:center; flex:1; min-width:0; }
+.panel-recruiter .pipeline { display:flex; gap:0; align-items:stretch; overflow-x:auto; padding:4px 0; }
+.panel-recruiter .pcol-wrap { display:flex; align-items:center; flex:1; min-width:160px; position:relative; }
 .panel-recruiter .pcol { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); display:flex; flex-direction:column; min-height:120px; flex:1; }
-.panel-recruiter .pipeline-arrow { flex-shrink:0; display:flex; align-items:center; justify-content:center; width:28px; color:var(--ink-soft); opacity:.4; }
-.panel-recruiter .pcol { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); display:flex; flex-direction:column; min-height:120px; }
+.panel-recruiter .pipeline-arrow { flex-shrink:0; display:flex; align-items:center; justify-content:center; width:40px; padding:0 4px; }
 .panel-recruiter .pcol-head { padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
 .panel-recruiter .pcol-head .t { font-size:12px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-soft); }
 .panel-recruiter .pcol-head .c { font-size:11px; font-weight:600; background:var(--sand); padding:2px 8px; border-radius:20px; color:var(--ink-soft); }
