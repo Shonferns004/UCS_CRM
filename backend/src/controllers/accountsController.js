@@ -1,6 +1,7 @@
 import supabase from '../config/supabase.js';
 import { createReceipt, findReceiptByLogId, getLastReceiptNo, listAllReceipts } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
+import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
 
 export const getLeadList = async (req, res) => {
   try {
@@ -189,6 +190,16 @@ export const verifyLead = async (req, res) => {
           sent_at: new Date().toISOString(),
         });
       } catch (err) { console.error('Failed to create verified notification:', err.message); }
+    }
+
+    // Auto-verify matching bank audit entry if UPI transaction ID matches
+    if (upi_transaction_id) {
+      try {
+        const bankEntry = await getEntryByPaymentId(upi_transaction_id);
+        if (bankEntry) {
+          await verifyEntry(bankEntry.id);
+        }
+      } catch (err) { console.error('Failed to auto-verify bank audit entry:', err.message); }
     }
 
     return res.json({ message: 'Lead verified, receipt generated', receipt });
