@@ -10,6 +10,14 @@ const calcAge = (dob) => {
   return Math.floor(diff / 31557600000);
 };
 
+const getJobRole = (lead) => {
+  if (lead.job_role) return lead.job_role;
+  let notes = [];
+  try { notes = JSON.parse(lead.notes || '[]'); } catch {}
+  const meta = notes.find(n => n.__meta === true && n.type === 'job_role');
+  return meta ? meta.value : null;
+};
+
 const statusPill = (s) => {
   const m = { scheduled:'pill-clay' };
   const st = LEAD_STATUSES.find(st => st.value === s);
@@ -36,7 +44,7 @@ const TABS = [
 ];
 
 export default function Leads() {
-  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters } = useRec();
+  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters, jobs } = useRec();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
@@ -51,13 +59,17 @@ export default function Leads() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
+  const [selectedJobRole, setSelectedJobRole] = useState('');
+  const [customJobRole, setCustomJobRole] = useState('');
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [searchInput, setSearchInput] = useState(leadFilters.search || '');
   const [tab, setTab] = useState('leads');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async (id) => {
+    setDeleting(true);
     try {
       await deleteLead(id);
       setDeleteMsg('Lead deleted successfully.');
@@ -66,6 +78,8 @@ export default function Leads() {
     } catch {
       setDeleteMsg('Failed to delete lead.');
       setTimeout(() => setDeleteMsg(''), 3000);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -82,13 +96,16 @@ export default function Leads() {
     if (!name.trim() || !phone.trim()) return;
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
-      const finalStatus = connectedOption === 'follow_up' && followUpDateTime ? 'followed_up' : connectedOption === 'call_back' && callBackTime ? 'call_back' : connectedOption === 'schedule' && scheduledDate ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption || status;
-      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
+      const finalStatus = connectedOption === 'follow_up' ? 'followed_up' : connectedOption === 'call_back' ? 'call_back' : connectedOption === 'schedule' ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption || status;
+      const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
+      const notesArr = [...formNotes];
+      if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
+      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, job_role: finalJobRole || null, created_by_name: user.name };
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]);
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
     } catch (err) { alert(err.message); }
   };
 
@@ -172,6 +189,10 @@ export default function Leads() {
                     <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
                   </div>
                 </div>
+                <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
+                  <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={[{value:'',label:'Select a role'},{value:'Web Developer',label:'Web Developer'},{value:'Calling',label:'Calling'},{value:'Digital Marketing',label:'Digital Marketing'},{value:'HR',label:'HR'},{value:'Graphic Designer',label:'Graphic Designer'},{value:'Content Writer',label:'Content Writer'},{value:'SEO Specialist',label:'SEO Specialist'},{value:'Sales Executive',label:'Sales Executive'},{value:'Business Analyst',label:'Business Analyst'},{value:'Data Entry',label:'Data Entry'},{value:'Accountant',label:'Accountant'},{value:'Social Media Manager',label:'Social Media Manager'},{value:'Video Editor',label:'Video Editor'},{value:'Other',label:'Other'}]} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                   <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
                   <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
@@ -237,6 +258,10 @@ export default function Leads() {
                   <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
                 </div>
               </div>
+              <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
+                <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={[{value:'',label:'Select a role'},{value:'Web Developer',label:'Web Developer'},{value:'Calling',label:'Calling'},{value:'Digital Marketing',label:'Digital Marketing'},{value:'HR',label:'HR'},{value:'Graphic Designer',label:'Graphic Designer'},{value:'Content Writer',label:'Content Writer'},{value:'SEO Specialist',label:'SEO Specialist'},{value:'Sales Executive',label:'Sales Executive'},{value:'Business Analyst',label:'Business Analyst'},{value:'Data Entry',label:'Data Entry'},{value:'Accountant',label:'Accountant'},{value:'Social Media Manager',label:'Social Media Manager'},{value:'Video Editor',label:'Video Editor'},{value:'Other',label:'Other'}]} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+              </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
                 <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
               </div>
@@ -281,7 +306,7 @@ export default function Leads() {
             </div>
           </div>
           {leadsLoading ? (
-            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={7}/>)}</tbody></table></div>
+            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table></div>
           ) : filteredLeads.length === 0 ? (
             <div className="empty">No leads found.</div>
           ) : (
@@ -289,7 +314,7 @@ export default function Leads() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Notes</th><th>Action</th>
+                  <th>Name</th><th>Phone</th><th>Source</th><th>Status</th><th>Job Description</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -302,12 +327,11 @@ export default function Leads() {
                     <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>
                       <td style={{fontWeight:500}}>{l.name}</td>
                       <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
-                      <td>{displayAge || '—'}</td>
                       <td>{l.source}</td>
                       <td>{isOwner ? (
                         <Dropdown className="inline-select" value={l.status} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
                       ) : statusPill(l.status)}</td>
-                      <td><span className="sub">{parsed.length > 0 ? parsed.length + ' note' + (parsed.length!==1?'s':'') : '—'}</span></td>
+                      <td style={{color:'var(--ink-soft)'}}>{getJobRole(l) || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
                         <span onClick={() => setDeleteConfirm(l)} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,display:'inline-flex',alignItems:'center'}}><Trash width={16}/></span>
                       </td>
@@ -368,7 +392,7 @@ export default function Leads() {
             <p style={{margin:'0 0 16px',fontSize:14,fontWeight:500}}>Are you sure you want to delete this lead?</p>
             <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
               <button className="btn" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="btn" style={{background:'var(--danger)',color:'#fff',borderColor:'var(--danger)'}} onClick={() => handleDelete(deleteConfirm.id)}>Delete</button>
+              <button className="btn" style={{background:'var(--danger)',color:'#fff',borderColor:'var(--danger)'}} onClick={() => handleDelete(deleteConfirm.id)} disabled={deleting}>{deleting ? <><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/> Deleting...</> : 'Delete'}</button>
             </div>
           </div>
         </div>
