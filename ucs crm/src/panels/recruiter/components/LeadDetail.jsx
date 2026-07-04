@@ -60,36 +60,36 @@ export default function LeadDetail({ lead, onBack }) {
           <div><strong>Phone</strong><p>{lead.phone || '—'}</p></div>
           <div><strong>DOB</strong><p>{lead.dob ? new Date(lead.dob).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—'}{age ? ` (Age: ${age})` : ''}</p></div>
           <div><strong>Source</strong><p>{lead.source}</p></div>
+          <div><strong>Created by</strong><p>{lead.created_by_name || '—'}</p></div>
           <div><strong>Status</strong>
             <p style={{marginTop:4}}>
               {isOwner ? (
                 <Dropdown className="inline-select" value={lead.status} onChange={e=>updateStatus(e.target.value)} options={LEAD_STATUSES} style={{minWidth:100}} />
               ) : statusPill(lead.status)}
             </p>
-          </div>
-          <div><strong>Created by</strong><p>{lead.created_by_name || '—'}</p></div>
-
-          {lead.status === 'scheduled' && (
-            <>
-              <div><strong>Interview date</strong>
-                <p style={{marginTop:4}}>
-                  {isOwner ? (
-                    <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                      <input type="date" value={editScheduledDate} onChange={e=>setEditScheduledDate(e.target.value)}
-                        style={{flex:1,border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',padding:'4px 8px',fontSize:13,background:'transparent',color:'var(--ink)',outline:'none'}} />
-                      <button className="btn btn-sm" onClick={updateScheduledDate}>Save</button>
-                    </div>
-                  ) : (
-                    lead.scheduled_date ? new Date(lead.scheduled_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—'
-                  )}
-                </p>
-              </div>
-              <div><strong>Scheduled by</strong><p>{lead.scheduled_by_name || '—'}</p></div>
-              <div><strong>Scheduled at</strong><p style={{color:'var(--ink-soft)'}}>{formatDT(lead.scheduled_at)}</p></div>
-            </>
-          )}
         </div>
       </div>
+      </div>
+
+      {lead.status === 'scheduled' && (
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,padding:'16px 22px'}}>
+          <div><strong>Interview date</strong>
+            <p style={{marginTop:4}}>
+              {isOwner ? (
+                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                  <input type="date" value={editScheduledDate} onChange={e=>setEditScheduledDate(e.target.value)}
+                    style={{flex:1,border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',padding:'4px 8px',fontSize:13,background:'transparent',color:'var(--ink)',outline:'none'}} />
+                  <button className="btn btn-sm" onClick={updateScheduledDate}>Save</button>
+                </div>
+              ) : (
+                lead.scheduled_date ? new Date(lead.scheduled_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—'
+              )}
+            </p>
+          </div>
+          <div><strong>Scheduled by</strong><p>{lead.scheduled_by_name || '—'}</p></div>
+          <div><strong>Scheduled at</strong><p style={{color:'var(--ink-soft)'}}>{formatDT(lead.scheduled_at)}</p></div>
+        </div>
+      )}
 
       <div className="card-head" style={{borderTop:'1px solid var(--line)'}}><h3>Notes</h3></div>
       <div className="card-pad">

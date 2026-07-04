@@ -475,7 +475,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-hr .metric .dot { width:8px; height:8px; border-radius:50%; }
 .panel-hr .grid-2 { display:grid; grid-template-columns:1.4fr 1fr; gap:20px; }
 .panel-hr .field input:focus, .panel-hr .field select:focus, .panel-hr .field textarea:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
-.panel-hr .form-row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
+.panel-hr .form-row { display:flex; gap:12px; flex-wrap:wrap; align-items:start; }
 .panel-hr .form-row .field { flex:1; min-width:130px; }
 .panel-hr table { width:100%; border-collapse:collapse; font-size:13px; }
 .panel-hr th { text-align:left; font-weight:500; color:var(--ink-soft); font-size:11px; padding:10px 16px; border-bottom:1px solid var(--line); text-transform:uppercase; letter-spacing:.04em; }
@@ -510,6 +510,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-hr .dropdown-arrow { flex-shrink:0; transition:transform .2s; color:var(--ink-soft); }
 .panel-hr .dropdown-arrow.up { transform:rotate(180deg); }
 .panel-hr .dropdown-menu { position:absolute; top:calc(100%+4px); left:0; right:0; z-index:100; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); box-shadow:var(--shadow); max-height:240px; overflow-y:auto; }
+.panel-hr .dropdown.menu-inset .dropdown-menu { position:relative; top:auto; left:auto; right:auto; width:100%; box-sizing:border-box; }
 .panel-hr .dropdown-item { padding:8px 12px; font-size:14px; cursor:pointer; transition:background .1s; color:var(--ink); }
 .panel-hr .dropdown-item:hover { background:var(--sand); }
 .panel-hr .dropdown-item.active { background:var(--sage-soft); color:var(--sage); font-weight:500; }
@@ -1285,7 +1286,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-recruiter label.field { display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--ink-soft); }
 .panel-recruiter .field input, .panel-recruiter .field select, .panel-recruiter .field textarea { background:transparent; border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:9px 11px; color:var(--ink); outline:none; }
 .panel-recruiter .field input:focus, .panel-recruiter .field select:focus, .panel-recruiter .field textarea:focus { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
-.panel-recruiter .form-row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
+.panel-recruiter .form-row { display:flex; gap:12px; flex-wrap:wrap; align-items:start; }
 .panel-recruiter .form-row .field { flex:1; min-width:130px; }
 .panel-recruiter table { width:100%; border-collapse:collapse; font-size:13px; }
 .panel-recruiter th { text-align:left; font-weight:500; color:var(--ink-soft); font-size:12px; padding:10px 22px; border-bottom:1px solid var(--line); white-space:nowrap; }
@@ -1304,6 +1305,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-recruiter .dropdown-arrow { flex-shrink:0; transition:transform .2s; color:var(--ink-soft); }
 .panel-recruiter .dropdown-arrow.up { transform:rotate(180deg); }
 .panel-recruiter .dropdown-menu { position:absolute; top:calc(100%+4px); left:0; right:0; z-index:100; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); box-shadow:var(--shadow); max-height:240px; overflow-y:auto; }
+.panel-recruiter .dropdown.menu-inset .dropdown-menu { position:relative; top:auto; left:auto; right:auto; width:100%; box-sizing:border-box; }
 .panel-recruiter .dropdown-item { padding:8px 12px; font-size:14px; cursor:pointer; color:var(--ink); }
 .panel-recruiter .dropdown-item:hover { background:var(--sand); }
 .panel-recruiter .dropdown-item.active { background:var(--sage-soft); color:var(--sage); font-weight:500; }

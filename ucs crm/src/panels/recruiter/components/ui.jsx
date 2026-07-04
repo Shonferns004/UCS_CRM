@@ -10,8 +10,9 @@ function ChevronDown(props) {
   )
 }
 
-export function Dropdown({ value, onChange, options, placeholder, className, style, renderOption, renderValue }) {
+export function Dropdown({ value, onChange, options, placeholder, className, style, renderOption, renderValue, customTrigger, customValue, onCustomChange, menuInset }) {
   const [open, setOpen] = useState(false)
+  const inputRef = useRef(null)
   const ref = useRef(null)
 
   useEffect(() => {
@@ -23,6 +24,10 @@ export function Dropdown({ value, onChange, options, placeholder, className, sty
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  useEffect(() => {
+    if (open && value === customTrigger && inputRef.current) inputRef.current.focus()
+  }, [open, value, customTrigger])
+
   const opts = (options || []).map(o =>
     typeof o === 'string' || typeof o === 'number' ? { value: o, label: String(o) } : o
   )
@@ -30,7 +35,7 @@ export function Dropdown({ value, onChange, options, placeholder, className, sty
   const display = selected ? (renderValue ? renderValue(selected) : selected.label) : (placeholder || '')
 
   return (
-    <div ref={ref} className={`dropdown ${open ? 'open' : ''} ${className || ''}`} style={style}
+    <div ref={ref} className={`dropdown ${open ? 'open' : ''} ${menuInset ? 'menu-inset' : ''} ${className || ''}`} style={style}
       tabIndex={0} onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}>
       <button className="dropdown-trigger" type="button" onClick={() => setOpen(!open)}>
         <span className="dropdown-label">{display || placeholder || ''}</span>
@@ -40,10 +45,15 @@ export function Dropdown({ value, onChange, options, placeholder, className, sty
         <div className="dropdown-menu">
           {opts.map((opt, i) => (
             <div key={i} className={`dropdown-item ${opt.value === value ? ' active' : ''}`}
-              onMouseDown={() => { onChange?.({ target: { value: opt.value } }); setOpen(false) }}>
+              onMouseDown={() => { onChange?.({ target: { value: opt.value } }); if (opt.value !== customTrigger) setOpen(false) }}>
               {renderOption ? renderOption(opt) : opt.label}
             </div>
           ))}
+          {value === customTrigger && (
+            <div className="dropdown-item" style={{ padding: 4 }}>
+              <input ref={inputRef} value={customValue || ''} onChange={e => onCustomChange?.(e.target.value)} placeholder="Specify source..." style={{ width: '100%', boxSizing: 'border-box' }} onMouseDown={e => e.stopPropagation()} />
+            </div>
+          )}
         </div>
       )}
     </div>

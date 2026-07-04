@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useRec, LEAD_SOURCES, LEAD_STATUSES } from '../store';
-import { Plus, Users, Search, RefreshCw } from '../icons';
+import { useRec, LEAD_SOURCES, LEAD_STATUSES, NOT_CONNECTED_OPTIONS } from '../store';
+import { Plus, Users, Search, RefreshCw, Trash, X } from '../icons';
 import { Dropdown } from './ui';
 import LeadDetail from './LeadDetail';
 
@@ -11,8 +11,9 @@ const calcAge = (dob) => {
 };
 
 const statusPill = (s) => {
-  const m = { rejected:'pill-danger', selected:'pill-green', hold:'pill-gold', scheduled:'pill-clay', joined:'pill-gray' };
-  return <span className={`pill ${m[s] || 'pill-gray'}`}>{s}</span>;
+  const m = { scheduled:'pill-clay' };
+  const st = LEAD_STATUSES.find(st => st.value === s);
+  return <span className={`pill ${m[s] || 'pill-gray'}`}>{st ? st.label : s}</span>;
 };
 
 const formatDT = (ts) => {
@@ -32,22 +33,41 @@ const SkeletonRow = ({ cols }) => (
 const TABS = [
   { key:'leads', label:'Leads' },
   { key:'scheduled', label:'Scheduled' },
-  { key:'rejected', label:'Rejected' },
 ];
 
 export default function Leads() {
-  const { leads, leadsLoading, addLead, updateLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters } = useRec();
+  const { leads, leadsLoading, addLead, updateLead, deleteLead, currentUser, user, refreshLeads, leadFilters, setLeadFilters } = useRec();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
   const [source, setSource] = useState('Walk-in');
-  const [status, setStatus] = useState('hold');
+  const [customSource, setCustomSource] = useState('');
+  const [status, setStatus] = useState('');
+
+  const [notConnectedOption, setNotConnectedOption] = useState('');
+  const [connectedOption, setConnectedOption] = useState('');
+  const [followUpDateTime, setFollowUpDateTime] = useState('');
+  const [callBackTime, setCallBackTime] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [formNotes, setFormNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [searchInput, setSearchInput] = useState(leadFilters.search || '');
-  const [tab, setTab] = useState('active');
+  const [tab, setTab] = useState('leads');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteMsg, setDeleteMsg] = useState('');
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteLead(id);
+      setDeleteMsg('Lead deleted successfully.');
+      setDeleteConfirm(null);
+      setTimeout(() => setDeleteMsg(''), 3000);
+    } catch {
+      setDeleteMsg('Failed to delete lead.');
+      setTimeout(() => setDeleteMsg(''), 3000);
+    }
+  };
 
   const addNoteToForm = () => {
     if (!noteText.trim()) return;
@@ -61,10 +81,14 @@ export default function Leads() {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return;
     try {
-      const payload = { name: name.trim(), phone, dob: dob || null, source, status, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
-      if (status === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
+      const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
+      const finalStatus = connectedOption === 'follow_up' && followUpDateTime ? 'followed_up' : connectedOption === 'call_back' && callBackTime ? 'call_back' : connectedOption === 'schedule' && scheduledDate ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption || status;
+      const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: formNotes.length ? JSON.stringify(formNotes) : null, created_by_name: user.name };
+      if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
+      if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
+      if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setStatus('hold'); setScheduledDate(''); setFormNotes([]);
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]);
     } catch (err) { alert(err.message); }
   };
 
@@ -92,12 +116,9 @@ export default function Leads() {
     return true;
   });
 
-  const activeLeads = filteredLeads.filter(l => l.status === 'hold' || l.status === 'selected' || l.status === 'joined');
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
-  const closedLeads = filteredLeads.filter(l => l.status === 'rejected');
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
 
-  const showScheduledDateInput = status === 'scheduled';
 
   if (selectedLead) {
     return (
@@ -114,38 +135,48 @@ export default function Leads() {
               </label>
               <label className="field">DOB
                 <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
-                {age !== null && <span style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>Age: {age}</span>}
+                <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{age !== null ? `Age: ${age}` : ''}</div>
               </label>
               <label className="field">Source
-                <Dropdown value={source} onChange={e=>setSource(e.target.value)} options={LEAD_SOURCES} />
-              </label>
-              <label className="field">Status
-                <Dropdown value={status} onChange={e=>setStatus(e.target.value)} options={LEAD_STATUSES} />
-              </label>
-              {showScheduledDateInput && (
-                <label className="field">Interview date
-                  <input type="date" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} />
-                </label>
-              )}
-            </div>
-            <div style={{marginTop:12}}>
-              <label className="field">Notes
-                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:4}}>
-                  {formNotes.map((n,i) => (
-                    <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
-                      {n.text}
-                      <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
-                    </span>
-                  ))}
-                </div>
-                <div style={{display:'flex',gap:8,marginTop:6}}>
-                  <input value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Type a note and add..." style={{flex:1}} />
-                  <button type="button" className="btn btn-sm" onClick={addNoteToForm}>+ Add</button>
-                </div>
+                <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
               </label>
             </div>
-            <div style={{marginTop:14}}>
-              <button className="btn btn-primary"><Plus width={15}/> Create lead</button>
+            <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+              <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+              <div className="card-pad">
+                <div style={{display:'flex',gap:16}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                    {connectedOption === 'follow_up' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                        <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                    {connectedOption === 'call_back' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                        <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                    {connectedOption === 'schedule' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                        <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                    <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
+                  <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
+                </div>
+              </div>
             </div>
           </form>
         </div>
@@ -169,46 +200,55 @@ export default function Leads() {
             </label>
             <label className="field">DOB
               <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
-              {age !== null && <span style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>Age: {age}</span>}
+              <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{age !== null ? `Age: ${age}` : ''}</div>
             </label>
             <label className="field">Source
-              <Dropdown value={source} onChange={e=>setSource(e.target.value)} options={LEAD_SOURCES} />
-            </label>
-            <label className="field">Status
-              <Dropdown value={status} onChange={e=>setStatus(e.target.value)} options={LEAD_STATUSES} />
-            </label>
-            {showScheduledDateInput && (
-              <label className="field">Interview date
-                <input type="date" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} />
-              </label>
-            )}
-          </div>
-          <div style={{marginTop:12}}>
-            <label className="field">Notes
-              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:4}}>
-                {formNotes.map((n,i) => (
-                  <span key={i} style={{background:'var(--sage-soft)',padding:'3px 8px',borderRadius:6,fontSize:12,display:'inline-flex',alignItems:'center',gap:6}}>
-                    {n.text}
-                    <button type="button" onClick={()=>removeFormNote(i)} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>×</button>
-                  </span>
-                ))}
-              </div>
-              <div style={{display:'flex',gap:8,marginTop:6}}>
-                <input value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Type a note and add..." style={{flex:1}} />
-                <button type="button" className="btn btn-sm" onClick={addNoteToForm}>+ Add</button>
-              </div>
+              <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
             </label>
           </div>
-          <div style={{marginTop:14}}>
-            <button className="btn btn-primary"><Plus width={15}/> Create lead</button>
+          <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+            <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+            <div className="card-pad">
+              <div style={{display:'flex',gap:16}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                  <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                  {connectedOption === 'follow_up' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                      <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                    </div>
+                  )}
+                  {connectedOption === 'call_back' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                      <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
+                    </div>
+                  )}
+                  {connectedOption === 'schedule' && (
+                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                      <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                    </div>
+                  )}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                  <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                </div>
+              </div>
+              <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
+                <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
+              </div>
+            </div>
           </div>
         </form>
       </div>
 
       <div className="tabs" style={{marginBottom:0}}>
         {TABS.map(t => {
-          const counts = { leads: leads.length, scheduled: scheduledLeads.length, rejected: leads.filter(l => l.status === 'rejected').length };
-          const dots = { leads: '#5B6B4E', scheduled: '#3b82f6', rejected: '#ef4444' };
+          const counts = { leads: leads.length, scheduled: scheduledLeads.length };
+          const dots = { leads: '#5B6B4E', scheduled: '#3b82f6' };
           return (
             <button key={t.key} className={`tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
               {t.label}
@@ -241,14 +281,15 @@ export default function Leads() {
             </div>
           </div>
           {leadsLoading ? (
-            <table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={8}/>)}</tbody></table>
+            <div style={{overflowX:'auto'}}><table><tbody>{[1,2,3,4,5].map(i => <SkeletonRow key={i} cols={7}/>)}</tbody></table></div>
           ) : filteredLeads.length === 0 ? (
             <div className="empty">No leads found.</div>
           ) : (
+            <div style={{overflowX:'auto'}}>
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Notes</th><th>Created by</th>
+                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Notes</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -267,12 +308,15 @@ export default function Leads() {
                         <Dropdown className="inline-select" value={l.status} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
                       ) : statusPill(l.status)}</td>
                       <td><span className="sub">{parsed.length > 0 ? parsed.length + ' note' + (parsed.length!==1?'s':'') : '—'}</span></td>
-                      <td style={{color:'var(--ink-soft)'}}>{l.created_by_name || '—'}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <span onClick={() => setDeleteConfirm(l)} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,display:'inline-flex',alignItems:'center'}}><Trash width={16}/></span>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}
@@ -311,39 +355,25 @@ export default function Leads() {
         </div>
       )}
 
-      {tab === 'rejected' && (
-        <div className="card" style={{marginTop:20}}>
-          <div className="card-head"><h3>Rejected</h3><span className="sub">{closedLeads.length} leads</span></div>
-          {leadsLoading ? (
-            <table><tbody>{[1,2,3].map(i => <SkeletonRow key={i} cols={6}/>)}</tbody></table>
-          ) : closedLeads.length === 0 ? (
-            <div className="empty">No rejected leads.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th><th>Phone</th><th>Age</th><th>Source</th><th>Status</th><th>Created by</th>
-                </tr>
-              </thead>
-              <tbody>
-                {closedLeads.map(l => {
-                  const displayAge = l.dob ? calcAge(l.dob) : l.age;
-                  return (
-                    <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>
-                      <td style={{fontWeight:500}}>{l.name}</td>
-                      <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
-                      <td>{displayAge || '—'}</td>
-                      <td>{l.source}</td>
-                      <td>{statusPill(l.status)}</td>
-                      <td style={{color:'var(--ink-soft)'}}>{l.created_by_name || '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+      {deleteMsg && (
+        <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'var(--paper)',border:'1px solid var(--line)',borderRadius:'var(--radius)',boxShadow:'var(--shadow)',padding:'10px 20px',fontSize:14,zIndex:1000,display:'flex',alignItems:'center',gap:10}}>
+          <span>{deleteMsg}</span>
+          <button className="btn btn-sm" onClick={() => setDeleteMsg('')} style={{padding:'2px 6px',lineHeight:1}}><X width={12}/></button>
         </div>
       )}
+
+      {deleteConfirm && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.35)',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={() => setDeleteConfirm(null)}>
+          <div style={{background:'var(--paper)',borderRadius:'var(--radius)',boxShadow:'0 8px 32px rgba(0,0,0,.2)',padding:24,minWidth:320}} onClick={e => e.stopPropagation()}>
+            <p style={{margin:'0 0 16px',fontSize:14,fontWeight:500}}>Are you sure you want to delete this lead?</p>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button className="btn" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="btn" style={{background:'var(--danger)',color:'#fff',borderColor:'var(--danger)'}} onClick={() => handleDelete(deleteConfirm.id)}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </>
   );
 }

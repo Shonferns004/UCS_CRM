@@ -12,8 +12,28 @@ export const avatarTint = (hex) => hex + '22'
 
 const now = () => new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
 export const STAGES = ['New','Screening','Interview','Offer','Hired']
-export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Campus','Social Media','Other']
-export const LEAD_STATUSES = ['rejected','selected','hold','scheduled','joined']
+export const LEAD_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal','Other']
+export const LEAD_STATUSES = [
+  { value:'followed_up', label:'Followed Up' },
+  { value:'call_back', label:'Call Back' },
+  { value:'scheduled', label:'Scheduled' },
+  { value:'ringing', label:'Ringing' },
+  { value:'unreachable', label:'Unreachable' },
+  { value:'busy', label:'Busy' },
+  { value:'switched_off', label:'Switched Off' },
+  { value:'wrong_number', label:'Wrong Number' },
+  { value:'invalid', label:'Invalid' },
+  { value:'rejected', label:'Rejected' },
+]
+export const NOT_CONNECTED_OPTIONS = [
+  { value:'ringing', label:'Ringing' },
+  { value:'unreachable', label:'Unreachable' },
+  { value:'busy', label:'Busy' },
+  { value:'switched_off', label:'Switched Off' },
+  { value:'wrong_number', label:'Wrong Number' },
+  { value:'invalid', label:'Invalid' },
+  { value:'rejected', label:'Rejected' },
+]
 
 let _id = 100
 const nid = () => ++_id
@@ -58,16 +78,32 @@ export function RecProvider({ children }) {
   }, [token, fetchLeads])
 
   const addLead = useCallback(async (data) => {
-    await api('/leads', { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
-    await fetchLeads(true)
+    const temp = { ...data, id: -Date.now(), created_at: new Date().toISOString() }
+    setLeads(p => [temp, ...p])
+    try {
+      const res = await api('/leads', { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
+      setLeads(p => p.map(l => l.id === temp.id ? { ...res, ...data, id: res.id || l.id } : l))
+    } catch {
+      setLeads(p => p.filter(l => l.id !== temp.id))
+    }
     log(`Lead created \u2014 ${data.name}`)
-  }, [fetchLeads, log])
+  }, [log])
 
   const updateLead = useCallback(async (id, data) => {
     await api('/leads/' + id, { method: 'PUT', body: JSON.stringify(data), _prefix: 'ucs' })
     await fetchLeads(true)
     log(`Lead updated \u2014 ${id}`)
   }, [fetchLeads, log])
+
+  const deleteLead = useCallback(async (id) => {
+    try {
+      await api('/leads/' + id, { method: 'DELETE', _prefix: 'ucs' })
+    } catch (e) {
+      // backend may return empty body on DELETE; proceed with local removal
+    }
+    setLeads(p => p.filter(l => l.id !== id))
+    log(`Lead deleted \u2014 ${id}`)
+  }, [log])
 
   const [leadStats, setLeadStats] = useState({ leads:0, today:0, onHold:0, conversion:0 })
   const fetchLeadStats = useCallback(async () => {
@@ -88,7 +124,7 @@ export function RecProvider({ children }) {
     candidates, jobs, feed, log,
     moveCandidate, addCandidate, addJob,
     leads, leadsLoading, leadFilters, setLeadFilters, leadStats,
-    fetchLeads, refreshLeads, addLead, updateLead, fetchLeadStats, updateLeadFilters,
+    fetchLeads, refreshLeads, addLead, updateLead, deleteLead, fetchLeadStats, updateLeadFilters,
     currentUser: user, user,
   }), [candidates, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, user])
 

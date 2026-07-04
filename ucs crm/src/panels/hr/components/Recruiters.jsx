@@ -10,13 +10,27 @@ const calcAge = (dob) => {
 };
 
 const STATUSES = [
-  { key: 'hold', label: 'Hold', color: '#f59e0b' },
-  { key: 'selected', label: 'Selected', color: '#22c55e' },
-  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
+  { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
+  { key: 'call_back', label: 'Call Back', color: '#06b6d4' },
   { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
-  { key: 'joined', label: 'Joined', color: '#8b5cf6' },
+  { key: 'ringing', label: 'Ringing', color: '#ef4444' },
+  { key: 'unreachable', label: 'Unreachable', color: '#ef4444' },
+  { key: 'busy', label: 'Busy', color: '#ef4444' },
+  { key: 'switched_off', label: 'Switched Off', color: '#ef4444' },
+  { key: 'wrong_number', label: 'Wrong Number', color: '#ef4444' },
+  { key: 'invalid', label: 'Invalid', color: '#ef4444' },
+  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
 ];
-const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Campus', 'Social Media', 'Other'];
+const NOT_CONNECTED_OPTIONS = [
+  { key: 'ringing', label: 'Ringing', color: '#f59e0b' },
+  { key: 'unreachable', label: 'Unreachable', color: '#ef4444' },
+  { key: 'busy', label: 'Busy', color: '#f59e0b' },
+  { key: 'switched_off', label: 'Switched Off', color: '#6b7280' },
+  { key: 'wrong_number', label: 'Wrong Number', color: '#ef4444' },
+  { key: 'invalid', label: 'Invalid', color: '#ef4444' },
+  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
+];
+const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
 
 const formatDT = (ts) => {
   if (!ts) return '—';
@@ -35,7 +49,7 @@ export default function Recruiters() {
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
-  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', status: 'hold', notes: [], recruiter_id: '' });
+  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
 
@@ -65,11 +79,7 @@ export default function Recruiters() {
     newToday: leads.filter(l => l.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
     scheduled: leads.filter(l => l.status === 'scheduled').length,
     scheduledTomorrow: leads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
-    rejected: leads.filter(l => l.status === 'rejected').length,
-    selected: leads.filter(l => l.status === 'selected').length,
-    joined: leads.filter(l => l.status === 'joined').length,
-    active: leads.filter(l => !['rejected', 'joined'].includes(l.status)).length,
-    conversion: leads.length > 0 ? ((leads.filter(l => l.status === 'joined').length / Math.max(1, leads.filter(l => l.status === 'joined' || l.status === 'rejected').length)) * 100).toFixed(1) : 0,
+
   };
 
   const openForm = (lead) => {
@@ -81,13 +91,19 @@ export default function Recruiters() {
         phone: lead.phone || '',
         dob: lead.dob || '',
         source: lead.source || 'Walk-in',
+        customSource: '',
         status: lead.status,
+        connectedOption: '',
+        notConnectedOption: '',
+        followUpDateTime: '',
+        callBackTime: '',
+        scheduledDate: '',
         notes,
         recruiter_id: lead.recruiter_id || '',
       });
       setEditingLead(lead);
     } else {
-      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', status: 'hold', notes: [], recruiter_id: '' });
+      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
       setEditingLead(null);
     }
     setNewNote('');
@@ -112,24 +128,37 @@ export default function Recruiters() {
   const submitForm = async () => {
     if (!form.name.trim()) return;
     try {
+      const finalSource = form.source === 'Other' ? (form.customSource.trim() || 'Other') : form.source;
+      const finalStatus = form.connectedOption === 'follow_up' && form.followUpDateTime ? 'followed_up' : form.connectedOption === 'call_back' && form.callBackTime ? 'call_back' : form.connectedOption === 'schedule' && form.scheduledDate ? 'scheduled' : form.connectedOption === 'not_interested' ? 'not_interested' : form.notConnectedOption || form.status;
       const payload = {
         name: form.name.trim(),
         phone: form.phone || null,
         dob: form.dob || null,
-        source: form.source,
-        status: form.status,
+        source: finalSource,
+        status: finalStatus,
         notes: JSON.stringify(form.notes),
         recruiter_id: form.recruiter_id || null,
       };
+      if (finalStatus === 'followed_up' && form.followUpDateTime) payload.follow_up_date = form.followUpDateTime;
+      if (finalStatus === 'call_back' && form.callBackTime) payload.call_back_time = form.callBackTime;
+      if (finalStatus === 'scheduled' && form.scheduledDate) payload.scheduled_date = form.scheduledDate;
       if (editingLead) {
         await updateLead(editingLead.id, payload);
+        setShowForm(false);
+        setEditingLead(null);
+        setLeadsLoading(true);
+        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
       } else {
-        await addLead(payload);
+        const temp = { ...payload, id: -Date.now(), created_at: new Date().toISOString(), name: form.name.trim() };
+        setLeads(p => [temp, ...p]);
+        setShowForm(false);
+        try {
+          const res = await addLead(payload);
+          setLeads(p => p.map(l => l.id === temp.id ? { ...res, ...payload, id: res?.id || l.id } : l));
+        } catch {
+          setLeads(p => p.filter(l => l.id !== temp.id));
+        }
       }
-      setShowForm(false);
-      setEditingLead(null);
-      setLeadsLoading(true);
-      fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
     } catch {}
   };
 
@@ -323,19 +352,49 @@ export default function Recruiters() {
                 </label>
                 <label className="field">DOB
                   <DatePicker value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
-                  {formAge !== null && <span style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>Age: {formAge}</span>}
+                  <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{formAge !== null ? `Age: ${formAge}` : ''}</div>
                 </label>
               </div>
 
               <div className="form-row">
                 <label className="field">Source
-                  <Dropdown value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
-                    options={SOURCES.map(s => ({value:s, label:s}))} />
+                  <Dropdown value={form.source} onChange={v => setForm(f => ({ ...f, source: v, customSource: v !== 'Other' ? '' : f.customSource }))}
+                    options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
-                <label className="field">Status
-                  <Dropdown value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                    options={STATUSES.map(s => ({value:s.key, label:s.label}))} />
-                </label>
+              </div>
+              <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+                <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+                <div className="card-pad">
+                  <div style={{display:'flex',gap:16}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                      <Dropdown menuInset value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '', scheduledDate: '' }))} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                      {form.connectedOption === 'follow_up' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                          <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {form.connectedOption === 'call_back' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                          <input type="time" value={form.callBackTime} onChange={e => setForm(f => ({ ...f, callBackTime: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {form.connectedOption === 'schedule' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                          <input type="datetime-local" value={form.scheduledDate} onChange={e => setForm(f => ({ ...f, scheduledDate: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                      <Dropdown menuInset value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
+                        options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))]} style={{width:'100%'}} />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <label className="field">Assigned to
