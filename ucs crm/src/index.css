@@ -1369,6 +1369,9 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-recruiter .inline-select .dropdown-menu { min-width:120px; }
 .panel-recruiter .filter-select.dropdown .dropdown-trigger { padding:6px 10px; font-size:12px; min-width:110px; }
 @media (max-width:880px) { .panel-recruiter .grid-2 { grid-template-columns:1fr; } .panel-recruiter .sidebar { width:76px; } .panel-recruiter .sidebar .brand h1, .panel-recruiter .sidebar .brand span, .panel-recruiter .nav-item span, .panel-recruiter .nav-label, .panel-recruiter .nav-foot { display:none; } .panel-recruiter .nav-item { justify-content:center; } }
+.panel-recruiter .spinner { width:36px; height:36px; border:3px solid var(--line); border-top-color:var(--sage); border-radius:50%; animation:att-spin .6s linear infinite; display:inline-block; }
+.panel-recruiter .btn:disabled { opacity:.6; cursor:not-allowed; }
+@keyframes att-spin { to{transform:rotate(360deg)} }
 
 /* ── PRINT ── */
 @media print { body { background:#fff; } .no-print { display:none !important; } }

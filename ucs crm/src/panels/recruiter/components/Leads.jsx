@@ -56,8 +56,10 @@ export default function Leads() {
   const [tab, setTab] = useState('leads');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async (id) => {
+    setDeleting(true);
     try {
       await deleteLead(id);
       setDeleteMsg('Lead deleted successfully.');
@@ -66,6 +68,8 @@ export default function Leads() {
     } catch {
       setDeleteMsg('Failed to delete lead.');
       setTimeout(() => setDeleteMsg(''), 3000);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -368,7 +372,7 @@ export default function Leads() {
             <p style={{margin:'0 0 16px',fontSize:14,fontWeight:500}}>Are you sure you want to delete this lead?</p>
             <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
               <button className="btn" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="btn" style={{background:'var(--danger)',color:'#fff',borderColor:'var(--danger)'}} onClick={() => handleDelete(deleteConfirm.id)}>Delete</button>
+              <button className="btn" style={{background:'var(--danger)',color:'#fff',borderColor:'var(--danger)'}} onClick={() => handleDelete(deleteConfirm.id)} disabled={deleting}>{deleting ? <><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/> Deleting...</> : 'Delete'}</button>
             </div>
           </div>
         </div>
