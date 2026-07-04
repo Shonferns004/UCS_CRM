@@ -1,15 +1,13 @@
 const STEPS = [
-  { num: 1, text: 'Talent Sourcing' },
-  { num: 2, text: 'Candidate Data Centralization' },
-  { num: 3, text: 'Candidate Search' },
-  { num: 4, text: 'Candidate Engagement' },
-  { num: 5, text: 'Workflow Automation' },
-  { num: 6, text: 'Hiring Team Collaboration' },
-  { num: 7, text: 'Analytics and Reporting' },
-  { num: 8, text: 'Ongoing Nurturing' },
+  'Talent Sourcing',
+  'Candidate Data Centralization',
+  'Candidate Search',
+  'Candidate Engagement',
+  'Workflow Automation',
+  'Hiring Team Collaboration',
+  'Analytics and Reporting',
+  'Ongoing Nurturing',
 ];
-
-const isBlue = n => n % 2 !== 0;
 
 function ArrowRight() {
   return (
@@ -38,16 +36,10 @@ function ArrowDown() {
   );
 }
 
-function StepCard({ step }) {
-  const blue = isBlue(step.num);
-  const bg = blue ? '#4F6EF7' : '#55D6E8';
-
+function StepCard({ text }) {
   return (
     <div className="infocard">
-      <div className="infocard-badge" style={{ background: bg }}>
-        {step.num}
-      </div>
-      <div className="infocard-text">{step.text}</div>
+      <div className="infocard-text">{text}</div>
     </div>
   );
 }
@@ -58,12 +50,11 @@ export default function Pipeline() {
 
   return (
     <div className="infographic">
-      <h1 className="infographic-title">How Recruitment CRM Software Works</h1>
       <div className="infographic-body">
         <div className="infographic-row">
           {row1.map((s, i) => (
-            <span className="infographic-row-item" key={s.num}>
-              <StepCard step={s} />
+            <span className="infographic-row-item" key={s}>
+              <StepCard text={s} />
               {i < row1.length - 1 && <ArrowRight />}
             </span>
           ))}
@@ -73,9 +64,9 @@ export default function Pipeline() {
         </div>
         <div className="infographic-row">
           {row2.map((s, i) => (
-            <span className="infographic-row-item" key={s.num}>
+            <span className="infographic-row-item" key={s}>
               {i > 0 && <ArrowLeft />}
-              <StepCard step={s} />
+              <StepCard text={s} />
             </span>
           ))}
         </div>
