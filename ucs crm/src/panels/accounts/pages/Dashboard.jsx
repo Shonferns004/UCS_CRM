@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiGet } from '../api/auth';
+import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 
 const PAGE_SIZE = 15;
@@ -51,6 +52,12 @@ export default function Dashboard() {
   }, [statusFilter]);
 
   useEffect(load, [load]);
+
+  useRealtime('fro_donor_logs', {
+    filter: 'action=eq.disposition',
+    onInsert: () => load(),
+    onUpdate: () => load(),
+  });
 
   const stats = useMemo(() => {
     const pending = allLeads.filter(l => l.accounts_status === 'pending');

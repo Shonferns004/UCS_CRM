@@ -27,6 +27,8 @@ import {
   distributeNewData,
   getAlerts,
   acknowledgeAlert,
+  getRejectedLeads,
+  acknowledgeRejectedLead,
   getDataRequests,
   resolveDataRequest,
   transferStationData,
@@ -38,6 +40,9 @@ import {
 } from '../controllers/ngoAdminController.js';
 
 const router = Router();
+
+router.get('/rejected-leads', authenticateRole('hoadmin', 'super_admin'), getRejectedLeads);
+router.put('/rejected-leads/:id/acknowledge', authenticateRole('hoadmin', 'super_admin'), acknowledgeRejectedLead);
 
 router.use(authenticateRole('hoadmin'));
 

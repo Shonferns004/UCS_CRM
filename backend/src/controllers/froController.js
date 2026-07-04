@@ -377,9 +377,10 @@ export const getMyDonors = async (req, res) => {
         .in('donor_id', donorIds)
         .eq('accounts_status', 'verified');
       const verifiedDonorIds = new Set((verifiedLogs || []).map(l => l.donor_id));
-      assignments = assignments.filter(a => verifiedDonorIds.has(a.donor_id));
-      donorIds = [...new Set(assignments.map(a => a.donor_id))];
-      if (donorIds.length === 0) return res.json([]);
+      if (verifiedDonorIds.size > 0) {
+        assignments = assignments.filter(a => verifiedDonorIds.has(a.donor_id));
+        donorIds = [...new Set(assignments.map(a => a.donor_id))];
+      }
     }
     const { data: donors } = await supabase
       .from('donor_profiles')
@@ -416,7 +417,16 @@ export const getMyDonors = async (req, res) => {
 
     const activeDonorIds = new Set((recentActivity || []).map(l => l.donor_id));
 
-    const result = [];
+    // Sort assignments so completed/connected statuses come before pending
+    // (dedup picks the first occurrence)
+    if (req.query.verified_only === 'true') {
+      const statusOrder = ['donation_collected', 'lead_done', 'follow_up', 'scheduled', 'contacted', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'pending', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected'];
+      const statusRank = {};
+      for (let i = 0; i < statusOrder.length; i++) statusRank[statusOrder[i]] = i;
+      assignments.sort((a, b) => (statusRank[a.status] ?? 999) - (statusRank[b.status] ?? 999));
+    }
+
+    let result = [];
     const seen = new Set();
     for (const a of assignments || []) {
       const d = donorMap[a.donor_id];
@@ -459,6 +469,52 @@ export const getMyDonors = async (req, res) => {
       });
     }
 
+    // Attach latest accounts_status from fro_donor_logs (for verified_only view)
+    if (req.query.verified_only === 'true' && result.length > 0) {
+      const donorIdsForStatus = result.map(r => r.donor_id);
+      const { data: statusLogs } = await supabase
+        .from('fro_donor_logs')
+        .select('donor_id, accounts_status')
+        .in('donor_id', donorIdsForStatus)
+        .in('accounts_status', ['verified', 'rejected', 'pending'])
+        .order('created_at', { ascending: false });
+      const latestStatus = {};
+      for (const log of statusLogs || []) {
+        if (!latestStatus[log.donor_id]) latestStatus[log.donor_id] = log.accounts_status;
+      }
+      for (const r of result) {
+        r.accounts_status = latestStatus[r.donor_id] || r.status;
+      }
+    }
+
+    // --- Period filter ---
+    const periodFilter = req.query.period;
+    if (periodFilter && periodFilter !== 'all' && donorIds.length > 0) {
+      let periodCutoff;
+      const now = new Date();
+      if (periodFilter === 'today') {
+        const d = new Date(); d.setHours(0, 0, 0, 0);
+        periodCutoff = d.toISOString();
+      } else if (periodFilter === 'monthly') {
+        periodCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (periodFilter === 'sixmonths') {
+        periodCutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (periodFilter === 'yearly') {
+        periodCutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      }
+      if (periodCutoff) {
+        const { data: periodActivity, error: periodError } = await supabase
+          .from('fro_donor_logs')
+          .select('donor_id')
+          .in('donor_id', donorIds)
+          .not('action', 'eq', 'note')
+          .gte('created_at', periodCutoff);
+        if (periodError) throw periodError;
+        const periodDonorIds = new Set((periodActivity || []).map(l => l.donor_id));
+        result = result.filter(r => periodDonorIds.has(r.donor_id));
+      }
+    }
+
     // --- Ordering logic ---
     // 1. New leads (is_new === true)
     // 2. Not connected (status in NOT_CONNECTED_STATUSES or 'pending')
@@ -469,22 +525,29 @@ export const getMyDonors = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
-    const leadDoneDonorIds = result.filter(r => r.status === 'lead_done').map(r => r.donor_id);
-    let hiddenLeadDoneIds = new Set();
-    if (leadDoneDonorIds.length > 0) {
+    // Use ALL donor_ids in the station (before dedup) to find hidden lead_done
+    const hiddenLeadDoneIds = new Set();
+    const rejectedLeadDoneIds = new Set();
+    if (donorIds.length > 0) {
       const { data: leadDoneLogs, error: leadError } = await supabase
         .from('fro_donor_logs')
-        .select('donor_id')
-        .in('donor_id', leadDoneDonorIds)
+        .select('donor_id, accounts_status')
+        .in('donor_id', donorIds)
         .eq('disposition_detail', 'lead_done')
         .eq('action', 'disposition')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
       if (leadError) throw leadError;
-      hiddenLeadDoneIds = new Set((leadDoneLogs || []).map(l => l.donor_id));
+      for (const log of leadDoneLogs || []) {
+        hiddenLeadDoneIds.add(log.donor_id);
+        if (log.accounts_status === 'rejected') rejectedLeadDoneIds.add(log.donor_id);
+      }
+      for (const id of rejectedLeadDoneIds) hiddenLeadDoneIds.delete(id);
     }
 
-    const filtered = result.filter(r => !(r.status === 'lead_done' && hiddenLeadDoneIds.has(r.donor_id)));
+    const filtered = req.query.verified_only === 'true'
+      ? result
+      : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id));
 
     const notConnectedSet = new Set(NOT_CONNECTED_STATUSES);
     const connectedSet = new Set(CONNECTED_STATUSES);
@@ -764,7 +827,71 @@ export const createDonorLogHandler = async (req, res) => {
       });
     }
 
+    // If this assignment had a rejected lead ticket, resolve it
+    try {
+      const { data: logs } = await supabase
+        .from('fro_donor_logs')
+        .select('id')
+        .eq('assignment_id', assignment.id)
+        .eq('accounts_status', 'rejected')
+        .limit(1);
+      if (logs && logs.length > 0) {
+        const rejectedLogIds = logs.map(l => l.id);
+        await supabase
+          .from('rejected_lead_tickets')
+          .update({ status: 'resolved' })
+          .in('fro_donor_log_id', rejectedLogIds)
+          .eq('status', 'pending_review');
+      }
+    } catch (err) {
+      console.error('Failed to resolve rejected lead ticket:', err.message);
+    }
+
     return res.json({ message: 'Log entry created', data: log });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getRejectedLeads = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const stationNames = await getMyStationNames(workerId);
+
+    if (stationNames.length === 0) return res.json([]);
+
+    const { data: tickets, error } = await supabase
+      .from('rejected_lead_tickets')
+      .select('*')
+      .eq('fro_worker_id', workerId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    const data = tickets || [];
+
+    // Enrich with donor_id from fro_donor_logs
+    const logIds = data.map(t => t.fro_donor_log_id).filter(Boolean);
+    const donorMap = {};
+    if (logIds.length > 0) {
+      const { data: logs } = await supabase
+        .from('fro_donor_logs')
+        .select('id, fro_assignments!inner(donor_id, ngo_id, donor_profiles!inner(mobile_number))')
+        .in('id', logIds);
+      for (const log of logs || []) {
+        donorMap[log.id] = {
+          donor_id: log.fro_assignments?.donor_id,
+          ngo_id: log.fro_assignments?.ngo_id,
+          donor_mobile: log.fro_assignments?.donor_profiles?.mobile_number || '',
+        };
+      }
+    }
+
+    const result = data.map(t => {
+      const info = donorMap[t.fro_donor_log_id] || {};
+      return { ...t, donor_id: info.donor_id, donor_mobile: info.donor_mobile, ngo_id: info.ngo_id || t.ngo_id };
+    });
+
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1385,6 +1512,57 @@ export const getDonorHistory = async (req, res) => {
 
     return res.json({ donor: donors || null, logs: logs || [] });
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getFullDonorHistory = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const donorId = parseInt(req.params.id);
+    const ngoId = parseInt(req.query.ngo_id) || null;
+    const unlockAll = req.query.unlock_all === 'true';
+
+    const stationNames = await getMyStationNames(workerId);
+    if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
+
+    const { data: donor } = await supabase
+      .from('donor_profiles')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .eq('id', donorId)
+      .maybeSingle();
+
+    let query = supabase
+      .from('fro_assignments')
+      .select('id')
+      .eq('donor_id', donorId)
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
+    if (ngoId) query = query.eq('ngo_id', ngoId);
+
+    const { data: assignments } = await query;
+    if (!assignments || assignments.length === 0) return res.json({ donor, logs: [] });
+
+    const assignmentIds = assignments.map(a => a.id);
+
+    let logsQuery = supabase
+      .from('fro_donor_logs')
+      .select('*')
+      .in('assignment_id', assignmentIds)
+      .order('created_at', { ascending: false });
+
+    if (!unlockAll) {
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      logsQuery = logsQuery.gte('created_at', twoYearsAgo.toISOString());
+    }
+
+    const { data: logs, error } = await logsQuery;
+    if (error) throw error;
+
+    return res.json({ donor: donor || null, logs: logs || [] });
+  } catch (error) {
+    console.error('getFullDonorHistory error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

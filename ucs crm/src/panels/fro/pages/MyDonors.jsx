@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMyDonors, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations } from '../api/donors';
 import { SkeletonProfile } from '../../../components/Skeleton';
+import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 
@@ -30,6 +31,9 @@ const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
 const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
+const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
 
 const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
@@ -84,12 +88,17 @@ export default function MyDonors() {
           const { id, ngo_id, idx } = JSON.parse(saved);
           const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
           if (found >= 0) { setIndex(found); return; }
-          if (typeof idx === 'number' && idx < r.length) { setIndex(idx); return; }
+          if (typeof idx === 'number') { setIndex(Math.min(idx, Math.max(0, r.length - 1))); return; }
         } catch { }
       }
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
   }, [filterStatus]);
+
+  const reloadDonors = useCallback(() => {
+    getMyDonors(filterStatus).then(r => { setDonors(r); }).catch(() => {});
+  }, [filterStatus]);
+  useRealtime('fro_assignments', { onUpdate: () => reloadDonors(), onInsert: () => reloadDonors() });
 
   const donor = donors[index];
 
@@ -133,6 +142,7 @@ export default function MyDonors() {
     }
     if (detailId === 'lead_done') {
       setProjectName(donor?.donor_project || '');
+      setLeadAmount('');
       setPanError('');
     } else {
       setLeadScreenshot(null);
@@ -222,12 +232,18 @@ export default function MyDonors() {
       const newDonors = await getMyDonors(filterStatus);
       const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
       setDonors(newDonors);
-      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadRemark(''); setShowRemark(false);
+      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
       if (stillExists) {
         const newIdx = newDonors.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
-        if (newIdx < newDonors.length - 1) setIndex(newIdx + 1);
+        if (newIdx < newDonors.length - 1) {
+          setIndex(newIdx + 1);
+        } else {
+          setIndex(0);
+        }
       } else {
-        if (index >= newDonors.length) setIndex(Math.max(0, newDonors.length - 1));
+        if (index >= newDonors.length) {
+          setIndex(0);
+        }
       }
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
@@ -401,7 +417,7 @@ export default function MyDonors() {
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Follow Up Date</label>
-                      <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" />
+                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={tomorrowStr} />
                     </div>
                   </div>
                   {dateConfirmed && (
