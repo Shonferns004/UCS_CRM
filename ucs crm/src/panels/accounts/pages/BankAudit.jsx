@@ -287,7 +287,7 @@ export default function BankAudit() {
 
       {showAddEntry && (
         <div className="modal-overlay" onClick={() => setShowAddEntry(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <h3>Add Bank Entry</h3>
               <button className="btn btn-sm" onClick={() => setShowAddEntry(false)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
@@ -335,7 +335,7 @@ export default function BankAudit() {
 
       {showEditEntry && (
         <div className="modal-overlay" onClick={() => setShowEditEntry(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
               <h3>Edit Entry</h3>
               <button className="btn btn-sm" onClick={() => setShowEditEntry(null)} style={{ display: 'flex', alignItems: 'center' }}><SvgX /></button>
