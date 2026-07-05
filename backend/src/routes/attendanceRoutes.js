@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { punchIn, punchOut, todayStatus, myHistory, listAll, updateAttendanceRecord, createAttendanceByHR, deleteAttendanceRecord } from '../controllers/attendanceController.js';
+import { punchIn, punchOut, todayStatus, myHistory, listAll, updateAttendanceRecord, createAttendanceByHR, deleteAttendanceRecord, getWorkerMonthlyAttendance } from '../controllers/attendanceController.js';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
 const router = Router();

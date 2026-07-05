@@ -11,17 +11,13 @@ import { RecProvider, useRec, initials, avatarColor, avatarTint } from './store'
 import { Grid, Spark, Funnel, Users, Brief, Heart, LogOut } from './icons'
 import Dashboard from './components/Dashboard'
 import Leads from './components/Leads'
-import Pipeline from './components/Pipeline'
 import Candidates from './components/Candidates'
-import Jobs from './components/Jobs'
 import Interviews from './components/Interviews'
 
 const NAV = [
   { id:'dashboard',  path:'/recruiter/dashboard',  label:'Dashboard',  icon:Grid,   eyebrow:'Overview',  sub:'Your hiring at a glance' },
   { id:'leads',      path:'/recruiter/leads',      label:'Leads',      icon:Spark,  eyebrow:'Leads',    sub:'Manage incoming leads and track conversions' },
-  { id:'pipeline',   path:'/recruiter/pipeline',   label:'Pipeline',   icon:Funnel, eyebrow:'Hiring',    sub:'Drag candidates through the stages' },
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
-  { id:'jobs',       path:'/recruiter/jobs',       label:'Jobs',       icon:Brief,  eyebrow:'Roles',     sub:'Open roles and applicant counts' },
   { id:'interviews', path:'/recruiter/interviews', label:'Interviews', icon:Grid,  eyebrow:'Schedule',  sub:'Upcoming interviews this week' },
 ]
 
@@ -165,9 +161,7 @@ function AppShell() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
-            <Route path="pipeline" element={<Pipeline />} />
             <Route path="candidates" element={<Candidates />} />
-            <Route path="jobs" element={<Jobs />} />
             <Route path="interviews" element={<Interviews />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>

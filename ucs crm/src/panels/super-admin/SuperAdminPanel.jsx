@@ -38,7 +38,7 @@ const GROUPS = [
 
 const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets']
 
-function Sidebar() {
+function Sidebar({ mobileOpen }) {
   const location = useLocation()
   const [collapsedGroups, setCollapsedGroups] = useState(() => {
     try { return JSON.parse(localStorage.getItem('sa_collapsed_groups') || '[]') } catch { return [] }
@@ -60,7 +60,7 @@ function Sidebar() {
   }
 
   return (
-    <aside className="sa-sidebar">
+    <aside className={`sa-sidebar${mobileOpen ? ' open' : ''}`}>
       <div className="sa-sidebar-header">
         <div className="sa-logo">SA</div>
         <div><div className="sa-logo-text">UFS</div><div style={{fontSize:11,color:'var(--text-muted)',letterSpacing:.5,textTransform:'uppercase'}}>Super Admin</div></div>
@@ -187,6 +187,8 @@ function PageShell({ children }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [showMenu])
 
+  useEffect(() => { setMobileSidebar(false) }, [location.pathname])
+
   const meta = NAV.find(n => location.pathname.startsWith(n.path))
   const userName = user?.name || 'Super Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -197,12 +199,18 @@ function PageShell({ children }) {
 
   return (
     <div className="app">
-      <Sidebar />
+      <div className={`sa-sidebar-overlay${mobileSidebar ? ' open' : ''}`} onClick={() => setMobileSidebar(false)} />
+      <Sidebar mobileOpen={mobileSidebar} />
       <div className="main">
         <header className="topbar">
-          <div>
-            <div className="eyebrow">{meta?.label || 'Dashboard'}</div>
-            <h2>{meta?.label || 'Dashboard'}</h2>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <button className="sa-hamburger sa-top-hamburger" onClick={() => setMobileSidebar(o => !o)} aria-label="Toggle menu">
+              <span /><span /><span />
+            </button>
+            <div>
+              <div className="eyebrow">{meta?.label || 'Dashboard'}</div>
+              <h2>{meta?.label || 'Dashboard'}</h2>
+            </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <div ref={notifRef} style={{ position:'relative' }}>

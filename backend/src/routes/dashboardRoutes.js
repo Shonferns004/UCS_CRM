@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { Router } from 'express';
 import {
   getSuperAdminDashboard,
+  getFroLiveStatus,
   getHrDashboard,
   getAdminDashboard,
   getAccountsDashboard,

@@ -32,6 +32,7 @@ function ProtectedRoute({ role, children }) {
   const { user } = useUcs()
   const allowedRoles = Array.isArray(role) ? role : [role]
   if (!user) return <Navigate to="/login" replace />
+  if (user.role === 'super_admin') return children
   if (!allowedRoles.includes(user.role) && !allowedRoles.includes(user.department)) {
     return <AccessDenied />
   }

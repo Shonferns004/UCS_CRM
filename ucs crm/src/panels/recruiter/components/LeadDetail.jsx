@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { useRec, LEAD_STATUSES } from '../store';
-import { Dropdown } from './ui';
+import { useRec } from '../store';
 import { ArrowLeft } from '../icons';
 
 const calcAge = (dob) => {
@@ -11,7 +10,8 @@ const calcAge = (dob) => {
 
 const statusPill = (s) => {
   const m = { rejected:'pill-danger', selected:'pill-green', hold:'pill-gold', scheduled:'pill-clay', joined:'pill-gray' };
-  return <span className={`pill ${m[s] || 'pill-gray'}`}>{s}</span>;
+  const labels = { followed_up:'Followed Up', call_back:'Call Back', not_interested:'Not Interested', ringing:'Ringing', unreachable:'Unreachable', busy:'Busy', switched_off:'Switched Off', wrong_number:'Wrong Number', invalid:'Invalid', rejected:'Rejected' };
+  return <span className={`pill ${m[s] || 'pill-gray'}`}>{labels[s] || s}</span>;
 };
 
 export default function LeadDetail({ lead, onBack }) {
@@ -21,20 +21,15 @@ export default function LeadDetail({ lead, onBack }) {
   const [noteText, setNoteText] = useState('');
   const [editScheduledDate, setEditScheduledDate] = useState(lead.scheduled_date || '');
 
-  let notes = [];
-  try { notes = JSON.parse(lead.notes || '[]'); } catch { notes = lead.notes ? [{ text: lead.notes }] : []; }
+  let allNotes = [];
+  try { allNotes = JSON.parse(lead.notes || '[]'); } catch { allNotes = lead.notes ? [{ text: lead.notes }] : []; }
+  const notes = allNotes.filter(n => !n.__meta);
 
   const addNote = async () => {
     if (!noteText.trim()) return;
     const n = { text: noteText.trim(), date: new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}), by: user?.name || 'Unknown' };
-    await updateLead(lead.id, { notes: JSON.stringify([...notes, n]) });
+    await updateLead(lead.id, { notes: JSON.stringify([...allNotes, n]) });
     setNoteText('');
-  };
-
-  const updateStatus = async (newStatus) => {
-    const payload = { status: newStatus };
-    if (newStatus === 'scheduled') payload.scheduled_date = editScheduledDate || null;
-    await updateLead(lead.id, payload);
   };
 
   const updateScheduledDate = async () => {
@@ -62,11 +57,7 @@ export default function LeadDetail({ lead, onBack }) {
           <div><strong>Source</strong><p>{lead.source}</p></div>
           <div><strong>Created by</strong><p>{lead.created_by_name || '—'}</p></div>
           <div><strong>Status</strong>
-            <p style={{marginTop:4}}>
-              {isOwner ? (
-                <Dropdown className="inline-select" value={lead.status} onChange={e=>updateStatus(e.target.value)} options={LEAD_STATUSES} style={{minWidth:100}} />
-              ) : statusPill(lead.status)}
-            </p>
+            <p style={{marginTop:4}}>{statusPill(lead.status)}</p>
         </div>
       </div>
       </div>
