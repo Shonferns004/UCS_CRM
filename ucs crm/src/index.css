@@ -861,11 +861,11 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-accounts .topbar, .panel-ngo-admin .topbar, .panel-fro .topbar { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--line); }
 .panel-accounts .topbar .eyebrow, .panel-ngo-admin .topbar .eyebrow, .panel-fro .topbar .eyebrow { font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.5px; }
 .panel-accounts .topbar h2, .panel-ngo-admin .topbar h2, .panel-fro .topbar h2 { font-size:18px; font-weight:600; margin-top:1px; }
-.panel-accounts .topbar-user, .panel-ngo-admin .topbar-user, .panel-fro .topbar-user { display:flex; align-items:center; gap:10px; cursor:pointer; position:relative; }
+.panel-accounts .topbar-user, .panel-ngo-admin .topbar-user, .panel-fro .topbar-user { display:flex; align-items:center; gap:8px; cursor:pointer; position:relative; }
 .panel-accounts .topbar-user-text, .panel-ngo-admin .topbar-user-text, .panel-fro .topbar-user-text { text-align:right; }
 .panel-accounts .topbar-name, .panel-ngo-admin .topbar-name, .panel-fro .topbar-name { font-size:13px; font-weight:500; }
 .panel-accounts .topbar-role, .panel-ngo-admin .topbar-role, .panel-fro .topbar-role { font-size:11px; color:var(--ink-soft); }
-.panel-accounts .avatar, .panel-ngo-admin .avatar, .panel-fro .avatar { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:12px; background:#5B6B4E22; color:var(--sage); }
+.panel-accounts .avatar, .panel-ngo-admin .avatar, .panel-fro .avatar { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; background:#5B6B4E22; color:var(--sage); flex-shrink:0; }
 .panel-accounts .user-menu, .panel-ngo-admin .user-menu, .panel-fro .user-menu { position:absolute; top:100%; right:0; margin-top:8px; background:var(--card-bg); border:1px solid var(--line); border-radius:var(--radius-sm); box-shadow:var(--shadow-md); z-index:100; min-width:160px; padding:4px; }
 .panel-accounts .user-menu-item, .panel-ngo-admin .user-menu-item, .panel-fro .user-menu-item { display:flex; align-items:center; gap:8px; width:100%; padding:8px 12px; border:none; background:transparent; font-size:13px; font-family:inherit; cursor:pointer; border-radius:6px; color:var(--ink); }
 .panel-accounts .user-menu-item:hover, .panel-ngo-admin .user-menu-item:hover, .panel-fro .user-menu-item:hover { background:var(--bg); }

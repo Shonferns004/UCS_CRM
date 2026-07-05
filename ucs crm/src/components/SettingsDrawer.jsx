@@ -15,9 +15,14 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
         display: 'flex', flexDirection: 'column',
         animation: 'slideInRight .2s ease'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
+          {view === 'themes' && (
+            <button className="btn btn-sm btn-icon" onClick={() => setView(null)} style={{ padding: 4 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+          )}
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{view === 'themes' ? 'Themes' : 'Settings'}</h3>
-          <button className="btn btn-sm btn-icon" onClick={() => { onClose(); setView(null); }} style={{ padding: 4 }}>
+          <button className="btn btn-sm btn-icon" onClick={() => { onClose(); setView(null); }} style={{ padding: 4, marginLeft: 'auto' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
