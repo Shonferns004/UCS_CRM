@@ -915,7 +915,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-accounts .main, .panel-ngo-admin .main, .panel-fro .main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .panel-ngo-admin .sidebar { position:fixed; top:0; height:100vh; }
 .panel-ngo-admin .main { margin-left:200px; }
-.panel-accounts .topbar, .panel-ngo-admin .topbar, .panel-fro .topbar { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--line); }
+.panel-accounts .topbar, .panel-ngo-admin .topbar, .panel-fro .topbar { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; background:var(--card-bg); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:1001; }
 .panel-accounts .topbar .eyebrow, .panel-ngo-admin .topbar .eyebrow, .panel-fro .topbar .eyebrow { font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.5px; }
 .panel-accounts .topbar h2, .panel-ngo-admin .topbar h2, .panel-fro .topbar h2 { font-size:18px; font-weight:600; margin-top:1px; }
 .panel-accounts .topbar-user, .panel-ngo-admin .topbar-user, .panel-fro .topbar-user { display:flex; align-items:center; gap:8px; cursor:pointer; position:relative; }

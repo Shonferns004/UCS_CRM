@@ -188,7 +188,7 @@ function HRPageShell({ children }) {
             )}
           </div>
           </div>
-          <NotificationDrawer
+          <NotificationDrawer topOffset={66}
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}

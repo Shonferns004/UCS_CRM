@@ -271,7 +271,7 @@ export default function NgoAdminPanel() {
           </Routes>
         </div>
       </div>
-      <NotificationDrawer
+      <NotificationDrawer topOffset={56}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         sections={drawerSections}
