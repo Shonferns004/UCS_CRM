@@ -34,7 +34,7 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get('/status', authenticateRole('super_admin', 'hoadmin'), getLiveStatuses);
+router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
 
 const requireFro = (req, res, next) => {
   if (!req.user.department || req.user.department.toLowerCase().trim() !== 'fro') {

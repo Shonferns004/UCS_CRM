@@ -4,7 +4,7 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-router.get('/', authenticateRole('super_admin', 'hoadmin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead'), async (req, res) => {
+router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead'), async (req, res) => {
   try {
     const { year, month } = req.query;
     const y = parseInt(year) || new Date().getFullYear();

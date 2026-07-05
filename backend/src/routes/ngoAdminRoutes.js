@@ -44,10 +44,10 @@ import {
 
 const router = Router();
 
-router.get('/rejected-leads', authenticateRole('hoadmin', 'super_admin'), getRejectedLeads);
-router.put('/rejected-leads/:id/acknowledge', authenticateRole('hoadmin', 'super_admin'), acknowledgeRejectedLead);
+router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
+router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
-router.use(authenticateRole('hoadmin'));
+router.use(authenticateRole('admin'));
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/station-stats', getStationStats);

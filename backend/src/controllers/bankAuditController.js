@@ -147,7 +147,7 @@ export const assignEntryToNgo = async (req, res) => {
     const { data: ngoAdmins } = await supabase
       .from('users')
       .select('id')
-      .eq('role', 'hoadmin');
+      .eq('role', 'admin');
     for (const u of (ngoAdmins || [])) {
       try {
         await supabase.from('notification_log').insert({

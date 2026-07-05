@@ -24,7 +24,7 @@ router.get('/policies', authenticate, getPolicies);
 router.get('/print-profile', authenticate, getProfileForPrint);
 
 // Admin routes for policies management
-const adminAuth = authenticateRole('super_admin', 'hoadmin', 'hr');
+const adminAuth = authenticateRole('super_admin', 'admin', 'hr');
 router.get('/admin/policies', adminAuth, adminGetPolicies);
 router.post('/admin/policies', adminAuth, adminAddPolicy);
 router.put('/admin/policies/:id', adminAuth, adminEditPolicy);

@@ -10,7 +10,7 @@ import { authenticateRole, authenticate } from '../middleware/authMiddleware.js'
 
 const router = Router();
 
-const adminOrHrOrHo = authenticateRole('super_admin', 'hoadmin', 'hr');
+const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
 
 router.post('/apply', authenticate, apply);
 router.get('/my', authenticate, myLeaves);

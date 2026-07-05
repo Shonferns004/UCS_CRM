@@ -3,7 +3,7 @@ import { login as apiLogin, setSession, clearSession, getToken, getUser } from '
 
 const ALLOWED_ROLES = {
   super_admin: 'super_admin',
-  hoadmin: 'hoadmin',
+  admin: 'admin',
   hr: 'hr',
   accounts: 'accounts',
   recruiter: 'recruiter',

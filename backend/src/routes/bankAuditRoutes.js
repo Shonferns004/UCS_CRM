@@ -28,8 +28,8 @@ router.put('/entries/:id/assign-ngo', authenticateRole('accounts', 'super_admin'
 router.get('/summary', authenticateRole('accounts', 'super_admin'), getSummary);
 
 // NGO Admin routes
-router.get('/ngo-suspense', authenticateRole('hoadmin', 'ngo-admin', 'super_admin'), listNgoSuspense);
-router.put('/ngo-suspense/:id/assign-fro', authenticateRole('hoadmin', 'ngo-admin', 'super_admin'), assignSuspenseToFro);
+router.get('/ngo-suspense', authenticateRole('admin', 'admin', 'super_admin'), listNgoSuspense);
+router.put('/ngo-suspense/:id/assign-fro', authenticateRole('admin', 'admin', 'super_admin'), assignSuspenseToFro);
 
 // FRO routes
 router.get('/fro-suspense', authenticateRole('fro', 'worker', 'super_admin'), listFroSuspense);
