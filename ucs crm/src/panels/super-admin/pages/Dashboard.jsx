@@ -2216,6 +2216,76 @@ export default function Dashboard() {
               )}
             </div>
           )}
+
+          {/* ============ ACCOUNTS SUMMARY ============ */}
+          {accountsSummary.pending !== undefined && (
+            <div className="nd-card nd-appear" style={{ animationDelay: '0.2s' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: MINT_DEEP }}>receipt_long</span>
+                <h3 className="nd-section-title" style={{ margin: 0 }}>Accounts — Lead Verification Pipeline</h3>
+              </div>
+              <PipelineFlow stages={[
+                { label: 'Pending', value: accountsSummary.pending ?? 0, sub: `₹${(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}`, color: GOLD },
+                { label: 'Verified', value: accountsSummary.verified ?? 0, sub: `₹${(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}`, color: MINT_DEEP },
+                { label: 'Rejected', value: accountsSummary.rejected ?? 0, sub: `₹${(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}`, color: RED_DEEP },
+                { label: 'Today', value: accountsSummary.verifiedToday ?? 0, sub: `₹${(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}`, color: SLATE },
+              ]} height={50} />
+              <div className="mini-card-grid" style={{ marginTop: 8 }}>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${GOLD}` }} onClick={() => setAccountsModalStatus('pending')}>
+                  <span className="mini-card-label">Pending</span>
+                  <span className="mini-card-value">{accountsSummary.pending ?? 0}</span>
+                  <span className="mini-card-sub">₹{(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT_DEEP}` }} onClick={() => setAccountsModalStatus('verified')}>
+                  <span className="mini-card-label">Verified</span>
+                  <span className="mini-card-value">{accountsSummary.verified ?? 0}</span>
+                  <span className="mini-card-sub">₹{(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${RED_DEEP}` }} onClick={() => setAccountsModalStatus('rejected')}>
+                  <span className="mini-card-label">Rejected</span>
+                  <span className="mini-card-value">{accountsSummary.rejected ?? 0}</span>
+                  <span className="mini-card-sub">₹{(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${SLATE}` }} onClick={() => setAccountsModalStatus('verified_today')}>
+                  <span className="mini-card-label">Verified Today</span>
+                  <span className="mini-card-value">{accountsSummary.verifiedToday ?? 0}</span>
+                  <span className="mini-card-sub">₹{(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ============ RECRUITER SUMMARY ============ */}
+          {recruiterSummary.totalLeads !== undefined && (
+            <div className="nd-card nd-appear" style={{ animationDelay: '0.25s' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: GOLD }}>person_search</span>
+                <h3 className="nd-section-title" style={{ margin: 0 }}>Recruiter — Lead Pipeline</h3>
+              </div>
+              <PipelineFlow stages={[
+                { label: 'Total Leads', value: recruiterSummary.totalLeads || 0, color: MINT_DARK },
+                { label: 'New Today', value: recruiterSummary.newToday ?? 0, color: MINT_DEEP },
+                { label: 'Conversion', value: typeof recruiterSummary.conversionRate === 'number' ? Math.round(recruiterSummary.conversionRate) : 0, sub: `${(recruiterSummary.conversionRate || 0).toFixed(1)}%`, color: GOLD },
+              ]} height={50} />
+              <div className="mini-card-grid" style={{ marginTop: 8 }}>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT_DARK}` }} onClick={() => setRecruiterModalType('total_leads')}>
+                  <span className="mini-card-label">Total Leads</span>
+                  <span className="mini-card-value">{(recruiterSummary.totalLeads || 0).toLocaleString()}</span>
+                  <span className="mini-card-sub">All time</span>
+                </div>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT_DEEP}` }} onClick={() => setRecruiterModalType('new_today')}>
+                  <span className="mini-card-label">New Today</span>
+                  <span className="mini-card-value">{recruiterSummary.newToday ?? 0}</span>
+                  <span className="mini-card-sub">Added today</span>
+                </div>
+                <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${GOLD}` }} onClick={() => setRecruiterModalType('conversion_rate')}>
+                  <span className="mini-card-label">Conversion Rate</span>
+                  <span className="mini-card-value">{(recruiterSummary.conversionRate ?? 0).toFixed(1)}%</span>
+                  <span className="mini-card-sub">Selected vs Rejected</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="dash-grid-side">
@@ -2334,171 +2404,106 @@ export default function Dashboard() {
             </div>
           )}
 
-        </div>
-      </div>
-
-      {/* ============ ACCOUNTS SUMMARY ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.2s', marginTop: 20, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: MINT_DEEP }}>receipt_long</span>
-          <h3 className="nd-section-title" style={{ margin: 0 }}>Accounts — Lead Verification Pipeline</h3>
-        </div>
-        <PipelineFlow stages={[
-          { label: 'Pending', value: accountsSummary.pending ?? 0, sub: `₹${(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}`, color: GOLD },
-          { label: 'Verified', value: accountsSummary.verified ?? 0, sub: `₹${(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}`, color: MINT_DEEP },
-          { label: 'Rejected', value: accountsSummary.rejected ?? 0, sub: `₹${(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}`, color: RED_DEEP },
-          { label: 'Today', value: accountsSummary.verifiedToday ?? 0, sub: `₹${(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}`, color: SLATE },
-        ]} height={50} />
-        <div className="mini-card-grid" style={{ marginTop: 8 }}>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${GOLD}` }} onClick={() => setAccountsModalStatus('pending')}>
-            <span className="mini-card-label">Pending</span>
-            <span className="mini-card-value">{accountsSummary.pending ?? 0}</span>
-            <span className="mini-card-sub">₹{(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT_DEEP}` }} onClick={() => setAccountsModalStatus('verified')}>
-            <span className="mini-card-label">Verified</span>
-            <span className="mini-card-value">{accountsSummary.verified ?? 0}</span>
-            <span className="mini-card-sub">₹{(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${RED_DEEP}` }} onClick={() => setAccountsModalStatus('rejected')}>
-            <span className="mini-card-label">Rejected</span>
-            <span className="mini-card-value">{accountsSummary.rejected ?? 0}</span>
-            <span className="mini-card-sub">₹{(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${SLATE}` }} onClick={() => setAccountsModalStatus('verified_today')}>
-            <span className="mini-card-label">Verified Today</span>
-            <span className="mini-card-value">{accountsSummary.verifiedToday ?? 0}</span>
-            <span className="mini-card-sub">₹{(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ============ RECRUITER SUMMARY ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.25s', marginTop: 16, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: GOLD }}>person_search</span>
-          <h3 className="nd-section-title" style={{ margin: 0 }}>Recruiter — Lead Pipeline</h3>
-        </div>
-        <PipelineFlow stages={[
-          { label: 'Total Leads', value: recruiterSummary.totalLeads || 0, color: MINT_DARK },
-          { label: 'New Today', value: recruiterSummary.newToday ?? 0, color: MINT_DEEP },
-          { label: 'Conversion', value: typeof recruiterSummary.conversionRate === 'number' ? Math.round(recruiterSummary.conversionRate) : 0, sub: `${(recruiterSummary.conversionRate || 0).toFixed(1)}%`, color: GOLD },
-        ]} height={50} />
-        <div className="mini-card-grid" style={{ marginTop: 8 }}>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT_DARK}` }} onClick={() => setRecruiterModalType('total_leads')}>
-            <span className="mini-card-label">Total Leads</span>
-            <span className="mini-card-value">{(recruiterSummary.totalLeads || 0).toLocaleString()}</span>
-            <span className="mini-card-sub">All time</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${MINT_DEEP}` }} onClick={() => setRecruiterModalType('new_today')}>
-            <span className="mini-card-label">New Today</span>
-            <span className="mini-card-value">{recruiterSummary.newToday ?? 0}</span>
-            <span className="mini-card-sub">Added today</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ borderTop: `3px solid ${GOLD}` }} onClick={() => setRecruiterModalType('conversion_rate')}>
-            <span className="mini-card-label">Conversion Rate</span>
-            <span className="mini-card-value">{(recruiterSummary.conversionRate ?? 0).toFixed(1)}%</span>
-            <span className="mini-card-sub">Selected vs Rejected</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ---- RECENT NOTICES — scrollable, shows all ---- */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.8s', marginTop: 20, marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 className="nd-section-title">Recent Notices</h3>
-          {recentNotices.length > 0 && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: MINT_DEEP,
-              background: 'rgba(140,205,164,0.18)', borderRadius: 99, padding: '3px 10px',
-            }}>
-              {recentNotices.length}
-            </span>
-          )}
-        </div>
-        {recentNotices.length === 0 ? (
-          <p className="nd-muted">No recent notices</p>
-        ) : (
-          <div className={recentNotices.length > 3 ? 'nd-scroll-fade' : ''}>
-            <div className="nd-scroll-list">
-              {recentNotices.map((n, i) => (
-                <div key={n.id || i} className="nd-notice">
-                  <div className="nd-notice-icon" style={{ background: i % 2 === 0 ? MINT_DARK : MINT_DEEP }}>
-                    <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 18 }}>
-                      {i % 2 === 0 ? 'priority_high' : 'campaign'}
-                    </span>
-                  </div>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{n.title}</h4>
-                    <p style={{ margin: '3px 0 4px', fontSize: 12, color: '#64748b', lineHeight: 1.45 }}>
-                      {n.content && n.content.length > 110 ? n.content.slice(0, 110) + '\u2026' : n.content || ''}
-                    </p>
-                    <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
-                      {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    </span>
-                  </div>
-                </div>
-              ))}
+          {/* ---- RECENT NOTICES — scrollable, shows all ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.85s' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="nd-section-title">Recent Notices</h3>
+              {recentNotices.length > 0 && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: MINT_DEEP,
+                  background: 'rgba(140,205,164,0.18)', borderRadius: 99, padding: '3px 10px',
+                }}>
+                  {recentNotices.length}
+                </span>
+              )}
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* ---- UPCOMING EVENTS — scrollable, shows all ---- */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.9s', marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 className="nd-section-title">Upcoming Events</h3>
-          {upcomingEvents.length > 0 && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: RED_DEEP,
-              background: 'rgba(247,178,173,0.25)', borderRadius: 99, padding: '3px 10px',
-            }}>
-              {upcomingEvents.length}
-            </span>
-          )}
-        </div>
-        {upcomingEvents.length === 0 ? (
-          <p className="nd-muted">No upcoming events</p>
-        ) : (
-          <>
-            <div className={upcomingEvents.length > 3 ? 'nd-scroll-fade' : ''}>
-              <div className="nd-scroll-list">
-                {upcomingEvents.map((ev, i) => {
-                  const d = new Date(ev.event_date)
-                  return (
-                    <div key={ev.id || i} className="nd-event">
-                      <div className="nd-event-date">
-                        <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 }}>
-                          {d.toLocaleString('en-IN', { month: 'short' })}
+            {recentNotices.length === 0 ? (
+              <p className="nd-muted">No recent notices</p>
+            ) : (
+              <div className={recentNotices.length > 2 ? 'nd-scroll-fade' : ''}>
+                <div className="nd-scroll-list" style={{ maxHeight: 240 }}>
+                  {recentNotices.map((n, i) => (
+                    <div key={n.id || i} className="nd-notice">
+                      <div className="nd-notice-icon" style={{ background: i % 2 === 0 ? MINT_DARK : MINT_DEEP }}>
+                        <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 18 }}>
+                          {i % 2 === 0 ? 'priority_high' : 'campaign'}
                         </span>
-                        <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{d.getDate()}</span>
                       </div>
-                      <div style={{ minWidth: 0 }}>
-                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{ev.title}</h4>
-                        <p style={{ margin: '3px 0 0', fontSize: 11.5, color: '#94a3b8' }}>
-                          {ev.location && <span>{ev.location}</span>}
-                          {ev.event_time && <span> \u2022 {ev.event_time.slice(0, 5)}</span>}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{n.title}</h4>
+                        <p style={{ margin: '3px 0 4px', fontSize: 12, color: '#64748b', lineHeight: 1.45 }}>
+                          {n.content && n.content.length > 110 ? n.content.slice(0, 110) + '\u2026' : n.content || ''}
                         </p>
+                        <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>
+                          {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </span>
                       </div>
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* ---- UPCOMING EVENTS — scrollable, shows all ---- */}
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.9s' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="nd-section-title">Upcoming Events</h3>
+              {upcomingEvents.length > 0 && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: RED_DEEP,
+                  background: 'rgba(247,178,173,0.25)', borderRadius: 99, padding: '3px 10px',
+                }}>
+                  {upcomingEvents.length}
+                </span>
+              )}
             </div>
-            <button
-              onClick={() => navigate('/sa/events')}
-              style={{
-                width: '100%', marginTop: 14, padding: '10px 0',
-                border: `1.5px dashed ${MINT}`, background: 'rgba(140,205,164,0.08)',
-                color: MINT_DEEP, borderRadius: 12, fontSize: 12, fontWeight: 700,
-                letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
-              + ADD NEW EVENT
-            </button>
-          </>
-        )}
+            {upcomingEvents.length === 0 ? (
+              <p className="nd-muted">No upcoming events</p>
+            ) : (
+              <>
+                <div className={upcomingEvents.length > 2 ? 'nd-scroll-fade' : ''}>
+                  <div className="nd-scroll-list" style={{ maxHeight: 240 }}>
+                    {upcomingEvents.map((ev, i) => {
+                      const d = new Date(ev.event_date)
+                      return (
+                        <div key={ev.id || i} className="nd-event">
+                          <div className="nd-event-date">
+                            <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 }}>
+                              {d.toLocaleString('en-IN', { month: 'short' })}
+                            </span>
+                            <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1 }}>{d.getDate()}</span>
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: PRIMARY }}>{ev.title}</h4>
+                            <p style={{ margin: '3px 0 0', fontSize: 11.5, color: '#94a3b8' }}>
+                              {ev.location && <span>{ev.location}</span>}
+                              {ev.event_time && <span> \u2022 {ev.event_time.slice(0, 5)}</span>}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigate('/sa/events')}
+                  style={{
+                    width: '100%', marginTop: 14, padding: '10px 0',
+                    border: `1.5px dashed ${MINT}`, background: 'rgba(140,205,164,0.08)',
+                    color: MINT_DEEP, borderRadius: 12, fontSize: 12, fontWeight: 700,
+                    letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  + ADD NEW EVENT
+                </button>
+              </>
+            )}
+          </div>
+
+        </div>
       </div>
+
 
       {/* ============ NAME LIST MODAL ============ */}
       {modal && (
