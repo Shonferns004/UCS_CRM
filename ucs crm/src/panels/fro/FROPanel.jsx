@@ -314,121 +314,85 @@ export default function FROPanel() {
           />
           {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 620 }}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
                 <div className="modal-head">
-                  <h3>My Performance</h3>
-                  <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{ padding: 4 }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
+                  <h3>{showTarget ? 'My Target' : 'Today\'s Activity'}</h3>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    {showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{fontSize:12}}>← Stats</button>}
+                    {!showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(true)} style={{fontSize:12}}>Target →</button>}
+                    <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{ padding: 4 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
                 </div>
                 <div className="modal-body">
-                  {(() => {
+                  {!showTarget ? (() => {
                     const ts = loadTodayStats();
-                    const hasActivity = ts && (ts.calls > 0 || ts.skippedDonors > 0 || ts.breakSeconds > 0 || ts.idleSeconds > 0);
                     const totalProd = (ts?.totalSeconds || 0) + (ts?.idleSeconds || 0);
+                    if (!ts || (ts.calls === 0 && ts.skippedDonors === 0 && ts.breakSeconds === 0 && ts.idleSeconds === 0)) {
+                      return <div style={{ textAlign: 'center', padding: 24, fontSize: 13, color:'var(--ink-soft)' }}>No activity yet today</div>;
+                    }
                     return (
+                      <div className="stats-grid" style={{gap:10, marginBottom:0}}>
+                        {[
+                          { label:'Calls', value: ts.calls, color:'#10b981', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg> },
+                          { label:'Talk Time', value: callFmt(ts.totalSeconds), color:'#10b981' },
+                          { label:'Avg Call', value: callFmt(Math.round(ts.totalSeconds / (ts.calls || 1))), color:'#10b981' },
+                          { label:'Skipped', value: ts.skippedDonors, color:'#f59e0b' },
+                          { label:'Idle Time', value: callFmt(ts.idleSeconds), color:'#6b7280' },
+                          { label:'Break Time', value: callFmt(ts.breakSeconds), color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', sub: ts.breakCount > 0 ? `${ts.breakCount} breaks` : '' },
+                          { label:'Productivity', value: `${Math.round((ts.totalSeconds / (totalProd || 1)) * 100)}%`, color:'#10b981' },
+                        ].map(s => (
+                          <div key={s.label} className="stat-card" style={{padding:'14px 16px'}}>
+                            <div className="stat-icon" style={{background: s.color + '16', color: s.color, width:36, height:36, borderRadius:10}}>
+                              {s.icon || <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>}
+                            </div>
+                            <div className="stat-info">
+                              <div className="stat-num" style={{fontSize:20, color: s.color}}>{s.value}</div>
+                              <div className="stat-lbl">{s.label}</div>
+                              {s.sub && <div className="stat-sub" style={{fontSize:10, color:'var(--ink-soft)'}}>{s.sub}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })() : (
+                    statsLoading ? (
+                      <div style={{ textAlign: 'center', padding: 24, color:'var(--ink-soft)' }}>Loading...</div>
+                    ) : statsData?.target ? (
                       <>
-                        {!showTarget ? (
-                          <>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                              <span style={{ fontSize: 14, fontWeight: 700 }}>Today's Activity</span>
-                              {hasActivity && (
-                                <button className="btn btn-sm" onClick={() => setShowTarget(true)} style={{ fontSize: 12 }}>
-                                  My Target →
-                                </button>
-                              )}
+                        <div className="stats-grid" style={{gap:10, marginBottom:16}}>
+                          {[
+                            { label:'Monthly Target', value: '\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN'), color:'#8b5cf6' },
+                            { label:'Collected', value: '\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN'), color:'#10b981' },
+                            { label:'Remaining', value: '\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN'), color: Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)) > 0 ? '#ef4444' : '#10b981' },
+                          ].map(s => (
+                            <div key={s.label} className="stat-card" style={{padding:'14px 16px', textAlign:'center'}}>
+                              <div className="stat-num" style={{fontSize:20, color: s.color}}>{s.value}</div>
+                              <div className="stat-lbl">{s.label}</div>
                             </div>
-                            {hasActivity ? (
-                              <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 'var(--radius-sm)', border: '1.5px solid ' + (ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'), background: ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fefce8' : '#f0fdf4' }}>
-                                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
-                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a' }}>{ts.calls}</div>
-                                    <div style={{ fontSize: 10, color: '#166534' }}>calls</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
-                                    <div style={{ fontSize: 10, color: '#166534' }}>Talk</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / (ts.calls || 1)))}</div>
-                                    <div style={{ fontSize: 10, color: '#166534' }}>Avg</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{ts.skippedDonors}</div>
-                                    <div style={{ fontSize: 10, color: '#92400e' }}>Skipped</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
-                                    <div style={{ fontSize: 10, color: '#6b7280' }}>Idle</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', minWidth: 70, padding: '6px 12px', borderRadius: 8, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', border: '2px solid ' + (ts.breakSeconds > 3600 ? '#fecaca' : '#fde68a') }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: ts.breakSeconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
-                                    <div style={{ fontSize: 10, color: ts.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{ts.breakCount || 0} breaks</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
-                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a' }}>{Math.round((ts.totalSeconds / (totalProd || 1)) * 100)}%</div>
-                                    <div style={{ fontSize: 10, color: '#166534' }}>Prod</div>
-                                  </div>
-                                </div>
+                          ))}
+                        </div>
+                        {statsData.dash && (
+                          <div className="stats-grid" style={{gap:10}}>
+                            {[
+                              { label:'Connected', value: statsData.dash.monthly_connected, color:'#3b82f6' },
+                              { label:'Daily Connected', value: statsData.dash.daily_connected, color:'#8b5cf6' },
+                              { label:'Verified', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color:'#10b981' },
+                              { label:'Unverified', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color:'#ef4444' },
+                              { label:'Active Donors', value: statsData.dash.active_donors || 0, color:'#5B6B4E' },
+                              { label:'Total', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color:'#B5603A' },
+                            ].map(s => (
+                              <div key={s.label} className="stat-card" style={{padding:'12px 14px'}}>
+                                <div className="stat-num" style={{fontSize:17, color: s.color}}>{s.value}</div>
+                                <div className="stat-lbl">{s.label}</div>
                               </div>
-                            ) : (
-                              <div style={{ textAlign: 'center', padding: 20, fontSize: 13, color: 'var(--ink-soft)' }}>No activity recorded today. Start calling to see your stats.</div>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                              <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{ fontSize: 12 }}>
-                                ← Back to Stats
-                              </button>
-                              <span style={{ fontSize: 14, fontWeight: 700 }}>My Target</span>
-                            </div>
-                            {statsLoading ? (
-                              <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</div>
-                            ) : statsData?.target ? (
-                              <>
-                                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                                  <div style={{ flex: 1, padding: '14px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Monthly Target</div>
-                                    <div style={{ fontSize: 22, fontWeight: 700, color: '#8b5cf6' }}>{'\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN')}</div>
-                                  </div>
-                                  <div style={{ flex: 1, padding: '14px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Collected</div>
-                                    <div style={{ fontSize: 22, fontWeight: 700, color: '#10b981' }}>{'\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN')}</div>
-                                  </div>
-                                  <div style={{ flex: 1, padding: '14px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Remaining</div>
-                                    <div style={{ fontSize: 22, fontWeight: 700, color: Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)) > 0 ? '#ef4444' : '#10b981' }}>
-                                      {'\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN')}
-                                    </div>
-                                  </div>
-                                </div>
-                                {statsData.dash && (
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                    {[
-                                      { label: 'Monthly Connected', value: statsData.dash.monthly_connected, color: '#3b82f6' },
-                                      { label: 'Daily Connected', value: statsData.dash.daily_connected, color: '#8b5cf6' },
-                                      { label: 'Verified (Month)', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color: '#10b981' },
-                                      { label: 'Unverified (Month)', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color: '#ef4444' },
-                                      { label: 'Active Donors', value: statsData.dash.active_donors || 0, color: '#5B6B4E' },
-                                      { label: 'Total Donations', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color: '#B5603A' },
-                                    ].map(s => (
-                                      <div key={s.label} style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }}>
-                                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>{s.label}</div>
-                                        <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            ) : (
-                              <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No target data available</div>
-                            )}
-                          </>
+                            ))}
+                          </div>
                         )}
                       </>
-                    );
-                  })()}
+                    ) : <div style={{ textAlign: 'center', padding: 24, color:'var(--ink-soft)' }}>No data</div>
+                  )}
                 </div>
               </div>
             </div>
