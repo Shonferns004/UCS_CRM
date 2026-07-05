@@ -1372,3 +1372,15 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 
 /* ── PRINT ── */
 @media print { body { background:#fff; } .no-print { display:none !important; } }
+
+/* ── BELL RING ── */
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0deg); }
+  10%, 30% { transform: rotate(12deg); }
+  20%, 40% { transform: rotate(-12deg); }
+  50% { transform: rotate(6deg); }
+  60% { transform: rotate(-6deg); }
+  70% { transform: rotate(3deg); }
+  80% { transform: rotate(-3deg); }
+}
+.bell-ring { animation: bell-ring .6s ease-in-out infinite; transform-origin: top center; }
