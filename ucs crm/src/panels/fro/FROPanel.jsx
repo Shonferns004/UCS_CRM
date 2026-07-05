@@ -13,6 +13,7 @@ import CallTimer from './components/CallTimer'
 import { CallProvider } from './CallContext'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
+import ToastContainer from '../../components/Toast'
 import Dashboard from './pages/Dashboard'
 import MyDonors from './pages/MyDonors'
 import TransferredLeads from './pages/TransferredLeads'
@@ -490,6 +491,7 @@ export default function FROPanel() {
         sections={drawerSections}
         onItemClick={handleDrawerItemClick}
       />
+      <ToastContainer />
     </div>
     </CallProvider>
   )
