@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate }
 import { useUcs } from '../../store'
 import { Grid, Users, Plane, Clock, FileTxt, Cal, Bell } from './icons'
 import { themes, applyTheme } from './theme'
+import SettingsDrawer from '../../components/SettingsDrawer'
 import Overview from './components/Overview'
 import Workers from './components/Workers'
 import EmployeeDetail from './components/EmployeeDetail'
@@ -63,6 +64,7 @@ function HRPageShell({ children }) {
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('hr_theme') || 'sky')
   const [ticketCount, setTicketCount] = useState(0)
   const menuRef = useRef(null)
@@ -110,18 +112,15 @@ function HRPageShell({ children }) {
             <div className="avatar" style={{ background:'#5B6B4E22', color:'#5B6B4E', width:36, height:36, cursor:'pointer' }}>{userInitials}</div>
             {showMenu && (
               <div className="user-menu">
-                <div className="user-menu-item" style={{fontWeight:600, fontSize:13, cursor:'default'}}>{userName} <span style={{fontWeight:400, color:'var(--ink-soft)'}}>{userRole}</span></div>
-                <div className="user-menu-divider" />
-                <div className="user-menu-item" style={{cursor:'default', fontSize:13, color:'#666'}}>
-                  Theme: <select value={themeName} onClick={e=>e.stopPropagation()} onChange={e=>setThemeName(e.target.value)} style={{marginLeft:8, border:'1px solid #ddd', borderRadius:6, padding:'2px 8px'}}>
-                    {Object.keys(themes).map(k => <option key={k} value={k}>{themes[k].name}</option>)}
-                  </select>
+                <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
+                  <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
+                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>{userRole}</div>
                 </div>
                 <div className="user-menu-divider" />
-                <NavLink to="/hr/settings" className="user-menu-item" onClick={() => setShowMenu(false)}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                   Settings
-                </NavLink>
+                </div>
                 <div className="user-menu-divider" />
                 <button className="user-menu-item" onClick={() => { setShowMenu(false); logout() }}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -131,6 +130,13 @@ function HRPageShell({ children }) {
             )}
           </div>
           </div>
+          <SettingsDrawer
+            open={showSettings}
+            onClose={() => setShowSettings(false)}
+            themes={themes}
+            themeName={themeName}
+            onThemeChange={(key) => setThemeName(key)}
+          />
         </header>
         <div className="content-body">
           {children}

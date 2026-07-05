@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
+import SettingsDrawer from '../../components/SettingsDrawer'
 import { RecProvider, useRec, initials, avatarColor, avatarTint } from './store'
 import { Grid, Spark, Funnel, Users, Brief, Heart, LogOut } from './icons'
 import Dashboard from './components/Dashboard'
@@ -24,6 +25,7 @@ function AppShell() {
   const location = useLocation()
   const { user, logout } = useUcs()
   const [themeName, setThemeName] = useState(() => localStorage.getItem('recruiter_theme') || 'sky')
+  const [showSettings, setShowSettings] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef(null)
   useEffect(() => {
@@ -66,12 +68,14 @@ function AppShell() {
             <div className="avatar" style={{background:avatarTint(col),color:col,width:38,height:38, cursor:'pointer'}}>{init}</div>
             {showMenu && (
               <div className="user-menu" style={{right:0, left:'auto', top:'100%', marginTop:8}}>
-                <div className="user-menu-item" style={{fontWeight:600, fontSize:13, cursor:'default'}}>{name} <span style={{fontWeight:400, color:'var(--ink-soft)'}}>{user?.login_id || 'Recruiter'}</span></div>
+                <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
+                  <div style={{fontWeight:600, fontSize:13}}>{name}</div>
+                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>{user?.login_id || 'Recruiter'}</div>
+                </div>
                 <div className="user-menu-divider" />
-                <div className="user-menu-item" style={{cursor:'default', fontSize:13}}>
-                  Theme: <select value={themeName} onChange={e=>setThemeName(e.target.value)} style={{marginLeft:8, border:'1px solid var(--line)', borderRadius:6, padding:'2px 6px', fontSize:12, background:'var(--paper)', color:'var(--ink)'}} onClick={e=>e.stopPropagation()}>
-                    {Object.keys(themes).map(k => <option key={k} value={k}>{themes[k].name.replace(' (Default)','')}</option>)}
-                  </select>
+                <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  Settings
                 </div>
                 <div className="user-menu-divider" />
                 <button className="user-menu-item" onClick={() => logout()}>
@@ -81,6 +85,13 @@ function AppShell() {
               </div>
             )}
           </div>
+          <SettingsDrawer
+            open={showSettings}
+            onClose={() => setShowSettings(false)}
+            themes={themes}
+            themeName={themeName}
+            onThemeChange={(key) => setThemeName(key)}
+          />
         </header>
         <main className="content">
           <p style={{color:'var(--ink-soft)',marginBottom:22,marginTop:-4}}>{meta.sub}</p>
