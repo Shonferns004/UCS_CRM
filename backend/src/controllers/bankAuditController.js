@@ -265,8 +265,7 @@ export const resolveSuspenseEntry = async (req, res) => {
 export const searchFroDispositions = async (req, res) => {
   try {
     const { q } = req.query;
-    if (!q || q.length < 2) return res.json([]);
-    const entries = await BankAudit.searchFroDispositions(req.user.id, q);
+    const entries = await BankAudit.searchFroDispositions(req.user.id, q || '');
     return res.json(entries);
   } catch (error) {
     return res.status(500).json({ message: error.message });

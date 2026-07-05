@@ -108,7 +108,7 @@ export default function NgoAdminPanel() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const notifRef = useRef(null);
   const pollRef = useRef(null);
-  const seenNotifIds = useRef(new Set());
+  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('ngoadmin_seen_notifs') || '[]')));
 
   const loadRejectedCount = (showDesktop = false) => {
     api('/ngo-admin/rejected-leads', { _prefix: 'ucs' })
@@ -134,6 +134,7 @@ export default function NgoAdminPanel() {
         unread.forEach(n => {
           if (!seenNotifIds.current.has(n.id)) {
             seenNotifIds.current.add(n.id);
+            localStorage.setItem('ngoadmin_seen_notifs', JSON.stringify([...seenNotifIds.current]));
             showDesktopNotification(n.title, n.body);
           }
         });

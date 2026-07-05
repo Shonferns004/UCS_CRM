@@ -61,20 +61,26 @@ export default function FroSuspense() {
     setDonorMobile('');
     setAmount(entry.amount);
     setDisposition('');
+    // Load recent dispositions on open
+    setTimeout(async () => {
+      try {
+        const data = await apiGet('/fro/suspense/search-dispositions?q=');
+        setSearchResults(data || []);
+      } catch {}
+    }, 100);
   };
 
   const handleSearch = (q) => {
     setSearchQuery(q);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!q || q.length < 2) { setSearchResults([]); return; }
     searchTimer.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const data = await apiGet('/fro/suspense/search-dispositions?q=' + encodeURIComponent(q));
+        const data = await apiGet('/fro/suspense/search-dispositions?q=' + (q ? encodeURIComponent(q) : ''));
         setSearchResults(data || []);
       } catch {}
       finally { setSearching(false); }
-    }, 300);
+    }, q ? 300 : 0);
   };
 
   const selectLead = (lead) => {
@@ -166,18 +172,17 @@ export default function FroSuspense() {
             <div className="modal-body">
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Search Past Dispositions</label>
-                <input
-                  value={searchQuery}
-                  onChange={e => handleSearch(e.target.value)}
-                  placeholder="Search by donor name..."
-                  style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', boxSizing: 'border-box' }}
-                />
-                {(searchResults.length > 0 || searching) && (
-                  <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', marginTop: 6 }}>
-                    {searching ? (
-                      <div style={{ padding: 12, fontSize: 12, color: 'var(--ink-soft)', textAlign: 'center' }}>Searching...</div>
-                    ) : (
-                      searchResults.map(r => (
+                <div style={{ position: 'relative' }}>
+                  <input
+                    value={searchQuery}
+                    onChange={e => handleSearch(e.target.value)}
+                    placeholder="Search or browse past dispositions..."
+                    style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', boxSizing: 'border-box' }}
+                    onFocus={() => searchResults.length > 0}
+                  />
+                  {searchResults.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-md)', zIndex: 50, maxHeight: 200, overflowY: 'auto', marginTop: 4 }}>
+                      {searchResults.map(r => (
                         <div key={r.id}
                           onClick={() => selectLead(r)}
                           style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -190,10 +195,10 @@ export default function FroSuspense() {
                           </div>
                           <span style={{ color: 'var(--sage)', fontWeight: 600 }}>{currency(r.amount)}</span>
                         </div>
-                      ))
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, marginBottom: 14 }}>

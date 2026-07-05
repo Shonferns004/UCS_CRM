@@ -88,7 +88,7 @@ export default function FROPanel() {
   const [allNotifs, setAllNotifs] = useState([]);
   const [allVerified, setAllVerified] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const seenNotifIds = useRef(new Set());
+  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]')));
   const notifRef = useRef(null);
   const pollRef = useRef(null);
 
@@ -136,12 +136,14 @@ export default function FROPanel() {
         rejectedSlice.forEach(n => {
           if (!seenNotifIds.current.has(n.id)) {
             seenNotifIds.current.add(n.id);
+            localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
             showDesktopNotification(n.title, n.body);
           }
         });
         verifiedSlice.forEach(n => {
           if (!seenNotifIds.current.has(n.id)) {
             seenNotifIds.current.add(n.id);
+            localStorage.setItem('fro_seen_notifs', JSON.stringify([...seenNotifIds.current]));
             showDesktopNotification(n.title, n.body);
           }
         });
