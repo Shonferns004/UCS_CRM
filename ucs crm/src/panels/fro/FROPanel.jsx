@@ -313,7 +313,7 @@ export default function FROPanel() {
           />
           {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
                 <div className="modal-head">
                   <h3>My Performance</h3>
                   <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{ padding: 4 }}>
@@ -323,47 +323,53 @@ export default function FROPanel() {
                 <div className="modal-body">
                   {(() => {
                     const ts = loadTodayStats();
-                    const hasActivity = ts && (ts.calls > 0 || ts.skippedDonors > 0 || ts.breakSeconds > 0);
+                    const hasActivity = ts && (ts.calls > 0 || ts.skippedDonors > 0 || ts.breakSeconds > 0 || ts.idleSeconds > 0);
                     const totalProd = (ts?.totalSeconds || 0) + (ts?.idleSeconds || 0);
                     return (
                       <>
                         {hasActivity && (
-                          <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1.5px solid ' + (ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'), background: ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fefce8' : '#f0fdf4' }}>
-                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                          <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 'var(--radius-sm)', border: '1.5px solid ' + (ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'), background: ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fefce8' : '#f0fdf4' }}>
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                               {ts.calls > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 50 }}>
-                                  <div style={{ fontSize: 20, fontWeight: 800, color: '#16a34a' }}>{ts.calls}</div>
-                                  <div style={{ fontSize: 9, color: '#166534' }}>calls</div>
+                                <div style={{ textAlign: 'center', minWidth: 56 }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{ts.calls}</div>
+                                  <div style={{ fontSize: 10, color: '#166534' }}>calls</div>
                                 </div>
                               )}
                               {ts.calls > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 50 }}>
-                                  <div style={{ fontSize: 20, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
-                                  <div style={{ fontSize: 9, color: '#166534' }}>Talk</div>
+                                <div style={{ textAlign: 'center', minWidth: 56 }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
+                                  <div style={{ fontSize: 10, color: '#166534' }}>Talk</div>
                                 </div>
                               )}
                               {ts.calls > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 50 }}>
-                                  <div style={{ fontSize: 20, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / ts.calls))}</div>
-                                  <div style={{ fontSize: 9, color: '#166534' }}>Avg</div>
+                                <div style={{ textAlign: 'center', minWidth: 56 }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / ts.calls))}</div>
+                                  <div style={{ fontSize: 10, color: '#166534' }}>Avg</div>
                                 </div>
                               )}
                               {ts.skippedDonors > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 50 }}>
-                                  <div style={{ fontSize: 20, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{ts.skippedDonors}</div>
-                                  <div style={{ fontSize: 9, color: '#92400e' }}>Skipped</div>
+                                <div style={{ textAlign: 'center', minWidth: 56 }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{ts.skippedDonors}</div>
+                                  <div style={{ fontSize: 10, color: '#92400e' }}>Skipped</div>
+                                </div>
+                              )}
+                              {ts.idleSeconds > 0 && (
+                                <div style={{ textAlign: 'center', minWidth: 56 }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
+                                  <div style={{ fontSize: 10, color: '#6b7280' }}>Idle</div>
                                 </div>
                               )}
                               {ts.breakSeconds > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 50, padding: '4px 8px', borderRadius: 6, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', border: '1px solid ' + (ts.breakSeconds > 3600 ? '#fecaca' : '#fde68a') }}>
-                                  <div style={{ fontSize: 20, fontWeight: 800, color: ts.breakSeconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
-                                  <div style={{ fontSize: 9, color: ts.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{ts.breakCount || 0} brk</div>
+                                <div style={{ textAlign: 'center', minWidth: 56, padding: '4px 8px', borderRadius: 6, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', border: '1px solid ' + (ts.breakSeconds > 3600 ? '#fecaca' : '#fde68a') }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: ts.breakSeconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
+                                  <div style={{ fontSize: 10, color: ts.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{ts.breakCount || 0} brk</div>
                                 </div>
                               )}
                               {totalProd > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 50 }}>
-                                  <div style={{ fontSize: 20, fontWeight: 800, color: '#16a34a' }}>{Math.round((ts.totalSeconds / totalProd) * 100)}%</div>
-                                  <div style={{ fontSize: 9, color: '#166534' }}>Prod</div>
+                                <div style={{ textAlign: 'center', minWidth: 56 }}>
+                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{Math.round((ts.totalSeconds / totalProd) * 100)}%</div>
+                                  <div style={{ fontSize: 10, color: '#166534' }}>Prod</div>
                                 </div>
                               )}
                             </div>
