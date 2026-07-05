@@ -15,7 +15,7 @@ export default function Suspense() {
     setLoading(true);
     try {
       const [entriesData, workersData] = await Promise.all([
-        apiGet('/accounts/bank-audit/ngo-suspense'),
+        apiGet('/ngo-admin/suspense'),
         apiGet('/workers?department=FRO'),
       ]);
       setEntries(entriesData || []);
@@ -29,7 +29,7 @@ export default function Suspense() {
   const handleAssign = async (id) => {
     if (!froId) { alert('Please select an FRO'); return; }
     try {
-      await apiPut('/accounts/bank-audit/ngo-suspense/' + id + '/assign-fro', { fro_id: froId, notes });
+      await apiPut('/ngo-admin/suspense/' + id + '/assign-fro', { fro_id: froId, notes });
       setAssigning(null);
       setFroId('');
       setNotes('');

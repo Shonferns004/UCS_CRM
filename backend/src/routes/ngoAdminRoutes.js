@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
+  listNgoSuspense, assignSuspenseToFro,
+} from '../controllers/bankAuditController.js';
+import {
   getDonors,
   getDonorDetail,
   getFroWorkers,
@@ -84,5 +87,8 @@ router.put('/alerts/:id/acknowledge', acknowledgeAlert);
 
 router.get('/database-requests', getDataRequests);
 router.put('/database-requests/:id/resolve', resolveDataRequest);
+
+router.get('/suspense', listNgoSuspense);
+router.put('/suspense/:id/assign-fro', assignSuspenseToFro);
 
 export default router;

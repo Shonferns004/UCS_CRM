@@ -15,7 +15,7 @@ export default function FroSuspense() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiGet('/accounts/bank-audit/fro-suspense');
+      const data = await apiGet('/fro/suspense');
       setEntries(data || []);
     } catch (err) { alert(err.message); }
     finally { setLoading(false); }
@@ -26,7 +26,7 @@ export default function FroSuspense() {
   const handleResolve = async (id) => {
     if (!donorDetails) { alert('Please provide donor details'); return; }
     try {
-      await apiPut('/accounts/bank-audit/fro-suspense/' + id + '/resolve', { screenshot_url: screenshotUrl, donor_details: donorDetails });
+      await apiPut('/fro/suspense/' + id + '/resolve', { screenshot_url: screenshotUrl, donor_details: donorDetails });
       setResolving(null);
       setScreenshotUrl('');
       setDonorDetails('');

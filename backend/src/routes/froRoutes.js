@@ -1,6 +1,9 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/authMiddleware.js';
+import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import supabase from '../config/supabase.js';
+import {
+  listFroSuspense, resolveSuspenseEntry,
+} from '../controllers/bankAuditController.js';
 import {
   getDashboard,
   getMyDonors,
@@ -84,5 +87,8 @@ router.get('/lead-stats', getLeadStats);
 router.get('/monthly-donors', getMonthlyDonors);
 router.get('/donors/:id/history', getDonorHistory);
 router.get('/donors/:id/full-history', getFullDonorHistory);
+
+router.get('/suspense', listFroSuspense);
+router.put('/suspense/:id/resolve', resolveSuspenseEntry);
 
 export default router;
