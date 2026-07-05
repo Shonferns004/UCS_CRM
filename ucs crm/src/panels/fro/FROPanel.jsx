@@ -3,6 +3,8 @@ import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'reac
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
+import { getMyDashboard } from './api/donors'
+import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
@@ -90,6 +92,9 @@ export default function FROPanel() {
   const [allNotifs, setAllNotifs] = useState([]);
   const [allVerified, setAllVerified] = useState([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [statsData, setStatsData] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
   const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]')));
   const notifRef = useRef(null);
   const pollRef = useRef(null);
@@ -345,6 +350,11 @@ export default function FROPanel() {
                 </div>
               )}
             </div>
+            <div style={{ position:'relative' }}>
+              <div onClick={async () => { setShowStats(true); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch(() => null), getMyTarget().catch(() => null)]); setStatsData({ dash: d, target: t }); } catch {} finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
+            </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
               <div className="avatar">{initials}</div>
               {showMenu && (
@@ -374,6 +384,65 @@ export default function FROPanel() {
             themeName={themeName}
             onThemeChange={(key) => setThemeName(key)}
           />
+          {showStats && (
+            <div className="modal-overlay" onClick={() => setShowStats(false)}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+                <div className="modal-head">
+                  <h3>My Performance</h3>
+                  <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{ padding: 4 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+                <div className="modal-body">
+                  {statsLoading ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</div>
+                  ) : statsData ? (
+                    <>
+                      {statsData.target && (
+                        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                          <div style={{ flex: 1, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Monthly Target</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: '#8b5cf6' }}>{'\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN')}</div>
+                          </div>
+                          <div style={{ flex: 1, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Collected</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981' }}>{'\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN')}</div>
+                          </div>
+                          <div style={{ flex: 1, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Remaining</div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)) > 0 ? '#ef4444' : '#10b981' }}>
+                              {'\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {statsData.dash && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          {[
+                            { label: 'Monthly Connected', value: statsData.dash.monthly_connected, color: '#3b82f6' },
+                            { label: 'Daily Connected', value: statsData.dash.daily_connected, color: '#8b5cf6' },
+                            { label: 'Monthly Donations', value: '\u20B9' + Number(statsData.dash.daily_donations || 0).toLocaleString('en-IN'), color: '#10b981' },
+                            { label: 'Daily Donations', value: '\u20B9' + Number(statsData.dash.daily_donations || 0).toLocaleString('en-IN'), color: '#f59e0b' },
+                            { label: 'Verified (Month)', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color: '#10b981' },
+                            { label: 'Unverified (Month)', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color: '#ef4444' },
+                            { label: 'Active Donors', value: statsData.dash.active_donors || 0, color: '#5B6B4E' },
+                            { label: 'Total Donations', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color: '#B5603A' },
+                          ].map(s => (
+                            <div key={s.label} style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }}>
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>{s.label}</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No data available</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </header>
         <div className="content-body">
           <Routes>
