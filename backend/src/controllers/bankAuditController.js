@@ -1,4 +1,5 @@
 import * as BankAudit from '../models/bankAuditModel.js';
+import supabase from '../config/supabase.js';
 
 export const listSources = async (req, res) => {
   try {
@@ -131,6 +132,84 @@ export const markEntryVerified = async (req, res) => {
   try {
     const { id } = req.params;
     const entry = await BankAudit.verifyEntry(id);
+    return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const assignEntryToNgo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const entry = await BankAudit.assignToNgoAdmin(id, notes);
+    // Notify NGO admins via notification_log
+    const { data: ngoAdmins } = await supabase
+      .from('users')
+      .select('id')
+      .eq('role', 'hoadmin');
+    for (const u of (ngoAdmins || [])) {
+      try {
+        await supabase.from('notification_log').insert({
+          worker_id: u.id,
+          type: 'suspense_assigned',
+          title: 'Suspense Entry',
+          body: `A suspense entry of ${entry.bank_audit_sources?.name || 'Unknown'} for ₹${entry.amount} has been sent for inquiry. Payment ID: ${entry.payment_id || 'N/A'}`,
+          sent_at: new Date().toISOString(),
+        });
+      } catch {}
+    }
+    return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listNgoSuspense = async (req, res) => {
+  try {
+    const entries = await BankAudit.getSuspenseForNgo();
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const assignSuspenseToFro = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fro_id, notes } = req.body;
+    if (!fro_id) return res.status(400).json({ message: 'FRO ID is required' });
+    const entry = await BankAudit.assignSuspenseToFro(id, fro_id, notes);
+    // Notify FRO
+    try {
+      await supabase.from('notification_log').insert({
+        worker_id: fro_id,
+        type: 'suspense_assigned',
+        title: 'Suspense Entry Assigned',
+        body: `A suspense entry of ₹${entry.amount} has been assigned to you. Payment ID: ${entry.payment_id || 'N/A'}. Please check and resolve.`,
+        sent_at: new Date().toISOString(),
+      });
+    } catch {}
+    return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listFroSuspense = async (req, res) => {
+  try {
+    const entries = await BankAudit.getSuspenseForFro(req.user.id);
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const resolveSuspenseEntry = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { screenshot_url, donor_details } = req.body;
+    const entry = await BankAudit.resolveSuspense(id, screenshot_url, donor_details);
     return res.json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });

@@ -15,6 +15,7 @@ import Alerts from './pages/Alerts'
 import RejectedLeads from './pages/RejectedLeads'
 import NgoAttendance from './pages/Attendance'
 import FroLiveStatus from './pages/FroLiveStatus'
+import Suspense from './pages/Suspense'
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'rejected', path: '/ngo-admin/rejected-leads', label: 'Rejected Leads', icon: 'rejected' },
   { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
+  { id: 'suspense', path: '/ngo-admin/suspense', label: 'Suspense', icon: 'suspense' },
 ]
 
 const ICONS = {
@@ -36,6 +38,7 @@ const ICONS = {
   attendance: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   rejected: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
   froStatus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17a4 4 0 0 1 8 0"/><circle cx="9" cy="7" r="4"/><path d="M13 4.13A4 4 0 0 1 18 8v4"/><path d="M18 12v6"/><line x1="16" y1="18" x2="20" y2="18"/></svg>,
+  suspense: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
 }
 
 const MAX_DROPDOWN = 4
@@ -262,6 +265,7 @@ export default function NgoAdminPanel() {
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="fro-status" element={<FroLiveStatus />} />
+            <Route path="suspense" element={<Suspense />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

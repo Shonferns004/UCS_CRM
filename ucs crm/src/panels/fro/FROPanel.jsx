@@ -20,6 +20,7 @@ import IncentiveInfo from './pages/IncentiveInfo'
 import History from './pages/History'
 import CallLogs from './pages/CallLogs'
 import MyTarget from './pages/MyTarget'
+import Suspense from './pages/Suspense'
 
 const NAV = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -30,6 +31,7 @@ const NAV = [
   { id: 'logs', path: '/fro/logs', label: 'Call Logs', icon: 'call_log' },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', icon: 'heart_broken' },
   { id: 'target', path: '/fro/target', label: 'My Target', icon: 'track_changes' },
+  { id: 'suspense', path: '/fro/suspense', label: 'Suspense', icon: 'help_outline' },
 ]
 
 const MAX_DROPDOWN = 4
@@ -376,6 +378,7 @@ export default function FROPanel() {
             <Route path="target" element={<MyTarget />} />
             <Route path="history" element={<History />} />
             <Route path="incentive-info" element={<IncentiveInfo />} />
+            <Route path="suspense" element={<Suspense />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

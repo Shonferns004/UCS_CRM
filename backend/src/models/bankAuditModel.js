@@ -135,3 +135,68 @@ export const verifyEntry = async (id) => {
   if (error) throw error;
   return data;
 };
+
+export const assignToNgoAdmin = async (id, notes) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .update({ assigned_to_ngo_admin: true, ngo_admin_notes: notes || null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*, bank_audit_sources(name)')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const getSuspenseForNgo = async () => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .select('*, bank_audit_sources(name)')
+    .eq('assigned_to_ngo_admin', true)
+    .is('assigned_to_fro_id', null)
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
+export const getSuspenseForFro = async (froId) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .select('*, bank_audit_sources(name)')
+    .eq('assigned_to_fro_id', froId)
+    .neq('status', 'verified')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
+export const assignSuspenseToFro = async (id, froId, notes) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .update({
+      assigned_to_fro_id: froId,
+      ngo_admin_notes: notes || null,
+      assigned_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('*, bank_audit_sources(name)')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const resolveSuspense = async (id, screenshotUrl, donorDetails) => {
+  const { data, error } = await supabase
+    .from('bank_audit_entries')
+    .update({
+      screenshot_url: screenshotUrl || null,
+      donor_details: donorDetails || null,
+      status: 'verified',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('*, bank_audit_sources(name)')
+    .single();
+  if (error) throw error;
+  return data;
+};
