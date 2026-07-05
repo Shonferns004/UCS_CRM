@@ -258,7 +258,7 @@ export default function FROPanel() {
     <CallProvider userId={user?.id}>
     <div className="app">
       <Sidebar />
-      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+      <div className="main">
         <header className="topbar">
           <div>
             <div className="eyebrow">FRO</div>
@@ -456,7 +456,7 @@ export default function FROPanel() {
             </div>
           )}
         </header>
-        <div className="content-body">
+        <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
@@ -485,7 +485,7 @@ export default function FROPanel() {
           onDone={handlePopDone}
         />
       )}
-      <NotificationDrawer
+      <NotificationDrawer topOffset={56}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         sections={drawerSections}

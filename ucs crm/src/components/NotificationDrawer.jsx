@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014'
 
-export default function NotificationDrawer({ open, onClose, sections, onItemClick }) {
+export default function NotificationDrawer({ open, onClose, sections, onItemClick, topOffset = 0 }) {
   const drawerRef = useRef(null)
 
   useEffect(() => {
@@ -19,8 +19,8 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
   return (
     <>
       <div ref={drawerRef} className="notif-drawer" style={{
-        position: 'fixed', top: 0, right: open ? 0 : '-340px', width: 320, maxWidth: '100vw',
-        height: '100vh', background: '#fff', zIndex: 1000,
+        position: 'fixed', top: topOffset, right: open ? 0 : '-340px', width: 320, maxWidth: '100vw',
+        height: open ? 'calc(100vh - ' + topOffset + 'px)' : '100vh', background: '#fff', zIndex: 1000,
         transition: 'right .25s ease',
         display: 'flex', flexDirection: 'column',
       }}>

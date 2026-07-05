@@ -199,7 +199,7 @@ export default function NgoAdminPanel() {
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
-      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+      <div className="main">
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
@@ -254,7 +254,7 @@ export default function NgoAdminPanel() {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <div className="content-body">
+        <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
@@ -271,7 +271,7 @@ export default function NgoAdminPanel() {
           </Routes>
         </div>
       </div>
-      <NotificationDrawer
+      <NotificationDrawer topOffset={56}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         sections={drawerSections}

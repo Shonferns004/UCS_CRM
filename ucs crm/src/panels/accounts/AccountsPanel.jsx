@@ -120,7 +120,7 @@ export default function AccountsPanel() {
   return (
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+      <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Toggle sidebar">
@@ -167,7 +167,7 @@ export default function AccountsPanel() {
             )}
           </div>
           </div>
-          <NotificationDrawer
+          <NotificationDrawer topOffset={56}
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
@@ -181,7 +181,7 @@ export default function AccountsPanel() {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <div className="content-body">
+        <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="leads" replace />} />
             <Route path="leads" element={<Dashboard />} />

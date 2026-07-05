@@ -201,7 +201,7 @@ function PageShell({ children }) {
     <div className="app">
       <div className={`sa-sidebar-overlay${mobileSidebar ? ' open' : ''}`} onClick={() => setMobileSidebar(false)} />
       <Sidebar mobileOpen={mobileSidebar} />
-      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+      <div className="main">
         <header className="topbar">
           <div style={{display:'flex',alignItems:'center',gap:12}}>
             <button className="sa-hamburger sa-top-hamburger" onClick={() => setMobileSidebar(o => !o)} aria-label="Toggle menu">
@@ -256,7 +256,7 @@ function PageShell({ children }) {
             )}
           </div>
           </div>
-          <NotificationDrawer
+          <NotificationDrawer topOffset={48}
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
@@ -270,7 +270,7 @@ function PageShell({ children }) {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <div className="content-body" style={{maxWidth:'none'}}>
+        <div className="content-body" style={{maxWidth:'none', marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           {children}
         </div>
       </div>
