@@ -112,6 +112,7 @@ export default function FROPanel() {
   const [showStats, setShowStats] = useState(false);
   const [statsData, setStatsData] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [showTarget, setShowTarget] = useState(false);
   const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]')));
   const notifRef = useRef(null);
   const pollRef = useRef(null);
@@ -278,7 +279,7 @@ export default function FROPanel() {
               </div>
             </div>
             <div style={{ position:'relative' }}>
-              <div onClick={async () => { setShowStats(true); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch(() => null), getMyTarget().catch(() => null)]); setStatsData({ dash: d, target: t }); } catch {} finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
+              <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch(() => null), getMyTarget().catch(() => null)]); setStatsData({ dash: d, target: t }); } catch {} finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
             </div>
@@ -313,7 +314,7 @@ export default function FROPanel() {
           />
           {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 620 }}>
                 <div className="modal-head">
                   <h3>My Performance</h3>
                   <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{ padding: 4 }}>
@@ -327,98 +328,103 @@ export default function FROPanel() {
                     const totalProd = (ts?.totalSeconds || 0) + (ts?.idleSeconds || 0);
                     return (
                       <>
-                        {hasActivity && (
-                          <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 'var(--radius-sm)', border: '1.5px solid ' + (ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'), background: ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fefce8' : '#f0fdf4' }}>
-                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                              {ts.calls > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56 }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{ts.calls}</div>
-                                  <div style={{ fontSize: 10, color: '#166534' }}>calls</div>
-                                </div>
-                              )}
-                              {ts.calls > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56 }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
-                                  <div style={{ fontSize: 10, color: '#166534' }}>Talk</div>
-                                </div>
-                              )}
-                              {ts.calls > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56 }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / ts.calls))}</div>
-                                  <div style={{ fontSize: 10, color: '#166534' }}>Avg</div>
-                                </div>
-                              )}
-                              {ts.skippedDonors > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56 }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{ts.skippedDonors}</div>
-                                  <div style={{ fontSize: 10, color: '#92400e' }}>Skipped</div>
-                                </div>
-                              )}
-                              {ts.idleSeconds > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56 }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
-                                  <div style={{ fontSize: 10, color: '#6b7280' }}>Idle</div>
-                                </div>
-                              )}
-                              {ts.breakSeconds > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56, padding: '4px 8px', borderRadius: 6, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', border: '1px solid ' + (ts.breakSeconds > 3600 ? '#fecaca' : '#fde68a') }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: ts.breakSeconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
-                                  <div style={{ fontSize: 10, color: ts.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{ts.breakCount || 0} brk</div>
-                                </div>
-                              )}
-                              {totalProd > 0 && (
-                                <div style={{ textAlign: 'center', minWidth: 56 }}>
-                                  <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{Math.round((ts.totalSeconds / totalProd) * 100)}%</div>
-                                  <div style={{ fontSize: 10, color: '#166534' }}>Prod</div>
-                                </div>
+                        {!showTarget ? (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                              <span style={{ fontSize: 14, fontWeight: 700 }}>Today's Activity</span>
+                              {hasActivity && (
+                                <button className="btn btn-sm" onClick={() => setShowTarget(true)} style={{ fontSize: 12 }}>
+                                  My Target →
+                                </button>
                               )}
                             </div>
-                          </div>
-                        )}
-                        {statsLoading ? (
-                          <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</div>
-                        ) : statsData ? (
-                          <>
-                            {statsData.target && (
-                              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                                <div style={{ flex: 1, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
-                                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Monthly Target</div>
-                                  <div style={{ fontSize: 20, fontWeight: 700, color: '#8b5cf6' }}>{'\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN')}</div>
-                                </div>
-                                <div style={{ flex: 1, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
-                                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Collected</div>
-                                  <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981' }}>{'\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN')}</div>
-                                </div>
-                                <div style={{ flex: 1, padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
-                                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Remaining</div>
-                                  <div style={{ fontSize: 20, fontWeight: 700, color: Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)) > 0 ? '#ef4444' : '#10b981' }}>
-                                    {'\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN')}
+                            {hasActivity ? (
+                              <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 'var(--radius-sm)', border: '1.5px solid ' + (ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'), background: ts.skippedDonors > 0 || ts.breakSeconds > 0 ? '#fefce8' : '#f0fdf4' }}>
+                                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
+                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a' }}>{ts.calls}</div>
+                                    <div style={{ fontSize: 10, color: '#166534' }}>calls</div>
+                                  </div>
+                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
+                                    <div style={{ fontSize: 10, color: '#166534' }}>Talk</div>
+                                  </div>
+                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / (ts.calls || 1)))}</div>
+                                    <div style={{ fontSize: 10, color: '#166534' }}>Avg</div>
+                                  </div>
+                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{ts.skippedDonors}</div>
+                                    <div style={{ fontSize: 10, color: '#92400e' }}>Skipped</div>
+                                  </div>
+                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
+                                    <div style={{ fontSize: 10, color: '#6b7280' }}>Idle</div>
+                                  </div>
+                                  <div style={{ textAlign: 'center', minWidth: 70, padding: '6px 12px', borderRadius: 8, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', border: '2px solid ' + (ts.breakSeconds > 3600 ? '#fecaca' : '#fde68a') }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: ts.breakSeconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
+                                    <div style={{ fontSize: 10, color: ts.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{ts.breakCount || 0} breaks</div>
+                                  </div>
+                                  <div style={{ textAlign: 'center', minWidth: 60 }}>
+                                    <div style={{ fontSize: 26, fontWeight: 800, color: '#16a34a' }}>{Math.round((ts.totalSeconds / (totalProd || 1)) * 100)}%</div>
+                                    <div style={{ fontSize: 10, color: '#166534' }}>Prod</div>
                                   </div>
                                 </div>
                               </div>
-                            )}
-                            {statsData.dash && (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                {[
-                                  { label: 'Monthly Connected', value: statsData.dash.monthly_connected, color: '#3b82f6' },
-                                  { label: 'Daily Connected', value: statsData.dash.daily_connected, color: '#8b5cf6' },
-                                  { label: 'Monthly Donations', value: '\u20B9' + Number(statsData.dash.daily_donations || 0).toLocaleString('en-IN'), color: '#10b981' },
-                                  { label: 'Daily Donations', value: '\u20B9' + Number(statsData.dash.daily_donations || 0).toLocaleString('en-IN'), color: '#f59e0b' },
-                                  { label: 'Verified (Month)', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color: '#10b981' },
-                                  { label: 'Unverified (Month)', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color: '#ef4444' },
-                                  { label: 'Active Donors', value: statsData.dash.active_donors || 0, color: '#5B6B4E' },
-                                  { label: 'Total Donations', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color: '#B5603A' },
-                                ].map(s => (
-                                  <div key={s.label} style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }}>
-                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>{s.label}</div>
-                                    <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
-                                  </div>
-                                ))}
-                              </div>
+                            ) : (
+                              <div style={{ textAlign: 'center', padding: 20, fontSize: 13, color: 'var(--ink-soft)' }}>No activity recorded today. Start calling to see your stats.</div>
                             )}
                           </>
                         ) : (
-                          <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No data available</div>
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                              <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{ fontSize: 12 }}>
+                                ← Back to Stats
+                              </button>
+                              <span style={{ fontSize: 14, fontWeight: 700 }}>My Target</span>
+                            </div>
+                            {statsLoading ? (
+                              <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</div>
+                            ) : statsData?.target ? (
+                              <>
+                                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                                  <div style={{ flex: 1, padding: '14px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Monthly Target</div>
+                                    <div style={{ fontSize: 22, fontWeight: 700, color: '#8b5cf6' }}>{'\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN')}</div>
+                                  </div>
+                                  <div style={{ flex: 1, padding: '14px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Collected</div>
+                                    <div style={{ fontSize: 22, fontWeight: 700, color: '#10b981' }}>{'\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN')}</div>
+                                  </div>
+                                  <div style={{ flex: 1, padding: '14px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>Remaining</div>
+                                    <div style={{ fontSize: 22, fontWeight: 700, color: Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)) > 0 ? '#ef4444' : '#10b981' }}>
+                                      {'\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+                                </div>
+                                {statsData.dash && (
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                    {[
+                                      { label: 'Monthly Connected', value: statsData.dash.monthly_connected, color: '#3b82f6' },
+                                      { label: 'Daily Connected', value: statsData.dash.daily_connected, color: '#8b5cf6' },
+                                      { label: 'Verified (Month)', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color: '#10b981' },
+                                      { label: 'Unverified (Month)', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color: '#ef4444' },
+                                      { label: 'Active Donors', value: statsData.dash.active_donors || 0, color: '#5B6B4E' },
+                                      { label: 'Total Donations', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color: '#B5603A' },
+                                    ].map(s => (
+                                      <div key={s.label} style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }}>
+                                        <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginBottom: 2 }}>{s.label}</div>
+                                        <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No target data available</div>
+                            )}
+                          </>
                         )}
                       </>
                     );
