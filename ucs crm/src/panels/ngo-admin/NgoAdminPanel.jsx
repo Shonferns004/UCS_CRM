@@ -212,7 +212,7 @@ export default function NgoAdminPanel() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <div ref={notifRef} style={{ position:'relative' }}>
-              <div onClick={() => setShowNotifList(!showNotifList)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s', background: showNotifList ? '#f3f4f6' : 'transparent' }}>
+              <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={notifCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -223,55 +223,6 @@ export default function NgoAdminPanel() {
                   </span>
                 )}
               </div>
-              {showNotifList && (
-                <div style={{ position:'absolute', top:'100%', right:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, boxShadow:'0 8px 30px rgba(0,0,0,.12)', width:380, maxHeight:420, overflowY:'auto', zIndex:100, padding:0 }}>
-                  <div style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:13, fontWeight:700 }}>Notifications</span>
-                    <span style={{ fontSize:11, color:'var(--ink-soft)' }}>{notifCount} pending</span>
-                  </div>
-
-                  {rejectedCount > 0 && (
-                    <div style={{ padding:'8px 14px', background:'#f9fafb', fontSize:11, fontWeight:600, color:'var(--ink-soft)' }}>Rejected Leads</div>
-                  )}
-                  {rejectedItems.slice(0, 3).map(item => (
-                    <div key={item.id}
-                      onClick={() => { setShowNotifList(false); navigate('/ngo-admin/rejected-leads'); }}
-                      style={{ padding:'8px 14px', borderBottom:'1px solid #f3f4f6', cursor:'pointer', fontSize:12 }}
-                      onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <strong>{item.donor_name}</strong> - {currency(item.amount)}<br/>
-                      <span style={{ color:'#6b7280', fontSize:11 }}>{item.rejection_reason}</span>
-                    </div>
-                  ))}
-
-                  {allNotifs.length > 0 && (
-                    <div style={{ padding:'8px 14px', background:'#f9fafb', fontSize:11, fontWeight:600, color:'var(--ink-soft)', borderTop:'1px solid #f3f4f6' }}>Other Notifications</div>
-                  )}
-                  {allNotifs.slice(0, 5).map(n => (
-                    <div key={n.id}
-                      onClick={() => { setShowNotifList(false); handleDrawerItemClick(n); }}
-                      style={{ padding:'8px 14px', borderBottom:'1px solid #f3f4f6', cursor:'pointer', fontSize:12 }}
-                      onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <strong>{n.title}</strong><br/>
-                      <span style={{ color:'#6b7280', fontSize:11 }}>{n.body}</span>
-                    </div>
-                  ))}
-
-                  {rejectedCount === 0 && allNotifs.length === 0 && (
-                    <div style={{ padding:24, fontSize:12, color:'var(--ink-soft)', textAlign:'center' }}>No notifications</div>
-                  )}
-
-                  {totalHidden > 0 && (
-                    <div style={{ padding:'10px 14px', textAlign:'center', borderTop:'1px solid #f3f4f6' }}>
-                      <button onClick={() => { setShowNotifList(false); setDrawerOpen(true); }}
-                        style={{ background:'none', border:'none', color:'var(--sage)', cursor:'pointer', fontSize:12, fontWeight:600, padding:'4px 12px', borderRadius:6 }}>
-                        View All ({totalHidden} more)
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
               <div className="avatar">{initials}</div>

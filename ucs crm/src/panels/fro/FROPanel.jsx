@@ -265,7 +265,7 @@ export default function FROPanel() {
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
             <div ref={notifRef} style={{ position:'relative' }}>
-              <div onClick={() => setShowNotifList(!showNotifList)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s', background: showNotifList ? '#f3f4f6' : 'transparent' }}>
+              <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={rejectedCount + verifiedCount + dueCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -276,96 +276,6 @@ export default function FROPanel() {
                   </span>
                 )}
               </div>
-              {showNotifList && (
-                <div style={{ position:'absolute', top:'100%', right:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, boxShadow:'0 8px 30px rgba(0,0,0,.12)', width:340, maxHeight:420, overflowY:'auto', zIndex:100, padding:0 }}>
-                  {/* Header */}
-                  <div style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:13, fontWeight:700 }}>Notifications</span>
-                    <span style={{ fontSize:11, color:'var(--ink-soft)' }}>{rejectedCount + verifiedCount + dueCount} pending</span>
-                  </div>
-
-                  {rejectedCount + verifiedCount + dueCount === 0 && (
-                    <div style={{ padding:24, fontSize:12, color:'var(--ink-soft)', textAlign:'center' }}>No pending items</div>
-                  )}
-
-                  {/* Rejected items */}
-                  {rejectedToShow.map((item, i) => (
-                    <div key={`rj-${item.id}`}
-                      onClick={() => handleRejectedClick(item)}
-                      style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', cursor:'pointer', fontSize:12, transition:'background .15s' }}
-                      onMouseOver={e => e.currentTarget.style.background = '#fef2f2'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ width:28, height:28, borderRadius:6, background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', flexShrink:0, marginTop:1 }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-                            <span style={{ background:'#dc2626', color:'#fff', fontSize:9, padding:'1px 5px', borderRadius:4, fontWeight:700, lineHeight:'14px' }}>REJECTED</span>
-                            <span style={{ fontWeight:600, fontSize:12 }}>{item.body?.replace(/^Your lead for /, '').replace(/ \(.*$/, '') || 'Lead'}</span>
-                          </div>
-                          <div style={{ color:'#6b7280', fontSize:11, lineHeight:1.3 }}>{item.body?.replace(/^.*Reason: /, '')}</div>
-                          <div style={{ color:'#9ca3af', fontSize:10, marginTop:2 }}>{item.sent_at ? new Date(item.sent_at).toLocaleString('en-GB') : ''}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Verified items */}
-                  {verifiedToShow.map((item, i) => (
-                    <div key={`vr-${item.id}`}
-                      style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', fontSize:12, cursor:'default' }}
-                      onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ width:28, height:28, borderRadius:6, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', color:'#16a34a', flexShrink:0, marginTop:1 }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-                            <span style={{ background:'#16a34a', color:'#fff', fontSize:9, padding:'1px 5px', borderRadius:4, fontWeight:700, lineHeight:'14px' }}>VERIFIED</span>
-                            <span style={{ fontWeight:600, fontSize:12 }}>{item.body?.replace(/^Your lead for /, '').replace(/ \(.*$/, '') || 'Lead'}</span>
-                          </div>
-                          <div style={{ color:'#6b7280', fontSize:11, lineHeight:1.3 }}>{item.body?.replace(/^.*has been verified\. /, '')}</div>
-                          <div style={{ color:'#9ca3af', fontSize:10, marginTop:2 }}>{item.sent_at ? new Date(item.sent_at).toLocaleString('en-GB') : ''}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Due items */}
-                  {dueToShow.map(item => (
-                    <div key={`${item.id}-${item.ngo_id || ''}`}
-                      onClick={() => { setShowNotifList(false); setModalDonor(item); }}
-                      style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', cursor:'pointer', fontSize:12 }}
-                      onMouseOver={e => e.currentTarget.style.background = '#f5f5f5'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ width:28, height:28, borderRadius:6, background:'#f0fdf4', display:'flex', alignItems:'center', justifyContent:'center', color:'#16a34a', flexShrink:0, marginTop:1 }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:600, fontSize:12, marginBottom:2 }}>{item.donor_name}</div>
-                          <div style={{ color:'var(--ink-soft)', fontSize:11, display:'flex', alignItems:'center', gap:4 }}>
-                            <span className="material-symbols-outlined" style={{ fontSize:11 }}>schedule</span>
-                            {item.scheduled_at ? new Date(item.scheduled_at).toLocaleString('en-GB') : 'Callback'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* View All link */}
-                  {totalHidden > 0 && (
-                    <div style={{ padding:'10px 14px', textAlign:'center', borderTop:'1px solid #f3f4f6' }}>
-                      <button onClick={() => { setShowNotifList(false); setDrawerOpen(true); }}
-                        style={{ background:'none', border:'none', color:'var(--sage)', cursor:'pointer', fontSize:12, fontWeight:600, padding:'4px 12px', borderRadius:6 }}>
-                        View All ({totalHidden} more)
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             <div style={{ position:'relative' }}>
               <div onClick={async () => { setShowStats(true); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch(() => null), getMyTarget().catch(() => null)]); setStatsData({ dash: d, target: t }); } catch {} finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
