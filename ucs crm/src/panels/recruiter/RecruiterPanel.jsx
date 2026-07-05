@@ -141,7 +141,7 @@ function AppShell() {
             )}
           </div>
           </div>
-          <NotificationDrawer topOffset={68}
+          <NotificationDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}

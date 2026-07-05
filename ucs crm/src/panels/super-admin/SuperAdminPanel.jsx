@@ -256,7 +256,7 @@ function PageShell({ children }) {
             )}
           </div>
           </div>
-          <NotificationDrawer topOffset={48}
+          <NotificationDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
