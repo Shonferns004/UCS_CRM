@@ -5,6 +5,15 @@ const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') :
 export default function NotificationDrawer({ open, onClose, sections, onItemClick }) {
   const drawerRef = useRef(null)
 
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => {
+      if (drawerRef.current && !drawerRef.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open, onClose])
+
   const totalCount = sections.reduce((s, sec) => s + (sec.items?.length || 0), 0)
 
   return (
