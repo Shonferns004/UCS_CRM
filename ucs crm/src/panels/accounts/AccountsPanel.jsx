@@ -3,6 +3,10 @@ import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
+import NotificationDrawer from '../../components/NotificationDrawer'
+import { api } from '../../api/auth'
+import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
+import { useRealtime } from '../../hooks/useRealtime'
 import Dashboard from './pages/Dashboard'
 import ReceiptHistory from './pages/ReceiptHistory'
 import BankAudit from './pages/BankAudit'
@@ -49,8 +53,45 @@ export default function AccountsPanel() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('accounts_theme') || 'sky')
+  const [allNotifs, setAllNotifs] = useState([])
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const menuRef = useRef(null)
+  const notifRef = useRef(null)
+  const pollRef = useRef(null)
+  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('accounts_seen_notifs') || '[]')))
   const location = useLocation()
+
+  const loadNotifications = () => {
+    const uid = user?.id;
+    if (!uid) return;
+    api(`/notifications/${uid}`, { _prefix: 'ucs' })
+      .then(data => {
+        const all = data || [];
+        const unread = all.filter(n => !n.read_at);
+        setAllNotifs(unread);
+        unread.forEach(n => {
+          if (!seenNotifIds.current.has(n.id)) {
+            seenNotifIds.current.add(n.id);
+            localStorage.setItem('accounts_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+            showDesktopNotification(n.title, n.body);
+          }
+        });
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    requestNotifPermission();
+    pollRef.current = setInterval(() => loadNotifications(), 30000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [user?.id]);
+
+  useRealtime('notification_log', {
+    filter: `worker_id=eq.${user?.id}`,
+    onInsert: () => loadNotifications(),
+    enabled: !!user?.id,
+  });
 
   useEffect(() => {
     if (themes[themeName]) {
@@ -71,6 +112,10 @@ export default function AccountsPanel() {
   const meta = NAV.find(n => location.pathname === n.path)
   const userName = user?.name || 'User'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+  const notifCount = allNotifs.length;
+  const drawerSections = [
+    { label: 'Notifications', type: 'notifications', items: allNotifs },
+  ];
 
   return (
     <div className="app">
@@ -86,7 +131,21 @@ export default function AccountsPanel() {
               <h2>{meta?.label || 'Accounts'}</h2>
             </div>
           </div>
-          <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
+          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <div ref={notifRef} style={{ position:'relative' }}>
+              <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={notifCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                {notifCount > 0 && (
+                  <span style={{ position:'absolute', top:0, right:0, background:'#dc2626', color:'#fff', borderRadius:'50%', minWidth:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1, padding:'0 3px' }}>
+                    {notifCount > 9 ? '9+' : notifCount}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
             <div className="avatar">{initials}</div>
             {showMenu && (
               <div className="user-menu">
@@ -107,6 +166,13 @@ export default function AccountsPanel() {
               </div>
             )}
           </div>
+          </div>
+          <NotificationDrawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            sections={drawerSections}
+            onItemClick={() => setDrawerOpen(false)}
+          />
           <SettingsDrawer
             open={showSettings}
             onClose={() => setShowSettings(false)}
