@@ -120,7 +120,7 @@ export default function AccountsPanel() {
   return (
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="main">
+      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Toggle sidebar">

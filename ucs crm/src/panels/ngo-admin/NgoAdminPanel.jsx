@@ -199,7 +199,7 @@ export default function NgoAdminPanel() {
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
-      <div className="main">
+      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">

@@ -258,7 +258,7 @@ export default function FROPanel() {
     <CallProvider userId={user?.id}>
     <div className="app">
       <Sidebar />
-      <div className="main">
+      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
         <header className="topbar">
           <div>
             <div className="eyebrow">FRO</div>

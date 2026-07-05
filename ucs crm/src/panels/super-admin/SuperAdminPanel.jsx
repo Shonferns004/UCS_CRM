@@ -201,7 +201,7 @@ function PageShell({ children }) {
     <div className="app">
       <div className={`sa-sidebar-overlay${mobileSidebar ? ' open' : ''}`} onClick={() => setMobileSidebar(false)} />
       <Sidebar mobileOpen={mobileSidebar} />
-      <div className="main">
+      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
         <header className="topbar">
           <div style={{display:'flex',alignItems:'center',gap:12}}>
             <button className="sa-hamburger sa-top-hamburger" onClick={() => setMobileSidebar(o => !o)} aria-label="Toggle menu">

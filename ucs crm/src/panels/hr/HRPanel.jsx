@@ -135,7 +135,7 @@ function HRPageShell({ children }) {
   return (
     <div className="app">
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
-      <div className="main">
+      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
         <div className="mobile-top">
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
           <div className="mtop-brand">

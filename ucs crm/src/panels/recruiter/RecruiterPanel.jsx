@@ -102,7 +102,7 @@ function AppShell() {
         </nav>
         <div className="nav-foot"><Heart width={13} style={{verticalAlign:-2,marginRight:6}} />Hire well, hire kind.</div>
       </aside>
-      <div className="main">
+      <div className="main" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
         <header className="topbar">
           <div><div className="eyebrow">{meta.eyebrow}</div><h2>{meta.label}</h2></div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
