@@ -314,80 +314,141 @@ export default function FROPanel() {
           />
           {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
-                <div className="modal-head">
-                  <h3 style={{fontSize:15}}>{showTarget ? 'My Target' : "Today's Activity"}</h3>
-                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                    {showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{fontSize:11}}>← Stats</button>}
-                    {!showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(true)} style={{fontSize:11}}>Target →</button>}
-                    <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{padding:4}}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card-bg)' }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{showTarget ? 'Monthly Target' : "Today's Activity"}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{showTarget ? 'Your collection progress' : 'Your calling stats for today'}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(false)} style={{ fontSize: 11, padding: '4px 10px' }}>← Stats</button>}
+                    {!showTarget && <button className="btn btn-sm" onClick={() => setShowTarget(true)} style={{ fontSize: 11, padding: '4px 10px' }}>Target →</button>}
+                    <button className="btn btn-sm btn-icon" onClick={() => setShowStats(false)} style={{ padding: 4 }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                     </button>
                   </div>
                 </div>
-                <div className="modal-body" style={{padding:'16px 18px'}}>
+
+                <div style={{ padding: '20px 22px', background: 'var(--bg)' }}>
                   {!showTarget ? (() => {
                     const ts = loadTodayStats();
                     const totalProd = (ts?.totalSeconds || 0) + (ts?.idleSeconds || 0);
                     if (!ts || (ts.calls === 0 && ts.skippedDonors === 0 && ts.breakSeconds === 0 && ts.idleSeconds === 0)) {
-                      return <div style={{textAlign:'center',padding:24,fontSize:13,color:'var(--ink-soft)'}}>No activity yet today</div>;
+                      return (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
+                          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" opacity=".4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          <div style={{ fontSize: 13, color: 'var(--ink-soft)', marginTop: 12 }}>No activity yet today</div>
+                          <div style={{ fontSize: 12, color: 'var(--ink-soft)', opacity: .6, marginTop: 4 }}>Start calling to see your stats here</div>
+                        </div>
+                      );
                     }
-                    const items = [
-                      { label:'Calls', value: ts.calls, color:'var(--sage)' },
-                      { label:'Talk Time', value: callFmt(ts.totalSeconds), color:'var(--sage)' },
-                      { label:'Avg Call', value: callFmt(Math.round(ts.totalSeconds / (ts.calls || 1))), color:'var(--sage)' },
-                      { label:'Skipped', value: ts.skippedDonors, color:'#d97706' },
-                      { label:'Idle', value: callFmt(ts.idleSeconds), color:'#6b7280' },
-                      { label:'Break', value: callFmt(ts.breakSeconds), color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', sub: ts.breakCount > 0 ? `${ts.breakCount}x` : '' },
-                      { label:'Productivity', value: `${Math.round((ts.totalSeconds / (totalProd || 1)) * 100)}%`, color:'var(--sage)' },
-                    ];
+                    const pct = Math.round((ts.totalSeconds / (totalProd || 1)) * 100);
                     return (
-                      <div className="stats" style={{gap:8,marginBottom:0}}>
-                        {items.map(s => (
-                          <div key={s.label} className="stat" style={{padding:'12px 14px',minWidth:80}}>
-                            <div style={{fontSize:22,fontWeight:800,lineHeight:1.1,color:s.color}}>{s.value}</div>
-                            <div style={{fontSize:10,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:2}}>{s.label}</div>
-                            {s.sub && <div style={{fontSize:9,color:'var(--ink-soft)',marginTop:1}}>{s.sub}</div>}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+                            <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1 }}>{ts.calls}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Calls</div>
                           </div>
-                        ))}
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+                            <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.totalSeconds)}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Talk Time</div>
+                          </div>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+                            <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(ts.totalSeconds / (ts.calls || 1)))}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Avg Call</div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: '#d97706' }}>{ts.skippedDonors}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Skipped</div>
+                            </div>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          </div>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.idleSeconds)}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Idle</div>
+                            </div>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" opacity=".5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ width: 40, height: 40, borderRadius: 10, background: ts.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontSize: 18 }}>☕</div>
+                            <div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: ts.breakSeconds > 3600 ? '#ef4444' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(ts.breakSeconds)}</div>
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>{ts.breakCount || 0} breaks</div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: pct > 50 ? '#16a34a' : '#d97706' }}>{pct}%</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 1 }}>Productivity</div>
+                          </div>
+                        </div>
                       </div>
                     );
                   })() : (
                     statsLoading ? (
-                      <div style={{textAlign:'center',padding:24,color:'var(--ink-soft)'}}>Loading...</div>
+                      <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
+                        <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Loading...</div>
+                      </div>
                     ) : statsData?.target ? (
-                      <>
-                        <div className="stats" style={{gap:8,marginBottom:14}}>
-                          {[
-                            { label:'Monthly Target', value: '\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN'), color:'#8b5cf6' },
-                            { label:'Collected', value: '\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN'), color:'#10b981' },
-                            { label:'Remaining', value: '\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN'), color:'#ef4444' },
-                          ].map(s => (
-                            <div key={s.label} className="stat" style={{padding:'14px 16px',textAlign:'center'}}>
-                              <div style={{fontSize:22,fontWeight:700,lineHeight:1.1,color:s.color}}>{s.value}</div>
-                              <div style={{fontSize:10,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'.05em',marginTop:2}}>{s.label}</div>
-                            </div>
-                          ))}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#8b5cf6' }}>{'\u20B9' + Number(statsData.target.target || 0).toLocaleString('en-IN')}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Target</div>
+                          </div>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#16a34a' }}>{'\u20B9' + Number(statsData.target.collected || 0).toLocaleString('en-IN')}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Collected</div>
+                          </div>
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '16px 18px', boxShadow: 'var(--shadow)', textAlign: 'center' }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#ef4444' }}>{'\u20B9' + Math.max(0, (statsData.target.target || 0) - (statsData.target.collected || 0)).toLocaleString('en-IN')}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Remaining</div>
+                          </div>
                         </div>
+
+                        {statsData.target.target > 0 && (
+                          <div style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px', boxShadow: 'var(--shadow)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginBottom: 6 }}>
+                              <span>Progress</span>
+                              <span>{Math.min(100, Math.round(((statsData.target.collected || 0) / statsData.target.target) * 100))}%</span>
+                            </div>
+                            <div style={{ height: 6, borderRadius: 3, background: 'var(--bg)', overflow: 'hidden' }}>
+                              <div style={{ height: '100%', borderRadius: 3, width: Math.min(100, ((statsData.target.collected || 0) / statsData.target.target) * 100) + '%', background: 'linear-gradient(90deg, #8b5cf6, #16a34a)', transition: 'width .5s ease' }} />
+                            </div>
+                          </div>
+                        )}
+
                         {statsData.dash && (
-                          <div className="stats" style={{gap:8}}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                             {[
-                              { label:'Connected (M)', value: statsData.dash.monthly_connected, color:'#3b82f6' },
-                              { label:'Connected (D)', value: statsData.dash.daily_connected, color:'#8b5cf6' },
-                              { label:'Verified', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color:'#10b981' },
-                              { label:'Unverified', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color:'#ef4444' },
-                              { label:'Active', value: statsData.dash.active_donors || 0, color:'#5B6B4E' },
-                              { label:'Total', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color:'#B5603A' },
+                              { label: 'Connected (M)', value: statsData.dash.monthly_connected, color: '#3b82f6' },
+                              { label: 'Connected (D)', value: statsData.dash.daily_connected, color: '#8b5cf6' },
+                              { label: 'Verified', value: '\u20B9' + Number(statsData.dash.verified_month_amount || 0).toLocaleString('en-IN'), color: '#16a34a' },
+                              { label: 'Unverified', value: '\u20B9' + Number(statsData.dash.unverified_month_amount || 0).toLocaleString('en-IN'), color: '#ef4444' },
+                              { label: 'Active Donors', value: statsData.dash.active_donors || 0, color: '#5B6B4E' },
+                              { label: 'Total', value: '\u20B9' + Number(statsData.dash.total_donations || 0).toLocaleString('en-IN'), color: '#B5603A' },
                             ].map(s => (
-                              <div key={s.label} className="stat" style={{padding:'12px 14px',minWidth:90}}>
-                                <div style={{fontSize:20,fontWeight:700,lineHeight:1.1,color:s.color}}>{s.value}</div>
-                                <div style={{fontSize:10,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:2}}>{s.label}</div>
+                              <div key={s.label} style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '12px 14px', boxShadow: 'var(--shadow)' }}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}</div>
+                                <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 1 }}>{s.label}</div>
                               </div>
                             ))}
                           </div>
                         )}
-                      </>
-                    ) : <div style={{textAlign:'center',padding:24,color:'var(--ink-soft)'}}>No data</div>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)' }}>
+                        <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>No target data available</div>
+                      </div>
+                    )
                   )}
                 </div>
               </div>
