@@ -18,12 +18,12 @@ import { authenticateRole, authenticate } from '../middleware/authMiddleware.js'
 
 const router = Router();
 
-const adminOrHrOrHo = authenticateRole('super_admin', 'hoadmin', 'hr');
+const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
 
 router.post('/', adminOrHrOrHo, addWorker);
 router.post('/bulk', adminOrHrOrHo, bulkAddWorkers);
 router.put('/bulk', adminOrHrOrHo, bulkEditWorkers);
-router.get('/', authenticateRole('super_admin', 'hoadmin', 'hr', 'accounts'), getWorkers);
+router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkers);
 router.get('/birthdays', adminOrHrOrHo, getBirthdays);
 router.get('/me', authenticate, getMyProfile);
 router.put('/me', authenticate, updateMyProfile);

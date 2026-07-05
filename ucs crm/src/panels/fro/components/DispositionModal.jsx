@@ -3,6 +3,7 @@ import { getDonorDetail, getDonorHistory, addDonorLog, uploadPaymentScreenshot }
 import { DatePicker } from './ui';
 import { TimePicker } from './TimePicker';
 import { useCall } from '../CallContext';
+import { toast } from '../../../components/Toast';
 
 const NOT_CONNECTED = [
   { id: 'busy', label: 'Busy' }, { id: 'ringing', label: 'Ringing' },
@@ -128,6 +129,10 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       }
       await addDonorLog(donorId, logPayload);
       endCall();
+      const disp = ALL_DISPOSITIONS.find(d => d.id === selected);
+      if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');
+      else if (selected === 'scheduled' || selected === 'callback') toast(`Follow-up scheduled`, 'info');
+      else toast(`Disposition: ${disp?.label || selected}`, 'info');
       onDone();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });

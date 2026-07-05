@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { getMyDashboard, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors } from '../api/donors'
 import { getMyTarget } from '../api/target'
@@ -108,62 +108,6 @@ export default function Dashboard() {
 
   return (
     <div>
-      {(todayStats?.calls > 0 || todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0) && (
-        <div className="card" style={{ marginBottom: 14, padding: '14px 18px', border: `1.5px solid ${todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0 ? '#fde68a' : '#bbf7d0'}`, background: todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0 ? 'linear-gradient(135deg, #fefce8 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: todayStats?.skippedDonors > 0 || todayStats?.breakSeconds > 0 ? '#f59e0b' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>phone_in_talk</span>
-            </div>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3 }}>Today's Activity</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(85px, 1fr))', gap: 6, marginTop: 6 }}>
-                {todayStats?.calls > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{todayStats.calls}</div>
-                    <div style={{ fontSize: 9, color: '#166534' }}>calls</div>
-                  </div>
-                )}
-                {todayStats?.calls > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats.totalSeconds)}</div>
-                    <div style={{ fontSize: 9, color: '#166534' }}>talk</div>
-                  </div>
-                )}
-                {todayStats?.calls > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{callFmt(Math.round(todayStats.totalSeconds / todayStats.calls))}</div>
-                    <div style={{ fontSize: 9, color: '#166534' }}>avg</div>
-                  </div>
-                )}
-                {todayStats?.skippedDonors > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: '#fefce8', border: '1px solid #fde68a' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{todayStats.skippedDonors}</div>
-                    <div style={{ fontSize: 9, color: '#92400e' }}>skipped</div>
-                  </div>
-                )}
-                {todayStats?.idleSeconds > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: '#fefce8', border: '1px solid #fde68a' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats.idleSeconds)}</div>
-                    <div style={{ fontSize: 9, color: '#92400e' }}>idle</div>
-                  </div>
-                )}
-                {todayStats?.breakSeconds > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: todayStats.breakSeconds > 3600 ? '#fef2f2' : '#fefce8', border: `1px solid ${todayStats.breakSeconds > 3600 ? '#fecaca' : '#fde68a'}` }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: todayStats.breakSeconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats.breakSeconds)}</div>
-                    <div style={{ fontSize: 9, color: todayStats.breakSeconds > 3600 ? '#dc2626' : '#92400e' }}>{todayStats.breakCount || 0} breaks{todayStats.breakSeconds > 3600 ? ' 🔴' : ''}</div>
-                  </div>
-                )}
-                {todayStats?.totalSeconds + todayStats?.idleSeconds > 0 && (
-                  <div style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a', fontVariantNumeric: 'tabular-nums' }}>{Math.round((todayStats.totalSeconds / (todayStats.totalSeconds + todayStats.idleSeconds)) * 100)}%</div>
-                    <div style={{ fontSize: 9, color: '#166534' }}>productive</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
@@ -485,7 +429,7 @@ export default function Dashboard() {
       <div className="card" style={{ marginBottom: 14, flexDirection:'row', alignItems:'center', justifyContent:'space-between', padding:'12px 16px' }}>
         <div>
           <div style={{ fontSize:13, fontWeight:700 }}>Need more donor data?</div>
-          <div style={{ fontSize:10, color:'var(--md-outline)', marginTop:2 }}>Request additional assignments or data from the NGO admin.</div>
+          <div style={{ fontSize:10, color:'var(--md-outline)', marginTop:2 }}>Request additional assignments or data from the Admin.</div>
         </div>
         <button onClick={() => setShowRequest(true)}
           style={{ padding:'8px 20px', border:'none', borderRadius:8, background:'var(--sage)', color:'#fff', fontSize:11, fontWeight:700, fontFamily:'inherit', cursor:'pointer', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
@@ -583,7 +527,7 @@ export default function Dashboard() {
         <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => { if (!sending) { setShowRequest(false); setReqDone(false) } }}>
           <div style={{ background:'#fff', borderRadius:12, width:400, padding:20, boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize:14, fontWeight:700, marginBottom:4 }}>Request More Data</div>
-            <div style={{ fontSize:10, color:'var(--ink-soft)', marginBottom:12 }}>Send a request to the NGO admin for additional donor assignments or data.</div>
+            <div style={{ fontSize:10, color:'var(--ink-soft)', marginBottom:12 }}>Send a request to the Admin for additional donor assignments or data.</div>
             {reqDone ? (
               <div style={{ textAlign:'center', padding:'16px 0', color:'var(--sage)', fontWeight:600, fontSize:12 }}>
                 <span className="material-symbols-outlined" style={{ fontSize:18, verticalAlign:'middle', marginRight:4 }}>check_circle</span>

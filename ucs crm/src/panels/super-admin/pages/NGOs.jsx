@@ -9,7 +9,7 @@ export default function NGOs() {
   const [form, setForm] = useState({ name: '', code: '', address: '', registration_no: '' })
   const [err, setErr] = useState('')
   const [assignNgo, setAssignNgo] = useState(null)
-  const [assignForm, setAssignForm] = useState({ name: '', email: '', password: '123456', role: 'hoadmin' })
+  const [assignForm, setAssignForm] = useState({ name: '', email: '', password: '123456', role: 'admin' })
   const [assignErr, setAssignErr] = useState('')
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export default function NGOs() {
 
   const openAssign = async (ngo) => {
     setAssignNgo(ngo)
-    setAssignForm({ name: '', email: '', password: '123456', role: 'hoadmin' })
+    setAssignForm({ name: '', email: '', password: '123456', role: 'admin' })
     setAssignErr('')
   }
 
@@ -112,7 +112,7 @@ export default function NGOs() {
             <label className="field">Email <input type="email" value={assignForm.email} onChange={e => setAssignForm({...assignForm, email: e.target.value})} /></label>
             <label className="field">Role
               <select value={assignForm.role} onChange={e => setAssignForm({...assignForm, role: e.target.value})}>
-                <option value="hoadmin">HO Admin</option>
+                <option value="admin">HO Admin</option>
                 <option value="accounts">Accounts</option>
                 <option value="leads">Leads</option>
                 <option value="recruiter">Recruiter</option>

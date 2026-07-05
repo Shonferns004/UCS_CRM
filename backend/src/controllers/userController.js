@@ -44,7 +44,7 @@ export const addUser = async (req, res) => {
     }
 
     // hoadmin (NGO Admin) is global — no NGO binding
-    if (role === 'hoadmin') {
+    if (role === 'admin') {
       const tempPassword = generateTempPassword();
       const user = await createUser({
         ngo_id: null,
@@ -61,7 +61,7 @@ export const addUser = async (req, res) => {
       });
     }
 
-    if (req.user.role === 'hoadmin') {
+    if (req.user.role === 'admin') {
       ngo_id = req.user.ngo_id;
     }
 

@@ -14,19 +14,12 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
     return () => document.removeEventListener('mousedown', handler)
   }, [open, onClose])
 
-  useEffect(() => {
-    if (open) document.body.style.overflow = 'hidden'
-    else document.body.style.overflow = ''
-    return () => { document.body.style.overflow = '' }
-  }, [open])
-
   const totalCount = sections.reduce((s, sec) => s + (sec.items?.length || 0), 0)
 
   return (
     <>
-      {open && <div className="notif-overlay" onClick={onClose} />}
       <div ref={drawerRef} className="notif-drawer" style={{
-        position: 'fixed', top: 0, right: open ? 0 : '-420px', width: 400, maxWidth: '100vw',
+        position: 'fixed', top: 0, right: open ? 0 : '-340px', width: 320, maxWidth: '100vw',
         height: '100vh', background: '#fff', zIndex: 1000,
         boxShadow: '-4px 0 24px rgba(0,0,0,.12)',
         transition: 'right .25s ease',

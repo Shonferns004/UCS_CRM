@@ -272,7 +272,7 @@ export default function BankAudit() {
                 <th>Payment ID</th>
                 <th>Check ID</th>
                 <th>Remarks</th>
-                <th style={{ width: 80 }}>Actions</th>
+                    <th style={{ width: 110 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -292,6 +292,9 @@ export default function BankAudit() {
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button className="btn btn-sm" onClick={() => openEditEntry(e)} style={{ fontSize: 11, padding: '2px 8px' }}>Edit</button>
+                        {statusTab === 'unverified' && !e.assigned_to_ngo_admin && (
+                          <button className="btn btn-sm" onClick={async () => { if (confirm('Send this entry to NGO Admin for inquiry?')) try { await apiPut('/accounts/bank-audit/entries/' + e.id + '/assign-ngo', {}); doLoad(selectedDate, statusTab); } catch (err) { alert(err.message); } }} style={{ fontSize: 11, padding: '2px 8px', color: '#B5603A' }}>NGO</button>
+                        )}
                         <button className="btn btn-sm" onClick={() => handleDeleteEntry(e.id)} style={{ fontSize: 11, padding: '2px 8px', color: '#dc2626' }}>Del</button>
                       </div>
                     </td>

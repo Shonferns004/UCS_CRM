@@ -10,8 +10,7 @@ import RecruiterPanel from './panels/recruiter/RecruiterPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
-  hoadmin: '/ngo-admin',
-  'ngo-admin': '/ngo-admin',
+  admin: '/ngo-admin',
   hr: '/hr',
   accounts: '/accounts',
   recruiter: '/recruiter',
@@ -21,10 +20,10 @@ const ROLE_PATHS = {
 
 const ROLE_PANELS = {
   super_admin: { panel: SuperAdminPanel, cls: 'panel-sa' },
-  hoadmin: { panel: NgoAdminPanel, cls: 'panel-ngo-admin' },
+  admin: { panel: NgoAdminPanel, cls: 'panel-ngo-admin' },
   hr: { panel: HRPanel, cls: 'panel-hr' },
   accounts: { panel: AccountsPanel, cls: 'panel-accounts' },
-  'ngo-admin': { panel: NgoAdminPanel, cls: 'panel-ngo-admin' },
+  'admin': { panel: NgoAdminPanel, cls: 'panel-ngo-admin' },
   fro: { panel: FROPanel, cls: 'panel-fro' },
   recruiter: { panel: RecruiterPanel, cls: 'panel-recruiter' },
 }
@@ -107,8 +106,8 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/ngo-admin/*" element={
-          <ProtectedRoute role={['hoadmin', 'ngo-admin']}>
-            <PanelWrapper roleKey="hoadmin" />
+          <ProtectedRoute role={['admin']}>
+            <PanelWrapper roleKey="admin" />
           </ProtectedRoute>
         } />
         <Route path="/fro/*" element={
@@ -117,7 +116,7 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/accounts/*" element={
-          <ProtectedRoute role={['accounts', 'Admin']}>
+          <ProtectedRoute role={['accounts', 'admin']}>
             <PanelWrapper roleKey="accounts" />
           </ProtectedRoute>
         } />

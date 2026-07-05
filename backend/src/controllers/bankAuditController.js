@@ -1,4 +1,5 @@
 import * as BankAudit from '../models/bankAuditModel.js';
+import supabase from '../config/supabase.js';
 
 export const listSources = async (req, res) => {
   try {
@@ -132,6 +133,140 @@ export const markEntryVerified = async (req, res) => {
     const { id } = req.params;
     const entry = await BankAudit.verifyEntry(id);
     return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const assignEntryToNgo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const entry = await BankAudit.assignToNgoAdmin(id, notes);
+    // Notify NGO admins - try both admin and hoadmin roles (transition period)
+    const { data: ngoAdmins } = await supabase
+      .from('users')
+      .select('id')
+      .in('role', ['admin', 'hoadmin']);
+    for (const u of (ngoAdmins || [])) {
+      try {
+        await supabase.from('notification_log').insert({
+          worker_id: u.id,
+          type: 'suspense_assigned',
+          title: 'Suspense Entry',
+          body: `A suspense entry of ${entry.bank_audit_sources?.name || 'Unknown'} for \u20B9${entry.amount} has been sent for inquiry. Payment ID: ${entry.payment_id || 'N/A'}`,
+          sent_at: new Date().toISOString(),
+        });
+      } catch {}
+    }
+    return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listNgoSuspense = async (req, res) => {
+  try {
+    const entries = await BankAudit.getSuspenseForNgo();
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const assignSuspenseToFro = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fro_id, notes } = req.body;
+    if (!fro_id) return res.status(400).json({ message: 'FRO ID is required' });
+    const entry = await BankAudit.assignSuspenseToFro(id, fro_id, notes);
+    // Notify FRO
+    try {
+      await supabase.from('notification_log').insert({
+        worker_id: fro_id,
+        type: 'suspense_assigned',
+        title: 'Suspense Entry Assigned',
+        body: `A suspense entry of ₹${entry.amount} has been assigned to you. Payment ID: ${entry.payment_id || 'N/A'}. Please check and resolve.`,
+        sent_at: new Date().toISOString(),
+      });
+    } catch {}
+    return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listFroSuspense = async (req, res) => {
+  try {
+    const entries = await BankAudit.getSuspenseForFro(req.user.id);
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const resolveSuspenseEntry = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { screenshot_url, donor_details, donor_name, donor_mobile, amount, disposition_category, disposition_detail } = req.body;
+    const entry = await BankAudit.resolveSuspense(id, screenshot_url, donor_details);
+
+    // Also create a fro_donor_log entry for this resolved suspense
+    if (donor_name) {
+      try {
+        // Create or find donor profile
+        const { data: existingDonor } = await supabase
+          .from('donor_profiles')
+          .select('id')
+          .eq('name', donor_name)
+          .maybeSingle();
+        let donorId = existingDonor?.id;
+        if (!donorId) {
+          const { data: newDonor } = await supabase
+            .from('donor_profiles')
+            .insert({ name: donor_name, mobile_number: donor_mobile || null })
+            .select()
+            .single();
+          donorId = newDonor?.id;
+        }
+
+        if (donorId) {
+          // Create fro_assignment
+          const { data: assignment } = await supabase
+            .from('fro_assignments')
+            .insert({
+              donor_id: donorId,
+              fro_worker_id: req.user.id,
+              status: disposition_detail === 'lead_done' ? 'lead_done' : 'callback',
+            })
+            .select()
+            .single();
+
+          if (assignment) {
+            await supabase.from('fro_donor_logs').insert({
+              assignment_id: assignment.id,
+              action: disposition_detail === 'lead_done' ? 'donation' : disposition_category || 'follow_up',
+              disposition_category: disposition_category || 'other',
+              disposition_detail: disposition_detail || 'resolved_suspense',
+              amount_collected: amount || entry.amount || 0,
+              accounts_status: disposition_detail === 'lead_done' ? 'pending' : 'pending',
+            });
+          }
+        }
+      } catch (err) { console.error('Failed to create lead from suspense:', err.message); }
+    }
+
+    return res.json(entry);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const searchFroDispositions = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const entries = await BankAudit.searchFroDispositions(req.user.id, q || '');
+    return res.json(entries);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

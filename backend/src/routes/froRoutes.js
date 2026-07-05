@@ -1,6 +1,9 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/authMiddleware.js';
+import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 import supabase from '../config/supabase.js';
+import {
+  listFroSuspense, resolveSuspenseEntry, searchFroDispositions,
+} from '../controllers/bankAuditController.js';
 import {
   getDashboard,
   getMyDonors,
@@ -26,13 +29,12 @@ import {
   updateLiveStatus,
   getLiveStatuses,
 } from '../controllers/froController.js';
-import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
 router.use(authenticate);
 
-router.get('/status', authenticateRole('super_admin', 'hoadmin'), getLiveStatuses);
+router.get('/status', authenticateRole('super_admin', 'admin'), getLiveStatuses);
 
 const requireFro = (req, res, next) => {
   if (!req.user.department || req.user.department.toLowerCase().trim() !== 'fro') {
@@ -84,5 +86,9 @@ router.get('/lead-stats', getLeadStats);
 router.get('/monthly-donors', getMonthlyDonors);
 router.get('/donors/:id/history', getDonorHistory);
 router.get('/donors/:id/full-history', getFullDonorHistory);
+
+router.get('/suspense', listFroSuspense);
+router.get('/suspense/search-dispositions', searchFroDispositions);
+router.put('/suspense/:id/resolve', resolveSuspenseEntry);
 
 export default router;

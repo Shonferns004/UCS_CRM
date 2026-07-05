@@ -4,7 +4,7 @@ import {
   getSuperAdminDashboard,
   getFroLiveStatus,
   getHrDashboard,
-  getHoadminDashboard,
+  getAdminDashboard,
   getAccountsDashboard,
   getRecruiterDashboard,
   getLeadsDashboard,
@@ -33,8 +33,7 @@ const froTelecaller = (req, res, next) => {
 };
 
 router.get('/super-admin', authenticateRole('super_admin'), getSuperAdminDashboard);
-router.get('/fro-live', authenticateRole('super_admin'), getFroLiveStatus);
-router.get('/hoadmin', authenticateRole('hoadmin'), getHoadminDashboard);
+router.get('/admin', authenticateRole('admin'), getAdminDashboard);
 router.get('/hr', authenticateRole('hr'), getHrDashboard);
 router.get('/accounts', authenticateRole('super_admin', 'accounts'), getAccountsDashboard);
 router.get('/recruiter', authenticateRole('recruiter'), getRecruiterDashboard);

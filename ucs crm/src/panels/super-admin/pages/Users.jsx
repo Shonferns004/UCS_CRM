@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
 
 export default function Users() {
@@ -8,7 +8,7 @@ export default function Users() {
   const [showForm, setShowForm] = useState(false)
   const [editingUser, setEditingUser] = useState(null)
   const [editingHr, setEditingHr] = useState(null)
-  const [form, setForm] = useState({ name: '', email: '', password: '123456', role: 'hoadmin', ngo_ids: [] })
+  const [form, setForm] = useState({ name: '', email: '', password: '123456', role: 'admin', ngo_ids: [] })
   const [err, setErr] = useState('')
   const [tab, setTab] = useState('users')
   const [filterRole, setFilterRole] = useState('')
@@ -24,7 +24,7 @@ export default function Users() {
   const openNew = () => {
     setEditingUser(null)
     setEditingHr(null)
-    setForm({ name: '', email: '', password: '123456', role: 'hoadmin', ngo_ids: [] })
+    setForm({ name: '', email: '', password: '123456', role: 'admin', ngo_ids: [] })
     setShowForm(true)
   }
 
@@ -35,8 +35,8 @@ export default function Users() {
       name: u.name || '',
       email: u.email || '',
       password: '',
-      role: u.role || 'hoadmin',
-      ngo_ids: u.role === 'hoadmin' ? [] : (u.ngo_access || (u.ngo_id ? [u.ngo_id] : [])),
+      role: u.role || 'admin',
+      ngo_ids: u.role === 'admin' ? [] : (u.ngo_access || (u.ngo_id ? [u.ngo_id] : [])),
     })
     setShowForm(true)
   }
@@ -143,7 +143,7 @@ export default function Users() {
             {isUser && (
               <label className="field">Role
                 <select value={form.role} onChange={e => setForm({...form, role: e.target.value})}>
-                  <option value="hoadmin">HO Admin</option>
+                  <option value="admin">HO Admin</option>
                   <option value="accounts">Accounts</option>
                   <option value="leads">Leads</option>
                   <option value="recruiter">Recruiter</option>
@@ -154,7 +154,7 @@ export default function Users() {
               </label>
             )}
 
-            {form.role !== 'hoadmin' && (
+            {form.role !== 'admin' && (
               <label className="field">
                 <span>NGO</span>
                 <select value={form.ngo_ids[0] || ''} onChange={e => setForm({...form, ngo_ids: e.target.value ? [e.target.value] : []})}>
@@ -163,9 +163,9 @@ export default function Users() {
                 </select>
               </label>
             )}
-            {form.role === 'hoadmin' && !editingUser && (
+            {form.role === 'admin' && !editingUser && (
               <p style={{fontSize:13,color:'var(--ink-soft)',marginTop:4}}>
-                NGO Admin has access to all NGOs automatically.
+                Admin has access to all NGOs automatically.
               </p>
             )}
             <div className="sa-modal-actions">
@@ -197,7 +197,7 @@ export default function Users() {
                   <td>{u.name}</td>
                   <td>{u.email}</td>
                   <td><span className="sa-badge">{u.role}</span></td>
-                  <td className="sa-muted" style={{maxWidth:200}}>{u.role === 'hoadmin' ? 'All NGOs' : (u.ngo_names || (u.ngo_id ? ngos.find(n => n.id === u.ngo_id)?.name || u.ngo_id : '—'))}</td>
+                  <td className="sa-muted" style={{maxWidth:200}}>{u.role === 'admin' ? 'All NGOs' : (u.ngo_names || (u.ngo_id ? ngos.find(n => n.id === u.ngo_id)?.name || u.ngo_id : '—'))}</td>
                   <td><span className={`sa-badge ${u.is_active !== false ? 'active' : 'inactive'}`}>
                     {u.is_active !== false ? 'Active' : 'Inactive'}
                   </span></td>

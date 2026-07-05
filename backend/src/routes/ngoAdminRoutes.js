@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
+  listNgoSuspense, assignSuspenseToFro,
+} from '../controllers/bankAuditController.js';
+import {
   getDonors,
   getDonorDetail,
   getFroWorkers,
@@ -41,10 +44,10 @@ import {
 
 const router = Router();
 
-router.get('/rejected-leads', authenticateRole('hoadmin', 'super_admin'), getRejectedLeads);
-router.put('/rejected-leads/:id/acknowledge', authenticateRole('hoadmin', 'super_admin'), acknowledgeRejectedLead);
+router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
+router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
-router.use(authenticateRole('hoadmin'));
+router.use(authenticateRole('admin'));
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/station-stats', getStationStats);
@@ -84,5 +87,8 @@ router.put('/alerts/:id/acknowledge', acknowledgeAlert);
 
 router.get('/database-requests', getDataRequests);
 router.put('/database-requests/:id/resolve', resolveDataRequest);
+
+router.get('/suspense', listNgoSuspense);
+router.put('/suspense/:id/assign-fro', assignSuspenseToFro);
 
 export default router;

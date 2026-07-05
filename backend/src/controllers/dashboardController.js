@@ -482,7 +482,7 @@ export const getHrDashboard = async (req, res) => {
   }
 };
 
-export const getHoadminDashboard = async (req, res) => {
+export const getAdminDashboard = async (req, res) => {
   try {
     const ngoId = req.user.ngo_id;
     const workers = ngoId ? await getAllWorkers(ngoId) : await getAllWorkers();

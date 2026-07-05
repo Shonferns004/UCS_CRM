@@ -175,20 +175,29 @@ export const verifyLead = async (req, res) => {
       });
     }
 
-    // Notify FRO that their lead was verified
+    // Notify FRO that their lead was verified (FCM + notification_log)
     const froWorkerId = log.fro_assignments?.fro_worker_id;
     const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
     if (froWorkerId) {
       try {
+        const notifTitle = 'Lead Verified';
         const notifBody = `Your lead for ${donorName} (₹${log.amount_collected || 0}) has been verified. Receipt: ${receipt?.receipt_no || ''}`;
-        await supabase.from('notification_log').insert({
-          worker_id: froWorkerId,
-          type: 'lead_verified',
-          title: 'Lead Verified',
-          body: notifBody,
-          fro_donor_log_id: String(logId),
-          sent_at: new Date().toISOString(),
-        });
+        const refId = /^\d+$/.test(String(logId)) ? parseInt(logId) : null;
+        let fcmLogged = false;
+        try {
+          const pushResult = await sendPushNotification(froWorkerId, notifTitle, notifBody, 'lead_verified', refId);
+          fcmLogged = !!pushResult;
+        } catch (err) { console.error('FCM send error:', err.message); }
+        if (!fcmLogged) {
+          await supabase.from('notification_log').insert({
+            worker_id: froWorkerId,
+            type: 'lead_verified',
+            title: notifTitle,
+            body: notifBody,
+            fro_donor_log_id: String(logId),
+            sent_at: new Date().toISOString(),
+          });
+        }
       } catch (err) { console.error('Failed to create verified notification:', err.message); }
     }
 
