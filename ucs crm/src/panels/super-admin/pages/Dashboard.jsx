@@ -1327,26 +1327,25 @@ export default function Dashboard() {
               const total = segments.reduce((s, seg) => s + seg.value, 0)
               if (segments.length === 0 || total === 0) return <p className="nd-muted">No role data</p>
               return (
-                <div style={{ display: 'flex', gap: 20, alignItems: 'center', flex: 1 }}>
-                  <DonutChart
-                    segments={segments}
-                    size={150}
-                    centerValue={total}
-                    centerLabel="Users"
-                    animated={animated}
-                  />
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {segments.map(s => (
-                      <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#1F332B', flex: 1 }}>{s.label}</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</span>
-                        <span style={{ fontSize: 10, color: '#94a3b8', minWidth: 32, textAlign: 'right' }}>
-                          {Math.round((s.value / total) * 100)}%
-                        </span>
-                      </div>
-                    ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+                  <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textAlign: 'right', marginBottom: 4 }}>
+                    {total} total users
                   </div>
+                  {segments.map(s => {
+                    const pct = Math.round((s.value / total) * 100)
+                    return (
+                      <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#1F332B', minWidth: 80, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'right' }}>
+                          {s.label}
+                        </span>
+                        <div style={{ flex: 1, height: 14, background: '#F1F5F2', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: s.color, borderRadius: 99, transition: 'width 0.6s ease' }} />
+                        </div>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: '#1F332B', minWidth: 30, textAlign: 'right' }}>{s.value}</span>
+                        <span style={{ fontSize: 10, color: '#94a3b8', minWidth: 30, textAlign: 'right', fontWeight: 600 }}>{pct}%</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })()}
