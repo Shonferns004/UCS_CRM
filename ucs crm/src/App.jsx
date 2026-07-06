@@ -129,7 +129,7 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/event-head/*" element={
-          <ProtectedRoute role={['event_head', 'Event Head']}>
+          <ProtectedRoute role={['event_head', 'Event Head', 'Event Manager']}>
             <PanelWrapper roleKey="event_head" />
           </ProtectedRoute>
         } />
