@@ -1,11 +1,19 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { getMyDashboard, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import { cacheGet, cacheSet } from '../../../utils/cache'
+import { useCall } from '../CallContext'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
+
+function callFmt(seconds) {
+  if (seconds == null) return '00:00'
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 const Icon = ({ children, color }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color || 'var(--ink)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
@@ -21,6 +29,7 @@ const CACHE_KEY = 'fro_dashboard'
 
 export default function Dashboard() {
   const cached = cacheGet(CACHE_KEY)
+  const { todayStats } = useCall()
   const [dashData, setDashData] = useState(cached?.dash || null)
   const [targetData, setTargetData] = useState(cached?.target || null)
   const [loading, setLoading] = useState(!cached)
@@ -104,6 +113,29 @@ export default function Dashboard() {
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
         gap: 14, marginBottom: 20,
       }}>
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: `1.5px solid ${ds.is_punched_in ? 'var(--sage)' : '#f87171'}`, background: ds.is_punched_in ? 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' : 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: ds.is_active ? (ds.is_punched_in ? '#16a34a' : '#f87171') : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{ds.is_punched_in ? 'check_circle' : ds.is_active ? 'schedule' : 'cancel'}</span>
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3 }}>Live Status</span>
+              <div style={{ display: 'flex', gap: 12, marginTop: 2, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: ds.is_active ? (ds.is_punched_in ? 'var(--sage)' : '#f87171') : '#94a3b8' }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: ds.is_active ? (ds.is_punched_in ? 'var(--sage)' : '#f87171') : '#e2e8f0', marginRight: 4, verticalAlign: 'middle' }} />
+                  {ds.is_active ? (ds.is_punched_in ? 'Punched In' : 'Not Punched') : 'Inactive'}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 600 }}>
+                  Data: {ds.data_used ?? 0}/{stats.total ?? 0}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)' }}>
+                  Today: {currency(ds.daily_donations ?? 0)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: '1.5px solid #8b5cf6', background: 'linear-gradient(135deg, #faf5ff 0%, #fff 100%)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color="#8b5cf6">
@@ -397,7 +429,7 @@ export default function Dashboard() {
       <div className="card" style={{ marginBottom: 14, flexDirection:'row', alignItems:'center', justifyContent:'space-between', padding:'12px 16px' }}>
         <div>
           <div style={{ fontSize:13, fontWeight:700 }}>Need more donor data?</div>
-          <div style={{ fontSize:10, color:'var(--md-outline)', marginTop:2 }}>Request additional assignments or data from the NGO admin.</div>
+          <div style={{ fontSize:10, color:'var(--md-outline)', marginTop:2 }}>Request additional assignments or data from the Admin.</div>
         </div>
         <button onClick={() => setShowRequest(true)}
           style={{ padding:'8px 20px', border:'none', borderRadius:8, background:'var(--sage)', color:'#fff', fontSize:11, fontWeight:700, fontFamily:'inherit', cursor:'pointer', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
@@ -495,7 +527,7 @@ export default function Dashboard() {
         <div style={{ position:'fixed', inset:0, zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.4)' }} onClick={() => { if (!sending) { setShowRequest(false); setReqDone(false) } }}>
           <div style={{ background:'#fff', borderRadius:12, width:400, padding:20, boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize:14, fontWeight:700, marginBottom:4 }}>Request More Data</div>
-            <div style={{ fontSize:10, color:'var(--ink-soft)', marginBottom:12 }}>Send a request to the NGO admin for additional donor assignments or data.</div>
+            <div style={{ fontSize:10, color:'var(--ink-soft)', marginBottom:12 }}>Send a request to the Admin for additional donor assignments or data.</div>
             {reqDone ? (
               <div style={{ textAlign:'center', padding:'16px 0', color:'var(--sage)', fontWeight:600, fontSize:12 }}>
                 <span className="material-symbols-outlined" style={{ fontSize:18, verticalAlign:'middle', marginRight:4 }}>check_circle</span>

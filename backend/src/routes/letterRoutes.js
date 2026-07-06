@@ -15,7 +15,7 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-const hrRoles = authenticateRole('super_admin', 'hoadmin', 'hr');
+const hrRoles = authenticateRole('super_admin', 'admin', 'hr');
 
 router.post('/seed', hrRoles, seedTemplates);
 router.get('/templates', hrRoles, listTemplates);

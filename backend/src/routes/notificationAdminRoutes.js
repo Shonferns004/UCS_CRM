@@ -10,7 +10,7 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-const adminOrHr = authenticateRole('super_admin', 'hoadmin', 'hr');
+const adminOrHr = authenticateRole('super_admin', 'admin', 'hr');
 
 router.post('/send-now', adminOrHr, sendNow);
 router.post('/schedule', adminOrHr, scheduleNotification);

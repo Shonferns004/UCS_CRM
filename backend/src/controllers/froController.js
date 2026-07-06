@@ -298,6 +298,14 @@ export const getDashboard = async (req, res) => {
       }
     }
 
+    const { data: myAtt } = await supabase
+      .from('attendance')
+      .select('status')
+      .eq('worker_id', workerId)
+      .eq('date', todayStart.toISOString().slice(0, 10))
+      .maybeSingle();
+    const is_punched_in = myAtt && (myAtt.status === 'present' || myAtt.status === 'late');
+
     return res.json({
       stats,
       target,
@@ -328,6 +336,8 @@ export const getDashboard = async (req, res) => {
       verified_today_count: verifiedToday.count,
       unverified_today_amount: unverifiedToday.amount,
       unverified_today_count: unverifiedToday.count,
+      is_active: worker.is_active !== false,
+      is_punched_in,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1511,6 +1521,87 @@ export const getDonorHistory = async (req, res) => {
       .maybeSingle();
 
     return res.json({ donor: donors || null, logs: logs || [] });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateLiveStatus = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type } = req.body;
+
+    const payload = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
+    if (current_donor_name !== undefined) payload.current_donor_name = current_donor_name;
+    if (current_donor_id !== undefined) payload.current_donor_id = current_donor_id;
+    if (today_calls !== undefined) payload.today_calls = today_calls;
+    if (today_talk_seconds !== undefined) payload.today_talk_seconds = today_talk_seconds;
+    if (today_skipped !== undefined) payload.today_skipped = today_skipped;
+    if (today_idle_seconds !== undefined) payload.today_idle_seconds = today_idle_seconds;
+    if (today_break_seconds !== undefined) payload.today_break_seconds = today_break_seconds;
+    if (on_break !== undefined) payload.on_break = on_break;
+    if (break_type !== undefined) payload.break_type = break_type;
+
+    if (status === 'on_call' && current_donor_name) {
+      payload.call_started_at = new Date().toISOString();
+    }
+    if (status === 'idle' || status === 'online') {
+      payload.call_started_at = null;
+    }
+    if (status === 'break') {
+      payload.break_started_at = new Date().toISOString();
+      payload.on_break = true;
+    }
+    if (status !== 'break') {
+      payload.break_started_at = null;
+      payload.on_break = false;
+    }
+
+    const { data: existing } = await supabase
+      .from('fro_live_status')
+      .select('id')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await supabase
+        .from('fro_live_status')
+        .update(payload)
+        .eq('worker_id', workerId);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('fro_live_status')
+        .insert([{ worker_id: workerId, ...payload }]);
+      if (error) throw error;
+    }
+
+    return res.json({ message: 'Status updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getLiveStatuses = async (req, res) => {
+  try {
+    const ngoId = req.user.ngo_id;
+
+    let query = supabase
+      .from('fro_live_status')
+      .select('*, workers!inner(id, name, login_id)')
+      .order('updated_at', { ascending: false });
+
+    if (ngoId && req.user.role !== 'super_admin') {
+      query = query.eq('workers.ngo_id', ngoId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return res.json(data || []);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

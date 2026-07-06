@@ -4,9 +4,9 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-router.post('/', authenticateRole('super_admin', 'hoadmin'), addHR);
-router.get('/', authenticateRole('super_admin', 'hoadmin', 'hr'), listHRs);
-router.get('/:id', authenticateRole('super_admin', 'hoadmin', 'hr'), getHR);
-router.put('/:id', authenticateRole('super_admin', 'hoadmin'), editHR);
+router.post('/', authenticateRole('super_admin', 'admin'), addHR);
+router.get('/', authenticateRole('super_admin', 'admin', 'hr'), listHRs);
+router.get('/:id', authenticateRole('super_admin', 'admin', 'hr'), getHR);
+router.put('/:id', authenticateRole('super_admin', 'admin'), editHR);
 
 export default router;

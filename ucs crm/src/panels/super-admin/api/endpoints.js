@@ -1,6 +1,7 @@
 import { api } from './auth'
 
 export const getDashboard = (period = '30d') => api(`/dashboard/super-admin?period=${period}`)
+export const getFroLiveStatus = () => api('/dashboard/fro-live')
 export const getNGOs = () => api('/ngos')
 export const getUsers = () => api('/users')
 export const getHRs = () => api('/hrs')
@@ -20,6 +21,8 @@ export const getCauses = (params = '') => api(`/causes${params}`)
 export const getDataSources = () => api('/data-sources')
 export const getDataImportBatches = () => api('/data-import/batches')
 export const getDataImportBatch = (id) => api(`/data-import/batch/${id}`)
+export const getAccountsLeads = (status = '') => api(`/accounts/leads${status ? `?status=${status}` : ''}`)
+export const getRecruiterLeads = (params = '') => api(`/leads${params}`)
 export const getHrVerifiedTickets = () => api('/attendance-corrections/hr-verified')
 export const getAllTickets = () => api('/attendance-corrections/all')
 export const getPendingCount = () => api('/attendance-corrections/pending-count')

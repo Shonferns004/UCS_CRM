@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { getDonorDetail, getDonorHistory, addDonorLog, uploadPaymentScreenshot } from '../api/donors';
 import { DatePicker } from './ui';
 import { TimePicker } from './TimePicker';
+import { useCall } from '../CallContext';
+import { toast } from '../../../components/Toast';
 
 const NOT_CONNECTED = [
   { id: 'busy', label: 'Busy' }, { id: 'ringing', label: 'Ringing' },
@@ -60,6 +62,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const isOverdue = origScheduledAt && new Date(origScheduledAt) < new Date();
+  const { startCall, endCall } = useCall();
 
   useEffect(() => {
     setLoading(true);
@@ -71,6 +74,11 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       setDetail(det);
     }).finally(() => setLoading(false));
   }, [donorId, ngoId]);
+
+  useEffect(() => {
+    startCall({ id: donorId, donorName, donorMobile })
+    return () => endCall()
+  }, []);
 
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
@@ -120,6 +128,11 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         logPayload.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
       }
       await addDonorLog(donorId, logPayload);
+      endCall();
+      const disp = ALL_DISPOSITIONS.find(d => d.id === selected);
+      if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');
+      else if (selected === 'scheduled' || selected === 'callback') toast(`Follow-up scheduled`, 'info');
+      else toast(`Disposition: ${disp?.label || selected}`, 'info');
       onDone();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });

@@ -17,7 +17,7 @@ import { authenticateRole, authenticateWorker } from '../middleware/authMiddlewa
 
 const router = Router();
 
-const adminOrHrOrHo = authenticateRole('super_admin', 'hoadmin', 'hr');
+const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
 
 router.get('/worker/:workerId/targets', adminOrHrOrHo, getWorkerTargets);
 router.get('/worker/:workerId/month/:month', adminOrHrOrHo, getWorkerTargetForMonth);

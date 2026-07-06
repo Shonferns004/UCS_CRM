@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
@@ -6,6 +6,7 @@ import { useRealtime } from '../../hooks/useRealtime'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import NotificationDrawer from '../../components/NotificationDrawer'
+import SettingsDrawer from '../../components/SettingsDrawer'
 import Dashboard from './pages/Dashboard'
 import Donors from './pages/Donors'
 import DonorDetail from './pages/DonorDetail'
@@ -14,6 +15,8 @@ import NewData from './pages/NewData'
 import Alerts from './pages/Alerts'
 import RejectedLeads from './pages/RejectedLeads'
 import NgoAttendance from './pages/Attendance'
+import FroLiveStatus from './pages/FroLiveStatus'
+import Suspense from './pages/Suspense'
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -23,6 +26,8 @@ const NAV = [
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'rejected', path: '/ngo-admin/rejected-leads', label: 'Rejected Leads', icon: 'rejected' },
+  { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
+  { id: 'suspense', path: '/ngo-admin/suspense', label: 'Suspense', icon: 'suspense' },
 ]
 
 const ICONS = {
@@ -33,6 +38,8 @@ const ICONS = {
   station: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
   attendance: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   rejected: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
+  froStatus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17a4 4 0 0 1 8 0"/><circle cx="9" cy="7" r="4"/><path d="M13 4.13A4 4 0 0 1 18 8v4"/><path d="M18 12v6"/><line x1="16" y1="18" x2="20" y2="18"/></svg>,
+  suspense: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
 }
 
 const MAX_DROPDOWN = 4
@@ -47,7 +54,7 @@ function Sidebar({ open, onClose }) {
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-mark">NA</div>
-          <div><h1>UFS</h1><span>NGO Admin Panel</span></div>
+          <div><h1>UFS</h1><span>Admin Panel</span></div>
         </div>
         <nav className="sidebar-nav">
           {NAV.map(n => {
@@ -80,6 +87,7 @@ export default function NgoAdminPanel() {
   const { user, logout } = useUcs()
   const navigate = useNavigate()
   const [showMenu, setShowMenu] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('ngoadmin_theme') || 'sky')
   const menuRef = useRef(null)
@@ -97,10 +105,12 @@ export default function NgoAdminPanel() {
 
   const [rejectedCount, setRejectedCount] = useState(0);
   const [rejectedItems, setRejectedItems] = useState([]);
+  const [allNotifs, setAllNotifs] = useState([]);
   const [showNotifList, setShowNotifList] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const notifRef = useRef(null);
   const pollRef = useRef(null);
+  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('ngoadmin_seen_notifs') || '[]')));
 
   const loadRejectedCount = (showDesktop = false) => {
     api('/ngo-admin/rejected-leads', { _prefix: 'ucs' })
@@ -114,17 +124,44 @@ export default function NgoAdminPanel() {
       })
       .catch(() => {});
   };
+
+  const loadNotifications = () => {
+    const uid = user?.id;
+    if (!uid) return;
+    api(`/notifications/${uid}`, { _prefix: 'ucs' })
+      .then(data => {
+        const all = data || [];
+        const unread = all.filter(n => !n.read_at);
+        setAllNotifs(unread);
+        unread.forEach(n => {
+          if (!seenNotifIds.current.has(n.id)) {
+            seenNotifIds.current.add(n.id);
+            localStorage.setItem('ngoadmin_seen_notifs', JSON.stringify([...seenNotifIds.current]));
+            showDesktopNotification(n.title, n.body);
+          }
+        });
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     loadRejectedCount();
+    loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadRejectedCount(), 30000);
+    pollRef.current = setInterval(() => { loadRejectedCount(); loadNotifications(); }, 30000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
+  }, [user?.id]);
 
   useRealtime('rejected_lead_tickets', {
     event: '*',
     onInsert: () => loadRejectedCount(true),
     enabled: true,
+  });
+
+  useRealtime('notification_log', {
+    filter: `worker_id=eq.${user?.id}`,
+    onInsert: () => loadNotifications(),
+    enabled: !!user?.id,
   });
 
   useEffect(() => {
@@ -140,16 +177,22 @@ export default function NgoAdminPanel() {
   const userName = user?.name || 'Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
+  const notifCount = rejectedCount + allNotifs.length;
   const dropdownItems = rejectedItems.slice(0, MAX_DROPDOWN);
   const totalHidden = rejectedCount - dropdownItems.length;
 
   const drawerSections = [
     { label: 'Rejected Leads', type: 'rejected', items: rejectedItems },
+    { label: 'Notifications', type: 'notifications', items: allNotifs },
   ];
 
   const handleDrawerItemClick = (item) => {
     setDrawerOpen(false);
-    navigate('/ngo-admin/rejected-leads');
+    if (item.type === 'suspense_assigned' || item.fro_donor_log_id) {
+      navigate('/ngo-admin/suspense');
+    } else {
+      navigate('/ngo-admin/rejected-leads');
+    }
   };
 
   return (
@@ -163,79 +206,36 @@ export default function NgoAdminPanel() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
             </button>
             <div>
-              <div className="eyebrow">NGO Admin</div>
+              <div className="eyebrow">Admin</div>
               <h2>{meta?.label || 'Dashboard'}</h2>
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <div ref={notifRef} style={{ position:'relative' }}>
-              <div onClick={() => setShowNotifList(!showNotifList)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s', background: showNotifList ? '#f3f4f6' : 'transparent' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={rejectedCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={notifCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={notifCount > 0 ? 'bell-ring' : ''}>
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
                 </svg>
-                {rejectedCount > 0 && (
+                {notifCount > 0 && (
                   <span style={{ position:'absolute', top:0, right:0, background:'#dc2626', color:'#fff', borderRadius:'50%', minWidth:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1, padding:'0 3px' }}>
-                    {rejectedCount > 9 ? '9+' : rejectedCount}
+                    {notifCount > 9 ? '9+' : notifCount}
                   </span>
                 )}
               </div>
-              {showNotifList && (
-                <div style={{ position:'absolute', top:'100%', right:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:10, boxShadow:'0 8px 30px rgba(0,0,0,.12)', width:340, maxHeight:420, overflowY:'auto', zIndex:100, padding:0 }}>
-                  <div style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:13, fontWeight:700 }}>Rejected Leads</span>
-                    <span style={{ fontSize:11, color:'var(--ink-soft)' }}>{rejectedCount} pending</span>
-                  </div>
-
-                  {rejectedCount === 0 && (
-                    <div style={{ padding:24, fontSize:12, color:'var(--ink-soft)', textAlign:'center' }}>No pending rejected leads</div>
-                  )}
-
-                  {dropdownItems.map((item, i) => (
-                    <div key={item.id}
-                      onClick={() => { setShowNotifList(false); navigate('/ngo-admin/rejected-leads'); }}
-                      style={{ padding:'10px 14px', borderBottom:'1px solid #f3f4f6', cursor:'pointer', fontSize:12, transition:'background .15s' }}
-                      onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ width:28, height:28, borderRadius:6, background:'#fef2f2', display:'flex', alignItems:'center', justifyContent:'center', color:'#dc2626', flexShrink:0, marginTop:1 }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                        </div>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-                            <span style={{ fontWeight:600, fontSize:12 }}>{item.donor_name}</span>
-                            <span style={{ color:'var(--sage)', fontWeight:600 }}>{currency(item.amount)}</span>
-                          </div>
-                          <div style={{ color:'#6b7280', fontSize:11, lineHeight:1.3, marginBottom:2 }}>{item.rejection_reason}</div>
-                          <div style={{ color:'#9ca3af', fontSize:10 }}>{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : ''}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {totalHidden > 0 && (
-                    <div style={{ padding:'10px 14px', textAlign:'center', borderTop:'1px solid #f3f4f6' }}>
-                      <button onClick={() => { setShowNotifList(false); setDrawerOpen(true); }}
-                        style={{ background:'none', border:'none', color:'var(--sage)', cursor:'pointer', fontSize:12, fontWeight:600, padding:'4px 12px', borderRadius:6 }}>
-                        View All ({totalHidden} more)
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
-              <div className="topbar-user-text">
-                <div className="topbar-name">{userName}</div>
-                <div className="topbar-role">NGO Admin</div>
-              </div>
               <div className="avatar">{initials}</div>
               {showMenu && (
                 <div className="user-menu">
-                  <div className="user-menu-item" style={{cursor:'default', fontSize:13, color:'#666'}}>
-                    Theme: <select value={themeName} onClick={e=>e.stopPropagation()} onChange={e=>setThemeName(e.target.value)} style={{marginLeft:8, border:'1px solid #ddd', borderRadius:6, padding:'2px 8px'}}>
-                      {Object.keys(themes).map(k => <option key={k} value={k}>{themes[k].name}</option>)}
-                    </select>
+                  <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
+                    <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
+                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>Admin</div>
+                  </div>
+                  <div className="user-menu-divider" />
+                  <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    Settings
                   </div>
                   <div className="user-menu-divider" />
                   <button className="user-menu-item" onClick={() => { setShowMenu(false); logout() }}>
@@ -246,6 +246,13 @@ export default function NgoAdminPanel() {
               )}
             </div>
           </div>
+          <SettingsDrawer
+            open={showSettings}
+            onClose={() => setShowSettings(false)}
+            themes={themes}
+            themeName={themeName}
+            onThemeChange={(key) => setThemeName(key)}
+          />
         </header>
         <div className="content-body">
           <Routes>
@@ -258,6 +265,8 @@ export default function NgoAdminPanel() {
             <Route path="station-mgmt" element={<StationManagement />} />
             <Route path="attendance" element={<NgoAttendance />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
+            <Route path="fro-status" element={<FroLiveStatus />} />
+            <Route path="suspense" element={<Suspense />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>

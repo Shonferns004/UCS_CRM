@@ -11,7 +11,7 @@ export const addHR = async (req, res) => {
       return res.status(400).json({ message: 'Name and email are required' });
     }
 
-    if (req.user.role === 'hoadmin') {
+    if (req.user.role === 'admin') {
       ngo_id = req.user.ngo_id;
     }
 

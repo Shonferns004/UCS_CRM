@@ -134,7 +134,9 @@ export const getSuperAdminDashboard = async (req, res) => {
     const attendanceDetails = { present: [], late: [], absent: [] };
     const detailAdded = { present: new Set(), late: new Set(), absent: new Set() };
 
+    const allMarkedInPeriod = new Set();
     (attendance || []).forEach(a => {
+      allMarkedInPeriod.add(a.worker_id);
       if (attendanceStatus[a.status] !== undefined) {
         attendanceStatus[a.status]++;
         uniquePills[a.status].add(a.worker_id);
@@ -158,6 +160,19 @@ export const getSuperAdminDashboard = async (req, res) => {
           name: w?.name || 'Unknown',
           dept: w?.department || '',
           time,
+        });
+      }
+    });
+
+    // Active workers with no attendance record in the period → mark as absent
+    workerCreated.filter(w => w.is_active !== false).forEach(w => {
+      if (!allMarkedInPeriod.has(w.id) && !detailAdded.absent.has(w.id)) {
+        uniquePills.absent.add(w.id);
+        detailAdded.absent.add(w.id);
+        attendanceDetails.absent.push({
+          name: w.name || 'Unknown',
+          dept: w.department || '',
+          time: '',
         });
       }
     });
@@ -190,7 +205,9 @@ export const getSuperAdminDashboard = async (req, res) => {
     const todayAdded = { present: new Set(), late: new Set(), absent: new Set() };
     const todayAttendanceDetails = { present: [], late: [], absent: [] };
 
+    const todayMarked = new Set();
     (todayRows || []).forEach(a => {
+      todayMarked.add(a.worker_id);
       if (todayUnique[a.status] !== undefined) todayUnique[a.status].add(a.worker_id);
       if (todayAttendanceDetails[a.status] && !todayAdded[a.status].has(a.worker_id)) {
         todayAdded[a.status].add(a.worker_id);
@@ -207,6 +224,22 @@ export const getSuperAdminDashboard = async (req, res) => {
           dept: w?.department || '',
           time,
         });
+      }
+    });
+
+    // Active workers with no attendance record today → mark as absent
+    const activeWorkers = workers.filter(w => w.is_active !== false);
+    activeWorkers.forEach(w => {
+      if (!todayMarked.has(w.id)) {
+        todayUnique.absent.add(w.id);
+        if (!todayAdded.absent.has(w.id)) {
+          todayAdded.absent.add(w.id);
+          todayAttendanceDetails.absent.push({
+            name: w.name || 'Unknown',
+            dept: w.department || '',
+            time: '',
+          });
+        }
       }
     });
 
@@ -287,6 +320,41 @@ export const getSuperAdminDashboard = async (req, res) => {
       .order('event_date', { ascending: true })
       .limit(5);
 
+    /* ── Accounts Summary (lead verification) ── */
+    const { data: leadLogs } = await supabase
+      .from('fro_donor_logs')
+      .select('accounts_status, amount_collected, verified_at')
+      .eq('disposition_detail', 'lead_done');
+    const accountsSummary = { pending: 0, pendingAmount: 0, verified: 0, verifiedAmount: 0, rejected: 0, rejectedAmount: 0, verifiedToday: 0, verifiedTodayAmount: 0 };
+    const todayStr = new Date().toISOString().slice(0, 10);
+    for (const log of leadLogs || []) {
+      const amt = parseFloat(log.amount_collected || 0);
+      if (log.accounts_status === 'pending') { accountsSummary.pending++; accountsSummary.pendingAmount += amt; }
+      else if (log.accounts_status === 'verified') {
+        accountsSummary.verified++; accountsSummary.verifiedAmount += amt;
+        if (log.verified_at && log.verified_at.slice(0, 10) === todayStr) {
+          accountsSummary.verifiedToday++; accountsSummary.verifiedTodayAmount += amt;
+        }
+      }
+      else if (log.accounts_status === 'rejected') { accountsSummary.rejected++; accountsSummary.rejectedAmount += amt; }
+    }
+
+    /* ── Recruiter Summary ── */
+    let recruiterSummary = { totalLeads: 0, newToday: 0, conversionRate: 0 };
+    try {
+      const { data: allLeads } = await supabase
+        .from('leads')
+        .select('id, status, created_at');
+      const totalLeads = allLeads?.length || 0;
+      const newToday = (allLeads || []).filter(l => l.created_at?.slice(0, 10) === todayStr).length;
+      const byStatus = {};
+      for (const l of allLeads || []) byStatus[l.status] = (byStatus[l.status] || 0) + 1;
+      const selected = byStatus['selected'] || 0;
+      const rejected = byStatus['rejected'] || 0;
+      const conversionRate = (selected + rejected) > 0 ? Math.round((selected / (selected + rejected)) * 1000) / 10 : 0;
+      recruiterSummary = { totalLeads, newToday, conversionRate };
+    } catch (_) { /* table may not exist */ }
+
     return res.json({
       stats,
       kpiChanges,
@@ -306,7 +374,61 @@ export const getSuperAdminDashboard = async (req, res) => {
       totalSalaryPayable,
       recentNotices: recentNotices || [],
       upcomingEvents: upcomingEvents || [],
+      accountsSummary,
+      recruiterSummary,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getFroLiveStatus = async (req, res) => {
+  try {
+    const allWorkers = await getAllWorkers();
+    const froWorkers = allWorkers.filter(w => (w.department || '').toLowerCase().trim() === 'fro');
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const { data: todayAttendance } = await supabase
+      .from('attendance')
+      .select('worker_id, status')
+      .eq('date', todayStr)
+      .in('worker_id', froWorkers.map(w => w.id));
+
+    const punchedIn = new Set();
+    (todayAttendance || []).forEach(a => {
+      if (a.status === 'present' || a.status === 'late') punchedIn.add(a.worker_id);
+    });
+
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999));
+
+    const result = await Promise.all(froWorkers.map(async (w) => {
+      const [stats, todayCollection] = await Promise.all([
+        getDashboardStats(w.id),
+        getTotalCollectedByWorker(w.id, todayStart.toISOString(), todayEnd.toISOString()),
+      ]);
+
+      const dataUsed = (stats.contacted || 0) + (stats.donation_collected || 0) + (stats.follow_up || 0);
+      const dataUnused = (stats.total || 0) - dataUsed;
+
+      return {
+        id: w.id,
+        name: w.name,
+        login_id: w.login_id,
+        is_active: w.is_active !== false,
+        is_punched_in: punchedIn.has(w.id),
+        total_data: stats.total || 0,
+        data_used: dataUsed,
+        data_unused: dataUnused,
+        today_collection: todayCollection,
+      };
+    }));
+
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -360,7 +482,7 @@ export const getHrDashboard = async (req, res) => {
   }
 };
 
-export const getHoadminDashboard = async (req, res) => {
+export const getAdminDashboard = async (req, res) => {
   try {
     const ngoId = req.user.ngo_id;
     const workers = ngoId ? await getAllWorkers(ngoId) : await getAllWorkers();
