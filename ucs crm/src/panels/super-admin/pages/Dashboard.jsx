@@ -1326,26 +1326,33 @@ export default function Dashboard() {
                 .sort((a, b) => b.value - a.value)
               const total = segments.reduce((s, seg) => s + seg.value, 0)
               if (segments.length === 0 || total === 0) return <p className="nd-muted">No role data</p>
+              const maxVal = Math.max(...segments.map(s => s.value), 1)
+              const barMaxH = 120
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-                  <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textAlign: 'right', marginBottom: 4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: barMaxH + 20, gap: 6, flex: 1 }}>
+                    {segments.map(s => {
+                      const h = (s.value / maxVal) * barMaxH
+                      return (
+                        <div key={s.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: s.color, marginBottom: 3 }}>
+                            {s.value}
+                          </span>
+                          <div style={{
+                            width: '100%', maxWidth: 48, height: h || 2, minHeight: 2,
+                            background: s.color, borderRadius: '4px 4px 0 0',
+                            transition: 'height 0.6s ease',
+                          }} />
+                          <span style={{ fontSize: 9, fontWeight: 600, color: '#64748b', marginTop: 4, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                            {s.label}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, textAlign: 'center', marginTop: 8, borderTop: '1px solid #DEE9E1', paddingTop: 6 }}>
                     {total} total users
                   </div>
-                  {segments.map(s => {
-                    const pct = Math.round((s.value / total) * 100)
-                    return (
-                      <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#1F332B', minWidth: 80, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'right' }}>
-                          {s.label}
-                        </span>
-                        <div style={{ flex: 1, height: 14, background: '#F1F5F2', borderRadius: 99, overflow: 'hidden' }}>
-                          <div style={{ width: `${pct}%`, height: '100%', background: s.color, borderRadius: 99, transition: 'width 0.6s ease' }} />
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: '#1F332B', minWidth: 30, textAlign: 'right' }}>{s.value}</span>
-                        <span style={{ fontSize: 10, color: '#94a3b8', minWidth: 30, textAlign: 'right', fontWeight: 600 }}>{pct}%</span>
-                      </div>
-                    )
-                  })}
                 </div>
               )
             })()}
