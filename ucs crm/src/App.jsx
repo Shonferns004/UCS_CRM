@@ -7,6 +7,7 @@ import AccountsPanel from './panels/accounts/AccountsPanel'
 import NgoAdminPanel from './panels/ngo-admin/NgoAdminPanel'
 import FROPanel from './panels/fro/FROPanel'
 import RecruiterPanel from './panels/recruiter/RecruiterPanel'
+import EventHeadPanel from './panels/event-head/EventHeadPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -16,6 +17,7 @@ const ROLE_PATHS = {
   recruiter: '/recruiter',
   fro: '/fro',
   worker: '/fro',
+  event_head: '/event-head',
 }
 
 const ROLE_PANELS = {
@@ -26,6 +28,7 @@ const ROLE_PANELS = {
   'admin': { panel: NgoAdminPanel, cls: 'panel-ngo-admin' },
   fro: { panel: FROPanel, cls: 'panel-fro' },
   recruiter: { panel: RecruiterPanel, cls: 'panel-recruiter' },
+  event_head: { panel: EventHeadPanel, cls: 'panel-event-head' },
 }
 
 function ProtectedRoute({ role, children }) {
@@ -123,6 +126,11 @@ export default function App() {
         <Route path="/recruiter/*" element={
           <ProtectedRoute role={['recruiter', 'HR-Recruiter']}>
             <PanelWrapper roleKey="recruiter" />
+          </ProtectedRoute>
+        } />
+        <Route path="/event-head/*" element={
+          <ProtectedRoute role={['event_head', 'Event Head']}>
+            <PanelWrapper roleKey="event_head" />
           </ProtectedRoute>
         } />
 
