@@ -729,6 +729,7 @@ export default function Dashboard() {
     froAssignments = [],      // [{ name: 'Ramesh', ngos: ['MAN', 'AFLF'] }]
     accountsSummary = {}, recruiterSummary = {},
     monthlyRevenue = [], topFros = [], topRecruiters = [], recentActivities = [],
+    roleDistribution = {}, totalSalaryPayable = 0,
   } = data
 
   const today = new Date()
@@ -1292,6 +1293,102 @@ export default function Dashboard() {
           )
         })}
       </div>
+
+      {/* ============ ROLE DISTRIBUTION + TOTAL SALARY ============ */}
+      {Object.keys(roleDistribution).length > 0 || totalSalaryPayable > 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.12s', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#8B5CF6' }}>group_work</span>
+              <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Role Distribution</h3>
+            </div>
+            {(() => {
+              const roleMap = {
+                super_admin: { label: 'Super Admin', color: '#EF4444' },
+                admin: { label: 'Admin', color: '#F59E0B' },
+                hr: { label: 'HR', color: '#3B82F6' },
+                recruiter: { label: 'Recruiter', color: '#10B981' },
+                telecaller: { label: 'Telecaller', color: '#8B5CF6' },
+                fro: { label: 'FRO', color: '#EC4899' },
+                accounts: { label: 'Accounts', color: '#14B8A6' },
+                leads: { label: 'Leads', color: '#F97316' },
+                worker: { label: 'Worker', color: '#6366F1' },
+              }
+              const segments = Object.entries(roleDistribution)
+                .filter(([, v]) => v > 0)
+                .map(([key, val]) => ({
+                  label: roleMap[key]?.label || key,
+                  value: val,
+                  color: roleMap[key]?.color || '#94a3b8',
+                }))
+                .sort((a, b) => b.value - a.value)
+              const total = segments.reduce((s, seg) => s + seg.value, 0)
+              if (segments.length === 0 || total === 0) return <p className="nd-muted">No role data</p>
+              return (
+                <div style={{ display: 'flex', gap: 20, alignItems: 'center', flex: 1 }}>
+                  <DonutChart
+                    segments={segments}
+                    size={150}
+                    centerValue={total}
+                    centerLabel="Users"
+                    animated={animated}
+                  />
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {segments.map(s => (
+                      <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#1F332B', flex: 1 }}>{s.label}</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: s.color }}>{s.value}</span>
+                        <span style={{ fontSize: 10, color: '#94a3b8', minWidth: 32, textAlign: 'right' }}>
+                          {Math.round((s.value / total) * 100)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+          <div className="nd-card nd-appear" style={{ animationDelay: '0.16s', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>payments</span>
+              <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Total Salary Payable</h3>
+            </div>
+            {totalSalaryPayable === 0 ? (
+              <p className="nd-muted">No salary data</p>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+                <div style={{
+                  width: 90, height: 90, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #05966918, #10B98118)',
+                  border: '3px solid rgba(5,150,105,0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'column',
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#059669' }}>account_balance</span>
+                </div>
+                <span style={{ fontSize: 32, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
+                  ₹{totalSalaryPayable.toLocaleString('en-IN')}
+                </span>
+                <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
+                  Monthly recurring salary
+                </span>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  {(() => {
+                    const wc = stats.totalWorkers || 0
+                    const avg = wc > 0 ? Math.round(totalSalaryPayable / wc) : 0
+                    return (
+                      <span style={{ fontSize: 10.5, color: '#64748b', background: '#F1F5F2', borderRadius: 99, padding: '3px 10px', fontWeight: 600 }}>
+                        Avg ₹{avg.toLocaleString('en-IN')}/worker
+                      </span>
+                    )
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* ============ PANEL LINKS — uniform mint cards ============ */}
       <div className="panel-link-grid">
