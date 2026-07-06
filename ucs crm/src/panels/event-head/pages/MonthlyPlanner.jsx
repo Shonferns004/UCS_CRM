@@ -21,6 +21,7 @@ export default function MonthlyPlanner() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [ngos, setNgos] = useState([])
+  const ngoMap = Object.fromEntries(ngos.map(n => [n.id, n.name]))
 
   useEffect(() => { fetchNGOs().then(setNgos).catch(e => console.error('MonthlyPlanner fetchNGOs:', e)) }, [])
   useEffect(() => {
@@ -100,7 +101,7 @@ export default function MonthlyPlanner() {
             const today = isToday(d)
             return (
               <div key={i} style={{
-                minHeight: 90, background: today ? 'var(--sage-light)' : 'var(--card-bg)',
+                minHeight: 110, background: today ? 'var(--sage-light)' : 'var(--card-bg)',
                 border: today ? '1px solid var(--sage)' : '1px solid var(--line)',
                 borderRadius: 'var(--radius-sm)', padding: 4, fontSize: 12, position: 'relative', transition: 'box-shadow .15s'
               }}>
@@ -113,24 +114,41 @@ export default function MonthlyPlanner() {
                   }}>{d}</span>
                 )}
                 <div style={{ marginTop: 22 }}>
-                  {dayEvents.slice(0, 3).map(ev => {
-                    const s = statusStyle(ev.status)
-                    return (
-                      <div key={ev.id} style={{
-                        marginBottom: 2, padding: '2px 5px', borderRadius: 3, fontSize: 10,
-                        background: s.bg, color: s.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500
-                      }} title={ev.name}>{ev.name}</div>
-                    )
-                  })}
-                  {dayEvents.length > 3 && <div style={{ fontSize: 9, color: 'var(--ink-soft)', textAlign: 'center', marginTop: 1 }}>+{dayEvents.length - 3} more</div>}
-                  {dayEvents.length > 0 && <div style={{ display:'flex', gap:2, flexWrap:'wrap', marginTop:3, padding:'0 1px' }}>
-                    {[...new Set(dayEvents.map(e => e.category).filter(Boolean))].map((cat, i) => (
-                      <span key={cat} style={{
-                        width: 6, height: 6, borderRadius: '50%', background: catColor(cat, i),
-                        display:'inline-block'
-                      }} title={cat} />
-                    ))}
-                  </div>}
+                  {Object.entries(
+                    dayEvents.reduce((acc, ev) => {
+                      const cat = ev.category || 'Uncategorized'
+                      if (!acc[cat]) acc[cat] = []
+                      acc[cat].push(ev)
+                      return acc
+                    }, {})
+                  ).map(([cat, evts], ci) => (
+                    <div key={cat} style={{ marginBottom: 3 }}>
+                      <div
+                        onClick={() => setFilterCategory(c => c === cat ? '' : cat)}
+                        style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: catColor(cat, ci), cursor: 'pointer', marginBottom: 1 }}
+                      >{cat} ({evts.length})</div>
+                      {evts.slice(0, 2).map(ev => {
+                        const st = statusStyle(ev.status)
+                        return (
+                          <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 1, fontSize: 9, lineHeight: 1.2 }}>
+                            <span
+                              onClick={() => setFilterStatus(s => s === ev.status ? '' : ev.status)}
+                              style={{ width: 5, height: 5, borderRadius: '50%', background: st.color, cursor: 'pointer', flexShrink: 0 }}
+                              title={ev.status}
+                            />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={ev.name}>{ev.name}</span>
+                            {ngoMap[ev.ngo_id] && (
+                              <span
+                                onClick={() => setFilterNgo(n => n === ev.ngo_id ? '' : ev.ngo_id)}
+                                style={{ fontSize: 7, color: 'var(--ink-soft)', background: 'var(--line)', padding: '0 3px', borderRadius: 2, cursor: 'pointer', flexShrink: 0 }}
+                              >{ngoMap[ev.ngo_id]}</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {evts.length > 2 && <div style={{ fontSize: 8, color: 'var(--ink-soft)', paddingLeft: 7 }}>+{evts.length - 2} more</div>}
+                    </div>
+                  ))}
                 </div>
               </div>
             )
