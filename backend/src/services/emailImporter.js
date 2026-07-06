@@ -7,7 +7,7 @@ import { isEmailProcessed, logImport } from '../models/emailImportLogModel.js';
 import { getSources } from '../models/bankAuditModel.js';
 import { createEntry } from '../models/bankAuditModel.js';
 
-let lastPollResult = { success: false, message: 'Not run yet', count: 0, timestamp: null, error: null };
+let lastPollResult = { success: null, message: 'Not run yet', count: 0, timestamp: null, error: null };
 
 const BANK_EMAIL_DOMAINS = [
   { domain: 'axisbank.com', source: 'Axis Bank' },
@@ -167,12 +167,12 @@ Rules:
 
 export async function pollEmailInbox() {
   if (!emailConfig.enabled) {
-    lastPollResult = { success: false, message: 'Email import disabled (IMAP_ENABLED=false)', count: 0, timestamp: new Date().toISOString(), error: null };
+    lastPollResult = { success: null, message: 'Email import disabled (IMAP_ENABLED=false)', count: 0, timestamp: new Date().toISOString(), error: null };
     return lastPollResult;
   }
 
   if (!emailConfig.imap.auth.user || !emailConfig.imap.auth.pass) {
-    lastPollResult = { success: false, message: 'IMAP credentials not configured', count: 0, timestamp: new Date().toISOString(), error: null };
+    lastPollResult = { success: null, message: 'IMAP credentials not configured', count: 0, timestamp: new Date().toISOString(), error: null };
     return lastPollResult;
   }
 
