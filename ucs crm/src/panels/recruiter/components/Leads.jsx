@@ -19,7 +19,7 @@ const getJobRole = (lead) => {
 };
 
 const statusPill = (s) => {
-  const m = { scheduled:'pill-clay' };
+  const m = { rejected:'pill-danger', hold:'pill-gold', scheduled:'pill-clay' };
   const st = LEAD_STATUSES.find(st => st.value === s);
   return <span className={`pill ${m[s] || 'pill-gray'}`}>{st ? st.label : s}</span>;
 };
@@ -105,6 +105,7 @@ export default function Leads() {
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
+      setLeadFilters(p => ({ ...p, status: '', source: '' }));
       setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
     } catch (err) { alert(err.message); }
   };

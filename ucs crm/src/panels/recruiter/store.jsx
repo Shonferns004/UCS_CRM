@@ -18,6 +18,7 @@ export const LEAD_STATUSES = [
   { value:'followed_up', label:'Followed Up' },
   { value:'call_back', label:'Call Back' },
   { value:'scheduled', label:'Scheduled' },
+  { value:'not_interested', label:'Not Interested' },
   { value:'ringing', label:'Ringing' },
   { value:'unreachable', label:'Unreachable' },
   { value:'busy', label:'Busy' },

@@ -10,7 +10,7 @@ const calcAge = (dob) => {
 
 const statusPill = (s) => {
   const m = { rejected:'pill-danger', selected:'pill-green', hold:'pill-gold', scheduled:'pill-clay', joined:'pill-gray' };
-  const labels = { hold:'Hold', followed_up:'Followed Up', call_back:'Call Back', not_interested:'Not Interested', selected:'Selected', joined:'Joined', ringing:'Ringing', unreachable:'Unreachable', busy:'Busy', switched_off:'Switched Off', wrong_number:'Wrong Number', invalid:'Invalid', rejected:'Rejected' };
+  const labels = { hold:'Hold', followed_up:'Followed Up', call_back:'Call Back', scheduled:'Scheduled', not_interested:'Not Interested', selected:'Selected', joined:'Joined', ringing:'Ringing', unreachable:'Unreachable', busy:'Busy', switched_off:'Switched Off', wrong_number:'Wrong Number', invalid:'Invalid', rejected:'Rejected' };
   const found = LEAD_STATUSES.find(st => st.value === s);
   return <span className={`pill ${m[s] || 'pill-gray'}`}>{found ? found.label : (labels[s] || s)}</span>;
 };
