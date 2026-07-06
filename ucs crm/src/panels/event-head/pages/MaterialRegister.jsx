@@ -8,15 +8,15 @@ export default function MaterialRegister() {
   const [editMat, setEditMat] = useState(null)
   const [form, setForm] = useState({ name:'', opening_stock:0, received:0, issued:0, cost:0, warehouse:'', donor:'' })
 
-  useEffect(() => { fetchMaterials().then(setMaterials).catch(() => {}) }, [])
+  useEffect(() => { fetchMaterials().then(setMaterials).catch(e => console.error('MaterialRegister fetchMaterials:', e)) }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     const data = { ...form, balance: +form.opening_stock + +form.received - +form.issued }
     if (editMat) {
-      await updateMaterial(editMat.id, data).then(() => { setMaterials(materials.map(m => m.id === editMat.id ? {...m,...data} : m)); setShowForm(false); setEditMat(null) }).catch(() => {})
+      await updateMaterial(editMat.id, data).then(() => { setMaterials(materials.map(m => m.id === editMat.id ? {...m,...data} : m)); setShowForm(false); setEditMat(null) }).catch(e => console.error('MaterialRegister updateMaterial:', e))
     } else {
-      await createMaterial(data).then((res) => { setMaterials([...materials, res]); setShowForm(false) }).catch(() => {})
+      await createMaterial(data).then((res) => { setMaterials([...materials, res]); setShowForm(false) }).catch(e => console.error('MaterialRegister createMaterial:', e))
     }
   }
 

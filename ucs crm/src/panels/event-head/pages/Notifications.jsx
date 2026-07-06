@@ -8,7 +8,7 @@ export default function Notifications() {
 
   useEffect(() => {
     if (!user?.id) return
-    fetchNotifs(user.id).then(setNotifs).catch(() => {})
+    fetchNotifs(user.id).then(setNotifs).catch(e => console.error('Notifications fetchNotifs:', e))
   }, [user?.id])
 
   return (

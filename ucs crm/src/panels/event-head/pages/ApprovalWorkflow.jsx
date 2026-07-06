@@ -18,16 +18,16 @@ export default function ApprovalWorkflow() {
   }, [])
 
   const handleSubmit = async (id) => {
-    await submitApproval(id).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Submitted'} : e))).catch(() => {})
+    await submitApproval(id).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Submitted'} : e))).catch(e => console.error('ApprovalWorkflow submitApproval:', e))
   }
 
   const handleApprove = async (id) => {
-    await approveEvent(id).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Approved'} : e))).catch(() => {})
+    await approveEvent(id).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Approved'} : e))).catch(e => console.error('ApprovalWorkflow approveEvent:', e))
     setActionId(null); setRemark('')
   }
 
   const handleReject = async (id) => {
-    await rejectEvent(id, remark).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Rejected'} : e))).catch(() => {})
+    await rejectEvent(id, remark).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Rejected'} : e))).catch(e => console.error('ApprovalWorkflow rejectEvent:', e))
     setActionId(null); setRemark('')
   }
 

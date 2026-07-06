@@ -6,7 +6,7 @@ export default function EventChecklist() {
   const [selectedEvent, setSelectedEvent] = useState('')
   const [checklist, setChecklist] = useState([])
 
-  useEffect(() => { fetchEvents().then(setEvents).catch(() => {}) }, [])
+  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('EventChecklist fetchEvents:', e)) }, [])
   useEffect(() => {
     if (!selectedEvent) { setChecklist(CHECKLIST_ITEMS.map((l,i) => ({id:i,label:l,status:false,notes:''}))); return }
     fetchChecklist(selectedEvent).then(data => {
@@ -21,7 +21,7 @@ export default function EventChecklist() {
   const toggle = async (item) => {
     const updated = { ...item, status: !item.status }
     setChecklist(checklist.map(c => c.id === item.id ? updated : c))
-    if (selectedEvent) await updateChecklistItem(selectedEvent, item.id, updated).catch(() => {})
+    if (selectedEvent) await updateChecklistItem(selectedEvent, item.id, updated).catch(e => console.error('EventChecklist updateChecklistItem:', e))
   }
 
   const completed = checklist.filter(c => c.status).length

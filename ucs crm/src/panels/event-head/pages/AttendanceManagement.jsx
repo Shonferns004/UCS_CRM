@@ -9,15 +9,15 @@ export default function AttendanceManagement() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name:'', type:'Staff', status:'Present' })
 
-  useEffect(() => { fetchEvents().then(setEvents).catch(() => {}) }, [])
+  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('AttendanceManagement fetchEvents:', e)) }, [])
   useEffect(() => {
     if (!selectedEvent) { setAttendance([]); return }
-    fetchEventAttendance(selectedEvent).then(setAttendance).catch(() => {})
+    fetchEventAttendance(selectedEvent).then(setAttendance).catch(e => console.error('AttendanceManagement fetchEventAttendance:', e))
   }, [selectedEvent])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    await markAttendance(selectedEvent, form).then((res) => { setAttendance([...attendance, res]); setShowForm(false); setForm({name:'',type:'Staff',status:'Present'}) }).catch(() => {})
+    await markAttendance(selectedEvent, form).then((res) => { setAttendance([...attendance, res]); setShowForm(false); setForm({name:'',type:'Staff',status:'Present'}) }).catch(e => console.error('AttendanceManagement markAttendance:', e))
   }
 
   const counts = { Present: 0, Absent: 0, Late: 0 }

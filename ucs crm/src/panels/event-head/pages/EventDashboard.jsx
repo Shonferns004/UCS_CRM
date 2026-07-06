@@ -28,7 +28,7 @@ export default function EventDashboard() {
           ...(db || {})
         })
       })
-      .catch(() => {})
+      .catch(e => console.error('EventDashboard fetchDashboard:', e))
       .finally(() => setLoading(false))
   }, [])
 

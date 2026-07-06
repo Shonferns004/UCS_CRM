@@ -7,10 +7,10 @@ export default function MediaManagement() {
   const [media, setMedia] = useState([])
   const [uploading, setUploading] = useState(false)
 
-  useEffect(() => { fetchEvents().then(setEvents).catch(() => {}) }, [])
+  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('MediaManagement fetchEvents:', e)) }, [])
   useEffect(() => {
     if (!selectedEvent) { setMedia([]); return }
-    fetchMedia(selectedEvent).then(setMedia).catch(() => {})
+    fetchMedia(selectedEvent).then(setMedia).catch(e => console.error('MediaManagement fetchMedia:', e))
   }, [selectedEvent])
 
   const handleUpload = async (e) => {
@@ -28,7 +28,7 @@ export default function MediaManagement() {
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this media?')) return
-    await deleteMedia(selectedEvent, id).then(() => setMedia(media.filter(m => m.id !== id))).catch(() => {})
+    await deleteMedia(selectedEvent, id).then(() => setMedia(media.filter(m => m.id !== id))).catch(e => console.error('MediaManagement deleteMedia:', e))
   }
 
   return (

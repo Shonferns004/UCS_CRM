@@ -20,7 +20,7 @@ export default function EventReports() {
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => { fetchEvents().then(setEvents).catch(() => {}) }, [])
+  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('EventReports fetchEvents:', e)) }, [])
 
   const generate = async () => {
     if (!selectedEvent) return

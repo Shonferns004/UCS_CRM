@@ -19,9 +19,12 @@ export default function MonthlyPlanner() {
   const [filterStatus, setFilterStatus] = useState('')
   const [ngos, setNgos] = useState([])
 
-  useEffect(() => { fetchNGOs().then(setNgos).catch(() => {}) }, [])
+  useEffect(() => { fetchNGOs().then(setNgos).catch(e => console.error('MonthlyPlanner fetchNGOs:', e)) }, [])
   useEffect(() => {
-    fetchEventsByMonth(month + 1, year).then(setEvents).catch(() => {})
+    fetchEventsByMonth(month + 1, year).then(setEvents).catch(e => {
+      console.error('MonthlyPlanner fetchEventsByMonth:', e)
+      setEvents([])
+    })
   }, [month, year])
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()

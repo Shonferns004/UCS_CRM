@@ -17,7 +17,7 @@ export default function BeneficiaryDistribution() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!selectedEvent) return alert('Select an event first')
-    await createDistribution(selectedEvent, form).then(() => { setShowForm(false); setForm({beneficiary_name:'',mobile:'',address:'',category:'',material_id:'',quantity:1}) }).catch(() => {})
+    await createDistribution(selectedEvent, form).then(() => { setShowForm(false); setForm({beneficiary_name:'',mobile:'',address:'',category:'',material_id:'',quantity:1}) }).catch(e => console.error('BeneficiaryDistribution createDistribution:', e))
   }
 
   const totalBene = beneficiaries.length
