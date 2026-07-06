@@ -50,8 +50,6 @@ export default function Leads() {
   const [dob, setDob] = useState('');
   const [source, setSource] = useState('Walk-in');
   const [customSource, setCustomSource] = useState('');
-  const [status, setStatus] = useState('');
-
   const [notConnectedOption, setNotConnectedOption] = useState('');
   const [connectedOption, setConnectedOption] = useState('');
   const [followUpDateTime, setFollowUpDateTime] = useState('');
@@ -106,7 +104,7 @@ export default function Leads() {
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
       await addLead(payload);
       setLeadFilters(p => ({ ...p, status: '', source: '' }));
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setStatus(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
     } catch (err) { alert(err.message); }
   };
 
