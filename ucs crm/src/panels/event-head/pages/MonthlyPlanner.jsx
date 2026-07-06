@@ -21,9 +21,6 @@ export default function MonthlyPlanner() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [ngos, setNgos] = useState([])
-  const [hlNgo, setHlNgo] = useState('')
-  const [hlCategory, setHlCategory] = useState('')
-  const [hlStatus, setHlStatus] = useState('')
   const ngoMap = Object.fromEntries(ngos.map(n => [n.id, n.name]))
 
   useEffect(() => { fetchNGOs().then(setNgos).catch(e => console.error('MonthlyPlanner fetchNGOs:', e)) }, [])
@@ -95,23 +92,6 @@ export default function MonthlyPlanner() {
           </select>
         </div>
 
-        <div className="filter-bar" style={{ marginTop: 8 }}>
-          <select value={hlNgo} onChange={e => setHlNgo(e.target.value)}>
-            <option value="">Highlight NGO</option>
-            {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
-            {['BSCT','MANN','AFLF'].map(name => <option key={name} value={name}>{name}</option>)}
-          </select>
-          <select value={hlCategory} onChange={e => setHlCategory(e.target.value)}>
-            <option value="">Highlight Category</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={hlStatus} onChange={e => setHlStatus(e.target.value)}>
-            <option value="">Highlight Status</option>
-            {EVENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          {(hlNgo || hlCategory || hlStatus) && <button className="btn btn-sm" onClick={() => { setHlNgo(''); setHlCategory(''); setHlStatus('') }}>Clear</button>}
-        </div>
-
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginTop: 12 }}>
           {DAYS.map(d => (
             <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0', fontWeight: 600 }}>{d}</div>
@@ -119,17 +99,14 @@ export default function MonthlyPlanner() {
           {weeks.flat().map((d, i) => {
             const dayEvents = d ? getEventsForDay(d) : []
             const today = isToday(d)
-            const hasHighlight = d && dayEvents.some(ev =>
-              (!hlNgo || ev.ngo_id === hlNgo) &&
-              (!hlCategory || ev.category === hlCategory) &&
-              (!hlStatus || ev.status === hlStatus)
-            )
+            const hlEv = d && filterCategory && filterStatus ? dayEvents.find(ev => ev.category === filterCategory && ev.status === filterStatus) : null
+            const hlClr = hlEv ? statusStyle(hlEv.status).color : null
             return (
               <div key={i} style={{
-                minHeight: 110, background: today ? 'var(--sage-light)' : 'var(--card-bg)',
-                border: hasHighlight ? '2px solid #7B5EA7' : today ? '1px solid var(--sage)' : '1px solid var(--line)',
+                minHeight: 110, background: hlClr ? hlClr + '18' : today ? 'var(--sage-light)' : 'var(--card-bg)',
+                border: hlClr ? `2px solid ${hlClr}` : today ? '1px solid var(--sage)' : '1px solid var(--line)',
                 borderRadius: 'var(--radius-sm)', padding: 4, fontSize: 12, position: 'relative', transition: 'box-shadow .15s',
-                boxShadow: hasHighlight ? '0 0 6px rgba(123,94,167,.4)' : 'none'
+                boxShadow: hlClr ? `0 0 4px ${hlClr}60` : 'none'
               }}>
                 {d && (
                   <span style={{
@@ -202,9 +179,10 @@ export default function MonthlyPlanner() {
             <tbody>
               {filtered.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>No events this month</td></tr>}
               {filtered.sort((a,b) => new Date(a.date) - new Date(b.date)).map(ev => {
-                const rowHl = (!hlNgo || ev.ngo_id === hlNgo) && (!hlCategory || ev.category === hlCategory) && (!hlStatus || ev.status === hlStatus)
+                const rowHl = filterCategory && filterStatus && ev.category === filterCategory && ev.status === filterStatus
+                const rowClr = rowHl ? statusStyle(ev.status).color : null
                 return (
-                <tr key={ev.id} style={rowHl ? { background: 'rgba(123,94,167,.08)', outline: '1px solid #7B5EA7' } : {}}>
+                <tr key={ev.id} style={rowClr ? { background: rowClr + '12', outline: `1px solid ${rowClr}` } : {}}>
                   <td>{ev.date?.slice(0,10)}</td>
                   <td style={{ fontWeight: 500 }}>{ev.name}</td>
                   <td>{ev.category}</td>
