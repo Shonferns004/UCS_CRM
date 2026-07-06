@@ -926,8 +926,9 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-accounts .user-menu, .panel-ngo-admin .user-menu, .panel-fro .user-menu { position:absolute; top:100%; right:0; margin-top:8px; background:var(--card-bg); border:1px solid var(--line); border-radius:var(--radius-sm); box-shadow:var(--shadow-md); z-index:100; min-width:160px; padding:4px; }
 .panel-accounts .user-menu-item, .panel-ngo-admin .user-menu-item, .panel-fro .user-menu-item { display:flex; align-items:center; gap:8px; width:100%; padding:8px 12px; border:none; background:transparent; font-size:13px; font-family:inherit; cursor:pointer; border-radius:6px; color:var(--ink); }
 .panel-accounts .user-menu-item:hover, .panel-ngo-admin .user-menu-item:hover, .panel-fro .user-menu-item:hover { background:var(--bg); }
+.panel-event-head .user-menu-label, .panel-accounts .user-menu-label, .panel-ngo-admin .user-menu-label, .panel-fro .user-menu-label { padding:8px 12px 4px; font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-soft); font-weight:600; }
 .panel-accounts .user-menu-divider, .panel-ngo-admin .user-menu-divider, .panel-fro .user-menu-divider { height:1px; background:var(--line); margin:4px 8px; }
-.panel-accounts .content-body, .panel-ngo-admin .content-body, .panel-fro .content-body { padding:24px; flex:1; overflow-y:auto; }
+.panel-event-head .content-body, .panel-accounts .content-body, .panel-ngo-admin .content-body, .panel-fro .content-body { padding:24px; flex:1; overflow-y:auto; }
 .panel-accounts .card, .panel-ngo-admin .card, .panel-fro .card { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:16px; }
 .panel-accounts .card-head, .panel-ngo-admin .card-head, .panel-fro .card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
 .panel-accounts .card-head h3, .panel-ngo-admin .card-head h3, .panel-fro .card-head h3 { font-size:14px; font-weight:600; }
@@ -942,7 +943,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-accounts tr:last-child td, .panel-ngo-admin tr:last-child td, .panel-fro tr:last-child td { border-bottom:none; }
 .panel-accounts .clickable-row, .panel-ngo-admin .clickable-row, .panel-fro .clickable-row { cursor:pointer; }
 .panel-accounts .clickable-row:hover, .panel-ngo-admin .clickable-row:hover, .panel-fro .clickable-row:hover { background:#f9fafb; }
-.panel-accounts .pill, .panel-ngo-admin .pill, .panel-fro .pill { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:500; }
+.panel-event-head .pill, .panel-accounts .pill, .panel-ngo-admin .pill, .panel-fro .pill { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:500; white-space:nowrap; }
 .panel-accounts .pill-green, .panel-ngo-admin .pill-green, .panel-fro .pill-green { background:#dcfce7; color:#166534; }
 .panel-accounts .pill-yellow, .panel-ngo-admin .pill-yellow, .panel-fro .pill-yellow { background:#fef3c7; color:#92400e; }
 .panel-accounts .pill-red, .panel-ngo-admin .pill-red, .panel-fro .pill-red { background:#fef2f2; color:#991b1b; }

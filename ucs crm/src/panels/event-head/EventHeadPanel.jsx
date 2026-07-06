@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
-import { Grid, Cal, Plus, Bell } from './icons'
+import { Grid, Cal, Plus, Clock, FileTxt, Bell, Users, Plane, Brief, Star, Eye, Settings as SettingsIcon } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -9,12 +9,49 @@ import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { useRealtime } from '../../hooks/useRealtime'
 import Overview from './components/Overview'
-import CreateEvent from './components/CreateEvent'
+import EventDashboard from './pages/EventDashboard'
+import CreateEvent from './pages/CreateEvent'
+import MonthlyPlanner from './pages/MonthlyPlanner'
+import EventChecklist from './pages/EventChecklist'
+import AssetRegister from './pages/AssetRegister'
+import MaterialRegister from './pages/MaterialRegister'
+import BeneficiaryDistribution from './pages/BeneficiaryDistribution'
+import VolunteerManagement from './pages/VolunteerManagement'
+import ExpenseManagement from './pages/ExpenseManagement'
+import VehicleManagement from './pages/VehicleManagement'
+import MediaManagement from './pages/MediaManagement'
+import AttendanceManagement from './pages/AttendanceManagement'
+import EventReports from './pages/EventReports'
+import ApprovalWorkflow from './pages/ApprovalWorkflow'
+import NotificationsPage from './pages/Notifications'
+import EventsPage from './pages/EventsPage'
 
 const NAV = [
-  { id:'overview',     path:'/event-head/overview',     label:'Overview',     icon:Grid,  eyebrow:'Dashboard',    sub:'At a glance' },
-  { id:'create-event', path:'/event-head/create-event', label:'Create Event', icon:Plus,  eyebrow:'Events',       sub:'Add a new event' },
-  { id:'events',       path:'/event-head/events',       label:'Events',       icon:Cal,   eyebrow:'Events',       sub:'Manage your events' },
+  { id:'dashboard',      path:'/event-head/dashboard',      label:'Event Dashboard',      icon:Grid,     section:'Dashboard' },
+  { id:'monthly-planner',path:'/event-head/monthly-planner',label:'Monthly Planner',       icon:Cal,     section:'Dashboard' },
+  { id:'create',         path:'/event-head/create',          label:'Create Event',          icon:Plus,    section:'Planning' },
+  { id:'checklist',      path:'/event-head/checklist',       label:'Event Checklist',       icon:Clock,   section:'Planning' },
+  { id:'assets',         path:'/event-head/assets',          label:'Asset Register',        icon:Brief,   section:'Resources' },
+  { id:'materials',      path:'/event-head/materials',       label:'Material Register',     icon:FileTxt, section:'Resources' },
+  { id:'distribution',   path:'/event-head/distribution',    label:'Beneficiary Distribution', icon:Users, section:'Execution' },
+  { id:'volunteers',     path:'/event-head/volunteers',      label:'Volunteer Management',  icon:Star,    section:'Execution' },
+  { id:'attendance',     path:'/event-head/attendance',      label:'Attendance',            icon:Users,   section:'Execution' },
+  { id:'expenses',       path:'/event-head/expenses',        label:'Expense Management',    icon:Plane,   section:'Operations' },
+  { id:'vehicles',       path:'/event-head/vehicles',        label:'Vehicle Management',    icon:Brief,   section:'Operations' },
+  { id:'media',          path:'/event-head/media',           label:'Media Management',      icon:Eye,     section:'Operations' },
+  { id:'events',         path:'/event-head/events',          label:'All Events',            icon:Cal,     section:'Reports' },
+  { id:'reports',        path:'/event-head/reports',         label:'Event Reports',         icon:FileTxt, section:'Reports' },
+  { id:'approvals',      path:'/event-head/approvals',       label:'Approval Workflow',     icon:SettingsIcon, section:'Reports' },
+  { id:'notifications',  path:'/event-head/notifications',   label:'Notifications',         icon:Bell,    section:'Reports' },
+]
+
+const SECTIONS = [
+  { id:'Dashboard', label:'Dashboard' },
+  { id:'Planning', label:'Planning' },
+  { id:'Resources', label:'Resources' },
+  { id:'Execution', label:'Execution' },
+  { id:'Operations', label:'Operations' },
+  { id:'Reports', label:'Reports & Approvals' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -25,18 +62,24 @@ function Sidebar({ open, onClose }) {
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-mark" style={{background:'#7B5EA7'}}>E</div>
-          <div><h1>UFS</h1><span>Event Head</span></div>
+          <div><h1>UFS</h1><span>Event Manager</span></div>
         </div>
         <nav className="sidebar-nav">
-          {NAV.map(n => { const Icon = n.icon;
-            const active = location.pathname === n.path
-            return (
-            <NavLink key={n.id} to={n.path} onClick={onClose}
-              className={`snav-item ${active ? 'active' : ''}`}>
-              <span className="ico"><Icon size={18} /></span>
-              <span>{n.label}</span>
-            </NavLink>
-          )})}
+          {SECTIONS.map(s => (
+            <div key={s.id}>
+              <div className="user-menu-label" style={{padding:'16px 12px 4px',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--ink-soft)',fontWeight:600}}>{s.label}</div>
+              {NAV.filter(n => n.section === s.id).map(n => { const Icon = n.icon
+                const active = location.pathname === n.path
+                return (
+                  <NavLink key={n.id} to={n.path} onClick={onClose}
+                    className={`snav-item ${active ? 'active' : ''}`}>
+                    <span className="ico"><Icon size={18} /></span>
+                    <span>{n.label}</span>
+                  </NavLink>
+                )
+              })}
+            </div>
+          ))}
         </nav>
       </aside>
     </>
@@ -106,7 +149,7 @@ export default function EventHeadPanel() {
   }, [showMenu])
 
   const meta = NAV.find(n => location.pathname === n.path)
-  const userName = user?.name || 'Event Head'
+  const userName = user?.name || 'Event Manager'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const notifCount = allNotifs.length;
   const drawerSections = [
@@ -123,8 +166,8 @@ export default function EventHeadPanel() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             <div>
-              <div className="eyebrow">{meta?.eyebrow || 'Dashboard'}</div>
-              <h2>{meta?.label || 'Event Head'}</h2>
+              <div className="eyebrow">{meta?.section || 'Dashboard'}</div>
+              <h2>{meta?.label || 'Event Manager'}</h2>
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
@@ -147,7 +190,7 @@ export default function EventHeadPanel() {
               <div className="user-menu">
                 <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
                   <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
-                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>Event Head</div>
+                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>Event Manager</div>
                 </div>
                 <div className="user-menu-divider" />
                 <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
@@ -179,24 +222,26 @@ export default function EventHeadPanel() {
         </header>
         <div className="content-body">
           <Routes>
-            <Route index element={<Navigate to="overview" replace />} />
-            <Route path="overview" element={<Overview />} />
-            <Route path="create-event" element={<CreateEvent />} />
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<EventDashboard />} />
+            <Route path="monthly-planner" element={<MonthlyPlanner />} />
+            <Route path="create" element={<CreateEvent />} />
+            <Route path="checklist" element={<EventChecklist />} />
+            <Route path="assets" element={<AssetRegister />} />
+            <Route path="materials" element={<MaterialRegister />} />
+            <Route path="distribution" element={<BeneficiaryDistribution />} />
+            <Route path="volunteers" element={<VolunteerManagement />} />
+            <Route path="attendance" element={<AttendanceManagement />} />
+            <Route path="expenses" element={<ExpenseManagement />} />
+            <Route path="vehicles" element={<VehicleManagement />} />
+            <Route path="media" element={<MediaManagement />} />
             <Route path="events" element={<EventsPage />} />
-            <Route path="*" element={<Navigate to="overview" replace />} />
+            <Route path="reports" element={<EventReports />} />
+            <Route path="approvals" element={<ApprovalWorkflow />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
-      </div>
-    </div>
-  )
-}
-
-function EventsPage() {
-  return (
-    <div className="card">
-      <div className="card-head"><h3>Events</h3></div>
-      <div className="card-pad">
-        <p style={{ color: 'var(--ink-soft)' }}>Your events will appear here.</p>
       </div>
     </div>
   )

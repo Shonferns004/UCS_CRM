@@ -1,1 +1,1 @@
-export { Grid, Users, Plane, Clock, FileTxt, Bell, Cal, Plus, Trash, Check, X, Send, Heart, ArrowLeft, ArrowRight, Pencil, Settings, LogOut } from '../../icons'
+export { Grid, Users, Plane, Clock, FileTxt, Bell, Cal, Plus, Trash, Check, X, Send, Heart, ArrowLeft, ArrowRight, Pencil, Settings, LogOut, Brief, Star, Eye, Search, Mail, Download, RefreshCw, Globe, Dollar, Ticket, Funnel } from '../../icons'
