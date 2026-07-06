@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { authenticateRole } from '../middleware/authMiddleware.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 import * as ctrl from '../controllers/eventHeadController.js';
 
 const router = Router();
 
-const eh = authenticateRole('event_head', 'Event Head', 'Event Manager', 'event_manager', 'super_admin', 'admin', 'hr');
+const eh = authenticate;
 
 // Events (static paths BEFORE :id)
 router.get('/events/dashboard', eh, ctrl.getEventHeadDashboard);
