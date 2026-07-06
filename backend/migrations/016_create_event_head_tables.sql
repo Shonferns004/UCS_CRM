@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS event_head_events (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   category TEXT,
-  ngo_id INTEGER,
+  ngo_id TEXT,
   csr_partner TEXT,
   donor TEXT,
   date DATE,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS event_head_events (
   status TEXT DEFAULT 'Draft',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by INTEGER
+  created_by TEXT
 );
 
 CREATE TABLE IF NOT EXISTS event_head_assets (
