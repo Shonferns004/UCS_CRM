@@ -27,6 +27,7 @@ import EventsPage from './pages/EventsPage'
 const NAV = [
   { id:'dashboard',      path:'/event-head/dashboard',      label:'Event Dashboard',      icon:Grid,     section:'Dashboard' },
   { id:'monthly-planner',path:'/event-head/monthly-planner',label:'Monthly Planner',       icon:Cal,     section:'Dashboard' },
+  { id:'events',         path:'/event-head/events',          label:'Events',                icon:Cal,     section:'Dashboard' },
   { id:'create',         path:'/event-head/create',          label:'Create Event',          icon:Plus,    section:'Planning' },
   { id:'checklist',      path:'/event-head/checklist',       label:'Event Checklist',       icon:Clock,   section:'Planning' },
   { id:'assets',         path:'/event-head/assets',          label:'Asset Register',        icon:Brief,   section:'Resources' },
