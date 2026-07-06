@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
-import { Grid, Cal, Bell } from './icons'
+import { Grid, Cal, Plus, Bell } from './icons'
 import { themes, applyTheme } from './theme'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import NotificationDrawer from '../../components/NotificationDrawer'
@@ -9,10 +9,12 @@ import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { useRealtime } from '../../hooks/useRealtime'
 import Overview from './components/Overview'
+import CreateEvent from './components/CreateEvent'
 
 const NAV = [
-  { id:'overview', path:'/event-head/overview', label:'Overview', icon:Grid, eyebrow:'Dashboard', sub:'At a glance' },
-  { id:'events',   path:'/event-head/events',   label:'Events',   icon:Cal,   eyebrow:'Events',    sub:'Manage your events' },
+  { id:'overview',     path:'/event-head/overview',     label:'Overview',     icon:Grid,  eyebrow:'Dashboard',    sub:'At a glance' },
+  { id:'create-event', path:'/event-head/create-event', label:'Create Event', icon:Plus,  eyebrow:'Events',       sub:'Add a new event' },
+  { id:'events',       path:'/event-head/events',       label:'Events',       icon:Cal,   eyebrow:'Events',       sub:'Manage your events' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -20,18 +22,19 @@ function Sidebar({ open, onClose }) {
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
+      <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark" style={{background:'#7B5EA7',borderRadius:10,width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:18}}>E</div>
+          <div className="brand-mark" style={{background:'#7B5EA7'}}>E</div>
           <div><h1>UFS</h1><span>Event Head</span></div>
         </div>
         <nav className="sidebar-nav">
           {NAV.map(n => { const Icon = n.icon;
             const active = location.pathname === n.path
             return (
-            <NavLink key={n.id} to={n.path} className={`snav-item ${active ? 'active' : ''}`}
-              onClick={() => onClose?.()}>
-              <Icon className="ico" /> <span>{n.label}</span>
+            <NavLink key={n.id} to={n.path} onClick={onClose}
+              className={`snav-item ${active ? 'active' : ''}`}>
+              <span className="ico"><Icon size={18} /></span>
+              <span>{n.label}</span>
             </NavLink>
           )})}
         </nav>
@@ -40,10 +43,10 @@ function Sidebar({ open, onClose }) {
   )
 }
 
-function EventHeadPageShell({ children }) {
+export default function EventHeadPanel() {
   const { user, logout } = useUcs()
   const location = useLocation()
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('eh_theme') || 'sky')
@@ -86,7 +89,15 @@ function EventHeadPageShell({ children }) {
     enabled: !!user?.id,
   });
 
-  useEffect(() => { if (themes[themeName]) applyTheme(themes[themeName], '.panel-event-head'); localStorage.setItem('eh_theme', themeName) }, [themeName])
+  useEffect(() => {
+    if (themes[themeName]) {
+      applyTheme(themes[themeName], '.panel-event-head')
+      const t = themes[themeName]
+      const el = document.querySelector('.panel-event-head') || document.documentElement
+      el.style.setProperty('--bg', t.sand); el.style.setProperty('--card-bg', t.paper); el.style.setProperty('--sage-light', t['sage-soft'])
+    }
+    localStorage.setItem('eh_theme', themeName)
+  }, [themeName])
 
   useEffect(() => {
     const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false) }
@@ -96,8 +107,7 @@ function EventHeadPageShell({ children }) {
 
   const meta = NAV.find(n => location.pathname === n.path)
   const userName = user?.name || 'Event Head'
-  const userRole = user?.role || 'Event Head'
-  const userInitials = userName.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()
+  const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const notifCount = allNotifs.length;
   const drawerSections = [
     { label: 'Notifications', type: 'notifications', items: allNotifs },
@@ -105,21 +115,19 @@ function EventHeadPageShell({ children }) {
 
   return (
     <div className="app">
-      <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main">
-        <div className="mobile-top">
-          <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
-          <div className="mtop-brand">
-            <div className="brand-mark" style={{background:'#7B5EA7',borderRadius:8,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:14}}>E</div>
-            <span>UFS Event Head</span>
-          </div>
-        </div>
         <header className="topbar">
-          <div>
-            <div className="eyebrow">{meta?.eyebrow || 'Dashboard'}</div>
-            <h2>{meta?.label || 'Dashboard'}</h2>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Toggle sidebar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <div>
+              <div className="eyebrow">{meta?.eyebrow || 'Dashboard'}</div>
+              <h2>{meta?.label || 'Event Head'}</h2>
+            </div>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <div ref={notifRef} style={{ position:'relative' }}>
               <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={notifCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={notifCount > 0 ? 'bell-ring' : ''}>
@@ -134,12 +142,12 @@ function EventHeadPageShell({ children }) {
               </div>
             </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
-            <div className="avatar" style={{ background:'#7B5EA722', color:'#7B5EA7', width:36, height:36, cursor:'pointer' }}>{userInitials}</div>
+            <div className="avatar" style={{ background:'#7B5EA722', color:'#7B5EA7' }}>{initials}</div>
             {showMenu && (
               <div className="user-menu">
                 <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
                   <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
-                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>{userRole}</div>
+                  <div style={{fontSize:11, color:'var(--ink-soft)'}}>Event Head</div>
                 </div>
                 <div className="user-menu-divider" />
                 <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
@@ -170,7 +178,13 @@ function EventHeadPageShell({ children }) {
           />
         </header>
         <div className="content-body">
-          {children}
+          <Routes>
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<Overview />} />
+            <Route path="create-event" element={<CreateEvent />} />
+            <Route path="events" element={<EventsPage />} />
+            <Route path="*" element={<Navigate to="overview" replace />} />
+          </Routes>
         </div>
       </div>
     </div>
@@ -180,21 +194,10 @@ function EventHeadPageShell({ children }) {
 function EventsPage() {
   return (
     <div className="card">
-      <h3>Events</h3>
-      <p style={{ color: 'var(--ink-soft)', marginTop: 8 }}>Your events will appear here.</p>
+      <div className="card-head"><h3>Events</h3></div>
+      <div className="card-pad">
+        <p style={{ color: 'var(--ink-soft)' }}>Your events will appear here.</p>
+      </div>
     </div>
-  )
-}
-
-export default function EventHeadPanel() {
-  return (
-    <EventHeadPageShell>
-      <Routes>
-        <Route index element={<Navigate to="overview" replace />} />
-        <Route path="overview" element={<Overview />} />
-        <Route path="events" element={<EventsPage />} />
-        <Route path="*" element={<Navigate to="overview" replace />} />
-      </Routes>
-    </EventHeadPageShell>
   )
 }
