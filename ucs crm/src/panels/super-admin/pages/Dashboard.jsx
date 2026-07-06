@@ -1307,6 +1307,7 @@ export default function Dashboard() {
                 super_admin: { label: 'Super Admin', color: '#EF4444' },
                 admin: { label: 'Admin', color: '#F59E0B' },
                 hoadmin: { label: 'HO Admin', color: '#F59E0B' },
+                inter: { label: 'Intermediate', color: '#84CC16' },
                 hr: { label: 'HR', color: '#3B82F6' },
                 recruiter: { label: 'Recruiter', color: '#10B981' },
                 telecaller: { label: 'Telecaller', color: '#8B5CF6' },
