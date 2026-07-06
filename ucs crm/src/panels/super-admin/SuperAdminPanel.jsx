@@ -38,7 +38,7 @@ const GROUPS = [
   { id: 'org', label: 'Organization', icon: Buildings, items: ['organization', 'employees'] },
 ]
 
-const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets']
+const standaloneIds = ['dashboard', 'data-management', 'leaves', 'tickets', 'live-fro', 'assets']
 
 function Sidebar({ mobileOpen }) {
   const location = useLocation()
