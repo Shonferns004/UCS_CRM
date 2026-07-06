@@ -12,87 +12,87 @@ export const avatarColor = (name) => {
 export const initials = (n) => (n||'').trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase();
 
 /* ── Events ── */
-export const fetchEvents = () => apiGet('/events')
-export const fetchEventById = (id) => apiGet('/events/' + id)
-export const createEvent = (data) => apiPost('/events', data)
-export const updateEvent = (id, data) => apiPut('/events/' + id, data)
-export const deleteEvent = (id) => apiDelete('/events/' + id)
-export const fetchEventDashboard = () => apiGet('/events/dashboard')
-export const fetchEventsByMonth = (month, year) => apiGet('/events/calendar?month=' + month + '&year=' + year)
-export const fetchEventsByNgo = (ngoId) => apiGet('/events/ngo/' + ngoId)
-export const fetchEventsByState = (state) => apiGet('/events/state/' + state)
-export const fetchEventPerformance = (id) => apiGet('/events/' + id + '/performance')
-export const updateEventStatus = (id, status) => apiPut('/events/' + id + '/status', { status })
+export const fetchEvents = () => apiGet('/event-head/events')
+export const fetchEventById = (id) => apiGet('/event-head/events/' + id)
+export const createEvent = (data) => apiPost('/event-head/events', data)
+export const updateEvent = (id, data) => apiPut('/event-head/events/' + id, data)
+export const deleteEvent = (id) => apiDelete('/event-head/events/' + id)
+export const fetchEventDashboard = () => apiGet('/event-head/events/dashboard')
+export const fetchEventsByMonth = (month, year) => apiGet('/event-head/events/calendar?month=' + month + '&year=' + year)
+export const fetchEventsByNgo = (ngoId) => apiGet('/event-head/events/ngo/' + ngoId)
+export const fetchEventsByState = (state) => apiGet('/event-head/events/state/' + state)
+export const fetchEventPerformance = (id) => apiGet('/event-head/events/' + id + '/performance')
+export const updateEventStatus = (id, status) => apiPut('/event-head/events/' + id + '/status', { status })
 
 /* ── Event Checklist ── */
-export const fetchChecklist = (eventId) => apiGet('/events/' + eventId + '/checklist')
-export const updateChecklistItem = (eventId, itemId, data) => apiPut('/events/' + eventId + '/checklist/' + itemId, data)
+export const fetchChecklist = (eventId) => apiGet('/event-head/events/' + eventId + '/checklist')
+export const updateChecklistItem = (eventId, itemId, data) => apiPut('/event-head/events/' + eventId + '/checklist/' + itemId, data)
 
 /* ── Assets ── */
-export const fetchAssets = () => apiGet('/assets')
-export const fetchAssetById = (id) => apiGet('/assets/' + id)
-export const createAsset = (data) => apiPost('/assets', data)
-export const updateAsset = (id, data) => apiPut('/assets/' + id, data)
-export const deleteAsset = (id) => apiDelete('/assets/' + id)
-export const issueAsset = (data) => apiPost('/assets/issue', data)
-export const returnAsset = (id, data) => apiPut('/assets/return/' + id, data)
-export const fetchAssetUtilization = () => apiGet('/assets/utilization')
+export const fetchAssets = () => apiGet('/event-head/assets')
+export const fetchAssetById = (id) => apiGet('/event-head/assets/' + id)
+export const createAsset = (data) => apiPost('/event-head/assets', data)
+export const updateAsset = (id, data) => apiPut('/event-head/assets/' + id, data)
+export const deleteAsset = (id) => apiDelete('/event-head/assets/' + id)
+export const issueAsset = (data) => apiPost('/event-head/assets/issue', data)
+export const returnAsset = (id, data) => apiPut('/event-head/assets/return/' + id, data)
+export const fetchAssetUtilization = () => apiGet('/event-head/assets/utilization')
 
 /* ── Distribution Material ── */
-export const fetchMaterials = () => apiGet('/materials')
-export const createMaterial = (data) => apiPost('/materials', data)
-export const updateMaterial = (id, data) => apiPut('/materials/' + id, data)
-export const deleteMaterial = (id) => apiDelete('/materials/' + id)
-export const fetchMaterialStock = () => apiGet('/materials/stock')
-export const adjustMaterialStock = (id, data) => apiPut('/materials/' + id + '/stock', data)
+export const fetchMaterials = () => apiGet('/event-head/materials')
+export const createMaterial = (data) => apiPost('/event-head/materials', data)
+export const updateMaterial = (id, data) => apiPut('/event-head/materials/' + id, data)
+export const deleteMaterial = (id) => apiDelete('/event-head/materials/' + id)
+export const fetchMaterialStock = () => apiGet('/event-head/materials/stock')
+export const adjustMaterialStock = (id, data) => apiPut('/event-head/materials/' + id + '/stock', data)
 
 /* ── Beneficiary Distribution ── */
-export const fetchDistributions = (eventId) => apiGet('/events/' + eventId + '/distributions')
-export const createDistribution = (eventId, data) => apiPost('/events/' + eventId + '/distributions', data)
-export const fetchBeneficiaries = () => apiGet('/beneficiaries')
-export const createBeneficiary = (data) => apiPost('/beneficiaries', data)
+export const fetchDistributions = (eventId) => apiGet('/event-head/events/' + eventId + '/distributions')
+export const createDistribution = (eventId, data) => apiPost('/event-head/events/' + eventId + '/distributions', data)
+export const fetchBeneficiaries = () => apiGet('/event-head/beneficiaries')
+export const createBeneficiary = (data) => apiPost('/event-head/beneficiaries', data)
 
 /* ── Volunteers ── */
-export const fetchVolunteers = () => apiGet('/volunteers')
-export const createVolunteer = (data) => apiPost('/volunteers', data)
-export const updateVolunteer = (id, data) => apiPut('/volunteers/' + id, data)
-export const fetchVolunteerAttendance = (eventId) => apiGet('/events/' + eventId + '/volunteer-attendance')
-export const markVolunteerAttendance = (eventId, data) => apiPost('/events/' + eventId + '/volunteer-attendance', data)
+export const fetchVolunteers = () => apiGet('/event-head/volunteers')
+export const createVolunteer = (data) => apiPost('/event-head/volunteers', data)
+export const updateVolunteer = (id, data) => apiPut('/event-head/volunteers/' + id, data)
+export const fetchVolunteerAttendance = (eventId) => apiGet('/event-head/events/' + eventId + '/volunteer-attendance')
+export const markVolunteerAttendance = (eventId, data) => apiPost('/event-head/events/' + eventId + '/volunteer-attendance', data)
 
 /* ── Expenses ── */
-export const fetchExpenses = (eventId) => apiGet('/events/' + eventId + '/expenses')
-export const createExpense = (eventId, data) => apiPost('/events/' + eventId + '/expenses', data)
-export const deleteExpense = (eventId, id) => apiDelete('/events/' + eventId + '/expenses/' + id)
+export const fetchExpenses = (eventId) => apiGet('/event-head/events/' + eventId + '/expenses')
+export const createExpense = (eventId, data) => apiPost('/event-head/events/' + eventId + '/expenses', data)
+export const deleteExpense = (eventId, id) => apiDelete('/event-head/events/' + eventId + '/expenses/' + id)
 
 /* ── Vehicles ── */
-export const fetchVehicles = () => apiGet('/vehicles')
-export const createVehicle = (data) => apiPost('/vehicles', data)
-export const assignVehicle = (data) => apiPost('/vehicles/assign', data)
+export const fetchVehicles = () => apiGet('/event-head/vehicles')
+export const createVehicle = (data) => apiPost('/event-head/vehicles', data)
+export const assignVehicle = (data) => apiPost('/event-head/vehicles/assign', data)
 
 /* ── Media ── */
-export const fetchMedia = (eventId) => apiGet('/events/' + eventId + '/media')
-export const uploadMedia = (eventId, formData) => api('/events/' + eventId + '/media', { method: 'POST', body: formData, _prefix: 'ucs' })
-export const deleteMedia = (eventId, id) => apiDelete('/events/' + eventId + '/media/' + id)
+export const fetchMedia = (eventId) => apiGet('/event-head/events/' + eventId + '/media')
+export const uploadMedia = (eventId, formData) => api('/event-head/events/' + eventId + '/media', { method: 'POST', body: formData, _prefix: 'ucs' })
+export const deleteMedia = (eventId, id) => apiDelete('/event-head/events/' + eventId + '/media/' + id)
 
 /* ── Attendance ── */
-export const fetchEventAttendance = (eventId) => apiGet('/events/' + eventId + '/attendance')
-export const markAttendance = (eventId, data) => apiPost('/events/' + eventId + '/attendance', data)
+export const fetchEventAttendance = (eventId) => apiGet('/event-head/events/' + eventId + '/attendance')
+export const markAttendance = (eventId, data) => apiPost('/event-head/events/' + eventId + '/attendance', data)
 
 /* ── Reports ── */
-export const generateEventReport = (eventId, type) => apiGet('/reports/event/' + eventId + '?type=' + type)
-export const generateEventPdf = (eventId) => api('/reports/event/' + eventId + '/pdf', { _prefix: 'ucs' })
-export const generateEventExcel = (eventId) => api('/reports/event/' + eventId + '/excel', { _prefix: 'ucs' })
+export const generateEventReport = (eventId, type) => apiGet('/event-head/reports/event/' + eventId + '?type=' + type)
+export const generateEventPdf = (eventId) => api('/event-head/reports/event/' + eventId + '/pdf', { _prefix: 'ucs' })
+export const generateEventExcel = (eventId) => api('/event-head/reports/event/' + eventId + '/excel', { _prefix: 'ucs' })
 
 /* ── Approval ── */
-export const fetchApprovals = () => apiGet('/approvals')
-export const submitApproval = (eventId) => apiPost('/events/' + eventId + '/submit')
-export const approveEvent = (eventId) => apiPut('/events/' + eventId + '/approve')
-export const rejectEvent = (eventId, remark) => apiPut('/events/' + eventId + '/reject', { remark })
+export const fetchApprovals = () => apiGet('/event-head/approvals')
+export const submitApproval = (eventId) => apiPost('/event-head/events/' + eventId + '/submit')
+export const approveEvent = (eventId) => apiPut('/event-head/events/' + eventId + '/approve')
+export const rejectEvent = (eventId, remark) => apiPut('/event-head/events/' + eventId + '/reject', { remark })
 
 /* ── NGOs / CSR / Donors ── */
 export const fetchNGOs = () => apiGet('/ngos')
-export const fetchCSRPartners = () => apiGet('/csr-partners')
-export const fetchDonors = () => apiGet('/donors')
+export const fetchCSRPartners = () => apiGet('/event-head/csr-partners')
+export const fetchDonors = () => apiGet('/event-head/donors')
 
 /* ── Notifications ── */
 export const fetchNotifs = (userId) => apiGet('/notifications/' + userId)
