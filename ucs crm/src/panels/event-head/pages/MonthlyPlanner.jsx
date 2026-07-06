@@ -10,6 +10,9 @@ const statusStyle = (s) => {
   return map[s] || { bg: '#9ca3af18', color: '#9ca3af' }
 }
 
+const CAT_COLORS = ['#7B5EA7','#B5603A','#C08A2E','#4F6472','#5B6B4E','#88693D','#3485D4','#6B7280','#BE185D']
+const catColor = (cat, i) => CAT_COLORS[i % CAT_COLORS.length]
+
 export default function MonthlyPlanner() {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
@@ -120,6 +123,14 @@ export default function MonthlyPlanner() {
                     )
                   })}
                   {dayEvents.length > 3 && <div style={{ fontSize: 9, color: 'var(--ink-soft)', textAlign: 'center', marginTop: 1 }}>+{dayEvents.length - 3} more</div>}
+                  {dayEvents.length > 0 && <div style={{ display:'flex', gap:2, flexWrap:'wrap', marginTop:3, padding:'0 1px' }}>
+                    {[...new Set(dayEvents.map(e => e.category).filter(Boolean))].map((cat, i) => (
+                      <span key={cat} style={{
+                        width: 6, height: 6, borderRadius: '50%', background: catColor(cat, i),
+                        display:'inline-block'
+                      }} title={cat} />
+                    ))}
+                  </div>}
                 </div>
               </div>
             )
