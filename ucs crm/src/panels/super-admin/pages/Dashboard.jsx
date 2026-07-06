@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance } from '../api/endpoints'
+import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getUsers } from '../api/endpoints'
 
 /* ============ MINT PALETTE ============ */
 const MINT = '#8CCDA4'          // fills, charts, borders
@@ -672,8 +672,13 @@ export default function Dashboard() {
   const [accountsModalStatus, setAccountsModalStatus] = useState(null)
   const [recruiterModalType, setRecruiterModalType] = useState(null)
   const [panelModal, setPanelModal] = useState(null)
+  const [allUserList, setAllUserList] = useState([])
   const froTimer = useRef(null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    getUsers().then(d => setAllUserList(d?.data || d || [])).catch(() => {})
+  }, [])
 
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
 
@@ -1317,7 +1322,11 @@ export default function Dashboard() {
                 leads: { label: 'Leads', color: '#F97316' },
                 worker: { label: 'Worker', color: '#6366F1' },
               }
-              const roleDistro = Object.keys(allTimeRoleDistribution).length > 0 ? allTimeRoleDistribution : roleDistribution
+              const roleDistro = Object.keys(allTimeRoleDistribution).length > 0 ? allTimeRoleDistribution : (() => {
+                const rd = {}
+                allUserList.forEach(u => { rd[u.role] = (rd[u.role] || 0) + 1 })
+                return Object.keys(rd).length > 0 ? rd : roleDistribution
+              })()
               const segments = Object.entries(roleDistro)
                 .filter(([, v]) => v > 0)
                 .map(([key, val]) => ({
