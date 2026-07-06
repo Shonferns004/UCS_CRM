@@ -1,9 +1,18 @@
 import * as EventHead from '../models/eventHeadModel.js';
 
+const numericFields = ['budget', 'expected_beneficiaries', 'amount', 'quantity', 'purchase_cost', 'cost', 'opening_stock', 'received', 'issued', 'balance', 'available_qty', 'issued_qty', 'damaged_qty', 'kilometer_reading'];
+const sanitize = (data) => {
+  const clean = { ...data };
+  for (const k of Object.keys(clean)) {
+    if (numericFields.includes(k) && clean[k] === '') clean[k] = null;
+  }
+  return clean;
+};
+
 // ─── EVENTS ───
 export const createEventHandler = async (req, res) => {
   try {
-    const event = await EventHead.createEventHeadEvent({ ...req.body, created_by: req.user.id });
+    const event = await EventHead.createEventHeadEvent({ ...sanitize(req.body), created_by: req.user.id });
     return res.status(201).json(event);
   } catch (error) {
     console.error('createEventHandler error:', error.message || error);
@@ -34,7 +43,7 @@ export const getEventHeadEvent = async (req, res) => {
 
 export const updateEventHeadEvent = async (req, res) => {
   try {
-    const event = await EventHead.updateEventHeadEvent(req.params.id, req.body);
+    const event = await EventHead.updateEventHeadEvent(req.params.id, sanitize(req.body));
     return res.json(event);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -54,7 +63,7 @@ export const deleteEventHeadEvent = async (req, res) => {
 
 export const updateEventHeadStatus = async (req, res) => {
   try {
-    const event = await EventHead.updateEventHeadEvent(req.params.id, { status: req.body.status });
+    const event = await EventHead.updateEventHeadEvent(req.params.id, { status: sanitize(req.body).status });
     return res.json(event);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -134,7 +143,7 @@ export const rejectEventHeadEvent = async (req, res) => {
 // ─── ASSETS ───
 export const createAsset = async (req, res) => {
   try {
-    const asset = await EventHead.createAsset(req.body);
+    const asset = await EventHead.createAsset(sanitize(req.body));
     return res.status(201).json(asset);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -165,7 +174,7 @@ export const getAsset = async (req, res) => {
 
 export const editAsset = async (req, res) => {
   try {
-    const asset = await EventHead.updateAsset(req.params.id, req.body);
+    const asset = await EventHead.updateAsset(req.params.id, sanitize(req.body));
     return res.json(asset);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -185,7 +194,7 @@ export const removeAsset = async (req, res) => {
 
 export const issueAssetItem = async (req, res) => {
   try {
-    const asset = await EventHead.issueAsset(req.params.id, req.body.quantity);
+    const asset = await EventHead.issueAsset(req.params.id, sanitize(req.body).quantity);
     return res.json(asset);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -215,7 +224,7 @@ export const getAssetUtilization = async (req, res) => {
 // ─── MATERIALS ───
 export const createMaterial = async (req, res) => {
   try {
-    const material = await EventHead.createMaterial(req.body);
+    const material = await EventHead.createMaterial(sanitize(req.body));
     return res.status(201).json(material);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -235,7 +244,7 @@ export const listMaterials = async (req, res) => {
 
 export const editMaterial = async (req, res) => {
   try {
-    const material = await EventHead.updateMaterial(req.params.id, req.body);
+    const material = await EventHead.updateMaterial(req.params.id, sanitize(req.body));
     return res.json(material);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -265,7 +274,7 @@ export const getMaterialStock = async (req, res) => {
 
 export const adjustMaterialStock = async (req, res) => {
   try {
-    const material = await EventHead.adjustMaterialStock(req.params.id, req.body.adjustment);
+    const material = await EventHead.adjustMaterialStock(req.params.id, sanitize(req.body).adjustment);
     return res.json(material);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -275,7 +284,7 @@ export const adjustMaterialStock = async (req, res) => {
 // ─── DISTRIBUTIONS ───
 export const createDistribution = async (req, res) => {
   try {
-    const dist = await EventHead.createDistribution(req.params.eventId, req.body);
+    const dist = await EventHead.createDistribution(req.params.eventId, sanitize(req.body));
     return res.status(201).json(dist);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -314,7 +323,7 @@ export const createBeneficiary = async (req, res) => {
 // ─── VOLUNTEERS ───
 export const createVolunteer = async (req, res) => {
   try {
-    const volunteer = await EventHead.createVolunteer(req.body);
+    const volunteer = await EventHead.createVolunteer(sanitize(req.body));
     return res.status(201).json(volunteer);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -334,7 +343,7 @@ export const listVolunteers = async (req, res) => {
 
 export const editVolunteer = async (req, res) => {
   try {
-    const volunteer = await EventHead.updateVolunteer(req.params.id, req.body);
+    const volunteer = await EventHead.updateVolunteer(req.params.id, sanitize(req.body));
     return res.json(volunteer);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -344,7 +353,7 @@ export const editVolunteer = async (req, res) => {
 // ─── EXPENSES ───
 export const createExpense = async (req, res) => {
   try {
-    const expense = await EventHead.createExpense(req.params.eventId, req.body);
+    const expense = await EventHead.createExpense(req.params.eventId, sanitize(req.body));
     return res.status(201).json(expense);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -374,7 +383,7 @@ export const removeExpense = async (req, res) => {
 // ─── VEHICLES ───
 export const createVehicle = async (req, res) => {
   try {
-    const vehicle = await EventHead.createVehicle(req.body);
+    const vehicle = await EventHead.createVehicle(sanitize(req.body));
     return res.status(201).json(vehicle);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -394,7 +403,7 @@ export const listVehicles = async (req, res) => {
 
 export const assignVehicle = async (req, res) => {
   try {
-    const vehicle = await EventHead.assignVehicle(req.body);
+    const vehicle = await EventHead.assignVehicle(sanitize(req.body));
     return res.status(201).json(vehicle);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -404,7 +413,7 @@ export const assignVehicle = async (req, res) => {
 // ─── MEDIA ───
 export const uploadMedia = async (req, res) => {
   try {
-    const media = await EventHead.createMedia(req.params.eventId, { name: req.file?.originalname || req.body.name, url: req.body.url || `/uploads/${req.file?.filename}`, type: req.file?.mimetype || req.body.type });
+    const media = await EventHead.createMedia(req.params.eventId, { name: req.file?.originalname || sanitize(req.body).name, url: sanitize(req.body).url || `/uploads/${req.file?.filename}`, type: req.file?.mimetype || sanitize(req.body).type });
     return res.status(201).json(media);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -434,7 +443,7 @@ export const removeMedia = async (req, res) => {
 // ─── ATTENDANCE ───
 export const createAttendance = async (req, res) => {
   try {
-    const att = await EventHead.createAttendance(req.params.eventId, req.body);
+    const att = await EventHead.createAttendance(req.params.eventId, sanitize(req.body));
     return res.status(201).json(att);
   } catch (error) {
     console.error('eventHeadController error:', error.message || error);
@@ -464,7 +473,7 @@ export const getChecklist = async (req, res) => {
 
 export const updateChecklistItem = async (req, res) => {
   try {
-    const item = await EventHead.upsertChecklistItem(req.params.eventId, { id: req.params.itemId, ...req.body });
+    const item = await EventHead.upsertChecklistItem(req.params.eventId, { id: req.params.itemId, ...sanitize(req.body) });
     return res.json(item);
   } catch (error) {
     return res.status(500).json({ message: error.message });
