@@ -1308,6 +1308,7 @@ export default function Dashboard() {
                 admin: { label: 'Admin', color: '#F59E0B' },
                 hoadmin: { label: 'HO Admin', color: '#F59E0B' },
                 inter: { label: 'Intermediate', color: '#84CC16' },
+                team_lead: { label: 'Team Lead', color: '#F97316' },
                 hr: { label: 'HR', color: '#3B82F6' },
                 recruiter: { label: 'Recruiter', color: '#10B981' },
                 telecaller: { label: 'Telecaller', color: '#8B5CF6' },
