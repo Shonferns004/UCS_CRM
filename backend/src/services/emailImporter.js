@@ -165,7 +165,7 @@ Rules:
   }
 }
 
-export async function pollEmailInbox() {
+export async function pollEmailInbox(fromDate) {
   if (!emailConfig.enabled) {
     lastPollResult = { success: null, message: 'Email import disabled (IMAP_ENABLED=false)', count: 0, timestamp: new Date().toISOString(), error: null };
     return lastPollResult;
@@ -185,7 +185,13 @@ export async function pollEmailInbox() {
     await client.connect();
     await client.mailboxOpen(emailConfig.imapMailbox);
 
-    const messages = await client.search({ seen: false });
+    const searchQuery = { seen: false };
+    if (fromDate) {
+      const since = new Date(fromDate);
+      since.setHours(0, 0, 0, 0);
+      searchQuery.receivedAfter = since;
+    }
+    const messages = await client.search(searchQuery);
     if (!messages || messages.length === 0) {
       await client.logout();
       lastPollResult = { success: true, message: 'No new emails', count: 0, timestamp: new Date().toISOString(), error: null };

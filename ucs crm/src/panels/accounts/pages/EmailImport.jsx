@@ -20,6 +20,8 @@ export default function EmailImport() {
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [importingFromDate, setImportingFromDate] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -44,6 +46,17 @@ export default function EmailImport() {
       await loadData();
     } catch (err) { alert(err.message); }
     finally { setTriggering(false); }
+  };
+
+  const handleTriggerFromDate = async () => {
+    if (!fromDate) { alert('Please select a date'); return; }
+    setImportingFromDate(true);
+    try {
+      const result = await apiPost('/accounts/email-import/trigger?fromDate=' + fromDate);
+      setStatus(prev => ({ ...prev, lastPoll: result }));
+      await loadData();
+    } catch (err) { alert(err.message); }
+    finally { setImportingFromDate(false); }
   };
 
   const counts = status?.counts || { imported: 0, failed: 0, skipped: 0 };
@@ -105,7 +118,7 @@ export default function EmailImport() {
           <div className="stat-card" style={{ gridColumn: '1 / -1', background: statusBg, border: `1px solid ${statusColor}20` }}>
             <div className="stat-info" style={{ gap: 2 }}>
               <div className="stat-lbl" style={{ color: statusColor, fontWeight: 600, fontSize: 12 }}>
-                Last Poll: {lastPoll.success ? 'Success' : 'Failed'}
+                Last Poll: {lastPoll.success === true ? 'Success' : lastPoll.success === false ? 'Failed' : 'Not Run'}
               </div>
               <div className="stat-lbl" style={{ fontSize: 12, color: '#6b7280' }}>
                 {lastPoll.message} — {lastPoll.timestamp ? new Date(lastPoll.timestamp).toLocaleString('en-IN') : 'N/A'}
@@ -121,8 +134,18 @@ export default function EmailImport() {
           <button className="btn btn-sm" onClick={() => loadData()} style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
             <SvgRefresh /> Refresh
           </button>
+          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+            <span>From</span>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+              style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 150 }} />
+          </label>
+          <button className="btn btn-sm" onClick={handleTriggerFromDate} disabled={importingFromDate || !fromDate}
+            style={{ background: '#5B6B4E', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            {importingFromDate ? 'Importing...' : 'Import Unseen from Date'}
+          </button>
           <button className="btn btn-sm" onClick={handleTrigger} disabled={triggering}
-            style={{ marginLeft: 'auto', background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            style={{ background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             {triggering ? 'Importing...' : 'Manual Import'}
           </button>

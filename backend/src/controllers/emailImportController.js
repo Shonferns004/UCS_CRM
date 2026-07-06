@@ -3,7 +3,8 @@ import { getImportLog, countByStatus } from '../models/emailImportLogModel.js';
 
 export async function triggerImport(req, res) {
   try {
-    const result = await pollEmailInbox();
+    const fromDate = req.query.fromDate || null;
+    const result = await pollEmailInbox(fromDate);
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
