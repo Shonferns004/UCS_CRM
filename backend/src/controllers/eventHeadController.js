@@ -4,7 +4,12 @@ const numericFields = ['budget', 'expected_beneficiaries', 'amount', 'quantity',
 const sanitize = (data) => {
   const clean = { ...data };
   for (const k of Object.keys(clean)) {
-    if (numericFields.includes(k) && clean[k] === '') clean[k] = null;
+    if (clean[k] === '' || clean[k] === null || clean[k] === undefined) {
+      clean[k] = null;
+    } else if (numericFields.includes(k)) {
+      const num = Number(clean[k]);
+      clean[k] = isNaN(num) ? null : num;
+    }
   }
   return clean;
 };
@@ -12,7 +17,7 @@ const sanitize = (data) => {
 // ─── EVENTS ───
 export const createEventHandler = async (req, res) => {
   try {
-    const event = await EventHead.createEventHeadEvent({ ...sanitize(req.body), created_by: req.user.id });
+    const event = await EventHead.createEventHeadEvent({ ...sanitize(req.body), created_by: String(req.user.id) });
     return res.status(201).json(event);
   } catch (error) {
     console.error('createEventHandler error:', error.message || error);

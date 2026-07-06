@@ -24,7 +24,13 @@ export default function CreateEvent() {
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true)
     try {
-      await createEvent(form)
+      const payload = { ...form }
+      for (const k of Object.keys(payload)) {
+        if (payload[k] === '' || payload[k] === null || payload[k] === undefined) {
+          payload[k] = null
+        }
+      }
+      await createEvent(payload)
       navigate('/event-head/events')
     } catch (err) { alert('Failed to create event: ' + (err.message || 'Unknown error')); console.error('Create event error:', err) }
     finally { setSaving(false) }
