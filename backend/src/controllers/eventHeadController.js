@@ -477,7 +477,7 @@ export const listPartners = async (req, res) => {
     const partners = await EventHead.getAllPartners();
     return res.json(partners);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.json([]);
   }
 };
 
@@ -487,7 +487,7 @@ export const listDonors = async (req, res) => {
     const donors = await EventHead.getAllDonors();
     return res.json(donors);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.json([]);
   }
 };
 
