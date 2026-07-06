@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { fetchEvents, fetchEventAttendance, markAttendance } from '../store'
+import { EnhancedTable } from '../components/Table'
 
 export default function AttendanceManagement() {
   const [events, setEvents] = useState([])
@@ -19,25 +20,41 @@ export default function AttendanceManagement() {
     await markAttendance(selectedEvent, form).then((res) => { setAttendance([...attendance, res]); setShowForm(false); setForm({name:'',type:'Staff',status:'Present'}) }).catch(() => {})
   }
 
-  const counts = { Present:0, Absent:0, Late:0 }
+  const counts = { Present: 0, Absent: 0, Late: 0 }
   attendance.forEach(a => { if (counts[a.status] !== undefined) counts[a.status]++ })
+
+  const columns = [
+    { header: 'Name', accessor: 'name', render: (row) => <span style={{ fontWeight: 500 }}>{row.name}</span> },
+    { header: 'Type', accessor: 'type', render: (row) => <span className={`pill pill-${row.type === 'Staff' ? 'blue' : row.type === 'Volunteer' ? 'purple' : 'gray'}`}>{row.type}</span> },
+    { header: 'Status', accessor: 'status', render: (row) => <span className={`pill pill-${row.status === 'Present' ? 'green' : row.status === 'Absent' ? 'red' : 'yellow'}`}>{row.status}</span> },
+    { header: 'Time', accessor: 'created_at', render: (row) => row.created_at?.slice(11, 19) || '—' },
+  ]
 
   return (
     <>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
-        <h3 style={{fontSize:16}}>Event Attendance</h3>
-        <div style={{display:'flex',gap:8}}>
-          <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{padding:'6px 10px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:13}}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <h3 style={{ fontSize: 16 }}>Event Attendance</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{ padding: '6px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
             <option value="">Select Event</option>
             {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
           </select>
           <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)} disabled={!selectedEvent}>+ Mark</button>
         </div>
       </div>
+
       {selectedEvent && (
         <>
+          {attendance.length > 0 && (
+            <div className="stats-grid" style={{ marginBottom: 16, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <div className="stat-card"><div className="stat-num" style={{ color: '#16a34a' }}>{counts.Present}</div><div className="stat-lbl">Present</div></div>
+              <div className="stat-card"><div className="stat-num" style={{ color: '#dc2626' }}>{counts.Absent}</div><div className="stat-lbl">Absent</div></div>
+              <div className="stat-card"><div className="stat-num" style={{ color: '#C08A2E' }}>{counts.Late}</div><div className="stat-lbl">Late</div></div>
+            </div>
+          )}
+
           {showForm && (
-            <div className="card" style={{marginBottom:16}}>
+            <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-head"><h3>Mark Attendance</h3></div>
               <div className="card-pad">
                 <form onSubmit={handleSubmit}>
@@ -54,7 +71,7 @@ export default function AttendanceManagement() {
                       <option value="Present">Present</option><option value="Absent">Absent</option><option value="Late">Late</option>
                     </select>
                   </div>
-                  <div style={{marginTop:12,display:'flex',gap:8}}>
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                     <button type="submit" className="btn btn-primary btn-sm">Save</button>
                     <button type="button" className="btn btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
                   </div>
@@ -62,35 +79,17 @@ export default function AttendanceManagement() {
               </div>
             </div>
           )}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:16}}>
-            {Object.entries(counts).map(([k,v]) => (
-              <div key={k} className="stat-card" style={{textAlign:'center'}}>
-                <div className="stat-num">{v}</div>
-                <div className="stat-lbl">{k}</div>
-              </div>
-            ))}
-          </div>
-          <div className="card">
-            <div className="card-pad" style={{padding:0}}>
-              <table>
-                <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Time</th></tr></thead>
-                <tbody>
-                  {attendance.length === 0 && <tr><td colSpan={4} style={{textAlign:'center',padding:24,color:'var(--ink-soft)'}}>No attendance recorded</td></tr>}
-                  {attendance.map(a => (
-                    <tr key={a.id}>
-                      <td style={{fontWeight:500}}>{a.name}</td>
-                      <td><span className={`pill pill-${a.type === 'Staff' ? 'blue' : a.type === 'Volunteer' ? 'purple' : 'gray'}`}>{a.type}</span></td>
-                      <td><span className={`pill pill-${a.status === 'Present' ? 'green' : a.status === 'Absent' ? 'red' : 'yellow'}`}>{a.status}</span></td>
-                      <td>{a.created_at?.slice(11,19) || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+
+          <EnhancedTable
+            columns={columns}
+            data={attendance}
+            searchPlaceholder="Search attendees..."
+            pageSize={10}
+          />
         </>
       )}
-      {!selectedEvent && <div className="card"><div className="card-pad" style={{textAlign:'center',padding:40,color:'var(--ink-soft)'}}>Select an event to manage attendance</div></div>}
+
+      {!selectedEvent && <div className="card"><div className="card-pad" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)' }}>Select an event to manage attendance</div></div>}
     </>
   )
 }

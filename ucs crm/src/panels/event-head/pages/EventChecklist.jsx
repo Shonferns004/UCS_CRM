@@ -49,7 +49,7 @@ export default function EventChecklist() {
             <label key={item.id} style={{
               display:'flex',alignItems:'center',gap:12,padding:'10px 14px',
               background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',
-              cursor:'pointer',transition:'all .15s',opacity:item.status?.8:1
+              cursor:'pointer',transition:'all .15s',              opacity:item.status ? 0.6 : 1
             }}>
               <input type="checkbox" checked={item.status} onChange={() => toggle(item)} style={{width:18,height:18,accentColor:'var(--sage)'}} />
               <div style={{flex:1}}>

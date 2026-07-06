@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { MATERIAL_TYPES, fetchMaterials, createMaterial, updateMaterial } from '../store'
+import { EnhancedTable } from '../components/Table'
 
 export default function MaterialRegister() {
   const [materials, setMaterials] = useState([])
@@ -19,14 +20,40 @@ export default function MaterialRegister() {
     }
   }
 
+  const totalStock = materials.reduce((s, m) => s + (+m.opening_stock || 0) + (+m.received || 0), 0)
+  const totalIssued = materials.reduce((s, m) => s + (+m.issued || 0), 0)
+  const lowStock = materials.filter(m => (m.balance ?? m.opening_stock - m.issued) < 10).length
+
+  const columns = [
+    { header: 'Material', accessor: 'name', render: (row) => <span style={{ fontWeight: 500 }}>{row.name}</span> },
+    { header: 'Opening', accessor: 'opening_stock' },
+    { header: 'Received', accessor: 'received' },
+    { header: 'Issued', accessor: 'issued' },
+    { header: 'Balance', accessor: 'balance', render: (row) => {
+      const bal = row.balance ?? row.opening_stock - row.issued
+      return <span style={{ fontWeight: 600, color: bal < 10 ? '#B5603A' : 'inherit' }}>{bal}</span>
+    }},
+    { header: 'Cost', accessor: 'cost', render: (row) => '₹' + Number(row.cost).toLocaleString() },
+    { header: 'Warehouse', accessor: 'warehouse' },
+    { header: 'Donor', accessor: 'donor' },
+  ]
+
   return (
     <>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <h3 style={{fontSize:16}}>Distribution Material Register</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ fontSize: 16 }}>Distribution Material Register</h3>
         <button className="btn btn-primary btn-sm" onClick={() => { setEditMat(null); setForm({name:'',opening_stock:0,received:0,issued:0,cost:0,warehouse:'',donor:''}); setShowForm(true) }}>+ Add Material</button>
       </div>
+
+      <div className="stats-grid" style={{ marginBottom: 16, gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div className="stat-card"><div className="stat-num" style={{ color: '#7B5EA7' }}>{materials.length}</div><div className="stat-lbl">Material Types</div></div>
+        <div className="stat-card"><div className="stat-num" style={{ color: '#3485D4' }}>{totalStock}</div><div className="stat-lbl">Total Stock</div></div>
+        <div className="stat-card"><div className="stat-num" style={{ color: '#16a34a' }}>{totalIssued}</div><div className="stat-lbl">Total Issued</div></div>
+        <div className="stat-card"><div className="stat-num" style={{ color: lowStock > 0 ? '#B5603A' : 'var(--sage)' }}>{lowStock}</div><div className="stat-lbl">Low Stock Items</div></div>
+      </div>
+
       {showForm && (
-        <div className="card" style={{marginBottom:16}}>
+        <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-head"><h3>{editMat ? 'Edit' : 'Add'} Material</h3></div>
           <div className="card-pad">
             <form onSubmit={handleSubmit}>
@@ -43,11 +70,11 @@ export default function MaterialRegister() {
                 <div className="field"><label>Issued</label><input type="number" value={form.issued} onChange={e => setForm({...form,issued:+e.target.value})} /></div>
               </div>
               <div className="form-row">
-                <div className="field"><label>Cost</label><input type="number" value={form.cost} onChange={e => setForm({...form,cost:+e.target.value})} /></div>
+                <div className="field"><label>Cost (₹)</label><input type="number" value={form.cost} onChange={e => setForm({...form,cost:+e.target.value})} /></div>
                 <div className="field"><label>Warehouse</label><input value={form.warehouse} onChange={e => setForm({...form,warehouse:e.target.value})} /></div>
               </div>
               <div className="field"><label>Donor</label><input value={form.donor} onChange={e => setForm({...form,donor:e.target.value})} /></div>
-              <div style={{marginTop:12,display:'flex',gap:8}}>
+              <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                 <button type="submit" className="btn btn-primary btn-sm">Save</button>
                 <button type="button" className="btn btn-sm" onClick={() => { setShowForm(false); setEditMat(null) }}>Cancel</button>
               </div>
@@ -55,24 +82,13 @@ export default function MaterialRegister() {
           </div>
         </div>
       )}
-      <div className="card">
-        <div className="card-pad" style={{padding:0}}>
-          <table>
-            <thead><tr><th>Material</th><th>Opening</th><th>Received</th><th>Issued</th><th>Balance</th><th>Cost</th><th>Warehouse</th><th>Donor</th></tr></thead>
-            <tbody>
-              {materials.length === 0 && <tr><td colSpan={8} style={{textAlign:'center',padding:24,color:'var(--ink-soft)'}}>No materials registered</td></tr>}
-              {materials.map(m => (
-                <tr key={m.id} style={{cursor:'pointer'}} onClick={() => { setForm(m); setEditMat(m); setShowForm(true) }}>
-                  <td style={{fontWeight:500}}>{m.name}</td>
-                  <td>{m.opening_stock}</td><td>{m.received}</td><td>{m.issued}</td>
-                  <td style={{fontWeight:600,color:(m.balance ?? m.opening_stock - m.issued) < 10 ? '#B5603A' : 'inherit'}}>{m.balance ?? m.opening_stock - m.issued}</td>
-                  <td>₹{m.cost?.toLocaleString()}</td><td>{m.warehouse}</td><td>{m.donor}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+
+      <EnhancedTable
+        columns={columns}
+        data={materials}
+        searchPlaceholder="Search materials..."
+        pageSize={10}
+      />
     </>
   )
 }
