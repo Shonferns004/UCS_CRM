@@ -169,7 +169,7 @@ export default function MonthlyPlanner() {
       </div>
 
       <div style={{ borderTop: '1px solid var(--line)' }}>
-        <div className="card-head"><h3>Events This Month</h3></div>
+        <div className="card-head"><h3>Events</h3></div>
         <div className="card-pad" style={{ padding: 0 }}>
           <table>
             <thead><tr><th>Date</th><th>Event</th><th>Category</th><th>Venue</th><th>Status</th></tr></thead>
