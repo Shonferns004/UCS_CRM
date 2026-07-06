@@ -729,7 +729,7 @@ export default function Dashboard() {
     froAssignments = [],      // [{ name: 'Ramesh', ngos: ['MAN', 'AFLF'] }]
     accountsSummary = {}, recruiterSummary = {},
     monthlyRevenue = [], topFros = [], topRecruiters = [], recentActivities = [],
-    roleDistribution = {}, totalSalaryPayable = 0,
+    allTimeRoleDistribution = {}, totalSalaryPayable = 0,
   } = data
 
   const today = new Date()
@@ -1295,7 +1295,7 @@ export default function Dashboard() {
       </div>
 
       {/* ============ ROLE DISTRIBUTION + TOTAL SALARY ============ */}
-      {Object.keys(roleDistribution).length > 0 || totalSalaryPayable > 0 ? (
+      {Object.keys(allTimeRoleDistribution).length > 0 || totalSalaryPayable > 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
           <div className="nd-card nd-appear" style={{ animationDelay: '0.12s', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -1315,7 +1315,7 @@ export default function Dashboard() {
                 leads: { label: 'Leads', color: '#F97316' },
                 worker: { label: 'Worker', color: '#6366F1' },
               }
-              const segments = Object.entries(roleDistribution)
+              const segments = Object.entries(allTimeRoleDistribution)
                 .filter(([, v]) => v > 0)
                 .map(([key, val]) => ({
                   label: roleMap[key]?.label || key,

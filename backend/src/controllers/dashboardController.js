@@ -102,6 +102,11 @@ export const getSuperAdminDashboard = async (req, res) => {
     userCreated.forEach(u => {
       roleDistribution[u.role] = (roleDistribution[u.role] || 0) + 1;
     });
+    /* all-time role distribution (ignores period filter) */
+    const allTimeRoleDistribution = {};
+    users.forEach(u => {
+      allTimeRoleDistribution[u.role] = (allTimeRoleDistribution[u.role] || 0) + 1;
+    });
 
     /* ── Department worker counts ── */
     const deptWorkers = {};
@@ -528,6 +533,7 @@ export const getSuperAdminDashboard = async (req, res) => {
       topFros,
       topRecruiters,
       recentActivities,
+      allTimeRoleDistribution,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
