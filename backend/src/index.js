@@ -39,6 +39,9 @@ import accountsRoutes from './routes/accountsRoutes.js';
 import loanRoutes from './routes/loanRoutes.js';
 import attendanceCorrectionRoutes from './routes/attendanceCorrectionRoutes.js';
 import bankAuditRoutes from './routes/bankAuditRoutes.js';
+import emailImportRoutes from './routes/emailImportRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
+import bankStatementRoutes from './routes/bankStatementRoutes.js';
 
 dotenv.config();
 
@@ -51,7 +54,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.options('*', cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => { req.rawBody = buf.toString(); },
+}));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,6 +100,9 @@ app.use('/api/loans', loanRoutes);
 app.use('/api/advances', loanRoutes);
 app.use('/api/attendance-corrections', attendanceCorrectionRoutes);
 app.use('/api/accounts/bank-audit', bankAuditRoutes);
+app.use('/api/accounts/email-import', emailImportRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/accounts/bank-statement', bankStatementRoutes);
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
@@ -123,22 +132,33 @@ if (fs.existsSync(accountsDist)) {
   });
 }
 
-app.post('/api/cron/notifications', async (req, res) => {
-  try {
-    const { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders } =
-      await import('./services/notificationScheduler.js');
-    await Promise.all([
-      runNotificationCycle().catch(() => {}),
-      sendScheduledNotifications().catch(() => {}),
-      sendPunchInReminders().catch(() => {}),
-      sendPunchOutReminders().catch(() => {}),
-    ]);
-    res.json({ success: true, message: 'All notification checks completed' });
-  } catch (error) {
-    console.error('Notifications cron error:', error.message);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+    app.post('/api/cron/notifications', async (req, res) => {
+      try {
+        const { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders } =
+          await import('./services/notificationScheduler.js');
+        await Promise.all([
+          runNotificationCycle().catch(() => {}),
+          sendScheduledNotifications().catch(() => {}),
+          sendPunchInReminders().catch(() => {}),
+          sendPunchOutReminders().catch(() => {}),
+        ]);
+        res.json({ success: true, message: 'All notification checks completed' });
+      } catch (error) {
+        console.error('Notifications cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
+    app.post('/api/cron/email-import', async (req, res) => {
+      try {
+        const { pollEmailInbox } = await import('./services/emailImporter.js');
+        const result = await pollEmailInbox();
+        res.json(result);
+      } catch (error) {
+        console.error('Email import cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
 
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
