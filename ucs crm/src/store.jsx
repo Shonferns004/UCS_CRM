@@ -11,6 +11,7 @@ const ALLOWED_ROLES = {
   fro: 'fro',
   worker: 'worker',
   event_head: 'event_head',
+  event_manager: 'event_manager',
   'Event Manager': 'Event Manager',
   'Event Head': 'Event Head',
 }

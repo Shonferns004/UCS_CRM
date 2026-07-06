@@ -18,7 +18,9 @@ const ROLE_PATHS = {
   fro: '/fro',
   worker: '/fro',
   event_head: '/event-head',
+  event_manager: '/event-head',
   'Event Manager': '/event-head',
+  'Event Head': '/event-head',
 }
 
 const ROLE_PANELS = {
@@ -29,6 +31,9 @@ const ROLE_PANELS = {
   fro: { panel: FROPanel, cls: 'panel-fro' },
   recruiter: { panel: RecruiterPanel, cls: 'panel-recruiter' },
   event_head: { panel: EventHeadPanel, cls: 'panel-event-head' },
+  event_manager: { panel: EventHeadPanel, cls: 'panel-event-head' },
+  'Event Manager': { panel: EventHeadPanel, cls: 'panel-event-head' },
+  'Event Head': { panel: EventHeadPanel, cls: 'panel-event-head' },
 }
 
 function ProtectedRoute({ role, children }) {
