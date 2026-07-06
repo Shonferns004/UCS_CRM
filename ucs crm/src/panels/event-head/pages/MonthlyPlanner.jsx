@@ -76,6 +76,7 @@ export default function MonthlyPlanner() {
           <select value={filterNgo} onChange={e => setFilterNgo(e.target.value)}>
             <option value="">All NGOs</option>
             {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+            {['BSCT','MANN','AFLF'].map(name => <option key={name} value={name}>{name}</option>)}
           </select>
           <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="">All Categories</option>
