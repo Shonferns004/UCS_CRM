@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { fetchEventsByMonth, fetchNGOs, CATEGORIES, EVENT_STATUSES } from '../store'
+import { useRealtime } from '../../../hooks/useRealtime'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -24,12 +25,22 @@ export default function MonthlyPlanner() {
   const ngoMap = Object.fromEntries(ngos.map(n => [n.id, n.name]))
 
   useEffect(() => { fetchNGOs().then(setNgos).catch(e => console.error('MonthlyPlanner fetchNGOs:', e)) }, [])
-  useEffect(() => {
+
+  const loadEvents = useCallback(() => {
     fetchEventsByMonth(month + 1, year).then(setEvents).catch(e => {
       console.error('MonthlyPlanner fetchEventsByMonth:', e)
       setEvents([])
     })
   }, [month, year])
+
+  useEffect(() => { loadEvents() }, [loadEvents])
+
+  useRealtime('event_head_events', {
+    event: '*',
+    onInsert: () => loadEvents(),
+    onUpdate: () => loadEvents(),
+    onDelete: () => loadEvents(),
+  })
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstDay = new Date(year, month, 1).getDay()
