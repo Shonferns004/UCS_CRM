@@ -69,7 +69,7 @@ export default function Letters() {
     if (!w) return;
     const result = build(type, w);
     setOut({ ...result, type });
-    setShowPdfBtn(type === 'Offer letter');
+    setShowPdfBtn(true);
   };
 
   const copy = () => out && navigator.clipboard?.writeText(`${out.body}`);
