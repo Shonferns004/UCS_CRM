@@ -1,61 +1,47 @@
-import { useState, useEffect } from 'react'
-import { fetchEvents, updateEventStatus, deleteEvent, EVENT_STATUSES } from '../store'
-import { EnhancedTable } from '../components/Table'
-
-const statusColor = (s) => {
-  const map = { Completed:'green', Approved:'blue', Draft:'gray', Submitted:'yellow', Rejected:'red', Cancelled:'red', Closed:'green', Postponed:'yellow' }
-  return map[s] || 'gray'
-}
+import { useState } from 'react'
 
 const NGO_OPTIONS = ['BSCT','MANN','AFLF']
 
+const BSCT_DATA = [
+  { date:'1-Jul-2026',  event:'Stationary kit',      day:'Wednesday', reels:'Done', post:'Done', youtube:'' },
+  { date:'2-Jul-2026',  event:'',                     day:'Thursday',  reels:'',     post:'',     youtube:'' },
+  { date:'3-Jul-2026',  event:'Quick Edit',           day:'Friday',    reels:'Done', post:'',     youtube:'' },
+  { date:'4-Jul-2026',  event:'',                     day:'Saturday',  reels:'',     post:'',     youtube:'' },
+  { date:'5-Jul-2026',  event:'Meal Distribution',    day:'Sunday',    reels:'',     post:'',     youtube:'' },
+  { date:'6-Jul-2026',  event:'',                     day:'Monday',    reels:'',     post:'',     youtube:'' },
+  { date:'7-Jul-2026',  event:'Quick edit',           day:'Tuesday',   reels:'',     post:'',     youtube:'' },
+  { date:'8-Jul-2026',  event:'',                     day:'Wednesday', reels:'',     post:'',     youtube:'' },
+  { date:'9-Jul-2026',  event:'sanitary pad',         day:'Thursday',  reels:'',     post:'',     youtube:'' },
+  { date:'10-Jul-2026', event:'',                     day:'Friday',    reels:'',     post:'',     youtube:'' },
+  { date:'11-Jul-2026', event:'Quick edit',           day:'Saturday',  reels:'',     post:'',     youtube:'' },
+  { date:'12-Jul-2026', event:'',                     day:'Sunday',    reels:'',     post:'',     youtube:'' },
+  { date:'13-Jul-2026', event:'computer lab',         day:'Monday',    reels:'',     post:'',     youtube:'' },
+  { date:'14-Jul-2026', event:'',                     day:'Tuesday',   reels:'',     post:'',     youtube:'' },
+  { date:'15-Jul-2026', event:'Quick edit',           day:'Wednesday', reels:'',     post:'',     youtube:'' },
+  { date:'16-Jul-2026', event:'',                     day:'Thursday',  reels:'',     post:'',     youtube:'' },
+  { date:'17-Jul-2026', event:'snack Kits',           day:'Friday',    reels:'',     post:'',     youtube:'' },
+  { date:'18-Jul-2026', event:'',                     day:'Saturday',  reels:'',     post:'',     youtube:'' },
+  { date:'19-Jul-2026', event:'Quick edit',           day:'Sunday',    reels:'',     post:'',     youtube:'' },
+  { date:'20-Jul-2026', event:'',                     day:'Monday',    reels:'',     post:'',     youtube:'' },
+  { date:'21-Jul-2026', event:'cloths distribution',  day:'Tuesday',   reels:'Done', post:'',     youtube:'' },
+  { date:'22-Jul-2026', event:'',                     day:'Wednesday', reels:'',     post:'',     youtube:'' },
+  { date:'23-Jul-2026', event:'Tree plantation',      day:'Thursday',  reels:'',     post:'',     youtube:'' },
+  { date:'24-Jul-2026', event:'',                     day:'Friday',    reels:'',     post:'',     youtube:'' },
+  { date:'25-Jul-2026', event:'Animal Care',          day:'Saturday',  reels:'',     post:'',     youtube:'' },
+  { date:'26-Jul-2026', event:'',                     day:'Sunday',    reels:'',     post:'',     youtube:'' },
+  { date:'27-Jul-2026', event:'Quick edit',           day:'Monday',    reels:'',     post:'',     youtube:'' },
+  { date:'28-Jul-2026', event:'',                     day:'Tuesday',   reels:'',     post:'',     youtube:'' },
+  { date:'29-Jul-2026', event:'Tricycle Distribution',day:'Wednesday', reels:'',     post:'',     youtube:'' },
+  { date:'30-Jul-2026', event:'',                     day:'Thursday',  reels:'',     post:'',     youtube:'' },
+  { date:'31-Jul-2026', event:'Ration Kit',           day:'Friday',    reels:'',     post:'',     youtube:'' },
+]
+
 export default function MyEvents() {
-  const [events, setEvents] = useState([])
   const [filter, setFilter] = useState('')
-
-  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('MyEvents fetchEvents:', e)) }, [])
-
-  const handleStatus = async (id, status) => {
-    await updateEventStatus(id, status).then(() => setEvents(events.map(e => e.id === id ? {...e, status} : e))).catch(e => console.error('MyEvents updateEventStatus:', e))
-  }
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this event?')) return
-    await deleteEvent(id).then(() => setEvents(events.filter(e => e.id !== id))).catch(e => console.error('MyEvents deleteEvent:', e))
-  }
-
-  const filtered = filter
-    ? events.filter(e => (e.ngo_id || e.ngo || '').toLowerCase() === filter.toLowerCase())
-    : events
-  const sorted = [...filtered].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-
-  const columns = [
-    { header: 'Event ID', accessor: 'id', render: (row) => <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-soft)' }}>#{row.id}</span> },
-    { header: 'Name', accessor: 'name', render: (row) => <span style={{ fontWeight: 500 }}>{row.name}</span> },
-    { header: 'Date', accessor: 'date', render: (row) => row.date?.slice(0, 10) || '—' },
-    { header: 'Category', accessor: 'category' },
-    { header: 'Venue', accessor: 'venue' },
-    { header: 'Beneficiaries', accessor: 'expected_beneficiaries', render: (row) => row.expected_beneficiaries || '—' },
-    { header: 'Budget', accessor: 'budget', render: (row) => row.budget ? '₹' + Number(row.budget).toLocaleString() : '—' },
-    {
-      header: 'Status',
-      accessor: 'status',
-      render: (row) => (
-        <select value={row.status} onChange={e => handleStatus(row.id, e.target.value)}
-          className={`pill pill-${statusColor(row.status)}`}
-          style={{ border: 'none', fontSize: 11, cursor: 'pointer', padding: '2px 8px' }}>
-          {EVENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      )
-    },
-    {
-      header: '',
-      render: (row) => <button className="btn btn-sm btn-icon" onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }} title="Delete">✕</button>
-    },
-  ]
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ fontSize: 16 }}>Events</h3>
         <div className="filter-bar" style={{ marginBottom: 0 }}>
           <select value={filter} onChange={e => setFilter(e.target.value)}>
@@ -64,18 +50,45 @@ export default function MyEvents() {
           </select>
         </div>
       </div>
-      <div className="stats-grid" style={{ marginBottom: 16, gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#7B5EA7' }}>{events.length}</div><div className="stat-lbl">Total</div></div>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#3485D4' }}>{events.filter(e => e.status === 'Approved').length}</div><div className="stat-lbl">Approved</div></div>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#5B6B4E' }}>{events.filter(e => e.status === 'Completed').length}</div><div className="stat-lbl">Completed</div></div>
-        <div className="stat-card"><div className="stat-num" style={{ color: '#B5603A' }}>{events.filter(e => ['Draft', 'Submitted'].includes(e.status)).length}</div><div className="stat-lbl">Pending</div></div>
-      </div>
-      <EnhancedTable
-        columns={columns}
-        data={sorted}
-        searchPlaceholder="Search events..."
-        pageSize={10}
-      />
+
+      {filter === 'BSCT' && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+            <thead>
+              <tr style={{ background:'var(--sage-soft)', textAlign:'left' }}>
+                <th style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)' }}>Events</th>
+                <th style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)' }}>day</th>
+                <th style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', textAlign:'center' }}>Reels</th>
+                <th style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', textAlign:'center' }}>post</th>
+                <th style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', textAlign:'center' }}>youtube</th>
+              </tr>
+            </thead>
+            <tbody>
+              {BSCT_DATA.map((row, i) => (
+                <tr key={i} style={{ background:i%2===0?'transparent':'var(--sage-soft)' }}>
+                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', fontWeight: row.event ? 500 : 400, color: row.event ? 'inherit' : 'var(--ink-soft)' }}>{row.event || '—'}</td>
+                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', color:'var(--ink-soft)' }}>{row.day}</td>
+                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', textAlign:'center', color: row.reels==='Done' ? 'var(--sage)' : 'var(--ink-soft)' }}>{row.reels || '—'}</td>
+                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', textAlign:'center', color: row.post==='Done' ? 'var(--sage)' : 'var(--ink-soft)' }}>{row.post || '—'}</td>
+                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', textAlign:'center', color:'var(--ink-soft)' }}>{row.youtube || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {filter && filter !== 'BSCT' && (
+        <div style={{ padding:40, textAlign:'center', color:'var(--ink-soft)' }}>
+          No data available for {filter}
+        </div>
+      )}
+
+      {!filter && (
+        <div style={{ padding:40, textAlign:'center', color:'var(--ink-soft)' }}>
+          Select an NGO to view events
+        </div>
+      )}
     </>
   )
 }
