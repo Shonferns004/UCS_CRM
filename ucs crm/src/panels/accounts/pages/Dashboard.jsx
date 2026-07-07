@@ -112,7 +112,7 @@ export default function Dashboard() {
 
     localStorage.setItem('receipts_verified_data', JSON.stringify(rows));
     localStorage.setItem('receipts_verified_count', String(verified.length));
-    alert(`${verified.length} verified leads sent to Receipts page. Go to Receipts → Load Verified Leads.`);
+    alert(`${verified.length} verified leads sent to Receipts page. Go to Receipts → Load from Saved.`);
   };
 
   if (viewingId) {
@@ -142,7 +142,7 @@ export default function Dashboard() {
             <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
             <option value="">All ({allLeads.length})</option>
           </select>
-          {statusFilter === 'verified' && allLeads.filter(l => l.accounts_status === 'verified').length > 0 && (
+          {allLeads.filter(l => l.accounts_status === 'verified').length > 0 && (
             <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={sendToReceipts}>
               {'\u27A1'} Send to Receipts
             </button>
