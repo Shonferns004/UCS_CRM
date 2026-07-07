@@ -1,10 +1,7 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getUsers } from '../api/endpoints'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays } from '../api/endpoints'
+import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers } from '../api/endpoints'
 import { api } from '../api/auth'
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar, LineChart, Line, CartesianGrid, Legend } from 'recharts'
 
@@ -1447,10 +1444,8 @@ export default function Dashboard() {
     { label: 'Attendance %', value: attendancePercent, suffix: '%', icon: 'event_available', changeKey: 'attendancePercent', color: CARD_COLORS[2] },
     { label: 'ALL FRO', value: froLive.length || '\u2014', icon: 'groups', isFroCard: true, onClick: () => setShowFroModal(true), color: CARD_COLORS[3] },
     { label: 'Total NGOs', value: stats.totalNgos || 0, icon: 'corporate_fare', changeKey: 'totalNgos', color: CARD_COLORS[4] },
-    { label: 'Total NGOs', value: stats.totalNgos || 0, icon: 'corporate_fare', changeKey: 'totalNgos', color: CARD_COLORS[0] },
     { label: 'Total FROs', value: stats.totalFros || froLiveData.length || 0, icon: 'groups', changeKey: 'totalFros', color: CARD_COLORS[1] },
     { label: 'Total Donors (₹)', value: totalDonorsAmount, icon: 'payments', isCurrency: true, color: CARD_COLORS[2], changeKey: 'totalDonors' },
-    { label: 'Total Workers', value: stats.totalWorkers || 0, icon: 'badge', changeKey: 'totalWorkers', color: CARD_COLORS[3] },
     { label: 'Pending Verif.', value: pendingVerifications, icon: 'hourglass_bottom', changeKey: 'pendingVerif', color: CARD_COLORS[4] },
     { label: 'Bank Audits', value: bankAudits, icon: 'account_balance', changeKey: 'bankAudits', color: CARD_COLORS[5] },
   ]
@@ -1965,9 +1960,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ============ METRIC CARDS (Total Users removed) ============ */}
-      <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-      {/* ============ 6 METRIC CARDS ============ */}
+      {/* ============ METRIC CARDS ============ */}
       <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' }}>
         {metricCards.map((card, i) => {
           const kpiStages = card.label === 'Total NGOs' ? [
@@ -2502,48 +2495,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ============ ACCOUNTS SUMMARY ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.2s', marginTop: 20, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: MINT_DEEP }}>receipt_long</span>
-          <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Accounts — Lead Verification</h3>
-        </div>
-        <div className="mini-card-grid">
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #F59E0B` }} onClick={() => setAccountsModalStatus('pending')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#F59E0B' }}>hourglass_empty</span>
-              Pending
-            </span>
-            <span className="mini-card-value">{accountsSummary.pending ?? 0}</span>
-            <span className="mini-card-sub" style={{ color: '#F59E0B', fontWeight: 700 }}>₹{(accountsSummary.pendingAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #3B82F6` }} onClick={() => setAccountsModalStatus('verified')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#3B82F6' }}>verified</span>
-              Verified
-            </span>
-            <span className="mini-card-value">{accountsSummary.verified ?? 0}</span>
-            <span className="mini-card-sub" style={{ color: '#3B82F6', fontWeight: 700 }}>₹{(accountsSummary.verifiedAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #EF4444` }} onClick={() => setAccountsModalStatus('rejected')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#EF4444' }}>cancel</span>
-              Rejected
-            </span>
-            <span className="mini-card-value">{accountsSummary.rejected ?? 0}</span>
-            <span className="mini-card-sub" style={{ color: '#EF4444', fontWeight: 700 }}>₹{(accountsSummary.rejectedAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #8B5CF6` }} onClick={() => setAccountsModalStatus('verified_today')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#8B5CF6' }}>today</span>
-              Verified Today
-            </span>
-            <span className="mini-card-value">{accountsSummary.verifiedToday ?? 0}</span>
-            <span className="mini-card-sub" style={{ color: '#8B5CF6', fontWeight: 700 }}>₹{(accountsSummary.verifiedTodayAmount || 0).toLocaleString('en-IN')}</span>
-          </div>
-        </div>
-      </div>
-
       {/* ============ REVENUE TREND CHART ============ */}
       <div className="nd-card nd-appear" style={{ animationDelay: '0.22s', marginTop: 16, padding: '18px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -2583,40 +2534,6 @@ export default function Dashboard() {
             </div>
           )
         })()}
-      </div>
-
-      {/* ============ RECRUITER SUMMARY ============ */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.25s', marginTop: 16, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: GOLD }}>person_search</span>
-          <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Recruiter — Lead Pipeline</h3>
-        </div>
-        <div className="mini-card-grid">
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #3B82F6` }} onClick={() => setRecruiterModalType('total_leads')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#3B82F6' }}>list_alt</span>
-              Total Leads
-            </span>
-            <span className="mini-card-value">{(recruiterSummary.totalLeads || 0).toLocaleString()}</span>
-            <span className="mini-card-sub" style={{ color: '#3B82F6', fontWeight: 700 }}>All time</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #10B981` }} onClick={() => setRecruiterModalType('new_today')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#10B981' }}>fiber_new</span>
-              New Today
-            </span>
-            <span className="mini-card-value">{recruiterSummary.newToday ?? 0}</span>
-            <span className="mini-card-sub" style={{ color: '#10B981', fontWeight: 700 }}>Added today</span>
-          </div>
-          <div className="mini-card mini-card-clickable" style={{ background: '#fff', borderTop: `3px solid #8B5CF6` }} onClick={() => setRecruiterModalType('conversion_rate')}>
-            <span className="mini-card-label">
-              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'text-bottom', marginRight: 4, color: '#8B5CF6' }}>trending_up</span>
-              Conversion Rate
-            </span>
-            <span className="mini-card-value">{(recruiterSummary.conversionRate ?? 0).toFixed(1)}%</span>
-            <span className="mini-card-sub" style={{ color: '#8B5CF6', fontWeight: 700 }}>Selected vs Rejected</span>
-          </div>
-        </div>
       </div>
 
       {/* ============ 3-COL GRID: Monthly Revenue + Top Performers + Recent Activity ============ */}
@@ -2867,7 +2784,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: 17, fontWeight: 800, color: '#94a3b8' }}>{froLiveData.filter(f => f.status === 'idle').length}</div>
                   </div>
                 </div>
-              </div>
+              ))}
               <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', display: 'flex', overflow: 'hidden', marginBottom: 12 }}>
                 {[
                   { label: 'Online', count: froLiveData.filter(f => f.status === 'online' || f.status === 'on_call').length, color: '#16a34a' },
@@ -2939,11 +2856,13 @@ export default function Dashboard() {
                         </span>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
-            )}
-          </div>
+            </div>
+          </>
+        )}
+      </div>
 
           {/* ---- UPCOMING EVENTS — scrollable, shows all ---- */}
           <div className="nd-card nd-appear" style={{ animationDelay: '0.9s' }}>
@@ -3000,9 +2919,6 @@ export default function Dashboard() {
               </>
             )}
           </div>
-
-        </div>
-      </div>
 
 
       {/* ============ NAME LIST MODAL ============ */}

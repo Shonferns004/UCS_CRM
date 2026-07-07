@@ -45,8 +45,6 @@ function Sidebar({ mobileOpen }) {
   const [collapsedGroups, setCollapsedGroups] = useState(() => {
     try { return JSON.parse(localStorage.getItem('sa_collapsed_groups') || '[]') } catch { return [] }
   })
-  const navMap = {}
-  NAV.forEach(n => { navMap[n.id] = n })
 
   const toggleGroup = (id) => {
     setCollapsedGroups(prev => {
