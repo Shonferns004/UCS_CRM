@@ -144,31 +144,21 @@ export async function status(req, res) {
 export async function listTemplates(req, res) {
   try {
     if (!whatsappConfig.enabled) {
-      return res.json([{ name: 'bsct_receipt', language: 'en_US' }, { name: 'donation_receipt', language: 'en' }, { name: 'ngo_information', language: 'en' }]);
+      return res.json([]);
     }
 
-    const waRes = await fetch(
-      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/whatsapp_business_account`,
-      { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } }
-    );
-    if (!waRes.ok) throw new Error('Meta API error');
-
-    const { id: wabaId } = await waRes.json();
+    const wabaId = whatsappConfig.wabaId || '2529840587470683';
 
     const tplRes = await fetch(
       `https://graph.facebook.com/${whatsappConfig.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
       { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } }
     );
-    if (!tplRes.ok) throw new Error('Meta API error');
+    if (!tplRes.ok) { const e = await tplRes.text(); return res.status(400).json({ message: 'Meta API: ' + e }); }
 
     const { data } = await tplRes.json();
     const templates = (data || []).filter(t => t.status === 'APPROVED').map(t => ({ name: t.name, language: t.language }));
-
-    if (templates.length === 0) {
-      return res.json([{ name: 'bsct_receipt', language: 'en_US' }, { name: 'donation_receipt', language: 'en' }, { name: 'ngo_information', language: 'en' }]);
-    }
     return res.json(templates);
-  } catch {
-    return res.json([{ name: 'bsct_receipt', language: 'en_US' }, { name: 'donation_receipt', language: 'en' }, { name: 'ngo_information', language: 'en' }]);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 }
