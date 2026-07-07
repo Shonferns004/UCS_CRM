@@ -27,6 +27,7 @@ export default function Letters() {
   const [name, setName] = useState('');
   const [type, setType] = useState(TYPES[0]);
   const [out, setOut] = useState(null);
+  const [showPdfBtn, setShowPdfBtn] = useState(false);
   const pdfRef = useRef(null);
 
   useEffect(() => { fetchWorkers().then(setWorkers).catch(() => {}); }, []);
@@ -68,6 +69,7 @@ export default function Letters() {
     if (!w) return;
     const result = build(type, w);
     setOut({ ...result, type });
+    setShowPdfBtn(type === 'Offer letter');
   };
 
   const copy = () => out && navigator.clipboard?.writeText(`${out.body}`);
@@ -98,7 +100,7 @@ export default function Letters() {
             {out.body}
             <div style={{ marginTop:18, display:'flex', gap:8 }}>
               <button className="btn btn-sm" onClick={copy}>Copy text</button>
-              {out.type === 'Offer letter' && (
+              {showPdfBtn && (
                 <button className="btn btn-sm" onClick={() => generatePdf(out.body)} style={{ background:'var(--primary)', color:'#fff' }}>Generate PDF</button>
               )}
             </div>
