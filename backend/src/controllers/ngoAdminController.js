@@ -1599,7 +1599,77 @@ export const acknowledgeAlert = async (req, res) => {
       .eq('id', alertId);
 
     if (error) throw error;
-    return res.json({ message: 'Alert acknowledged' });
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDonorTransactions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { page: pageStr, page_size } = req.query;
+    const pg = Math.max(1, parseInt(pageStr) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(page_size) || 20));
+    const offset = (pg - 1) * limit;
+
+    const numId = parseInt(id);
+    let donor;
+    if (!isNaN(numId)) {
+      const { data } = await supabase.from('donor_profiles').select('id, mobile_number').eq('id', numId).maybeSingle();
+      donor = data;
+    }
+    if (!donor) {
+      const { data } = await supabase.from('donor_profiles').select('id, mobile_number').eq('mobile_number', id).maybeSingle();
+      donor = data;
+    }
+    if (!donor) return res.json({ data: [], pagination: { page: pg, pageSize: limit, total: 0, totalPages: 0 } });
+
+    const [donationsRes, receiptsRes, importRes] = await Promise.all([
+      supabase.from('fro_donor_logs')
+        .select('id, amount_collected, payment_mode, accounts_status, created_at, action, disposition_detail, notes, fro_assignments!inner(donor_id)')
+        .eq('fro_assignments.donor_id', donor.id)
+        .order('created_at', { ascending: false }),
+      supabase.from('receipts')
+        .select('id, amount, receipt_no, mode, created_at')
+        .eq('donor_mobile', donor.mobile_number)
+        .order('created_at', { ascending: false }),
+      supabase.from('new_data')
+        .select('id, amount, transaction_date, category, bank_donor_name, created_at')
+        .eq('mobile_number', donor.mobile_number)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    const mapStatus = (s) => {
+      if (s === 'verified') return 'verified';
+      if (s === 'pending') return 'pending';
+      return 'imported';
+    };
+
+    const transactions = [
+      ...(donationsRes.data || []).map(d => ({
+        date: d.created_at, type: 'Donation', amount: d.amount_collected || 0,
+        ref: String(d.id), mode: d.payment_mode || d.disposition_detail || d.action,
+        status: mapStatus(d.accounts_status), source: 'FRO Log',
+      })),
+      ...(receiptsRes.data || []).map(r => ({
+        date: r.created_at, type: 'Receipt', amount: r.amount || 0,
+        ref: r.receipt_no || `REC-${r.id}`, mode: r.mode || '',
+        status: 'verified', source: 'Receipt',
+      })),
+      ...(importRes.data || []).map(n => ({
+        date: n.created_at || n.transaction_date, type: 'Import', amount: n.amount || 0,
+        ref: String(n.id), mode: n.category || n.bank_donor_name || '',
+        status: 'imported', source: 'Import',
+      })),
+    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+    const total = transactions.length;
+    const paginated = transactions.slice(offset, offset + limit);
+    return res.json({
+      data: paginated,
+      pagination: { page: pg, pageSize: limit, total, totalPages: Math.ceil(total / limit) },
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

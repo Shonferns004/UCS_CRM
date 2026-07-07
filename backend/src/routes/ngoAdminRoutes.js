@@ -15,6 +15,7 @@ import {
   getDonorReceipts,
   getDonorFollowups,
   createFollowup,
+  getDonorTransactions,
 } from '../controllers/ngoAdminController.js';
 import {
   getDonors,
@@ -115,6 +116,7 @@ router.get('/donor-crm/duplicates', getDuplicateLeads);
 router.get('/donor-crm/donors/:id', getFullDonorDetail);
 router.get('/donor-crm/donors/:id/receipts', getDonorReceipts);
 router.get('/donor-crm/donors/:id/followups', getDonorFollowups);
+router.get('/donor-crm/donors/:id/transactions', getDonorTransactions);
 router.post('/donor-crm/followups', createFollowup);
 
 export default router;

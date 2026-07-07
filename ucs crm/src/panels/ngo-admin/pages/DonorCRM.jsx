@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../../../api/auth'
-import { ClipboardText, UsersThree, CalendarCheck, PlusCircle, UploadSimple, ArrowUpRight, ArrowsLeftRight, MagnifyingGlass, User, UserCircle, DeviceMobile, Envelope, House, Buildings, MapPin, IdentificationCard, Gift, Heart, Translate, CurrencyCircleDollar, Star, CreditCard, FileText, PushPin, CheckCircle, Circle, X, WarningCircle } from '@phosphor-icons/react'
+import { ClipboardText, UsersThree, CalendarCheck, PlusCircle, UploadSimple, ArrowUpRight, ArrowsLeftRight, MagnifyingGlass, User, UserCircle, DeviceMobile, Envelope, House, Buildings, MapPin, IdentificationCard, Gift, Heart, Translate, CurrencyCircleDollar, Star, CreditCard, FileText, PushPin, CheckCircle, Circle, X, WarningCircle, ArrowDown } from '@phosphor-icons/react'
 
 const ICON_SIZE = 16
 
@@ -289,6 +289,10 @@ function DonorDetailModal({ donorId, onClose }) {
   const [data, setData] = useState(null)
   const [receipts, setReceipts] = useState([])
   const [followups, setFollowups] = useState([])
+  const [transactions, setTransactions] = useState([])
+  const [txPage, setTxPage] = useState(1)
+  const [txTotalPages, setTxTotalPages] = useState(1)
+  const [txTotal, setTxTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -297,8 +301,12 @@ function DonorDetailModal({ donorId, onClose }) {
       api(`/ngo-admin/donor-crm/donors/${donorId}`, { _prefix: 'ucs' }).catch(() => null),
       api(`/ngo-admin/donor-crm/donors/${donorId}/receipts`, { _prefix: 'ucs' }).catch(() => []),
       api(`/ngo-admin/donor-crm/donors/${donorId}/followups`, { _prefix: 'ucs' }).catch(() => []),
-    ]).then(([d, r, f]) => { setData(d); setReceipts(r || []); setFollowups(f || []) }).finally(() => setLoading(false))
-  }, [donorId])
+      api(`/ngo-admin/donor-crm/donors/${donorId}/transactions?page=${txPage}&page_size=20`, { _prefix: 'ucs' }).catch(() => ({ data: [], pagination: {} })),
+    ]).then(([d, r, f, t]) => {
+      setData(d); setReceipts(r || []); setFollowups(f || [])
+      setTransactions(t.data || []); setTxTotal(t.pagination?.total || 0); setTxTotalPages(t.pagination?.totalPages || 1)
+    }).finally(() => setLoading(false))
+  }, [donorId, txPage])
 
   if (loading) return (
     <div className="modal-overlay" onClick={onClose}>
@@ -350,27 +358,50 @@ function DonorDetailModal({ donorId, onClose }) {
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{I.FileText} Receipt History ({receipts.length})</h4>
-                {receipts.length === 0 ? (
-                  <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No receipts found</p>
+                <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{I.ArrowDown} All Transactions ({txTotal})</h4>
+                {transactions.length === 0 ? (
+                  <p style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No transactions found</p>
                 ) : (
-                  <div style={{ maxHeight: 160, overflowY: 'auto' }}>
+                  <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                     <table style={{ width: '100%', fontSize: 12 }}>
                       <thead><tr style={{ background: 'var(--bg)' }}>
                         <th style={{ padding: '4px 6px', textAlign: 'left' }}>Date</th>
+                        <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
                         <th style={{ padding: '4px 6px', textAlign: 'right' }}>Amount</th>
-                        <th style={{ padding: '4px 6px', textAlign: 'left' }}>Receipt#</th>
+                        <th style={{ padding: '4px 6px', textAlign: 'left' }}>Mode</th>
+                        <th style={{ padding: '4px 6px', textAlign: 'center' }}>Status</th>
                       </tr></thead>
                       <tbody>
-                        {receipts.slice(0, 10).map(r => (
-                          <tr key={r.id}>
-                            <td style={{ padding: '4px 6px' }}>{r.created_at?.slice(0, 10)}</td>
-                            <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>₹{Number(r.amount).toLocaleString('en-IN')}</td>
-                            <td style={{ padding: '4px 6px' }}>{r.receipt_no || '—'}</td>
-                          </tr>
-                        ))}
+                        {transactions.map((t, i) => {
+                          const statusIcon = t.status === 'verified' ? I.CheckCircle : t.status === 'pending' ? I.CircleYellow : I.CircleBlue
+                          const statusLabel = t.status === 'verified' ? 'Done' : t.status === 'pending' ? 'Pending' : 'Imported'
+                          return (
+                            <tr key={`${t.source}-${t.ref}-${i}`}>
+                              <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>{t.date?.slice(0, 10)}</td>
+                              <td style={{ padding: '4px 6px' }}>
+                                <span className={`pill ${t.type === 'Donation' ? 'pill-green' : t.type === 'Receipt' ? 'pill-blue' : 'pill-purple'}`}>
+                                  {t.type === 'Donation' ? '💰' : t.type === 'Receipt' ? '📄' : '📥'} {t.type}
+                                </span>
+                              </td>
+                              <td style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>₹{Number(t.amount).toLocaleString('en-IN')}</td>
+                              <td style={{ padding: '4px 6px', color: 'var(--ink-soft)' }}>{t.mode || '—'}</td>
+                              <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, color: t.status === 'verified' ? '#16a34a' : t.status === 'pending' ? '#d97706' : '#2563eb' }}>
+                                  {statusIcon} {statusLabel}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                {txTotalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                    <button className="btn btn-sm" disabled={txPage <= 1} onClick={() => setTxPage(p => p - 1)}>‹ Prev</button>
+                    <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>{txPage} / {txTotalPages}</span>
+                    <button className="btn btn-sm" disabled={txPage >= txTotalPages} onClick={() => setTxPage(p => p + 1)}>Next ›</button>
                   </div>
                 )}
               </div>
