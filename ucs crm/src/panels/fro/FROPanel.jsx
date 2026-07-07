@@ -59,24 +59,28 @@ function loadTodayStats() {
   } catch { return null; }
 }
 
-function Sidebar() {
+function Sidebar({ open, onClose }) {
   const location = useLocation()
   return (
-    <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div className="brand-mark">U</div>
-        <div><h1>UFS</h1><span>FRO Panel</span></div>
-      </div>
-      <nav className="sidebar-nav">
-        {NAV.map(n => (
-          <NavLink key={n.id} to={n.path}
-            className={`snav-item ${location.pathname === n.path ? 'active' : ''}`}>
+    <>
+      {open && <div className="sidebar-overlay" onClick={onClose} />}
+      <aside className={`sidebar${open ? ' open' : ''}`}>
+        <div className="sidebar-brand">
+          <div className="brand-mark">U</div>
+          <div><h1>UFS</h1><span>FRO Panel</span></div>
+        </div>
+        <nav className="sidebar-nav">
+          {NAV.map(n => (
+            <NavLink key={n.id} to={n.path}
+              className={`snav-item ${location.pathname === n.path ? 'active' : ''}`}
+              onClick={() => onClose?.()}>
             <span className="ico material-symbols-outlined" style={{ fontSize: 18 }}>{n.icon}</span>
             <span>{n.label}</span>
           </NavLink>
-        ))}
-      </nav>
-    </aside>
+          ))}
+        </nav>
+      </aside>
+    </>
   )
 }
 
@@ -85,6 +89,7 @@ export default function FROPanel() {
   const location = useLocation()
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
 
@@ -97,6 +102,8 @@ export default function FROPanel() {
     }
     localStorage.setItem('fro_theme', themeName)
   }, [themeName])
+
+  useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
   const [modalDonor, setModalDonor] = useState(null);
   const [modalNotifId, setModalNotifId] = useState(null);
@@ -257,12 +264,17 @@ export default function FROPanel() {
   return (
     <CallProvider userId={user?.id}>
     <div className="app">
-      <Sidebar />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main">
         <header className="topbar">
-          <div>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+            </button>
+            <div>
             <div className="eyebrow">FRO</div>
             <h2>{meta?.label || 'Dashboard'}</h2>
+            </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
@@ -311,9 +323,10 @@ export default function FROPanel() {
             onClose={() => setShowSettings(false)}
             themes={themes}
             themeName={themeName}
-            onThemeChange={(key) => setThemeName(key)}
+             onThemeChange={(key) => setThemeName(key)}
           />
-          {showStats && (
+        </header>
+        {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
               <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
                 <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card-bg)' }}>
@@ -455,7 +468,6 @@ export default function FROPanel() {
               </div>
             </div>
           )}
-        </header>
         <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />

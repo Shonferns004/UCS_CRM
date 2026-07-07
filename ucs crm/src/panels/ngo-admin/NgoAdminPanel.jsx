@@ -198,7 +198,6 @@ export default function NgoAdminPanel() {
   return (
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
       <div className="main">
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center' }}>

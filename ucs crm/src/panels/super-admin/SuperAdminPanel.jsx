@@ -112,6 +112,7 @@ function PageShell({ children }) {
   const [showSettings, setShowSettings] = useState(false)
   const [allNotifs, setAllNotifs] = useState([])
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [mobileSidebar, setMobileSidebar] = useState(false)
   const [themeName, setThemeName] = useState(() => {
     try { return localStorage.getItem('sa_theme') || 'sky' } catch { return 'sky' }
   })
