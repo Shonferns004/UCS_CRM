@@ -32,9 +32,10 @@ export const deleteEventHeadEvent = async (id) => {
 };
 
 export const getEventHeadEventsByMonth = async (month, year) => {
+  const m = Number(month), y = Number(year);
   const { data, error } = await supabase.from('event_head_events').select('*')
-    .gte('date', `${year}-${String(month).padStart(2, '0')}-01`)
-    .lt('date', `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-01`)
+    .gte('date', `${y}-${String(m).padStart(2, '0')}-01`)
+    .lt('date', `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`)
     .order('date', { ascending: true });
   if (error) throw error;
   return data;
