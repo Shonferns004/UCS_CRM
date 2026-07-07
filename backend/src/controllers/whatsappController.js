@@ -66,10 +66,14 @@ export async function sendReceipt(req, res) {
       try {
         const buffer = Buffer.from(pdfBase64, 'base64');
         const fileName = `receipts/${logId}_${Date.now()}.pdf`;
+        const uploadController = new AbortController();
+        const uploadTimeout = setTimeout(() => uploadController.abort(), 20000);
 
         let { data: uploadData, error: uploadError } = await supabase.storage
           .from('receipts')
-          .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+          .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true, signal: uploadController.signal });
+
+        clearTimeout(uploadTimeout);
 
         if (uploadError) {
           if (uploadError.message?.includes('bucket')) {
@@ -104,17 +108,9 @@ export async function sendReceipt(req, res) {
       }
     }
 
-    const results = [];
-    if (documentUrl) {
-      const safeName = String(receiptNo).replace(/[/\\]/g, '_');
-      const docResult = await sendDocumentMessage(phone, documentUrl, `Receipt ${receiptNo} - ${date}`, `receipt_${safeName}.pdf`);
-      results.push(docResult);
-    } else {
-      const textResult = await sendReceiptMessage(phone, donorName, amount, receiptNo, date);
-      results.push(textResult);
-    }
+    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, documentUrl);
 
-    return res.json({ success: true, message: documentUrl ? 'Receipt PDF sent via WhatsApp' : 'Receipt text sent via WhatsApp', data: results, uploadError: uploadErrorMsg });
+    return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, uploadError: uploadErrorMsg });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

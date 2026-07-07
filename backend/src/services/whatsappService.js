@@ -2,11 +2,14 @@ import config from '../config/whatsappConfig.js';
 
 const API_BASE = `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`;
 
-async function sendViaSupabase(to, messageText) {
+async function sendViaSupabaseTemplate(to, templateName, params, headerMediaUrl, lang) {
   const body = {
     phone: String(to).replace(/[^0-9]/g, ''),
-    messageText,
+    templateName,
+    language: lang || config.templateLanguage,
   };
+  if (params) body.params = params;
+  if (headerMediaUrl) body.headerMediaUrl = headerMediaUrl;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 55000);
@@ -26,27 +29,56 @@ async function sendViaSupabase(to, messageText) {
     if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
     return { source: 'supabase', data };
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error('WhatsApp function timed out after 55s');
+    if (error.name === 'AbortError') throw new Error('WhatsApp template function timed out after 55s');
     throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function trySupabaseFirst(fn) {
-  if (!config.supabaseFunctionUrl || !config.supabaseApiKey) return null;
-  return fn;
+async function sendViaSupabaseText(to, messageText) {
+  const body = {
+    phone: String(to).replace(/[^0-9]/g, ''),
+    messageText,
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55000);
+
+  try {
+    const res = await fetch(config.supabaseFunctionUrlFallback, {
+      method: 'POST',
+      headers: {
+        'x-api-key': config.supabaseApiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    return { source: 'supabase', data };
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('WhatsApp text function timed out after 55s');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isSupabaseConfigured() {
+  return !!(config.supabaseFunctionUrl && config.supabaseApiKey);
 }
 
 export async function sendTextMessage(to, text) {
   if (!config.enabled) throw new Error('WhatsApp not configured');
 
-  const supabaseFn = trySupabaseFirst(() => sendViaSupabase(to, text));
-  if (supabaseFn) {
+  if (isSupabaseConfigured()) {
     try {
-      return await supabaseFn();
+      return await sendViaSupabaseText(to, text);
     } catch (error) {
-      console.error('Supabase WhatsApp failed, falling back to Facebook API:', error.message);
+      console.error('Supabase text failed, falling back to Facebook API:', error.message);
     }
   }
 
@@ -56,16 +88,11 @@ export async function sendTextMessage(to, text) {
 export async function sendTemplateMessage(to, templateName, parameters, lang = 'en') {
   if (!config.enabled) throw new Error('WhatsApp not configured');
 
-  const supabaseFn = trySupabaseFirst(() => {
-    const paramsStr = parameters.map((p, i) => `{{${i + 1}}}`).join(', ');
-    const messageText = `Template: ${templateName} | Params: ${paramsStr} | Values: ${parameters.join(', ')}`;
-    return sendViaSupabase(to, messageText);
-  });
-  if (supabaseFn) {
+  if (isSupabaseConfigured()) {
     try {
-      return await supabaseFn();
+      return await sendViaSupabaseTemplate(to, templateName, parameters, null, lang);
     } catch (error) {
-      console.error('Supabase WhatsApp failed, falling back to Facebook API:', error.message);
+      console.error('Supabase template failed, falling back to Facebook API:', error.message);
     }
   }
 
@@ -83,25 +110,22 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
   });
 }
 
-export async function sendReceiptMessage(to, donorName, amount, receiptNo, date) {
+export async function sendReceiptMessage(to, donorName, amount, receiptNo, date, headerMediaUrl) {
   const formattedAmount = typeof amount === 'number' ? '\u20B9' + amount.toLocaleString('en-IN') : amount;
-  const messageText = `Receipt: ${receiptNo}\nDonor: ${donorName}\nAmount: ${formattedAmount}\nDate: ${date}`;
+  const params = [donorName, formattedAmount, receiptNo, date];
 
-  const supabaseFn = trySupabaseFirst(() => sendViaSupabase(to, messageText));
-  if (supabaseFn) {
+  if (isSupabaseConfigured()) {
     try {
-      return await supabaseFn();
+      return await sendViaSupabaseTemplate(to, config.whatsappTemplateName, params, headerMediaUrl);
     } catch (error) {
-      console.error('Supabase WhatsApp failed, falling back to Facebook API:', error.message);
+      console.error('Supabase receipt template failed, falling back to Facebook API:', error.message);
     }
   }
 
-  return sendTemplateMessage(to, config.receiptTemplate, [
-    donorName,
-    formattedAmount,
-    receiptNo,
-    date,
-  ]);
+  if (headerMediaUrl) {
+    return sendWithHeaderMedia(to, config.receiptTemplate, params, headerMediaUrl);
+  }
+  return sendTemplateMessage(to, config.receiptTemplate, params);
 }
 
 export async function sendNgoInfoTemplate(to, name) {
@@ -109,14 +133,13 @@ export async function sendNgoInfoTemplate(to, name) {
   const num1 = '8879035035';
   const num2 = '8879034034';
   const email = 'being.sevak@gmail.com';
-  const messageText = `NGO: ${ngoName}\nDonor: ${name}\nContact: ${num1}, ${num2}\nEmail: ${email}`;
+  const params = [ngoName, name, ngoName, num1, num2, email];
 
-  const supabaseFn = trySupabaseFirst(() => sendViaSupabase(to, messageText));
-  if (supabaseFn) {
+  if (isSupabaseConfigured()) {
     try {
-      return await supabaseFn();
+      return await sendViaSupabaseTemplate(to, 'ngo_information', params);
     } catch (error) {
-      console.error('Supabase WhatsApp failed, falling back to Facebook API:', error.message);
+      console.error('Supabase ngo template failed, falling back to Facebook API:', error.message);
     }
   }
 
@@ -127,14 +150,7 @@ export async function sendNgoInfoTemplate(to, name) {
       components: [
         {
           type: 'body',
-          parameters: [
-            { type: 'text', text: ngoName },
-            { type: 'text', text: name },
-            { type: 'text', text: ngoName },
-            { type: 'text', text: '8879035035' },
-            { type: 'text', text: '8879034034' },
-            { type: 'text', text: email },
-          ],
+          parameters: params.map(p => ({ type: 'text', text: String(p) })),
         },
       ],
     },
@@ -144,15 +160,12 @@ export async function sendNgoInfoTemplate(to, name) {
 export async function sendDocumentMessage(to, documentUrl, caption, filename) {
   if (!config.enabled) throw new Error('WhatsApp not configured');
 
-  const supabaseFn = trySupabaseFirst(() => {
-    const messageText = `${caption}\n\nDocument: ${documentUrl}`;
-    return sendViaSupabase(to, messageText);
-  });
-  if (supabaseFn) {
+  const messageText = `${caption}\n\nDocument: ${documentUrl}`;
+  if (isSupabaseConfigured()) {
     try {
-      return await supabaseFn();
+      return await sendViaSupabaseText(to, messageText);
     } catch (error) {
-      console.error('Supabase WhatsApp failed, falling back to Facebook API:', error.message);
+      console.error('Supabase document failed, falling back to Facebook API:', error.message);
     }
   }
 
@@ -161,6 +174,25 @@ export async function sendDocumentMessage(to, documentUrl, caption, filename) {
       link: documentUrl,
       caption: caption || '',
       filename: filename || 'receipt.pdf',
+    },
+  });
+}
+
+async function sendWithHeaderMedia(to, templateName, params, headerMediaUrl) {
+  return sendViaFacebook(to, 'template', {
+    template: {
+      name: templateName,
+      language: { code: config.templateLanguage },
+      components: [
+        {
+          type: 'header',
+          parameters: [{ type: 'document', document: { link: headerMediaUrl } }],
+        },
+        {
+          type: 'body',
+          parameters: params.map(p => ({ type: 'text', text: String(p) })),
+        },
+      ],
     },
   });
 }
@@ -190,7 +222,7 @@ async function sendViaFacebook(to, type, payload) {
 export async function testConnection() {
   if (!config.enabled) return { success: false, message: 'WhatsApp not configured' };
 
-  if (config.supabaseFunctionUrl && config.supabaseApiKey) {
+  if (isSupabaseConfigured()) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
@@ -200,11 +232,11 @@ export async function testConnection() {
           'x-api-key': config.supabaseApiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ phone: 'test', messageText: 'test' }),
+        body: JSON.stringify({ phone: 'test', templateName: 'test', language: 'en' }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      if (res.ok) return { success: true, message: 'Supabase WhatsApp function reachable' };
+      if (res.ok) return { success: true, message: 'Supabase template function reachable' };
       const data = await res.json();
       return { success: true, message: `Supabase function responded: ${data.error || 'OK'}` };
     } catch (error) {
