@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
 import { FileTxt } from '../icons';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter'];
 
@@ -25,13 +27,50 @@ export default function Letters() {
   const [name, setName] = useState('');
   const [type, setType] = useState(TYPES[0]);
   const [out, setOut] = useState(null);
+  const pdfRef = useRef(null);
 
   useEffect(() => { fetchWorkers().then(setWorkers).catch(() => {}); }, []);
+
+  const generatePdf = async (bodyText) => {
+    const el = pdfRef.current;
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = bodyText;
+    await document.fonts?.ready;
+    await new Promise(r => setTimeout(r, 100));
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+    el.style.display = 'none';
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const margin = 12;
+    const printableW = pdfW - 2 * margin;
+    const imgH = (canvas.height * printableW) / canvas.width;
+    let remainingH = imgH;
+    let offsetY = 0;
+    for (let page = 0; remainingH > 0; page++) {
+      if (page > 0) pdf.addPage();
+      const pageH = Math.min(remainingH, pdfH - 2 * margin);
+      const srcH = (pageH * canvas.height) / imgH;
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = srcH;
+      pageCanvas.getContext('2d').drawImage(canvas, 0, offsetY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+      pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, printableW, pageH);
+      offsetY += srcH;
+      remainingH -= pageH;
+    }
+    pdf.save(`${type.replace(/\s+/g, '_')}.pdf`);
+  };
 
   const generate = () => {
     const w = workers.find(x => x.name === name);
     if (!w) return;
-    setOut({ ...build(type, w), type });
+    const result = build(type, w);
+    setOut({ ...result, type });
+    if (type === 'Offer letter') {
+      generatePdf(result.body);
+    }
   };
 
   const copy = () => out && navigator.clipboard?.writeText(`${out.body}`);
@@ -66,6 +105,12 @@ export default function Letters() {
           </div>
         )}
       </div>
+      <div ref={pdfRef} style={{
+        position:'fixed', left:'-9999px', top:0,
+        fontFamily:'Arial, sans-serif', fontSize:14, lineHeight:1.6,
+        padding:40, color:'#000', background:'#fff', whiteSpace:'pre-wrap',
+        width:'800px', display:'none'
+      }} />
     </div>
   );
 }
