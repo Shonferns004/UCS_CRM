@@ -57,7 +57,7 @@ export default function MyEvents() {
             <tbody>
               {BSCT_DATA.map((row, i) => (
                 <tr key={i} style={{ background:i%2===0?'transparent':'var(--sage-soft)' }}>
-                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', fontWeight: row.event ? 500 : 400, color: row.event ? 'inherit' : 'var(--ink-soft)' }}>{row.event || '—'}</td>
+                  <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', fontWeight: 500}}>{row.event}</td>
                   <td style={{ padding:'6px 12px', borderBottom:'1px solid var(--border)', color:'var(--ink-soft)' }}>{row.day}</td>
                 </tr>
               ))}
