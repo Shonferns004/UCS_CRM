@@ -336,15 +336,19 @@ function DonorDetailModal({ donorId, onClose }) {
             <>
               <div style={{ background: 'var(--bg)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
                 <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{I.UserCircle} Personal Info</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px', fontSize: 13 }}>
-                  <div><span style={{ color: 'var(--ink-soft)' }}>Name:</span> <strong>{p.name}</strong></div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.DeviceMobile}<span style={{ color: 'var(--ink-soft)' }}>Mobile:</span> <strong>{p.mobile_number}</strong></div>
-                  {p.email && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.Envelope}<span style={{ color: 'var(--ink-soft)' }}>Email:</span> <strong>{p.email}</strong></div>}
-                  {p.city && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.Buildings}<span style={{ color: 'var(--ink-soft)' }}>City:</span> <strong>{p.city}</strong></div>}
-                  {p.address_1 && <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 4 }}>{I.House}<span style={{ color: 'var(--ink-soft)' }}>Address:</span> <strong>{p.address_1}{p.address_2 ? `, ${p.address_2}` : ''}</strong></div>}
-                  {p.pan_number && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.IdentificationCard}<span style={{ color: 'var(--ink-soft)' }}>PAN:</span> <strong>{p.pan_number}</strong></div>}
-                  {p.birth_date && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.Gift}<span style={{ color: 'var(--ink-soft)' }}>Birthday:</span> <strong>{p.birth_date}</strong></div>}
-                  {p.preferred_language && <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.Translate}<span style={{ color: 'var(--ink-soft)' }}>Language:</span> <strong>{p.preferred_language}</strong></div>}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px', fontSize: 13 }}>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>🆔 Donor ID:</span> <strong>D-{p.id}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>🙋 Name:</span> <strong>{p.name}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>📱 Mobile:</span> <strong>{p.mobile_number}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>✉️ Email:</span> <strong>{p.email || '—'}</strong></div>
+                  {p.address_1 && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--ink-soft)' }}>🏠 Address:</span> <strong>{p.address_1}{p.address_2 ? `, ${p.address_2}` : ''}</strong></div>}
+                  <div><span style={{ color: 'var(--ink-soft)' }}>🏙️ City:</span> <strong>{p.city || '—'}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>📍 State:</span> <strong>{p.state || '—'}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>🆔 PAN:</span> <strong>{p.pan_number || '—'}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>🆔 Aadhaar:</span> <strong>{p.aadhaar_number || '—'}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>🎂 Birthday:</span> <strong>{p.birth_date || '—'}</strong></div>
+                  <div><span style={{ color: 'var(--ink-soft)' }}>💍 Anniversary:</span> <strong>{p.anniversary || '—'}</strong></div>
+                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--ink-soft)' }}>🗣️ Language:</span> <strong>{p.preferred_language || '—'}</strong></div>
                 </div>
               </div>
 
