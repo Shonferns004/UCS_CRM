@@ -94,14 +94,6 @@ export const updateWorker = async (id, updates) => {
 };
 
 export const deleteWorker = async (id) => {
-  const tables = [
-    'attendance_corrections', 'attendance', 'leaves', 'salary',
-    'incentive_achievements', 'incentive_targets', 'worker_loans',
-    'worker_allocations', 'fcm_tokens', 'worker_letters',
-  ];
-  for (const table of tables) {
-    await supabase.from(table).delete().eq('worker_id', id);
-  }
   const { error } = await supabase
     .from('workers')
     .delete()
