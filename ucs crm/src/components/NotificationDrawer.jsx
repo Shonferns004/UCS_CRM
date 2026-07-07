@@ -20,7 +20,7 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
     <>
       <div ref={drawerRef} className="notif-drawer" style={{
         position: 'fixed', top: topOffset, right: open ? 0 : '-340px', width: 320, maxWidth: '100vw',
-        height: open ? 'calc(100vh - ' + topOffset + 'px)' : '100vh', background: '#fff', zIndex: 1000,
+        height: open ? 'calc(100vh - ' + topOffset + 'px)' : '100vh', background: '#fff', zIndex: 2000,
         transition: 'right .25s ease',
         display: 'flex', flexDirection: 'column',
       }}>
