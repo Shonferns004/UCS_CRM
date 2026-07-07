@@ -72,6 +72,7 @@ export default function LeadDetail({ logId, onBack }) {
   const [rejectReason, setRejectReason] = useState('');
   const [sendingWA, setSendingWA] = useState(false);
   const [waPhone, setWaPhone] = useState('');
+  const [waResult, setWaResult] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -175,13 +176,16 @@ export default function LeadDetail({ logId, onBack }) {
     catch(err) { alert('Failed: '+err.message); }
   };
 
-  const sendWA = () => {
+  const sendWA = async () => {
     const phone = (waPhone || '').replace(/\D/g, '');
     if (!phone || phone.length < 10) { alert('Please enter a valid WhatsApp number'); return; }
-    const pid = (lead?.donor_project || '').toLowerCase();
-    const fname = PROJECT_LABELS[pid] || 'our foundation';
-    const amt = Number(receipt?.amount || 0).toLocaleString('en-IN');
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Thank you for your generous donation of \u20B9${amt} to ${fname}. Your receipt (No: ${receipt?.receipt_no || ''}) has been generated.\n\nWith gratitude,\n${fname} Team`)}`, '_blank');
+    setWaResult(null);
+    try {
+      await apiPost(`/whatsapp/send-receipt/${lead?.log_id}`, { number: phone });
+      setWaResult({ success: true, message: 'Sent!' });
+    } catch (err) {
+      setWaResult({ success: false, message: 'Failed: ' + err.message });
+    }
   };
 
   const openReceiptAndSendWA = () => { setShowReceipt(true); };
@@ -374,6 +378,9 @@ export default function LeadDetail({ logId, onBack }) {
                   style={{ width: 200, fontSize: 12, padding: '6px 10px' }}
                 />
                 <button className="btn btn-primary btn-sm" onClick={handleDownload}>Download PDF</button>
+                {waResult && (
+                  <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626',marginRight:4}}>{waResult.message}</span>
+                )}
                 <button className="btn btn-sm" style={{background:'#25D366',color:'#fff'}} onClick={sendWA}>Send via WhatsApp</button>
                 <button className="btn btn-sm" onClick={()=>setShowReceipt(false)}>Close</button>
               </div>

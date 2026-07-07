@@ -42,6 +42,7 @@ import bankAuditRoutes from './routes/bankAuditRoutes.js';
 import emailImportRoutes from './routes/emailImportRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import bankStatementRoutes from './routes/bankStatementRoutes.js';
+import whatsappRoutes from './routes/whatsappRoutes.js';
 
 dotenv.config();
 
@@ -103,6 +104,7 @@ app.use('/api/accounts/bank-audit', bankAuditRoutes);
 app.use('/api/accounts/email-import', emailImportRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { apiGet } from '../api/auth';
+import { apiGet, apiPost } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
 import { generateReceiptPDF } from '../services/pdfGenerator';
@@ -56,6 +56,7 @@ export default function ReceiptHistory() {
   const [projectFilter, setProjectFilter] = useState('');
   const [waPhone, setWaPhone] = useState('');
   const [waLoading, setWaLoading] = useState(false);
+  const [waResult, setWaResult] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -123,15 +124,18 @@ export default function ReceiptHistory() {
     finally { setDownloading(false); }
   };
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = async () => {
     if (!preview) return;
     const phone = (waPhone || '').replace(/\D/g, '');
     if (!phone || phone.length < 10) { alert('Please enter a valid phone number'); return; }
-    const r = preview.receipt;
-    const projectId = (r.project_id || '').toLowerCase();
-    const foundationName = PROJECT_LABELS[projectId] || 'our foundation';
-    const amt = Number(r.amount || 0).toLocaleString('en-IN');
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Thank you for your generous donation of \u20B9${amt} to ${foundationName}. Your receipt (No: ${r.receipt_no || ''}) has been generated.\n\nWith gratitude,\n${foundationName} Team`)}`, '_blank');
+    setWaLoading(true);
+    setWaResult(null);
+    try {
+      const data = await apiPost(`/whatsapp/send-receipt/${preview.receipt.log_id}`, { number: phone });
+      setWaResult({ success: true, message: 'Receipt sent via WhatsApp!' });
+    } catch (err) {
+      setWaResult({ success: false, message: 'Failed: ' + err.message });
+    } finally { setWaLoading(false); }
   };
 
   const projectOptions = useMemo(() => {
@@ -224,8 +228,13 @@ export default function ReceiptHistory() {
                 <button className="btn btn-primary btn-sm" onClick={handleDownload} disabled={downloading}>
                   {downloading ? 'Downloading...' : 'Download PDF'}
                 </button>
+                {waResult && (
+                  <span style={{ fontSize: 11, color: waResult.success ? '#059669' : '#dc2626', marginRight: 4 }}>
+                    {waResult.message}
+                  </span>
+                )}
                 <button className="btn btn-sm" style={{ background: '#25D366', color: '#fff' }} onClick={handleWhatsApp} disabled={waLoading}>
-                  {waLoading ? 'Loading...' : 'Send via WhatsApp'}
+                  {waLoading ? 'Sending...' : 'Send via WhatsApp'}
                 </button>
                 <button className="btn btn-sm" onClick={() => setPreview(null)}>Close</button>
               </div>
