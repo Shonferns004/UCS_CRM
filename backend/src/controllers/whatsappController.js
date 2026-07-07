@@ -61,6 +61,7 @@ export async function sendReceipt(req, res) {
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
     let documentUrl = storedUrl;
+    let uploadErrorMsg = null;
     if (!documentUrl && pdfBase64) {
       try {
         const buffer = Buffer.from(pdfBase64, 'base64');
@@ -72,26 +73,33 @@ export async function sendReceipt(req, res) {
 
         if (uploadError) {
           if (uploadError.message?.includes('bucket')) {
-            await supabase.storage.createBucket('receipts', { public: true });
+            const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
+            if (bucketError) {
+              throw new Error('Bucket create failed: ' + bucketError.message);
+            }
             const retry = await supabase.storage
               .from('receipts')
               .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+            if (retry.error) throw new Error('Upload failed after bucket create: ' + retry.error.message);
             uploadData = retry.data;
-            uploadError = retry.error;
+          } else {
+            throw new Error('Upload failed: ' + uploadError.message);
           }
         }
 
-        if (!uploadError) {
-          const { data: publicUrlData } = supabase.storage
-            .from('receipts')
-            .getPublicUrl(fileName);
-          documentUrl = publicUrlData?.publicUrl;
+        const { data: publicUrlData } = supabase.storage
+          .from('receipts')
+          .getPublicUrl(fileName);
+        documentUrl = publicUrlData?.publicUrl;
 
-          if (documentUrl) {
-            await supabase.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId);
+        if (documentUrl) {
+          const { error: updateError } = await supabase.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId);
+          if (updateError) {
+            console.error('Failed to save pdf_url to receipts table:', updateError.message);
           }
         }
       } catch (e) {
+        uploadErrorMsg = e.message;
         console.error('Receipt PDF upload failed:', e.message);
       }
     }
@@ -106,7 +114,7 @@ export async function sendReceipt(req, res) {
       results.push(textResult);
     }
 
-    return res.json({ success: true, message: documentUrl ? 'Receipt PDF sent via WhatsApp' : 'Receipt text sent via WhatsApp', data: results });
+    return res.json({ success: true, message: documentUrl ? 'Receipt PDF sent via WhatsApp' : 'Receipt text sent via WhatsApp', data: results, uploadError: uploadErrorMsg });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
