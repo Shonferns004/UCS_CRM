@@ -1629,6 +1629,7 @@ export const getDonorTransactions = async (req, res) => {
       supabase.from('fro_donor_logs')
         .select('id, amount_collected, payment_mode, accounts_status, created_at, action, disposition_detail, notes, fro_assignments!inner(donor_id)')
         .eq('fro_assignments.donor_id', donor.id)
+        .gt('amount_collected', 0)
         .order('created_at', { ascending: false }),
       supabase.from('receipts')
         .select('id, amount, receipt_no, mode, created_at')
@@ -1664,8 +1665,16 @@ export const getDonorTransactions = async (req, res) => {
       })),
     ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
-    const total = transactions.length;
-    const paginated = transactions.slice(offset, offset + limit);
+    const seen = new Set();
+    const unique = transactions.filter(t => {
+      const key = `${t.date?.slice(0, 10)}-${t.amount}-${t.mode}-${t.type}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const total = unique.length;
+    const paginated = unique.slice(offset, offset + limit);
     return res.json({
       data: paginated,
       pagination: { page: pg, pageSize: limit, total, totalPages: Math.ceil(total / limit) },
