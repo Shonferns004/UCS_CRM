@@ -67,11 +67,14 @@ export default function EventModal({ event, onClose }) {
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
+          background: '#fff',
+          color: '#1a1a2e',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
         }}
       >
-        <div className="modal-head" style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+        <div className="modal-head" style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1a1a2e' }}>
               {event.name}
             </h3>
           </div>
@@ -90,26 +93,26 @@ export default function EventModal({ event, onClose }) {
           </button>
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px', background: '#fff' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 20px' }}>
             {fields.map(f => {
               if (!f.value) return null
               return (
                 <div key={f.label}>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 1 }}>{f.label}</div>
+                  <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 1 }}>{f.label}</div>
                   {f.badge ? (
                     <span style={{
                       display: 'inline-flex', alignItems: 'center', gap: 4,
                       padding: '2px 8px', borderRadius: 10,
                       background: f.bg || f.color + '18',
-                      color: f.color || 'var(--ink)',
+                      color: f.color || '#1a1a2e',
                       fontSize: 12, fontWeight: 500,
                     }}>
                       {f.color && <span style={{ width: 6, height: 6, borderRadius: '50%', background: f.color, flexShrink: 0 }} />}
                       {f.value}
                     </span>
                   ) : (
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>{f.value}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#1a1a2e' }}>{f.value}</div>
                   )}
                 </div>
               )
@@ -118,23 +121,23 @@ export default function EventModal({ event, onClose }) {
 
           {hasDesc && (
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Description & Notes</div>
-              {event.description && <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 4 }}>{event.description}</div>}
-              {event.notes && <div style={{ fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5, fontStyle: 'italic' }}>{event.notes}</div>}
+              <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Description & Notes</div>
+              {event.description && <div style={{ fontSize: 13, color: '#1a1a2e', lineHeight: 1.5, marginBottom: 4 }}>{event.description}</div>}
+              {event.notes && <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5, fontStyle: 'italic' }}>{event.notes}</div>}
             </div>
           )}
 
           {hasAttach && (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Attachments</div>
+              <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Attachments</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {(Array.isArray(event.attachments) ? event.attachments : []).map((att, i) => (
                   <div key={i} style={{
                     padding: '4px 10px',
-                    background: 'var(--bg)',
+                    background: '#f5f6fa',
                     borderRadius: 'var(--radius-sm)',
                     fontSize: 11,
-                    color: 'var(--ink-soft)',
+                    color: '#6b7280',
                     cursor: 'default',
                   }}>
                     {att.name || att}
@@ -150,7 +153,8 @@ export default function EventModal({ event, onClose }) {
           gap: 8,
           justifyContent: 'flex-end',
           padding: '12px 20px',
-          borderTop: '1px solid var(--line)',
+          borderTop: '1px solid #e5e7eb',
+          background: '#fff',
         }}>
           <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Pencil size={14} /> Edit Event
