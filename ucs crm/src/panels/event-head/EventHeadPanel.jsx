@@ -157,8 +157,11 @@ export default function EventHeadPanel() {
   const handleClear = async (id) => {
     try {
       await deleteNotif(id)
-      loadNotifications()
-    } catch (e) { console.error('deleteNotif:', e) }
+    } catch (e) {
+      console.error('deleteNotif failed, falling back to markAsRead:', e)
+      try { await markNotifRead(id) } catch (e2) { console.error('markNotifRead fallback also failed:', e2) }
+    }
+    loadNotifications()
   }
 
   const meta = NAV.find(n => location.pathname === n.path)
