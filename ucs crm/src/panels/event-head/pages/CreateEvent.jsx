@@ -31,7 +31,7 @@ export default function CreateEvent() {
         }
       }
       await createEvent(payload)
-      navigate('/event-head/events')
+      navigate('/event-head/monthly-planner')
     } catch (err) { alert('Failed to create event: ' + (err.message || 'Unknown error')); console.error('Create event error:', err) }
     finally { setSaving(false) }
   }
