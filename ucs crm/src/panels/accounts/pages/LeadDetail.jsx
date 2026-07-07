@@ -179,9 +179,10 @@ export default function LeadDetail({ logId, onBack }) {
   const sendWA = async () => {
     const phone = (waPhone || '').replace(/\D/g, '');
     if (!phone || phone.length < 10) { alert('Please enter a valid WhatsApp number'); return; }
+    if (!lead?.log_id) { alert('No donation log linked to this lead. Receipt cannot be sent.'); return; }
     setWaResult(null);
     try {
-      await apiPost(`/whatsapp/send-receipt/${lead?.log_id}`, { number: phone });
+      await apiPost(`/whatsapp/send-receipt/${lead.log_id}`, { number: phone });
       setWaResult({ success: true, message: 'Sent!' });
     } catch (err) {
       setWaResult({ success: false, message: 'Failed: ' + err.message });

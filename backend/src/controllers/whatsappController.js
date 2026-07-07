@@ -25,9 +25,9 @@ export async function sendReceipt(req, res) {
       .from('fro_donor_logs')
       .select(`
         amount_collected,
-        fro_assignments!inner(
+        fro_assignments(
           donor_id,
-          donor_profiles!inner(id, name, mobile_number)
+          donor_profiles(id, name, mobile_number)
         )
       `)
       .eq('id', logId)
@@ -35,7 +35,8 @@ export async function sendReceipt(req, res) {
 
     if (logError || !log) return res.status(404).json({ message: 'Log entry not found' });
 
-    const donor = log.fro_assignments?.donor_profiles;
+    const assignment = Array.isArray(log.fro_assignments) ? log.fro_assignments[0] : log.fro_assignments;
+    const donor = Array.isArray(assignment?.donor_profiles) ? assignment?.donor_profiles[0] : assignment?.donor_profiles;
     const donorName = donor?.name || 'Donor';
     const amount = log.amount_collected || 0;
 
