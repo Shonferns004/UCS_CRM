@@ -39,7 +39,7 @@ import accountsRoutes from './routes/accountsRoutes.js';
 import loanRoutes from './routes/loanRoutes.js';
 import attendanceCorrectionRoutes from './routes/attendanceCorrectionRoutes.js';
 import bankAuditRoutes from './routes/bankAuditRoutes.js';
-import assetsRoutes from './routes/assetsRoutes.js';
+import eventHeadRoutes from './routes/eventHeadRoutes.js';
 
 dotenv.config();
 
@@ -95,7 +95,7 @@ app.use('/api/loans', loanRoutes);
 app.use('/api/advances', loanRoutes);
 app.use('/api/attendance-corrections', attendanceCorrectionRoutes);
 app.use('/api/accounts/bank-audit', bankAuditRoutes);
-app.use('/api/assets', assetsRoutes);
+app.use('/api/event-head', eventHeadRoutes);
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
