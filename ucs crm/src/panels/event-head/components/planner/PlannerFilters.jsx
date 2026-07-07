@@ -72,6 +72,9 @@ export default function PlannerFilters({
             onFocus={e => { e.target.style.borderColor = 'var(--sage)' }}
             onBlur={e => { e.target.style.borderColor = 'var(--line)' }}>
             <option value="">All NGOs</option>
+            <option value="BSCT">BSCT</option>
+            <option value="AFLF">AFLF</option>
+            <option value="MANN">MANN</option>
             {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
           </select>
 
