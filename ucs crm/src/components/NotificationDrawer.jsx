@@ -99,7 +99,7 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
                         Read
                       </button>
                     )}
-                    {item.read_at && onClear && (
+                    {onClear && (
                       <button onClick={e => { e.stopPropagation(); onClear(item.id) }}
                         style={{ fontSize:10, padding:'1px 6px', border:'1px solid #dc2626', borderRadius:3, background:'transparent', color:'#dc2626', cursor:'pointer', lineHeight:'16px' }}>
                         Clear

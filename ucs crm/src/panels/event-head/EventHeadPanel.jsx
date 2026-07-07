@@ -105,8 +105,8 @@ export default function EventHeadPanel() {
     api(`/notifications/${uid}`, { _prefix: 'ucs' })
       .then(data => {
         const all = data || [];
+        setAllNotifs(all);
         const unread = all.filter(n => !n.read_at);
-        setAllNotifs(unread);
         unread.forEach(n => {
           if (!seenNotifIds.current.has(n.id)) {
             seenNotifIds.current.add(n.id);
