@@ -117,43 +117,45 @@ export default function MonthlyPlanner() {
                     borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center'
                   }}>{d}</span>
                 )}
-                {dow !== 0 && dow !== 4 && dow !== 6 && <div style={{ marginTop: 22 }}>
-                  {Object.entries(
-                    dayEvents.reduce((acc, ev) => {
-                      const cat = ev.category || 'Uncategorized'
-                      if (!acc[cat]) acc[cat] = []
-                      acc[cat].push(ev)
-                      return acc
-                    }, {})
-                  ).map(([cat, evts], ci) => (
-                    <div key={cat} style={{ marginBottom: 3 }}>
-                      <div
-                        onClick={() => setFilterCategory(c => c === cat ? '' : cat)}
-                        style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: catColor(cat, ci), cursor: 'pointer', marginBottom: 1 }}
-                      >{cat} ({evts.length})</div>
-                      {evts.slice(0, 2).map(ev => {
-                        const st = statusStyle(ev.status)
-                        return (
-                          <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 1, fontSize: 9, lineHeight: 1.2 }}>
-                            <span
-                              onClick={() => setFilterStatus(s => s === ev.status ? '' : ev.status)}
-                              style={{ width: 5, height: 5, borderRadius: '50%', background: st.color, cursor: 'pointer', flexShrink: 0 }}
-                              title={ev.status}
-                            />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={ev.name}>{ev.name}</span>
-                            {ngoMap[ev.ngo_id] && (
+                {dow !== 0 && dow !== 4 && dow !== 6 && (
+                  <div style={{ marginTop: 22 }}>
+                    {Object.entries(
+                      dayEvents.reduce((acc, ev) => {
+                        const cat = ev.category || 'Uncategorized'
+                        if (!acc[cat]) acc[cat] = []
+                        acc[cat].push(ev)
+                        return acc
+                      }, {})
+                    ).map(([cat, evts], ci) => (
+                      <div key={cat} style={{ marginBottom: 3 }}>
+                        <div
+                          onClick={() => setFilterCategory(c => c === cat ? '' : cat)}
+                          style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: catColor(cat, ci), cursor: 'pointer', marginBottom: 1 }}
+                        >{cat} ({evts.length})</div>
+                        {evts.slice(0, 2).map(ev => {
+                          const st = statusStyle(ev.status)
+                          return (
+                            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 1, fontSize: 9, lineHeight: 1.2 }}>
                               <span
-                                onClick={() => setFilterNgo(n => n === ev.ngo_id ? '' : ev.ngo_id)}
-                                style={{ fontSize: 7, color: 'var(--ink-soft)', background: 'var(--line)', padding: '0 3px', borderRadius: 2, cursor: 'pointer', flexShrink: 0 }}
-                              >{ngoMap[ev.ngo_id]}</span>
-                            )}
-                          </div>
-                        )
-                      })}
-                      {evts.length > 2 && <div style={{ fontSize: 8, color: 'var(--ink-soft)', paddingLeft: 7 }}>+{evts.length - 2} more</div>}
-                    </div>
-                  ))}
-                </div>
+                                onClick={() => setFilterStatus(s => s === ev.status ? '' : ev.status)}
+                                style={{ width: 5, height: 5, borderRadius: '50%', background: st.color, cursor: 'pointer', flexShrink: 0 }}
+                                title={ev.status}
+                              />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={ev.name}>{ev.name}</span>
+                              {ngoMap[ev.ngo_id] && (
+                                <span
+                                  onClick={() => setFilterNgo(n => n === ev.ngo_id ? '' : ev.ngo_id)}
+                                  style={{ fontSize: 7, color: 'var(--ink-soft)', background: 'var(--line)', padding: '0 3px', borderRadius: 2, cursor: 'pointer', flexShrink: 0 }}
+                                >{ngoMap[ev.ngo_id]}</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {evts.length > 2 && <div style={{ fontSize: 8, color: 'var(--ink-soft)', paddingLeft: 7 }}>+{evts.length - 2} more</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
