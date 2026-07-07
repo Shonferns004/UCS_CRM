@@ -1,4 +1,5 @@
 import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, testConnection } from '../services/whatsappService.js';
+import whatsappConfig from '../config/whatsappConfig.js';
 import supabase from '../config/supabase.js';
 
 export async function test(req, res) {
@@ -24,90 +25,81 @@ export async function sendReceipt(req, res) {
     let donorName = clientDonorName || 'Donor';
     let amount = clientAmount || 0;
     let receiptNo = clientReceiptNo || 'N/A';
-    let storedUrl = null;
+    let documentUrl = null;
+    let uploadErrorMsg = null;
 
-    const { data: receiptRow } = await supabase
-      .from('receipts')
-      .select('receipt_no, pdf_url')
-      .eq('log_id', logId)
-      .maybeSingle();
+    if (logId && logId !== '0') {
+      const { data: receiptRow } = await supabase
+        .from('receipts')
+        .select('receipt_no, pdf_url')
+        .eq('log_id', logId)
+        .maybeSingle();
 
-    if (receiptRow) {
-      if (!clientReceiptNo) receiptNo = receiptRow.receipt_no || 'N/A';
-      storedUrl = receiptRow.pdf_url || null;
-    }
+      if (receiptRow) {
+        if (!clientReceiptNo) receiptNo = receiptRow.receipt_no || 'N/A';
+        documentUrl = receiptRow.pdf_url || null;
+      }
 
-    if (!clientDonorName || !clientAmount || !receiptRow) {
-      const { data: log, error: logError } = await supabase
-        .from('fro_donor_logs')
-        .select(`
-          amount_collected,
-          fro_assignments(
-            donor_id,
-            donor_profiles(id, name, mobile_number)
-          )
-        `)
-        .eq('id', logId)
-        .single();
+      if (!clientDonorName || !clientAmount || !receiptRow) {
+        const { data: log, error: logError } = await supabase
+          .from('fro_donor_logs')
+          .select(`
+            amount_collected,
+            fro_assignments(
+              donor_id,
+              donor_profiles(id, name, mobile_number)
+            )
+          `)
+          .eq('id', logId)
+          .single();
 
-      if (!logError && log) {
-        const assignment = Array.isArray(log.fro_assignments) ? log.fro_assignments[0] : log.fro_assignments;
-        const donor = Array.isArray(assignment?.donor_profiles) ? assignment?.donor_profiles[0] : assignment?.donor_profiles;
-        if (!clientDonorName) donorName = donor?.name || 'Donor';
-        if (!clientAmount) amount = log.amount_collected || 0;
+        if (!logError && log) {
+          const assignment = Array.isArray(log.fro_assignments) ? log.fro_assignments[0] : log.fro_assignments;
+          const donor = Array.isArray(assignment?.donor_profiles) ? assignment?.donor_profiles[0] : assignment?.donor_profiles;
+          if (!clientDonorName) donorName = donor?.name || 'Donor';
+          if (!clientAmount) amount = log.amount_collected || 0;
+        }
+      }
+
+      if (!documentUrl && pdfBase64) {
+        try {
+          const buffer = Buffer.from(pdfBase64, 'base64');
+          const fileName = `receipts/${logId}_${Date.now()}.pdf`;
+          const uploadController = new AbortController();
+          const uploadTimeout = setTimeout(() => uploadController.abort(), 20000);
+
+          let { data: uploadData, error: uploadError } = await supabase.storage
+            .from('receipts')
+            .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true, signal: uploadController.signal });
+
+          clearTimeout(uploadTimeout);
+
+          if (uploadError) {
+            if (uploadError.message?.includes('bucket')) {
+              const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
+              if (bucketError) throw new Error('Bucket create failed: ' + bucketError.message);
+              const retry = await supabase.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+              if (retry.error) throw new Error('Upload failed after bucket create: ' + retry.error.message);
+              uploadData = retry.data;
+            } else {
+              throw new Error('Upload failed: ' + uploadError.message);
+            }
+          }
+
+          const { data: publicUrlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
+          documentUrl = publicUrlData?.publicUrl;
+
+          if (documentUrl) {
+            await supabase.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId).maybeSingle();
+          }
+        } catch (e) {
+          uploadErrorMsg = e.message;
+          console.error('Receipt PDF upload failed:', e.message);
+        }
       }
     }
 
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-
-    let documentUrl = storedUrl;
-    let uploadErrorMsg = null;
-    if (!documentUrl && pdfBase64) {
-      try {
-        const buffer = Buffer.from(pdfBase64, 'base64');
-        const fileName = `receipts/${logId}_${Date.now()}.pdf`;
-        const uploadController = new AbortController();
-        const uploadTimeout = setTimeout(() => uploadController.abort(), 20000);
-
-        let { data: uploadData, error: uploadError } = await supabase.storage
-          .from('receipts')
-          .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true, signal: uploadController.signal });
-
-        clearTimeout(uploadTimeout);
-
-        if (uploadError) {
-          if (uploadError.message?.includes('bucket')) {
-            const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
-            if (bucketError) {
-              throw new Error('Bucket create failed: ' + bucketError.message);
-            }
-            const retry = await supabase.storage
-              .from('receipts')
-              .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
-            if (retry.error) throw new Error('Upload failed after bucket create: ' + retry.error.message);
-            uploadData = retry.data;
-          } else {
-            throw new Error('Upload failed: ' + uploadError.message);
-          }
-        }
-
-        const { data: publicUrlData } = supabase.storage
-          .from('receipts')
-          .getPublicUrl(fileName);
-        documentUrl = publicUrlData?.publicUrl;
-
-        if (documentUrl) {
-          const { error: updateError } = await supabase.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId);
-          if (updateError) {
-            console.error('Failed to save pdf_url to receipts table:', updateError.message);
-          }
-        }
-      } catch (e) {
-        uploadErrorMsg = e.message;
-        console.error('Receipt PDF upload failed:', e.message);
-      }
-    }
-
     const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, documentUrl, templateName);
 
     return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, uploadError: uploadErrorMsg });
@@ -151,19 +143,18 @@ export async function status(req, res) {
 
 export async function listTemplates(req, res) {
   try {
-    const config = (await import('../config/whatsappConfig.js')).default;
-    if (!config.enabled) return res.status(400).json({ message: 'WhatsApp not configured' });
+    if (!whatsappConfig.enabled) return res.status(400).json({ message: 'WhatsApp not configured' });
 
     const waRes = await fetch(
-      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/whatsapp_business_account`,
-      { headers: { Authorization: `Bearer ${config.accessToken}` } }
+      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/whatsapp_business_account`,
+      { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } }
     );
     if (!waRes.ok) { const e = await waRes.text(); throw new Error('Failed to get WABA: ' + e); }
     const { id: wabaId } = await waRes.json();
 
     const tplRes = await fetch(
-      `https://graph.facebook.com/${config.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
-      { headers: { Authorization: `Bearer ${config.accessToken}` } }
+      `https://graph.facebook.com/${whatsappConfig.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
+      { headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` } }
     );
     if (!tplRes.ok) { const e = await tplRes.text(); throw new Error('Failed to fetch templates: ' + e); }
     const { data } = await tplRes.json();
