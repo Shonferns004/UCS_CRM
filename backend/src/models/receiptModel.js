@@ -53,3 +53,14 @@ export const listReceiptsByProject = async (projectId, limit = 50) => {
   if (error) throw error;
   return data || [];
 };
+
+export const updateReceiptByLogId = async (logId, data) => {
+  const { data: result, error } = await supabase
+    .from('receipts')
+    .update(data)
+    .eq('log_id', logId)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return result;
+};

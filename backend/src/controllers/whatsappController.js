@@ -24,8 +24,20 @@ export async function sendReceipt(req, res) {
     let donorName = clientDonorName || 'Donor';
     let amount = clientAmount || 0;
     let receiptNo = clientReceiptNo || 'N/A';
+    let storedUrl = null;
 
-    if (!clientDonorName || !clientReceiptNo) {
+    const { data: receiptRow } = await supabase
+      .from('receipts')
+      .select('receipt_no, pdf_url')
+      .eq('log_id', logId)
+      .maybeSingle();
+
+    if (receiptRow) {
+      if (!clientReceiptNo) receiptNo = receiptRow.receipt_no || 'N/A';
+      storedUrl = receiptRow.pdf_url || null;
+    }
+
+    if (!clientDonorName || !clientAmount || !receiptRow) {
       const { data: log, error: logError } = await supabase
         .from('fro_donor_logs')
         .select(`
@@ -44,21 +56,12 @@ export async function sendReceipt(req, res) {
         if (!clientDonorName) donorName = donor?.name || 'Donor';
         if (!clientAmount) amount = log.amount_collected || 0;
       }
-
-      if (!clientReceiptNo) {
-        const { data: receipt } = await supabase
-          .from('receipts')
-          .select('receipt_no')
-          .eq('log_id', logId)
-          .maybeSingle();
-        receiptNo = receipt?.receipt_no || 'N/A';
-      }
     }
 
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
-    let documentUrl = null;
-    if (pdfBase64) {
+    let documentUrl = storedUrl;
+    if (!documentUrl && pdfBase64) {
       try {
         const buffer = Buffer.from(pdfBase64, 'base64');
         const fileName = `receipts/${logId}_${Date.now()}.pdf`;
@@ -83,6 +86,10 @@ export async function sendReceipt(req, res) {
             .from('receipts')
             .getPublicUrl(fileName);
           documentUrl = publicUrlData?.publicUrl;
+
+          if (documentUrl) {
+            await supabase.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId);
+          }
         }
       } catch (e) {
         console.error('Receipt PDF upload failed:', e.message);
