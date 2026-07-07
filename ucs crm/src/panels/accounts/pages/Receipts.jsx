@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost } from '../api/auth'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
@@ -181,17 +181,21 @@ function ExcelUpload({ onDataLoaded }) {
   )
 }
 
-const TEMPLATE_OPTIONS = [
-  { value: 'bsct_receipt', label: 'BSCT Receipt' },
-  { value: 'donation_receipt', label: 'Donation Receipt' },
-  { value: 'ngo_information', label: 'NGO Information' },
-]
-
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [project, setProject] = useState('manncar')
-  const [templateName, setTemplateName] = useState('bsct_receipt')
+  const [templateName, setTemplateName] = useState('')
+  const [templateList, setTemplateList] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+
+  useEffect(() => {
+    setTemplatesLoading(true)
+    apiGet('/whatsapp/templates')
+      .then(list => { setTemplateList(list || []); if (list?.length) setTemplateName(list[0].name) })
+      .catch(() => {})
+      .finally(() => setTemplatesLoading(false))
+  }, [])
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [downloadAll, setDownloadAll] = useState(false)
   const receiptRef = useRef(null)
@@ -326,8 +330,8 @@ export default function Receipts() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
             <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Template</h3>
-            <select className="field-input" value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ width:200 }}>
-              {TEMPLATE_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            <select className="field-input" value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ width:220 }} disabled={templatesLoading}>
+              {templatesLoading ? <option>Loading...</option> : templateList.length === 0 ? <option value="">No templates found</option> : templateList.map(t => <option key={t.name} value={t.name}>{t.name} ({t.language})</option>)}
             </select>
           </div>
         </div>

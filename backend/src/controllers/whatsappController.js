@@ -148,3 +148,32 @@ export async function status(req, res) {
     return res.status(500).json({ success: false, message: error.message });
   }
 }
+
+export async function listTemplates(req, res) {
+  try {
+    const config = (await import('../config/whatsappConfig.js')).default;
+    if (!config.enabled) return res.status(400).json({ message: 'WhatsApp not configured' });
+
+    const waRes = await fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/whatsapp_business_account`,
+      { headers: { Authorization: `Bearer ${config.accessToken}` } }
+    );
+    if (!waRes.ok) { const e = await waRes.text(); throw new Error('Failed to get WABA: ' + e); }
+    const { id: wabaId } = await waRes.json();
+
+    const tplRes = await fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${wabaId}/message_templates?fields=name,language,status`,
+      { headers: { Authorization: `Bearer ${config.accessToken}` } }
+    );
+    if (!tplRes.ok) { const e = await tplRes.text(); throw new Error('Failed to fetch templates: ' + e); }
+    const { data } = await tplRes.json();
+
+    const templates = (data || [])
+      .filter(t => t.status === 'APPROVED')
+      .map(t => ({ name: t.name, language: t.language }));
+
+    return res.json(templates);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
