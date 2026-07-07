@@ -134,7 +134,7 @@ export default function ReceiptHistory() {
       const el = document.querySelector('[data-receipt-preview]');
       let pdfBase64 = null;
       if (el) {
-        const pdf = await generateReceiptPDF(el);
+        const pdf = await generateReceiptPDF(el, { scale: 1, jpegQuality: 0.7 });
         pdfBase64 = pdf.output('datauristring').split(',')[1];
       }
       await apiPost(`/whatsapp/send-receipt/${preview.receipt.log_id}`, {

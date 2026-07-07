@@ -209,7 +209,8 @@ function waitForImage(img) {
   })
 }
 
-export async function generateReceiptPDF(element) {
+export async function generateReceiptPDF(element, opts = {}) {
+  const { scale = 2, jpegQuality = 0.95 } = opts
   const target = getReceiptTarget(element)
   await Promise.all([...target.querySelectorAll('img')].map(waitForImage))
 
@@ -245,7 +246,7 @@ export async function generateReceiptPDF(element) {
     await document.fonts?.ready
     await Promise.all(imgs.map(waitForImage))
     canvas = await html2canvas(clone, {
-      scale: 2,
+      scale,
       useCORS: false,
       allowTaint: false,
       backgroundColor: '#ffffff',
@@ -276,7 +277,7 @@ export async function generateReceiptPDF(element) {
     const renderedW = printableW * scaleToFit
     const renderedH = fullRenderedHeight * scaleToFit
     const x = margin + (printableW - renderedW) / 2
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', x, margin, renderedW, renderedH)
+    pdf.addImage(canvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', x, margin, renderedW, renderedH)
     return pdf
   }
 
@@ -294,7 +295,7 @@ export async function generateReceiptPDF(element) {
     )
     if (page > 0) pdf.addPage()
     const renderedHeight = sliceHeight / pixelsPerMm
-    pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, printableW, renderedHeight)
+    pdf.addImage(pageCanvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', margin, margin, printableW, renderedHeight)
   }
   return pdf
 }

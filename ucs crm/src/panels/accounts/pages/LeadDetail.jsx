@@ -185,7 +185,7 @@ export default function LeadDetail({ logId, onBack }) {
     try {
       let pdfBase64 = null;
       if (receiptRef.current) {
-        const pdf = await generateReceiptPDF(receiptRef.current);
+        const pdf = await generateReceiptPDF(receiptRef.current, { scale: 1, jpegQuality: 0.7 });
         pdfBase64 = pdf.output('datauristring').split(',')[1];
       }
       await apiPost(`/whatsapp/send-receipt/${lead.log_id}`, {
