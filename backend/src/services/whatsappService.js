@@ -4,7 +4,7 @@ const API_BASE = `https://graph.facebook.com/${config.apiVersion}/${config.phone
 
 async function sendViaSupabase(to, messageText) {
   const body = {
-    conversationId: String(to).replace(/[^0-9]/g, ''),
+    phone: String(to).replace(/[^0-9]/g, ''),
     messageText,
   };
 
@@ -170,7 +170,7 @@ export async function testConnection() {
           'x-api-key': config.supabaseApiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ conversationId: 'test', messageText: 'test' }),
+        body: JSON.stringify({ phone: 'test', messageText: 'test' }),
       });
       if (res.ok) return { success: true, message: 'Supabase WhatsApp function reachable' };
       const data = await res.json();
