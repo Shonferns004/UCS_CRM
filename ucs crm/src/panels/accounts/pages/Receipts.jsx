@@ -338,13 +338,29 @@ export default function Receipts() {
         <>
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-pad">
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
                 <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Donor Records <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span></h3>
-                <button className="btn btn-sm" style={{ background:'#059669', color:'#fff', border:'none' }}
-                  onClick={handleSendAllWhatsApp}
-                  disabled={bulkState.active || getValidDonors().length === 0}>
-                  Send All ({getValidDonors().length})
-                </button>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
+                    onClick={() => {
+                      const wb = XLSX.utils.book_new();
+                      const ws = XLSX.utils.json_to_sheet(donors.map(d => {
+                        const copy = { ...d };
+                        delete copy._dataMissing; delete copy._duplicate; delete copy.receipt_id; delete copy.sent; delete copy.log_id;
+                        return copy;
+                      }));
+                      XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
+                      XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                    }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download Excel
+                  </button>
+                  <button className="btn btn-sm" style={{ background:'#059669', color:'#fff', border:'none' }}
+                    onClick={handleSendAllWhatsApp}
+                    disabled={bulkState.active || getValidDonors().length === 0}>
+                    Send All ({getValidDonors().length})
+                  </button>
+                </div>
               </div>
               <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
                 <thead>
