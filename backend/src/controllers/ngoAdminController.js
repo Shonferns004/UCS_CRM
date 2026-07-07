@@ -86,10 +86,10 @@ export const getDonors = async (req, res) => {
     if (error) throw error;
 
     const total = count || 0;
-    return res.json({
-      data: data || [],
-      pagination: { page, pageSize: limit, total, totalPages: Math.ceil(total / limit) },
-    });
+    if (req.query.paginated === 'true') {
+      return res.json({ data: data || [], pagination: { page, pageSize: limit, total, totalPages: Math.ceil(total / limit) } });
+    }
+    return res.json(data || []);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

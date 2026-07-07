@@ -478,7 +478,7 @@ export default function DonorCRM() {
       if (search) params.set('search', search)
       if (dateFrom) params.set('from_date', dateFrom)
       if (dateTo) params.set('to_date', dateTo)
-      const res = await api(`/ngo-admin/donors?${params}`, { _prefix: 'ucs' })
+      const res = await api(`/ngo-admin/donors?${params}&paginated=true`, { _prefix: 'ucs' })
       setDonors(res.data || [])
       setDonorTotal(res.pagination?.total || 0)
       setDonorTotalPages(res.pagination?.totalPages || 1)
