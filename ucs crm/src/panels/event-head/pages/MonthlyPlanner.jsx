@@ -1,202 +1,203 @@
-import { useState, useEffect } from 'react'
-import { fetchEventsByMonth, fetchNGOs, CATEGORIES, EVENT_STATUSES } from '../store'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { fetchEventsByMonth, fetchNGOs, fetchCSRPartners, fetchDonors } from '../store'
+import SummaryCards from '../components/planner/SummaryCards'
+import PlannerFilters from '../components/planner/PlannerFilters'
+import CalendarToolbar from '../components/planner/CalendarToolbar'
+import CalendarGrid from '../components/planner/CalendarGrid'
+import EventModal from '../components/planner/EventModal'
+import EmptyState from '../components/planner/EmptyState'
+import LoadingSkeleton from '../components/planner/LoadingSkeleton'
 
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const now = new Date()
-
-const statusStyle = (s) => {
-  const map = { Completed: { bg: '#5B6B4E18', color: '#5B6B4E' }, Approved: { bg: '#3485D418', color: '#3485D4' }, Draft: { bg: '#9ca3af18', color: '#9ca3af' }, Rejected: { bg: '#B5603A18', color: '#B5603A' }, Cancelled: { bg: '#dc262618', color: '#dc2626' }, Submitted: { bg: '#C08A2E18', color: '#C08A2E' }, Postponed: { bg: '#f59e0b18', color: '#f59e0b' } }
-  return map[s] || { bg: '#9ca3af18', color: '#9ca3af' }
-}
-
-const CAT_COLORS = ['#7B5EA7','#B5603A','#C08A2E','#4F6472','#5B6B4E','#88693D','#3485D4','#6B7280','#BE185D']
-const catColor = (cat, i) => CAT_COLORS[i % CAT_COLORS.length]
 
 export default function MonthlyPlanner() {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [events, setEvents] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [ngos, setNgos] = useState([])
+  const [csrPartners, setCsrPartners] = useState([])
+  const [donors, setDonors] = useState([])
+
+  /* ── Filters ── */
+  const [search, setSearch] = useState('')
   const [filterNgo, setFilterNgo] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
-  const [ngos, setNgos] = useState([])
-  const ngoMap = Object.fromEntries(ngos.map(n => [n.id, n.name]))
+  const [filterPriority, setFilterPriority] = useState('')
+  const [filterCoordinator, setFilterCoordinator] = useState('')
+  const [filterDistrict, setFilterDistrict] = useState('')
+  const [filterState, setFilterState] = useState('')
+  const [filterCsr, setFilterCsr] = useState('')
+  const [filterManager, setFilterManager] = useState('')
 
-  useEffect(() => { fetchNGOs().then(setNgos).catch(e => console.error('MonthlyPlanner fetchNGOs:', e)) }, [])
+  /* ── UI state ── */
+  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [tooltip, setTooltip] = useState({ show: false, event: null, x: 0, y: 0 })
+
+  const ngoMap = useMemo(() => Object.fromEntries(ngos.map(n => [n.id, n.name])), [ngos])
+
+  /* ── Data fetching ── */
   useEffect(() => {
-    fetchEventsByMonth(month + 1, year).then(setEvents).catch(e => {
-      console.error('MonthlyPlanner fetchEventsByMonth:', e)
+    setLoading(true)
+    Promise.all([
+      fetchEventsByMonth(month + 1, year).catch(() => []),
+      fetchNGOs().catch(() => []),
+      fetchCSRPartners().catch(() => []),
+      fetchDonors().catch(() => []),
+    ]).then(([evts, n, c, d]) => {
+      setEvents(Array.isArray(evts) ? evts : [])
+      setNgos(Array.isArray(n) ? n : [])
+      setCsrPartners(Array.isArray(c) ? c : [])
+      setDonors(Array.isArray(d) ? d : [])
+    }).catch(e => {
+      console.error('MonthlyPlanner fetch:', e)
       setEvents([])
-    })
+    }).finally(() => setLoading(false))
   }, [month, year])
 
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const firstDay = new Date(year, month, 1).getDay()
-  const weeks = []
-  let cells = Array(firstDay).fill(null)
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push(d)
-    if (cells.length === 7) { weeks.push(cells); cells = [] }
-  }
-  if (cells.length) { while (cells.length < 7) cells.push(null); weeks.push(cells) }
+  /* ── Calendar derivation ── */
+  const daysInMonth = useMemo(() => new Date(year, month + 1, 0).getDate(), [year, month])
+  const firstDay = useMemo(() => new Date(year, month, 1).getDay(), [year, month])
 
-  const filtered = events.filter(e => {
-    if (filterNgo && e.ngo_id !== filterNgo) return false
-    if (filterCategory && e.category !== filterCategory) return false
-    if (filterStatus && e.status !== filterStatus) return false
-    return true
-  })
+  const weeks = useMemo(() => {
+    const w = []
+    let cells = Array(firstDay).fill(null)
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push(d)
+      if (cells.length === 7) { w.push(cells); cells = [] }
+    }
+    if (cells.length) { while (cells.length < 7) cells.push(null); w.push(cells) }
+    return w
+  }, [firstDay, daysInMonth])
 
-  const getEventsForDay = (day) => filtered.filter(e => {
-    const d = new Date(e.date); return d.getDate() === day && d.getMonth() === month && d.getFullYear() === year
-  })
+  /* ── Dynamic filter values ── */
+  const coordinators = useMemo(() => [...new Set(events.map(e => e.coordinator).filter(Boolean))], [events])
+  const districts = useMemo(() => [...new Set(events.map(e => e.district).filter(Boolean))], [events])
+  const states = useMemo(() => [...new Set(events.map(e => e.state).filter(Boolean))], [events])
+  const managers = useMemo(() => [...new Set(events.map(e => e.event_manager || e.organizer).filter(Boolean))], [events])
 
-  const isToday = (d) => {
-    const today = new Date()
-    return d === today.getDate() && month === today.getMonth() && year === today.getFullYear()
-  }
+  /* ── Filtering ── */
+  const filtered = useMemo(() => {
+    return events.filter(e => {
+      if (filterNgo && e.ngo_id !== filterNgo) return false
+      if (filterCategory && e.category !== filterCategory) return false
+      if (filterStatus && e.status !== filterStatus) return false
+      if (filterPriority && e.priority !== filterPriority) return false
+      if (filterCoordinator && e.coordinator !== filterCoordinator) return false
+      if (filterDistrict && e.district !== filterDistrict) return false
+      if (filterState && e.state !== filterState) return false
+      if (filterCsr && e.csr_partner !== filterCsr) return false
+      if (filterManager && (e.event_manager || e.organizer) !== filterManager) return false
+      if (search) {
+        const q = search.toLowerCase()
+        const match = [e.name, e.venue, ngoMap[e.ngo_id], e.category, e.coordinator, e.district]
+          .some(v => v?.toLowerCase().includes(q))
+        if (!match) return false
+      }
+      return true
+    })
+  }, [events, filterNgo, filterCategory, filterStatus, filterPriority, filterCoordinator, filterDistrict, filterState, filterCsr, filterManager, search, ngoMap])
 
-  const navigateMonth = (delta) => {
+  const getEventsForDay = useCallback((day) => {
+    if (!day) return []
+    return filtered.filter(e => {
+      const d = new Date(e.date)
+      return d.getDate() === day && d.getMonth() === month && d.getFullYear() === year
+    })
+  }, [filtered, month, year])
+
+  /* ── Summary ── */
+  const today = useMemo(() => new Date(), [])
+  const summary = useMemo(() => ({
+    total: filtered.length,
+    today: filtered.filter(e => {
+      const d = new Date(e.date)
+      return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()
+    }).length,
+    upcoming: filtered.filter(e => new Date(e.date) > today).length,
+    completed: filtered.filter(e => e.status === 'Completed').length,
+    cancelled: filtered.filter(e => e.status === 'Cancelled').length,
+    approved: filtered.filter(e => e.status === 'Approved').length,
+    submitted: filtered.filter(e => e.status === 'Submitted').length,
+    draft: filtered.filter(e => e.status === 'Draft').length,
+  }), [filtered])
+
+  /* ── Actions ── */
+  const clearFilters = useCallback(() => {
+    setSearch(''); setFilterNgo(''); setFilterCategory(''); setFilterStatus('')
+    setFilterPriority(''); setFilterCoordinator(''); setFilterDistrict('')
+    setFilterState(''); setFilterCsr(''); setFilterManager('')
+  }, [])
+
+  const hasActiveFilters = search || filterNgo || filterCategory || filterStatus || filterPriority ||
+    filterCoordinator || filterDistrict || filterState || filterCsr || filterManager
+
+  const navigateMonth = useCallback((delta) => {
     let m = month + delta
     let y = year
     if (m < 0) { m = 11; y-- }
     if (m > 11) { m = 0; y++ }
     setMonth(m); setYear(y)
-  }
+  }, [month, year])
+
+  const handleEventClick = useCallback((event) => {
+    setTooltip({ show: false, event: null, x: 0, y: 0 })
+    setSelectedEvent(event)
+  }, [])
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <h3>{MONTHS[month]} {year}</h3>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-sm" onClick={() => navigateMonth(-1)}>← Prev</button>
-          <button className="btn btn-sm" onClick={() => { setMonth(now.getMonth()); setYear(now.getFullYear()) }}>Today</button>
-          <button className="btn btn-sm" onClick={() => navigateMonth(1)}>Next →</button>
-        </div>
-      </div>
-      <div className="card-pad">
-        <div className="filter-bar">
-          <select value={filterNgo} onChange={e => setFilterNgo(e.target.value)}>
-            <option value="">All NGOs</option>
-            {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
-            {['BSCT','MANN','AFLF'].map(name => <option key={name} value={name}>{name}</option>)}
-          </select>
-          <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-            <option value="">All Categories</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-            <option value="">All Status</option>
-            {EVENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <SummaryCards summary={summary} />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginTop: 12 }}>
-          {DAYS.map(d => (
-            <div key={d} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)', padding: '6px 0', fontWeight: 600 }}>{d}</div>
-          ))}
-          {weeks.flat().map((d, i) => {
-            const dayEvents = d ? getEventsForDay(d) : []
-            const today = isToday(d)
-            const dow = d ? new Date(year, month, d).getDay() : -1
-            const hlEv = d && filterCategory && filterStatus ? dayEvents.find(ev => ev.category === filterCategory && ev.status === filterStatus) : null
-            const hlClr = hlEv ? statusStyle(hlEv.status).color : null
-            return (
-              <div key={i} style={{
-                minHeight: 110, background: hlClr ? hlClr + '18' : today ? 'var(--sage-light)' : 'var(--card-bg)',
-                border: hlClr ? `2px solid ${hlClr}` : today ? '1px solid var(--sage)' : '1px solid var(--line)',
-                borderRadius: 'var(--radius-sm)', padding: 4, fontSize: 12, position: 'relative', transition: 'box-shadow .15s',
-                boxShadow: hlClr ? `0 0 4px ${hlClr}60` : 'none'
-              }}>
-                {d && (
-                  <span style={{
-                    position: 'absolute', top: 3, right: 5, fontWeight: 700, fontSize: 12,
-                    color: today ? 'var(--sage)' : 'var(--ink-soft)',
-                    background: today ? 'var(--card-bg)' : 'transparent',
-                    borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center'
-                  }}>{d}</span>
-                )}
-                {dow !== 0 && dow !== 4 && dow !== 6 && (
-                  <div style={{ marginTop: 22 }}>
-                    {Object.entries(
-                      dayEvents.reduce((acc, ev) => {
-                        const cat = ev.category || 'Uncategorized'
-                        if (!acc[cat]) acc[cat] = []
-                        acc[cat].push(ev)
-                        return acc
-                      }, {})
-                    ).map(([cat, evts], ci) => (
-                      <div key={cat} style={{ marginBottom: 3 }}>
-                        <div
-                          onClick={() => setFilterCategory(c => c === cat ? '' : cat)}
-                          style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: catColor(cat, ci), cursor: 'pointer', marginBottom: 1 }}
-                        >{cat} ({evts.length})</div>
-                        {evts.slice(0, 2).map(ev => {
-                          const st = statusStyle(ev.status)
-                          return (
-                            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 2, marginBottom: 1, fontSize: 9, lineHeight: 1.2 }}>
-                              <span
-                                onClick={() => setFilterStatus(s => s === ev.status ? '' : ev.status)}
-                                style={{ width: 5, height: 5, borderRadius: '50%', background: st.color, cursor: 'pointer', flexShrink: 0 }}
-                                title={ev.status}
-                              />
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={ev.name}>{ev.name}</span>
-                              {ngoMap[ev.ngo_id] && (
-                                <span
-                                  onClick={() => setFilterNgo(n => n === ev.ngo_id ? '' : ev.ngo_id)}
-                                  style={{ fontSize: 7, color: 'var(--ink-soft)', background: 'var(--line)', padding: '0 3px', borderRadius: 2, cursor: 'pointer', flexShrink: 0 }}
-                                >{ngoMap[ev.ngo_id]}</span>
-                              )}
-                            </div>
-                          )
-                        })}
-                        {evts.length > 2 && <div style={{ fontSize: 8, color: 'var(--ink-soft)', paddingLeft: 7 }}>+{evts.length - 2} more</div>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+      <PlannerFilters
+        search={search} onSearchChange={setSearch}
+        filterNgo={filterNgo} onNgoChange={setFilterNgo}
+        filterCategory={filterCategory} onCategoryChange={setFilterCategory}
+        filterStatus={filterStatus} onStatusChange={setFilterStatus}
+        filterPriority={filterPriority} onPriorityChange={setFilterPriority}
+        filterCoordinator={filterCoordinator} onCoordinatorChange={setFilterCoordinator}
+        filterDistrict={filterDistrict} onDistrictChange={setFilterDistrict}
+        filterState={filterState} onStateChange={setFilterState}
+        filterCsr={filterCsr} onCsrChange={setFilterCsr}
+        filterManager={filterManager} onManagerChange={setFilterManager}
+        ngos={ngos} coordinators={coordinators} districts={districts}
+        states={states} csrPartners={csrPartners} managers={managers}
+        hasActiveFilters={hasActiveFilters} onClear={clearFilters}
+      />
 
-        <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-          {['Completed','Approved','Submitted','Draft','Cancelled','Rejected'].map(s => {
-            const st = statusStyle(s)
-            return (
-              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-soft)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: st.color }} />
-                {s}
-              </div>
-            )
-          })}
+      <div className="card">
+        <CalendarToolbar
+          year={year} month={month}
+          onPrev={() => navigateMonth(-1)}
+          onNext={() => navigateMonth(1)}
+          onToday={() => { setMonth(now.getMonth()); setYear(now.getFullYear()) }}
+          onMonthChange={setMonth}
+          onYearChange={setYear}
+        />
+        <div className="card-pad">
+          {loading ? (
+            <LoadingSkeleton />
+          ) : filtered.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <CalendarGrid
+              weeks={weeks}
+              month={month}
+              year={year}
+              getEventsForDay={getEventsForDay}
+              onEventClick={handleEventClick}
+              onEventHover={setTooltip}
+              onEventLeave={() => setTooltip({ show: false, event: null, x: 0, y: 0 })}
+              ngoMap={ngoMap}
+            />
+          )}
         </div>
       </div>
 
-      <div style={{ borderTop: '1px solid var(--line)' }}>
-        <div className="card-head"><h3>Events</h3></div>
-        <div className="card-pad" style={{ padding: 0 }}>
-          <table>
-            <thead><tr><th>Date</th><th>Event</th><th>Category</th><th>Venue</th><th>Status</th></tr></thead>
-            <tbody>
-              {filtered.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>No events this month</td></tr>}
-              {filtered.sort((a,b) => new Date(a.date) - new Date(b.date)).map(ev => {
-                const rowHl = filterCategory && filterStatus && ev.category === filterCategory && ev.status === filterStatus
-                const rowClr = rowHl ? statusStyle(ev.status).color : null
-                return (
-                <tr key={ev.id} style={rowClr ? { background: rowClr + '12', outline: `1px solid ${rowClr}` } : {}}>
-                  <td>{ev.date?.slice(0,10)}</td>
-                  <td style={{ fontWeight: 500 }}>{ev.name}</td>
-                  <td>{ev.category}</td>
-                  <td>{ev.venue}</td>
-                  <td><span className={`pill pill-${ev.status === 'Completed' ? 'green' : ev.status === 'Approved' ? 'blue' : ev.status === 'Draft' ? 'gray' : 'red'}`}>{ev.status}</span></td>
-                </tr>
-                )})}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {selectedEvent && (
+        <EventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+      )}
     </div>
   )
 }
