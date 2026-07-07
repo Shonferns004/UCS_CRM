@@ -99,6 +99,7 @@ export default function MonthlyPlanner() {
           {weeks.flat().map((d, i) => {
             const dayEvents = d ? getEventsForDay(d) : []
             const today = isToday(d)
+            const dow = d ? new Date(year, month, d).getDay() : -1
             const hlEv = d && filterCategory && filterStatus ? dayEvents.find(ev => ev.category === filterCategory && ev.status === filterStatus) : null
             const hlClr = hlEv ? statusStyle(hlEv.status).color : null
             return (
@@ -116,7 +117,7 @@ export default function MonthlyPlanner() {
                     borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center'
                   }}>{d}</span>
                 )}
-                <div style={{ marginTop: 22 }}>
+                {dow !== 0 && dow !== 4 && dow !== 6 && <div style={{ marginTop: 22 }}>
                   {Object.entries(
                     dayEvents.reduce((acc, ev) => {
                       const cat = ev.category || 'Uncategorized'
