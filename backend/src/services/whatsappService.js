@@ -8,18 +8,26 @@ async function sendViaSupabase(to, messageText) {
     messageText,
   };
 
-  const res = await fetch(config.supabaseFunctionUrl, {
-    method: 'POST',
-    headers: {
-      'x-api-key': config.supabaseApiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25000);
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
-  return data;
+  try {
+    const res = await fetch(config.supabaseFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'x-api-key': config.supabaseApiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data));
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function sendTextMessage(to, text) {
