@@ -266,30 +266,25 @@ export default function Receipts() {
       setBulkState(prev => ({ ...prev, currentBatch: batchIdx + 1, results: batch.map(d => ({ name: d['Donor Name'], status:'sending' })) }))
 
       const batchResults = await Promise.allSettled(batch.map(async (donor) => {
+        const receiptNo = donor['Receipt No.'] || 'N/A'
+        const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
+        if (phone.length < 10) throw new Error('Invalid phone')
+
+        let pdfBase64 = null
         const realIndex = donors.indexOf(donor)
         const el = document.querySelector(`[data-receipt-batch="${realIndex}"]`)
-        if (!el) throw new Error('Receipt element not found')
-        const pdf = await generateReceiptPDF(el)
-        const receiptNo = donor['Receipt No.'] || 'N/A'
-        const donorName = String(donor['Donor Name']).replace(/[<>:"/\\|?*]/g, '_').trim() || 'Donor'
-        const prefix = { manncar:'MANNCARE', ashray:'ASHRAY', beingsevak:'BSCT' }[project] || 'RECEIPT'
-        const fileName = `${prefix}_${donorName}_${receiptNo}.pdf`
-        pdf.setProperties({ title: fileName.replace('.pdf', ''), author: currentProject?.label || 'Receipt', subject:'Donation Receipt' })
-        const pdfBlob = pdf.output('blob')
-        const formData = new FormData()
-        formData.append('messaging_product', 'whatsapp')
-        formData.append('file', pdfBlob, fileName)
-        formData.append('type', 'application/pdf')
-        const mediaRes = await fetch(`https://graph.facebook.com/v23.0/${import.meta.env.VITE_WHATSAPP_PHONE_NUMBER_ID}/media`, {
-          method:'POST', headers:{ Authorization: `Bearer ${import.meta.env.VITE_WHATSAPP_ACCESS_TOKEN}` }, body: formData,
+        if (el) {
+          const pdf = await generateReceiptPDF(el)
+          pdfBase64 = pdf.output('datauristring').split(',')[1]
+        }
+
+        await apiPost('/whatsapp/send-receipt/' + (donor.log_id || '0'), {
+          number: phone,
+          pdfBase64,
+          receiptNo,
+          donorName: donor['Donor Name'],
+          amount: donor['Amount'],
         })
-        if (!mediaRes.ok) { const t = await mediaRes.text(); throw new Error('Media upload: ' + t) }
-        const { id: mediaId } = await mediaRes.json()
-        const msgRes = await fetch(`https://graph.facebook.com/v23.0/${import.meta.env.VITE_WHATSAPP_PHONE_NUMBER_ID}/messages`, {
-          method:'POST', headers:{ Authorization: `Bearer ${import.meta.env.VITE_WHATSAPP_ACCESS_TOKEN}`, 'Content-Type':'application/json' },
-          body: JSON.stringify({ messaging_product:'whatsapp', to: '91' + String(donor['Mobile No.']).replace(/[^0-9]/g, '').slice(-10), type:'template', template:{ name:'bsct_receipt', language:{ code:'en_US' }, components:[{ type:'header', parameters:[{ type:'document', document:{ id: mediaId, filename: fileName } }] }] } }),
-        })
-        if (!msgRes.ok) { const t = await msgRes.text(); throw new Error('Template send: ' + t) }
         try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
       }))
 
