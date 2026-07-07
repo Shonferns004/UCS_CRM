@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import * as XLSX from 'xlsx';
 import { apiGet } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
@@ -91,7 +90,7 @@ export default function Dashboard() {
 
   useEffect(() => { setPage(0); }, [searchQuery, statusFilter]);
 
-  const exportVerifiedToExcel = () => {
+  const sendToReceipts = () => {
     const verified = allLeads.filter(l => l.accounts_status === 'verified');
     if (verified.length === 0) return;
 
@@ -103,7 +102,7 @@ export default function Dashboard() {
       'Mode of Payment (MOP)': l.payment_mode || '',
       'Payment ID No.': l.upi_transaction_id || '',
       'Donor Bank Name': '',
-      'Amount': l.amount || 0,
+      'Amount': String(l.amount || 0),
       'Receipt No.': l.receipt_no || '',
       'Receipt Date': l.verified_at || l.transaction_date || '',
       'Account Of': 'Corpus',
@@ -111,10 +110,9 @@ export default function Dashboard() {
       'City': l.donor_city || '',
     }));
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'Verified Leads');
-    XLSX.writeFile(wb, `verified_leads_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    localStorage.setItem('receipts_verified_data', JSON.stringify(rows));
+    localStorage.setItem('receipts_verified_count', String(verified.length));
+    alert(`${verified.length} verified leads sent to Receipts page. Go to Receipts → Load Verified Leads.`);
   };
 
   if (viewingId) {
@@ -145,8 +143,8 @@ export default function Dashboard() {
             <option value="">All ({allLeads.length})</option>
           </select>
           {statusFilter === 'verified' && allLeads.filter(l => l.accounts_status === 'verified').length > 0 && (
-            <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={exportVerifiedToExcel}>
-              {'\u2913'} Export Verified
+            <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={sendToReceipts}>
+              {'\u27A1'} Send to Receipts
             </button>
           )}
         </div>
