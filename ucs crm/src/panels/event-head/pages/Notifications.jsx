@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchNotifs, markNotifRead, deleteNotif } from '../store'
 import { useUcs } from '../../../store'
+
+const clearedIds = new Set(JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]'))
 
 export default function Notifications() {
   const { user } = useUcs()
@@ -8,7 +10,7 @@ export default function Notifications() {
 
   useEffect(() => {
     if (!user?.id) return
-    fetchNotifs(user.id).then(setNotifs).catch(e => console.error('Notifications fetchNotifs:', e))
+    fetchNotifs(user.id).then(data => setNotifs((data || []).filter(n => !clearedIds.has(n.id)))).catch(e => console.error('Notifications fetchNotifs:', e))
   }, [user?.id])
 
   const handleRead = async (id) => {
@@ -19,6 +21,8 @@ export default function Notifications() {
   }
 
   const handleClear = async (id) => {
+    clearedIds.add(id)
+    localStorage.setItem('eh_cleared_notifs', JSON.stringify([...clearedIds]))
     setNotifs(notifs.filter(n => n.id !== id))
     try {
       await deleteNotif(id)

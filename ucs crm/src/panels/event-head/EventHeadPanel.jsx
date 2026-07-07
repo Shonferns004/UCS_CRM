@@ -98,13 +98,14 @@ export default function EventHeadPanel() {
   const notifRef = useRef(null)
   const pollRef = useRef(null)
   const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('eh_seen_notifs') || '[]')))
+  const clearedNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]')))
 
   const loadNotifications = () => {
     const uid = user?.id;
     if (!uid) return;
     api(`/notifications/${uid}`, { _prefix: 'ucs' })
       .then(data => {
-        const all = data || [];
+        const all = (data || []).filter(n => !clearedNotifIds.current.has(n.id));
         setAllNotifs(all);
         const unread = all.filter(n => !n.read_at);
         unread.forEach(n => {
@@ -155,6 +156,8 @@ export default function EventHeadPanel() {
   }
 
   const handleClear = async (id) => {
+    clearedNotifIds.current.add(id)
+    localStorage.setItem('eh_cleared_notifs', JSON.stringify([...clearedNotifIds.current]))
     setAllNotifs(all => all.filter(n => n.id !== id))
     try {
       await deleteNotif(id)
