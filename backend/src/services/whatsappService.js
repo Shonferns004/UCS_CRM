@@ -110,22 +110,23 @@ export async function sendTemplateMessage(to, templateName, parameters, lang = '
   });
 }
 
-export async function sendReceiptMessage(to, donorName, amount, receiptNo, date, headerMediaUrl) {
+export async function sendReceiptMessage(to, donorName, amount, receiptNo, date, headerMediaUrl, templateName) {
   const formattedAmount = typeof amount === 'number' ? '\u20B9' + amount.toLocaleString('en-IN') : amount;
   const params = [donorName, formattedAmount, receiptNo, date];
+  const tpl = templateName || config.whatsappTemplateName || config.receiptTemplate;
 
   if (isSupabaseConfigured()) {
     try {
-      return await sendViaSupabaseTemplate(to, config.whatsappTemplateName, params, headerMediaUrl);
+      return await sendViaSupabaseTemplate(to, tpl, params, headerMediaUrl);
     } catch (error) {
       console.error('Supabase receipt template failed, falling back to Facebook API:', error.message);
     }
   }
 
   if (headerMediaUrl) {
-    return sendWithHeaderMedia(to, config.receiptTemplate, params, headerMediaUrl);
+    return sendWithHeaderMedia(to, tpl, params, headerMediaUrl);
   }
-  return sendTemplateMessage(to, config.receiptTemplate, params);
+  return sendTemplateMessage(to, tpl, params);
 }
 
 export async function sendNgoInfoTemplate(to, name) {

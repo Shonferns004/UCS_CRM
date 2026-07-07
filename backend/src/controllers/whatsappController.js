@@ -16,7 +16,7 @@ export async function test(req, res) {
 export async function sendReceipt(req, res) {
   try {
     const { logId } = req.params;
-    const { mobile, number, pdfBase64, receiptNo: clientReceiptNo, donorName: clientDonorName, amount: clientAmount } = req.body;
+    const { mobile, number, pdfBase64, receiptNo: clientReceiptNo, donorName: clientDonorName, amount: clientAmount, templateName } = req.body;
     const phone = mobile || number;
 
     if (!phone) return res.status(400).json({ message: 'Donor phone number is required' });
@@ -108,7 +108,7 @@ export async function sendReceipt(req, res) {
       }
     }
 
-    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, documentUrl);
+    const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, documentUrl, templateName);
 
     return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, uploadError: uploadErrorMsg });
   } catch (error) {
