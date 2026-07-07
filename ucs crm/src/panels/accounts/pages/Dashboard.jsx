@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { apiGet } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
@@ -90,6 +91,32 @@ export default function Dashboard() {
 
   useEffect(() => { setPage(0); }, [searchQuery, statusFilter]);
 
+  const exportVerifiedToExcel = () => {
+    const verified = allLeads.filter(l => l.accounts_status === 'verified');
+    if (verified.length === 0) return;
+
+    const rows = verified.map(l => ({
+      'Donor Name': l.donor_name || '',
+      'Address 1': l.donor_address || '',
+      'PAN No.': l.donor_pan || '',
+      'Email ID': l.donor_email || '',
+      'Mode of Payment (MOP)': l.payment_mode || '',
+      'Payment ID No.': l.upi_transaction_id || '',
+      'Donor Bank Name': '',
+      'Amount': l.amount || 0,
+      'Receipt No.': l.receipt_no || '',
+      'Receipt Date': l.verified_at || l.transaction_date || '',
+      'Account Of': 'Corpus',
+      'Mobile No.': l.donor_mobile || '',
+      'City': l.donor_city || '',
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Verified Leads');
+    XLSX.writeFile(wb, `verified_leads_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   if (viewingId) {
     return <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); }} />;
   }
@@ -117,6 +144,11 @@ export default function Dashboard() {
             <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
             <option value="">All ({allLeads.length})</option>
           </select>
+          {statusFilter === 'verified' && allLeads.filter(l => l.accounts_status === 'verified').length > 0 && (
+            <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={exportVerifiedToExcel}>
+              {'\u2913'} Export Verified
+            </button>
+          )}
         </div>
         <div className="table-wrap">
           <table>
