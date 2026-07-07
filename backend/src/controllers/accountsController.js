@@ -625,6 +625,82 @@ export const getReceiptList = async (req, res) => {
   }
 };
 
+export const getPendingReceipts = async (req, res) => {
+  try {
+    const { data: receipts, error: recError } = await supabase
+      .from('receipts')
+      .select('*')
+      .or('sent.is.null,sent.eq.false')
+      .order('created_at', { ascending: false });
+
+    if (recError) throw recError;
+    if (!receipts || receipts.length === 0) return res.json([]);
+
+    const logIds = receipts.map(r => r.log_id).filter(Boolean);
+
+    const { data: logs, error: logErr } = await supabase
+      .from('fro_donor_logs')
+      .select(`
+        id, amount_collected, verified_at, upi_transaction_id, transaction_datetime, payment_from, payment_mode,
+        fro_assignments!inner(
+          donor_id,
+          donor_profiles!inner(id, name, mobile_number, city, email, pan_number, address_1, project_supported)
+        )
+      `)
+      .in('id', logIds);
+
+    if (logErr) throw logErr;
+
+    const logMap = {};
+    for (const l of logs || []) logMap[l.id] = l;
+
+    const result = receipts.map(r => {
+      const log = logMap[r.log_id];
+      const donor = log?.fro_assignments?.donor_profiles;
+      return {
+        'Donor Name': r.donor_name || donor?.name || '',
+        'Address 1': r.address || donor?.address_1 || '',
+        'PAN No.': r.pan_number || donor?.pan_number || '',
+        'Email ID': donor?.email || '',
+        'Mode of Payment (MOP)': log?.payment_mode || r.mode || '',
+        'Payment ID No.': log?.upi_transaction_id || '',
+        'Donor Bank Name': '',
+        'Amount': String(r.amount || 0),
+        'Receipt No.': r.receipt_no || '',
+        'Receipt Date': r.receipt_date || log?.verified_at || '',
+        'Account Of': 'Corpus',
+        'Mobile No.': r.donor_mobile || donor?.mobile_number || '',
+        'City': donor?.city || '',
+        receipt_id: r.id,
+        sent: r.sent || false,
+        log_id: r.log_id,
+      };
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const markReceiptAsSent = async (req, res) => {
+  try {
+    const { receiptNo } = req.body;
+    if (!receiptNo) return res.status(400).json({ message: 'receiptNo is required' });
+
+    const { data, error } = await supabase
+      .from('receipts')
+      .update({ sent: true, sent_at: new Date().toISOString() })
+      .eq('receipt_no', receiptNo)
+      .select();
+
+    if (error) throw error;
+    return res.json({ success: true, data });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorHistory = async (req, res) => {
   try {
     const { donorId } = req.params;
