@@ -179,7 +179,6 @@ export default function Workers({ onSelect, onOffboard }) {
 
   const handleOffboard = async (e, worker) => {
     e.stopPropagation();
-    if (!confirm(`Delete ${worker.name} permanently?`)) return;
     try {
       await removeWorker(worker.id);
       setWorkers(prev => prev.filter(w => w.id !== worker.id));

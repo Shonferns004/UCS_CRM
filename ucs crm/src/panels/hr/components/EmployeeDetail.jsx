@@ -179,7 +179,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete ${worker.name || 'this employee'} permanently?`)) return;
     try {
       await removeWorker(worker.id);
       onBack();
