@@ -68,9 +68,6 @@ export default function Letters() {
     if (!w) return;
     const result = build(type, w);
     setOut({ ...result, type });
-    if (type === 'Offer letter') {
-      generatePdf(result.body);
-    }
   };
 
   const copy = () => out && navigator.clipboard?.writeText(`${out.body}`);
@@ -99,8 +96,11 @@ export default function Letters() {
             <div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
             <div style={{ color:'var(--ink-soft)', fontSize:12, marginBottom:18 }}>{out.today}</div>
             {out.body}
-            <div style={{ marginTop:18 }}>
+            <div style={{ marginTop:18, display:'flex', gap:8 }}>
               <button className="btn btn-sm" onClick={copy}>Copy text</button>
+              {out.type === 'Offer letter' && (
+                <button className="btn btn-sm" onClick={() => generatePdf(out.body)} style={{ background:'var(--primary)', color:'#fff' }}>Generate PDF</button>
+              )}
             </div>
           </div>
         )}
