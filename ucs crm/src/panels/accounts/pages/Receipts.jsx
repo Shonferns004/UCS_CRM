@@ -9,11 +9,28 @@ import BulkProgressModal from '../components/BulkProgressModal'
 import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
 
-const PROJECTS = [
-  { value: 'manncar', label: 'Mann Care Foundation' },
-  { value: 'ashray', label: 'Ashray For Life Foundation' },
-  { value: 'beingsevak', label: 'Being Sevak Charitable Trust' },
-]
+const NGO_MAP = {
+  bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en_US' },
+  maan: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
+  aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'aflf_receipt', metaLang: 'en' },
+}
+
+function getNgoSettings(project) {
+  const saved = localStorage.getItem('receipt_template_settings')
+  const defaults = NGO_MAP[project] || NGO_MAP.bsct
+  if (!saved) return defaults
+  try {
+    const overrides = JSON.parse(saved)
+    const o = overrides[project]
+    if (!o) return defaults
+    return {
+      label: defaults.label,
+      comp: NGO_MAP[o.receiptDesign]?.comp || defaults.comp,
+      metaTemplate: o.metaTemplate || defaults.metaTemplate,
+      metaLang: o.metaLang || defaults.metaLang,
+    }
+  } catch { return defaults }
+}
 
 const TARGET_COLUMNS = [
   { key: 'Donor Name', aliases: ['Donor Name'] },
@@ -28,6 +45,7 @@ const TARGET_COLUMNS = [
   { key: 'Receipt Date', aliases: ['Receipt Date', 'Reciept Date', 'Donation Date'] },
   { key: 'Account Of', aliases: ['Account Of', 'Account of'] },
   { key: 'Mobile No.', aliases: ['Mobile No.', 'Mobile', 'Phone', 'Phone No.', 'Contact No.', 'Cell'] },
+  { key: 'Project', aliases: ['Project', 'NGO', 'project_supported'] },
 ]
 
 const MANDATORY = ['Donor Name', 'Amount', 'Receipt No.']
@@ -133,6 +151,7 @@ function ExcelUpload({ onDataLoaded }) {
           const rn = entry['Receipt No.']
           entry._duplicate = rn ? seen.has(rn) : false
           if (rn && !entry._duplicate) seen.add(rn)
+          if (!entry['Project']) entry['Project'] = 'bsct'
           return entry
         })
         if (donors.length === 0) { setError('No valid rows found'); setLoading(false); return }
@@ -184,7 +203,6 @@ function ExcelUpload({ onDataLoaded }) {
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
-  const [project, setProject] = useState('manncar')
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [downloadAll, setDownloadAll] = useState(false)
   const receiptRef = useRef(null)
@@ -198,13 +216,12 @@ export default function Receipts() {
   const [confirmBulk, setConfirmBulk] = useState({ visible:false, donorCount:0 })
   const [loadingDb, setLoadingDb] = useState(false)
 
-  const currentProject = PROJECTS.find(p => p.value === project)
-
   const handleDataLoaded = useCallback((data) => { setDonors(data); setSelectedIndex(null) }, [])
 
   const loadFromDatabase = useCallback(async () => {
     setLoadingDb(true)
     try {
+      const { apiGet } = await import('../api/auth')
       const data = await apiGet('/accounts/receipts/pending')
       setDonors(data)
       setSelectedIndex(null)
@@ -222,8 +239,10 @@ export default function Receipts() {
   const handleDownloadSingle = async () => {
     if (selectedIndex == null) return
     setDownloadSingle(true)
-    try { await downloadSinglePDF(receiptRef.current, donors[selectedIndex], project) }
-    catch (e) { alert('Failed to download PDF: ' + e.message) }
+    try {
+      const donor = donors[selectedIndex]
+      await downloadSinglePDF(receiptRef.current, donor, donor['Project'] || 'bsct')
+    } catch (e) { alert('Failed to download PDF: ' + e.message) }
     setDownloadSingle(false)
   }
 
@@ -231,7 +250,7 @@ export default function Receipts() {
     setDownloadAll(true)
     try {
       const elements = Array.from(document.querySelectorAll('[data-receipt-batch]'))
-      await downloadAllPDFs(elements.map((el, i) => ({ element: el, donor: donors[i] })), project)
+      await downloadAllPDFs(elements.map((el, i) => ({ element: el, donor: donors[i] })), 'all')
     } catch (e) { alert('Failed to download ZIP: ' + e.message) }
     setDownloadAll(false)
   }
@@ -252,6 +271,8 @@ export default function Receipts() {
       const receiptNo = donor['Receipt No.'] || 'N/A'
       const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
       if (phone.length < 10) throw new Error('Invalid phone')
+      const ngo = donor['Project'] || 'bsct'
+      const tpl = getNgoSettings(ngo)
 
       let pdfBase64 = null
       const el = document.querySelector(`[data-receipt-batch="${index}"]`)
@@ -264,7 +285,8 @@ export default function Receipts() {
         to: phone, pdfBase64, receiptNo,
         donorName: donor['Donor Name'],
         amount: donor['Amount'],
-        templateName: 'bsct_receipt',
+        templateName: tpl.metaTemplate,
+        templateLang: tpl.metaLang,
       })
       try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
       showToast('success', `Sent to ${donor['Donor Name']}`)
@@ -300,6 +322,8 @@ export default function Receipts() {
         const receiptNo = donor['Receipt No.'] || 'N/A'
         const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
         if (phone.length < 10) throw new Error('Invalid phone')
+        const ngo = donor['Project'] || 'bsct'
+        const tpl = getNgoSettings(ngo)
 
         let pdfBase64 = null
         const realIndex = donors.indexOf(donor)
@@ -311,12 +335,11 @@ export default function Receipts() {
 
         try {
           await apiPost('/whatsapp/send-direct', {
-            to: phone,
-            pdfBase64,
-            receiptNo,
+            to: phone, pdfBase64, receiptNo,
             donorName: donor['Donor Name'],
             amount: donor['Amount'],
-            templateName: 'bsct_receipt',
+            templateName: tpl.metaTemplate,
+            templateLang: tpl.metaLang,
           })
           try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
         } catch (e) {
@@ -336,28 +359,19 @@ export default function Receipts() {
       }))
     }
     setBulkState(prev => ({ ...prev, active:false }))
-    if (totalFailed > 0 && totalSent === 0 && batchErrors.length > 0) {
+    if (totalFailed > 0 && totalSent === 0 && allErrors.length > 0) {
       alert('All sends failed!\n\nFirst error:\n' + allErrors[0])
     }
     showToast(cancelBulkRef.current ? 'info' : 'success', cancelBulkRef.current ? `Cancelled. ${totalSent} sent, ${totalFailed} failed` : `Bulk send complete! ${totalSent} sent, ${totalFailed} failed`)
   }
 
   const currentDonor = selectedIndex != null ? donors?.[selectedIndex] : donors?.[0]
-  const currentIdx = selectedIndex != null ? selectedIndex : 0
-
-  const TemplateComp = project === 'manncar' ? ReceiptTemplateManncar : project === 'ashray' ? ReceiptTemplateAshray : ReceiptTemplateBeingSevak
+  const currentNgo = currentDonor?.['Project'] || 'bsct'
+  const currentTpl = getNgoSettings(currentNgo)
+  const TemplateComp = currentTpl.comp
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-pad" style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Project</h3>
-          <select className="field-input" value={project} onChange={e => setProject(e.target.value)} style={{ width:220 }}>
-            {PROJECTS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
-        </div>
-      </div>
-
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-pad" style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
           <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
@@ -401,7 +415,7 @@ export default function Receipts() {
               <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
                 <thead>
                   <tr>
-                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>Sent</th><th>Status</th><th>Action</th>
+                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>NGO</th><th>Sent</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -414,11 +428,9 @@ export default function Receipts() {
                       <td style={{ fontFamily:'monospace', fontSize:12 }}>{d['Receipt No.']}</td>
                       <td style={{ fontSize:12 }}>{formatReceiptDate(d['Receipt Date'])}</td>
                       <td style={{ fontSize:12 }}>{d['Mobile No.'] || '\u2014'}</td>
+                      <td style={{ fontSize:12 }}><span className="pill pill-gray">{d['Project'] || 'bsct'}</span></td>
                       <td style={{ textAlign:'center' }}>
                         {d.sent ? <span style={{ color:'#059669' }}>{'\u2713'}</span> : <span style={{ color:'#9ca3af' }}>{'\u2014'}</span>}
-                      </td>
-                      <td>
-                        {d._dataMissing ? <span className="pill pill-red">Missing</span> : d._duplicate ? <span className="pill pill-gray">Duplicate</span> : <span className="pill pill-green">Ready</span>}
                       </td>
                       <td style={{ display:'flex', gap:4 }}>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
@@ -437,7 +449,7 @@ export default function Receipts() {
 
           <div className="card">
             <div className="card-head">
-              <h3>Receipt Preview</h3>
+              <h3>Receipt Preview — {getNgoSettings(currentNgo).label}</h3>
               <div style={{ display:'flex', gap:8 }}>
                 {donors.length > 1 && (
                   <button className="btn btn-sm" onClick={handleDownloadAll} disabled={downloadAll}>
@@ -452,26 +464,27 @@ export default function Receipts() {
             </div>
             <div className="card-pad" style={{ overflowX:'auto', textAlign:'center' }}>
               <div ref={receiptRef} data-receipt style={{ display:'inline-block' }}>
-                {currentDonor && <TemplateComp donor={currentDonor} project={project} />}
+                {currentDonor && <TemplateComp donor={currentDonor} project={currentNgo} />}
               </div>
             </div>
             <div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
-              {donors.map((d, i) => (
-                <div key={i} data-receipt-batch={i}>
-                  {project === 'manncar' ? <ReceiptTemplateManncar donor={d} /> : project === 'ashray' ? <ReceiptTemplateAshray donor={d} project={project} /> : <ReceiptTemplateBeingSevak donor={d} />}
-                </div>
-              ))}
+              {donors.map((d, i) => {
+                const ngo = d['Project'] || 'bsct'
+                const tpl = getNgoSettings(ngo)
+                const Comp = tpl.comp
+                return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
+              })}
             </div>
             {donors.length > 1 && (
               <div className="card-pad" style={{ paddingTop:0, fontSize:12, color:'#9ca3af', textAlign:'center' }}>
-                {selectedIndex != null ? `Showing receipt for: ${currentDonor?.['Donor Name']}` : 'Select a donor from the table to preview their receipt.'}
+                {selectedIndex != null ? `Showing ${currentTpl.label} receipt for: ${currentDonor?.['Donor Name']}` : 'Select a donor from the table to preview their receipt.'}
               </div>
             )}
           </div>
         </>
       )}
 
-      <ConfirmBulkModal visible={confirmBulk.visible} donorCount={confirmBulk.donorCount} projectName={currentProject?.label} onConfirm={handleConfirmBulkSend} onCancel={() => setConfirmBulk({ visible:false, donorCount:0 })} />
+      <ConfirmBulkModal visible={confirmBulk.visible} donorCount={confirmBulk.donorCount} projectName="" onConfirm={handleConfirmBulkSend} onCancel={() => setConfirmBulk({ visible:false, donorCount:0 })} />
       <BulkProgressModal visible={bulkState.active} total={bulkState.total} sent={bulkState.sent} failed={bulkState.failed} currentBatch={bulkState.currentBatch} totalBatches={bulkState.totalBatches} results={bulkState.results} previousBatches={bulkState.previousBatches} onCancel={() => { cancelBulkRef.current = true; setBulkState(prev => ({ ...prev, cancelled:true })) }} />
       <Toast message={toast.message} type={toast.type} visible={toast.visible} onClose={hideToast} />
     </div>

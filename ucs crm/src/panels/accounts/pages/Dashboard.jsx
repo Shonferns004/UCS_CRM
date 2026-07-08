@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('pending');
+  const [ngoFilter, setNgoFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const [viewingId, setViewingId] = useState(null);
@@ -75,20 +76,22 @@ export default function Dashboard() {
   }, [leads]);
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return leads;
+    let result = leads;
+    if (ngoFilter) result = result.filter(l => l.donor_project === ngoFilter);
+    if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase();
-    return leads.filter(l =>
+    return result.filter(l =>
       (l.donor_name || '').toLowerCase().includes(q) ||
       (l.donor_mobile || '').includes(q) ||
       (l.agent_name || '').toLowerCase().includes(q)
     );
-  }, [leads, searchQuery]);
+  }, [leads, searchQuery, ngoFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
-  useEffect(() => { setPage(0); }, [searchQuery, statusFilter]);
+  useEffect(() => { setPage(0); }, [searchQuery, statusFilter, ngoFilter]);
 
   const sendToReceipts = () => {
     const verified = leads.filter(l => l.accounts_status === 'verified');
@@ -108,6 +111,7 @@ export default function Dashboard() {
       'Account Of': 'Corpus',
       'Mobile No.': l.donor_mobile || '',
       'City': l.donor_city || '',
+      'Project': l.donor_project || 'bsct',
     }));
 
     localStorage.setItem('receipts_verified_data', JSON.stringify(rows));
@@ -136,11 +140,17 @@ export default function Dashboard() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(0); }}>
             <option value="pending">Pending ({allLeads.filter(l => l.accounts_status === 'pending').length})</option>
             <option value="verified">Verified ({allLeads.filter(l => l.accounts_status === 'verified').length})</option>
             <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
             <option value="">All ({allLeads.length})</option>
+          </select>
+          <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); setPage(0); }}>
+            <option value="">All NGOs</option>
+            <option value="bsct">Being Sevak</option>
+            <option value="maan">Mann Care</option>
+            <option value="aflf">Ashray</option>
           </select>
           {statusFilter === 'verified' && leads.length > 0 && (
             <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={sendToReceipts}>
@@ -155,6 +165,7 @@ export default function Dashboard() {
                 <th>Donor</th>
                 <th>Phone</th>
                 <th>Amount</th>
+                <th>NGO</th>
                 <th>Agent</th>
                 <th>Status</th>
                 <th>Date</th>
@@ -173,6 +184,7 @@ export default function Dashboard() {
                     <td><strong>{l.donor_name}</strong></td>
                     <td style={{ fontSize: 12 }}>{l.donor_mobile}</td>
                     <td><strong style={{ color: 'var(--sage)' }}>{currency(l.amount)}</strong></td>
+                    <td style={{ fontSize: 12 }}><span className="pill pill-gray">{l.donor_project || '\u2014'}</span></td>
                     <td style={{ fontSize: 12 }}><span className="pill pill-gray">{l.agent_name}</span></td>
                     <td>
                       {l.accounts_status === 'pending' ? <span className="pill pill-yellow">Pending</span> :

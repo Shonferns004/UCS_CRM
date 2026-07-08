@@ -143,11 +143,12 @@ export async function status(req, res) {
 
 export async function sendDirect(req, res) {
   try {
-    const { to, receiptNo, donorName, amount, templateName, pdfBase64 } = req.body;
+    const { to, receiptNo, donorName, amount, templateName, templateLang, pdfBase64 } = req.body;
     if (!to) return res.status(400).json({ message: 'Phone number is required' });
 
     const phone = String(to).replace(/[^0-9]/g, '');
     const tpl = templateName || 'bsct_receipt';
+    const lang = templateLang || 'en_US';
 
     let documentUrl = null;
     if (pdfBase64) {
@@ -181,7 +182,7 @@ export async function sendDirect(req, res) {
         headers: { Authorization: `Bearer ${whatsappConfig.accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp', to: phone, type: 'template',
-          template: { name: tpl, language: { code: 'en_US' }, components },
+          template: { name: tpl, language: { code: lang }, components },
         }),
       }
     );
