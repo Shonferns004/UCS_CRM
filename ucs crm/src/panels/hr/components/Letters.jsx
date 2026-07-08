@@ -46,7 +46,7 @@ function buildExperienceLetterHTML(w, dateText, hrNameText) {
   const r = w.role || w.department || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="text-align:left;margin-bottom:12px">
-<img src="/logo/beingsevak-logo.jpeg" alt="Beingsevak" style="width:80px;height:auto" />
+<img src="/logo/beingsevak-logo.png" alt="Beingsevak" style="width:80px;height:auto" />
 </div>
 <h1 style="font-size:18px;font-weight:700;color:#000;margin:0 0 4px 0;text-align:center"># Beingsevak – Experience Letter</h1>
 <h2 style="font-size:16px;font-weight:700;color:#000;margin:0 0 12px 0;text-align:center">EXPERIENCE LETTER</h2>
