@@ -18,7 +18,9 @@ export const getLeadList = async (req, res) => {
           id,
           donor_id,
           fro_worker_id,
+          ngo_id,
           status,
+          ngos!left(id, name),
           donor_profiles!inner(id, name, mobile_number, city, pan_number, address_1, email, project_supported, donation_count, total_amount, birth_date),
           workers!inner(id, name, login_id)
         )
@@ -54,7 +56,7 @@ export const getLeadList = async (req, res) => {
       donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
       donor_address: r.fro_assignments?.donor_profiles?.address_1 || '',
       donor_email: r.fro_assignments?.donor_profiles?.email || '',
-      donor_project: r.fro_assignments?.donor_profiles?.project_supported || '',
+      donor_project: (r.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : r.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : r.fro_assignments?.ngos?.name === 'MANN' ? 'maan' : r.fro_assignments?.donor_profiles?.project_supported) || '',
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
@@ -674,6 +676,7 @@ export const getPendingReceipts = async (req, res) => {
         receipt_id: r.id,
         sent: r.sent || false,
         log_id: r.log_id,
+        project_supported: donor?.project_supported || '',
       };
     });
 
