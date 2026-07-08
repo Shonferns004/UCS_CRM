@@ -264,6 +264,7 @@ export default function Receipts() {
 
   const [sendingIndex, setSendingIndex] = useState(null)
   const [editingPhone, setEditingPhone] = useState(null)
+  const [previewIndex, setPreviewIndex] = useState(null)
 
   const updatePhone = (index, val) => {
     setDonors(prev => prev.map((d, i) => i === index ? { ...d, 'Mobile No.': val } : d))
@@ -451,7 +452,7 @@ export default function Receipts() {
                           disabled={sendingIndex === i}>
                           {sendingIndex === i ? '...' : 'Send'}
                         </button>
-                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setSelectedIndex(i) }}>Preview</button>
+                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(i) }}>Preview</button>
                       </td>
                     </tr>
                   ))}
@@ -460,40 +461,40 @@ export default function Receipts() {
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-head">
-              <h3>Receipt Preview — {getNgoSettings(currentNgo).label}</h3>
-              <div style={{ display:'flex', gap:8 }}>
-                {donors.length > 1 && (
-                  <button className="btn btn-sm" onClick={handleDownloadAll} disabled={downloadAll}>
-                    {downloadAll ? 'Packaging...' : 'Download All as ZIP'}
-                  </button>
-                )}
-                <button className="btn btn-primary btn-sm" onClick={handleDownloadSingle} disabled={downloadSingle || selectedIndex == null}>
-                  {downloadSingle ? 'Generating...' : 'Download PDF'}
-                </button>
-                <button className="btn btn-sm" onClick={handlePrint}>Print</button>
-              </div>
-            </div>
-            <div className="card-pad" style={{ overflowX:'auto', textAlign:'center' }}>
-              <div ref={receiptRef} data-receipt style={{ display:'inline-block' }}>
-                {currentDonor && <TemplateComp donor={currentDonor} project={currentNgo} />}
-              </div>
-            </div>
-            <div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
-              {donors.map((d, i) => {
-                const ngo = d['Project'] || 'bsct'
-                const tpl = getNgoSettings(ngo)
-                const Comp = tpl.comp
-                return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
-              })}
-            </div>
-            {donors.length > 1 && (
-              <div className="card-pad" style={{ paddingTop:0, fontSize:12, color:'#9ca3af', textAlign:'center' }}>
-                {selectedIndex != null ? `Showing ${currentTpl.label} receipt for: ${currentDonor?.['Donor Name']}` : 'Select a donor from the table to preview their receipt.'}
-              </div>
-            )}
+          <div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
+            {donors.map((d, i) => {
+              const ngo = d['Project'] || 'bsct'
+              const tpl = getNgoSettings(ngo)
+              const Comp = tpl.comp
+              return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
+            })}
           </div>
+
+          {previewIndex != null && donors[previewIndex] && (
+            <div className="modal-overlay" onClick={() => setPreviewIndex(null)}>
+              <div className="modal" style={{ maxWidth:850, width:'90%', maxHeight:'90vh', overflow:'auto' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>{donors[previewIndex]['Donor Name']} — {getNgoSettings(donors[previewIndex]['Project'] || 'bsct').label}</h3>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button className="btn btn-sm" onClick={() => { setPreviewIndex(null) }}>Close</button>
+                  </div>
+                </div>
+                <div className="modal-body" style={{ padding:20, overflowX:'auto', textAlign:'center' }}>
+                  {(() => {
+                    const idx = previewIndex
+                    const ngo = donors[idx]['Project'] || 'bsct'
+                    const tpl = getNgoSettings(ngo)
+                    const Comp = tpl.comp
+                    return (
+                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block' }}>
+                        <Comp donor={donors[idx]} project={ngo} />
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
