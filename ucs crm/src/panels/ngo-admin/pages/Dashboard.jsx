@@ -443,6 +443,9 @@ export default function Dashboard() {
   const [weakPerformers, setWeakPerformers] = useState([]);
   const [stationDateFrom, setStationDateFrom] = useState('');
   const [stationDateTo, setStationDateTo] = useState('');
+  const todayStr = new Date().toISOString().slice(0,10);
+  const monthStart = new Date().toISOString().slice(0,7) + '-01';
+  const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0,10);
 
   useEffect(() => {
     apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
@@ -535,6 +538,7 @@ export default function Dashboard() {
   const active_fros = Number(data.active_fros) || 0;
   const month_collection = Number(data.month_collection) || 0;
   const today_collection = Number(data.today_collection) || 0;
+  const daily_target = Number(data.daily_target) || 0;
   const verified_month_amount = Number(data.verified_month_amount) || 0;
   const verified_month_count = Number(data.verified_month_count) || 0;
   const unverified_month_amount = Number(data.unverified_month_amount) || 0;
@@ -726,6 +730,31 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {daily_target > 0 && (
+        <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span style={{ fontSize: 13, color: 'var(--ink-soft)', fontWeight: 600, flex: 1 }}>Daily Collection Target</span>
+            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Target: <strong style={{ color: 'var(--ink)' }}>₹{daily_target.toLocaleString('en-IN')}</strong></span>
+            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Collected: <strong style={{ color: '#16a34a' }}>₹{today_collection.toLocaleString('en-IN')}</strong></span>
+            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Remaining: <strong style={{ color: today_collection >= daily_target ? '#16a34a' : '#ef4444' }}>₹{Math.max(0, daily_target - today_collection).toLocaleString('en-IN')}</strong></span>
+          </div>
+          <div style={{ height: 8, borderRadius: 4, background: '#fef2f2', overflow: 'hidden' }}>
+            <div style={{
+              width: `${Math.min(100, (today_collection / daily_target) * 100)}%`,
+              height: '100%',
+              borderRadius: 4,
+              background: today_collection >= daily_target ? '#16a34a' : today_collection >= daily_target * 0.5 ? '#f59e0b' : '#ef4444',
+              transition: 'width .5s ease',
+            }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+            <span>{Math.round((today_collection / daily_target) * 100)}% achieved</span>
+            <span>{today_collection >= daily_target ? 'Target completed!' : `${Math.round(((daily_target - today_collection) / daily_target) * 100)}% remaining`}</span>
+          </div>
+        </div>
+      )}
+
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
         Verification
@@ -814,46 +843,60 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        Workforce
-      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginBottom: 20 }}>
-
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Total Workers</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Workforce</span>
             <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{total_workers}</span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>FRO workers in your NGO</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Present Today</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#22c55e' }}>{workers_present}</span>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ width: 64, height: 64, flexShrink: 0 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={[
+                    { name: 'Present', value: Math.max(0, workers_present), color: '#22c55e' },
+                    { name: 'Absent', value: Math.max(0, workers_absent), color: '#ef4444' },
+                  ]} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" startAngle={90} endAngle={-270}>
+                    <Cell fill="#22c55e" />
+                    <Cell fill="#ef4444" />
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
+                <span style={{ color: '#22c55e', fontWeight: 600 }}>Present</span>
+                <span style={{ fontWeight: 600 }}>{workers_present}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: '#ef4444', fontWeight: 500 }}>Absent</span>
+                <span style={{ fontWeight: 500, color: '#ef4444' }}>{workers_absent}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{attendance_pct}% attendance</div>
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Marked present or late</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Absent Today</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>{workers_absent}</span>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e' }}>{workers_present}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Present Today</div>
+              </div>
+              <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>{workers_absent}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Absent Today</div>
+              </div>
+              <div style={{ flex: 1, background: '#fffbeb', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#f59e0b' }}>{attendance_pct}%</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Attendance</div>
+              </div>
+            </div>
+            {total_workers > 0 && (
+              <div style={{ height: 4, borderRadius: 2, background: '#fef2f2', marginTop: 8, overflow: 'hidden' }}>
+                <div style={{ width: `${(workers_present / total_workers) * 100}%`, height: '100%', borderRadius: 2, background: '#22c55e' }} />
+              </div>
+            )}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Marked absent</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Attendance %</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>{attendance_pct}%</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Today's attendance rate</div>
         </div>
       </div>
 
@@ -906,22 +949,20 @@ export default function Dashboard() {
             <div className="card-head">
               <h3>Stations</h3>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <button onClick={() => {
-                  const d = new Date();
-                  setStationDateFrom(d.toISOString().slice(0,10));
-                  setStationDateTo(d.toISOString().slice(0,10));
-                }} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink)' }}>
+                <button onClick={() => { setStationDateFrom(todayStr); setStationDateTo(todayStr); }}
+                  style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === todayStr && stationDateTo === todayStr ? '#fff' : 'var(--ink)' }}>
                   Today
                 </button>
-                <button onClick={() => {
-                  const d = new Date();
-                  const first = new Date(d.getFullYear(), d.getMonth(), 1);
-                  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-                  setStationDateFrom(first.toISOString().slice(0,10));
-                  setStationDateTo(last.toISOString().slice(0,10));
-                }} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink)' }}>
+                <button onClick={() => { setStationDateFrom(monthStart); setStationDateTo(monthEnd); }}
+                  style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === monthStart && stationDateTo === monthEnd ? '#fff' : 'var(--ink)' }}>
                   Monthly
                 </button>
+                {(stationDateFrom || stationDateTo) && (
+                  <button onClick={() => { setStationDateFrom(''); setStationDateTo(''); }}
+                    style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink-soft)' }}>
+                    Clear
+                  </button>
+                )}
                 <span style={{ fontSize:12, color:'var(--ink-soft)', fontWeight:500 }}>From</span>
                 <input type="date" value={stationDateFrom} onChange={e => setStationDateFrom(e.target.value)}
                   style={{ fontSize:12, padding:'4px 8px', border:'1px solid var(--line)', borderRadius:6, fontFamily:'inherit', outline:'none', background:'var(--bg)', color:'var(--ink)' }} />
@@ -971,22 +1012,20 @@ export default function Dashboard() {
           <div className="mobile-only" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10, padding: '0 2px' }}>
               <h3 style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>Stations</h3>
-              <button onClick={() => {
-                const d = new Date();
-                setStationDateFrom(d.toISOString().slice(0,10));
-                setStationDateTo(d.toISOString().slice(0,10));
-              }} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink)' }}>
+              <button onClick={() => { setStationDateFrom(todayStr); setStationDateTo(todayStr); }}
+                style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === todayStr && stationDateTo === todayStr ? '#fff' : 'var(--ink)' }}>
                 Today
               </button>
-              <button onClick={() => {
-                const d = new Date();
-                const first = new Date(d.getFullYear(), d.getMonth(), 1);
-                const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-                setStationDateFrom(first.toISOString().slice(0,10));
-                setStationDateTo(last.toISOString().slice(0,10));
-              }} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink)' }}>
+              <button onClick={() => { setStationDateFrom(monthStart); setStationDateTo(monthEnd); }}
+                style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === monthStart && stationDateTo === monthEnd ? '#fff' : 'var(--ink)' }}>
                 Monthly
               </button>
+              {(stationDateFrom || stationDateTo) && (
+                <button onClick={() => { setStationDateFrom(''); setStationDateTo(''); }}
+                  style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink-soft)' }}>
+                  Clear
+                </button>
+              )}
               <span style={{ fontSize:12, color:'var(--ink-soft)', fontWeight:500 }}>From</span>
               <input type="date" value={stationDateFrom} onChange={e => setStationDateFrom(e.target.value)}
                 style={{ fontSize:12, padding:'4px 8px', border:'1px solid var(--line)', borderRadius:6, fontFamily:'inherit', outline:'none', background:'var(--bg)', color:'var(--ink)' }} />

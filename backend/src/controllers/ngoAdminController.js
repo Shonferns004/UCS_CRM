@@ -345,6 +345,33 @@ export const getTargets = async (req, res) => {
   }
 };
 
+export const getDailyTarget = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0) return res.json({ daily_target: 0 });
+    const { data: ngo } = await supabase.from('ngos').select('daily_collection_target').eq('id', ngoIds[0]).single();
+    return res.json({ daily_target: ngo ? Number(ngo.daily_collection_target) || 0 : 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setDailyTarget = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO access' });
+    const { daily_target } = req.body;
+    const target = Number(daily_target) || 0;
+    const { data, error } = await supabase.from('ngos').update({ daily_collection_target: target }).eq('id', ngoIds[0]).select('daily_collection_target').single();
+    if (error) throw error;
+    return res.json({ daily_target: Number(data.daily_collection_target) || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDashboard = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
@@ -536,6 +563,13 @@ export const getDashboard = async (req, res) => {
       }
     }
 
+    const primaryNgoId = ngoIds[0];
+    let daily_target = 0;
+    if (primaryNgoId) {
+      const { data: ngo } = await supabase.from('ngos').select('daily_collection_target').eq('id', primaryNgoId).single();
+      if (ngo) daily_target = Number(ngo.daily_collection_target) || 0;
+    }
+
     return res.json({
       total_donors: totalDonors.length,
       assigned_donors: assignedCount,
@@ -546,6 +580,7 @@ export const getDashboard = async (req, res) => {
       stations_per_ngo: stationsPerNgo,
       month_collection: monthCollection,
       today_collection: todayCollection,
+      daily_target,
       total_workers: activeFroCount,
       workers_present: workersPresent,
       workers_absent: workersAbsent,

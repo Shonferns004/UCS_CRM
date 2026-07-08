@@ -48,3 +48,24 @@ export const deleteNgo = async (id) => {
   if (error) throw error;
   return { message: 'NGO deleted successfully' };
 };
+
+export const getDailyCollectionTarget = async (ngoId) => {
+  const { data, error } = await supabase
+    .from('ngos')
+    .select('daily_collection_target')
+    .eq('id', ngoId)
+    .single();
+  if (error) return 0;
+  return Number(data.daily_collection_target) || 0;
+};
+
+export const setDailyCollectionTarget = async (ngoId, target) => {
+  const { data, error } = await supabase
+    .from('ngos')
+    .update({ daily_collection_target: target })
+    .eq('id', ngoId)
+    .select('daily_collection_target')
+    .single();
+  if (error) throw error;
+  return Number(data.daily_collection_target) || 0;
+};
