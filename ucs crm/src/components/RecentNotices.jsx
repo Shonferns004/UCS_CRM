@@ -2,19 +2,38 @@ import { useState, useEffect } from 'react'
 
 const BASE = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
 
+const TARGET_LABELS = {
+  all: null,
+  admin: 'NGO Admin',
+  accounts: 'Accounts',
+  hr: 'HR',
+  recruiter: 'Recruiter',
+  fro: 'FRO',
+  event_head: 'Event Head',
+}
+
 function getToken() {
   try { return localStorage.getItem('ucs_token') } catch { return null }
+}
+
+function getRole() {
+  try {
+    const u = localStorage.getItem('ucs_user')
+    if (u) return JSON.parse(u).role
+  } catch { return null }
 }
 
 export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
   const [notices, setNotices] = useState([])
   const [loading, setLoading] = useState(true)
+  const role = getRole()
 
   useEffect(() => {
     const token = getToken()
     if (!token) { setLoading(false); return }
 
-    fetch(`${BASE}/notices`, {
+    const params = role ? `?target_role=${role}` : ''
+    fetch(`${BASE}/notices${params}`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
@@ -23,7 +42,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [limit])
+  }, [limit, role])
 
   if (loading) return null
 
@@ -60,7 +79,17 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
                 </span>
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1E3A5F' }}>{n.title}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1E3A5F', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {n.title}
+                  {TARGET_LABELS[n.target_role] && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+                      background: '#DBEAFE', color: '#2563EB', whiteSpace: 'nowrap',
+                    }}>
+                      {TARGET_LABELS[n.target_role]}
+                    </span>
+                  )}
+                </div>
                 {n.content && (
                   <div style={{ fontSize: 11, color: '#475569', marginTop: 2, lineHeight: 1.4 }}>
                     {n.content.length > 100 ? n.content.slice(0, 100) + '\u2026' : n.content}

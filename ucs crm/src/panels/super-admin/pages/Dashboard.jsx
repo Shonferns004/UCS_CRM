@@ -1313,8 +1313,18 @@ function NgoQuickModal({ ngoName, onClose, froLiveData, froAssignments, ngoUserC
 }
 
 /* ================= CREATE NOTICE MODAL ================= */
+const TARGET_ROLES = [
+  { value: 'all', label: 'All Panels', color: '#3B82F6' },
+  { value: 'admin', label: 'NGO Admin', color: '#F59E0B' },
+  { value: 'accounts', label: 'Accounts', color: '#8B5CF6' },
+  { value: 'hr', label: 'HR', color: '#6366F1' },
+  { value: 'recruiter', label: 'Recruiter', color: '#10B981' },
+  { value: 'fro', label: 'FRO', color: '#EC4899' },
+  { value: 'event_head', label: 'Event Head', color: '#3B82F6' },
+]
+
 function CreateNoticeModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ title: '', content: '' })
+  const [form, setForm] = useState({ title: '', content: '', target_role: 'all' })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -1344,6 +1354,26 @@ function CreateNoticeModal({ onClose, onCreated }) {
           <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
             Content
             <textarea rows={4} value={form.content} onChange={e => setForm({...form, content: e.target.value})} placeholder="Write your notice..." style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none', resize: 'vertical' }} />
+          </label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>visibility</span>
+              Show to
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {TARGET_ROLES.map(r => (
+                <div key={r.value} onClick={() => setForm({...form, target_role: r.value})} style={{
+                  padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                  border: `1.5px solid ${form.target_role === r.value ? r.color : '#e2e8f0'}`,
+                  background: form.target_role === r.value ? `${r.color}15` : '#fff',
+                  color: form.target_role === r.value ? r.color : '#94a3b8',
+                  transition: 'all 0.15s',
+                  fontFamily: 'inherit',
+                }}>
+                  {r.label}
+                </div>
+              ))}
+            </div>
           </label>
         </div>
         <div className="nd-modal-actions" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #e2e8f0' }}>
