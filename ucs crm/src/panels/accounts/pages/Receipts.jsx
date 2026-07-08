@@ -244,6 +244,36 @@ export default function Receipts() {
     setTimeout(() => pw.print(), 500)
   }
 
+  const [sendingIndex, setSendingIndex] = useState(null)
+
+  const handleSendSingle = async (donor, index) => {
+    setSendingIndex(index)
+    try {
+      const receiptNo = donor['Receipt No.'] || 'N/A'
+      const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
+      if (phone.length < 10) throw new Error('Invalid phone')
+
+      let pdfBase64 = null
+      const el = document.querySelector(`[data-receipt-batch="${index}"]`)
+      if (el) {
+        const pdf = await generateReceiptPDF(el)
+        pdfBase64 = pdf.output('datauristring').split(',')[1]
+      }
+
+      await apiPost('/whatsapp/send-direct', {
+        to: phone, pdfBase64, receiptNo,
+        donorName: donor['Donor Name'],
+        amount: donor['Amount'],
+        templateName: 'bsct_receipt',
+      })
+      try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
+      showToast('success', `Sent to ${donor['Donor Name']}`)
+    } catch (e) {
+      showToast('error', e.message)
+    }
+    setSendingIndex(null)
+  }
+
   const handleSendAllWhatsApp = () => {
     const valid = getValidDonors()
     if (valid.length === 0) { showToast('error', 'No donors with valid mobile numbers'); return }
@@ -390,7 +420,12 @@ export default function Receipts() {
                       <td>
                         {d._dataMissing ? <span className="pill pill-red">Missing</span> : d._duplicate ? <span className="pill pill-gray">Duplicate</span> : <span className="pill pill-green">Ready</span>}
                       </td>
-                      <td>
+                      <td style={{ display:'flex', gap:4 }}>
+                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
+                          onClick={e => { e.stopPropagation(); handleSendSingle(d, i) }}
+                          disabled={sendingIndex === i}>
+                          {sendingIndex === i ? '...' : 'Send'}
+                        </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setSelectedIndex(i) }}>Preview</button>
                       </td>
                     </tr>

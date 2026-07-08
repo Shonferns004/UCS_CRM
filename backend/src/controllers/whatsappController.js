@@ -154,7 +154,12 @@ export async function sendDirect(req, res) {
       try {
         const buffer = Buffer.from(pdfBase64, 'base64');
         const fileName = `receipts/${receiptNo || Date.now()}.pdf`;
-        const { error: upErr } = await supabase.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+        let { error: upErr } = await supabase.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+        if (upErr && upErr.message?.includes('bucket')) {
+          await supabase.storage.createBucket('receipts', { public: true });
+          const retry = await supabase.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+          upErr = retry.error;
+        }
         if (!upErr) {
           const { data: pub } = supabase.storage.from('receipts').getPublicUrl(fileName);
           documentUrl = pub?.publicUrl || null;
