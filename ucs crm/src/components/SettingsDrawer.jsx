@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector }) {
+export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector, navItems }) {
   const [view, setView] = useState(null);
+  const navigate = useNavigate();
 
   if (!open) return null;
 
@@ -62,6 +64,15 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
                   <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
                 </div>
               )}
+              {navItems && navItems.map((item, i) => (
+                <div key={i} onClick={() => { navigate(item.path); onClose(); setView(null); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                  {item.icon}
+                  <span>{item.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
+                </div>
+              ))}
               {selector}
             </>
           )}

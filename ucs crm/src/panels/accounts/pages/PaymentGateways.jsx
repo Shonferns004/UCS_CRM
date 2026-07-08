@@ -272,26 +272,31 @@ function RazorpayAccountsManager({ onAccountsChange }) {
 export default function PaymentGateways() {
   const [log, setLog] = useState([]);
   const [counts, setCounts] = useState({});
+  const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filterGateway, setFilterGateway] = useState('');
+  const [filterAccount, setFilterAccount] = useState('');
 
   async function loadData() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filterGateway) params.set('gateway', filterGateway);
-      const [logRes, statusRes] = await Promise.allSettled([
+      if (filterAccount) params.set('account_id', filterAccount);
+      const [logRes, statusRes, accRes] = await Promise.allSettled([
         apiGet('/webhooks/log?' + params.toString()),
         apiGet('/webhooks/status'),
+        apiGet('/webhooks/razorpay/accounts'),
       ]);
       if (logRes.status === 'fulfilled') setLog(logRes.value || []);
       if (statusRes.status === 'fulfilled') setCounts(statusRes.value.counts || {});
+      if (accRes.status === 'fulfilled') setAccounts(accRes.value || []);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadData(); }, [filterGateway]);
+  useEffect(() => { loadData(); }, [filterGateway, filterAccount]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -351,7 +356,7 @@ export default function PaymentGateways() {
         </div>
       </div>
 
-      <RazorpayAccountsManager onAccountsChange={loadData} />
+      <RazorpayAccountsManager onAccountsChange={() => loadData()} />
 
       <div className="card">
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -372,6 +377,42 @@ export default function PaymentGateways() {
             {syncing ? 'Syncing...' : 'Sync Default'}
           </button>
         </div>
+
+        {accounts.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--line)', overflowX: 'auto', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap', marginRight: 2 }}>Account:</span>
+            <button
+              onClick={() => setFilterAccount('')}
+              style={{
+                fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                background: !filterAccount ? 'var(--sage)' : 'transparent',
+                color: !filterAccount ? '#fff' : 'var(--ink)',
+                borderColor: !filterAccount ? 'var(--sage)' : 'var(--line)',
+                fontWeight: !filterAccount ? 600 : 500,
+              }}>
+              All
+            </button>
+            {accounts.map(acc => {
+              const active = String(filterAccount) === String(acc.id);
+              return (
+                <button key={acc.id}
+                  onClick={() => setFilterAccount(acc.id)}
+                  style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: active ? 'var(--sage)' : acc.is_active ? '#0d948808' : 'transparent',
+                    color: active ? '#fff' : '#374151',
+                    borderColor: active ? 'var(--sage)' : acc.is_active ? '#0d948840' : 'var(--line)',
+                    fontWeight: active ? 600 : 500,
+                    opacity: acc.is_active ? 1 : 0.55,
+                  }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: acc.is_active ? '#059669' : '#d1d5db', flexShrink: 0 }} />
+                  {acc.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="table-wrap">
           <table>
