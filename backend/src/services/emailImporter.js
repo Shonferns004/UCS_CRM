@@ -187,12 +187,15 @@ async function pollSingleAccount(account, sources, fromDate) {
 
     let messages;
     try {
-      messages = await client.search({ seen: false });
-      console.log(`[emailImporter] ${account.name}: unseen emails found: ${messages?.length}`);
-      if (!messages || messages.length === 0) {
-        messages = await client.search({ seen: true });
-        console.log(`[emailImporter] ${account.name}: seen emails found: ${messages?.length}`);
-      }
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      threeDaysAgo.setHours(0, 0, 0, 0);
+
+      const unseen = await client.search({ seen: false, receivedAfter: threeDaysAgo });
+      const seen = await client.search({ seen: true, receivedAfter: threeDaysAgo });
+      const merged = new Set([...(unseen || []), ...(seen || [])]);
+      messages = [...merged].sort((a, b) => b - a);
+      console.log(`[emailImporter] ${account.name}: last 3 days, unseen=${unseen?.length}, seen=${seen?.length}, total=${messages.length}`);
     } catch (searchErr) {
       console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
       messages = [];
