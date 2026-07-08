@@ -345,6 +345,15 @@ export const getDashboard = async (req, res) => {
       if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
     }
 
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
     const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
@@ -374,7 +383,7 @@ export const getDashboard = async (req, res) => {
 
     // Batch all collection stats in a single query
     const workerIds = froWorkers.map(w => w.id);
-    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString());
+    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
     let monthCollection = 0;
     for (const w of froWorkers) {
@@ -1059,6 +1068,15 @@ export const getStationStats = async (req, res) => {
     if (ngoNames.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) {
+        ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
     }
 
     if (ngoIds.length === 0) return res.json({ stations: {}, summary: {} });
