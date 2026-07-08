@@ -131,10 +131,10 @@ export const getDonors = async (req, res) => {
         if (assignIds.length > 0) {
           const { data: logs } = await supabase
             .from('fro_donor_logs')
-            .select('amount_collected, transaction_datetime, assignment_id')
+            .select('amount_collected, created_at, assignment_id')
             .in('assignment_id', assignIds)
             .not('amount_collected', 'is', null)
-            .order('transaction_datetime', { ascending: false, nullsLast: true });
+            .order('created_at', { ascending: false });
           const assignToDonor = {};
           for (const a of assignments || []) assignToDonor[a.id] = a.donor_id;
           for (const log of logs || []) {
@@ -142,7 +142,7 @@ export const getDonors = async (req, res) => {
             if (did && (latestTxMap[did] == null)) {
               latestTxMap[did] = {
                 amount: Number(log.amount_collected) || 0,
-                date: log.transaction_datetime?.slice(0, 10),
+                date: log.created_at?.slice(0, 10),
               };
             }
           }
@@ -153,7 +153,8 @@ export const getDonors = async (req, res) => {
     const paginatedData = paginatedSlice.map(d => {
       let best = { amount: 0, date: null };
       for (const did of (d.donor_ids || [])) {
-        if (latestTxMap[did] && latestTxMap[did].amount > best.amount) best = latestTxMap[did];
+        const entry = latestTxMap[did];
+        if (entry && (!best.date || entry.date > best.date)) best = entry;
       }
       return {
         ...d,
