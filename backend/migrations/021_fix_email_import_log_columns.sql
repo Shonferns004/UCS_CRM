@@ -18,7 +18,14 @@ ALTER TABLE email_import_log ADD COLUMN IF NOT EXISTS seen BOOLEAN DEFAULT false
 ALTER TABLE email_import_log ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 -- Unique constraint on email_message_id (needed for dedup)
-ALTER TABLE email_import_log ADD CONSTRAINT IF NOT EXISTS email_import_log_email_message_id_key UNIQUE (email_message_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'email_import_log_email_message_id_key'
+  ) THEN
+    ALTER TABLE email_import_log ADD CONSTRAINT email_import_log_email_message_id_key UNIQUE (email_message_id);
+  END IF;
+END $$;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_email_import_log_status ON email_import_log(status);
