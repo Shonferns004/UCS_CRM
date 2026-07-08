@@ -512,12 +512,16 @@ export const getDashboard = async (req, res) => {
       if (ngo) ngoIdToName[req.user.ngo_id] = ngo.name;
     }
 
-    const froPerNgo = {};
-    for (const ngoId of origNgoIds) {
-      const workers = await getFroWorkersByNgo(ngoId);
-      const name = ngoIdToName[ngoId] || 'Unknown';
-      if (!froPerNgo[name]) froPerNgo[name] = 0;
-      froPerNgo[name] += workers.length;
+    let stationsPerNgo = {};
+    if (origNgoIds.length > 0) {
+      const { data: stationAssigns } = await supabase
+        .from('fro_station_assignments')
+        .select('ngo_id')
+        .in('ngo_id', origNgoIds);
+      for (const sa of stationAssigns || []) {
+        const name = ngoIdToName[sa.ngo_id] || 'Unknown';
+        stationsPerNgo[name] = (stationsPerNgo[name] || 0) + 1;
+      }
     }
 
     return res.json({
@@ -527,7 +531,7 @@ export const getDashboard = async (req, res) => {
       active_fros: activeFroCount,
       total_fro_workers: froWorkers.length,
       assigned_fro_count: assignedFroCount,
-      fro_per_ngo: froPerNgo,
+      stations_per_ngo: stationsPerNgo,
       month_collection: monthCollection,
       today_collection: todayCollection,
       total_workers: activeFroCount,
@@ -949,44 +953,26 @@ export const removeStationByName = async (req, res) => {
 
 export const createStationHandler = async (req, res) => {
   try {
-    const { station, ngo_ids } = req.body;
+    const { station, ngo_id } = req.body;
     if (!station) {
       return res.status(400).json({ message: 'station name is required' });
     }
 
     const stationName = station.trim();
-    const records = [];
 
-    if (ngo_ids && ngo_ids.length > 0) {
-      for (const ngo_id of ngo_ids) {
-        const { data: existing } = await supabase
-          .from('fro_station_assignments')
-          .select('id')
-          .eq('station', stationName)
-          .eq('ngo_id', ngo_id)
-          .maybeSingle();
-        if (existing) continue;
-        records.push({ station: stationName, ngo_id, assigned_by: req.user.id });
-      }
-    } else {
-      const { data: existing } = await supabase
-        .from('fro_station_assignments')
-        .select('id')
-        .eq('station', stationName)
-        .is('ngo_id', null)
-        .maybeSingle();
-      if (!existing) {
-        records.push({ station: stationName, ngo_id: null, assigned_by: req.user.id });
-      }
-    }
-
-    if (records.length === 0) {
+    const { data: existing } = await supabase
+      .from('fro_station_assignments')
+      .select('id')
+      .eq('station', stationName)
+      .eq('ngo_id', ngo_id || null)
+      .maybeSingle();
+    if (existing) {
       return res.json({ message: 'already exists' });
     }
 
     const { data, error } = await supabase
       .from('fro_station_assignments')
-      .insert(records)
+      .insert([{ station: stationName, ngo_id: ngo_id || null, assigned_by: req.user.id }])
       .select();
     if (error) throw error;
     return res.json(data);
@@ -998,16 +984,13 @@ export const createStationHandler = async (req, res) => {
 export const updateStationNgos = async (req, res) => {
   try {
     const { station } = req.params;
-    const { ngo_ids, fro_worker_id } = req.body;
-    if (!ngo_ids || !Array.isArray(ngo_ids)) {
-      return res.status(400).json({ message: 'ngo_ids array is required' });
-    }
+    const { ngo_id, fro_worker_id } = req.body;
 
     const access = await getUserNgoAccess(req.user.id);
     const allowedNgoIds = new Set(access.map(a => a.ngo_id));
 
-    // Only allow assigning NGOs the user has access to
-    const validNgoIds = ngo_ids.filter(id => allowedNgoIds.has(id));
+    // Verify the NGO is accessible
+    const validNgoId = ngo_id && allowedNgoIds.has(ngo_id) ? ngo_id : null;
 
     // Delete all existing rows for this station (including null-ngo)
     const { error: delErr } = await supabase
@@ -1016,28 +999,18 @@ export const updateStationNgos = async (req, res) => {
       .eq('station', station.trim());
     if (delErr) throw delErr;
 
-    // If no NGOs selected, station becomes unassigned
-    if (validNgoIds.length === 0) {
-      const { error: insErr } = await supabase
-        .from('fro_station_assignments')
-        .insert([{ station: station.trim(), assigned_by: req.user.id, fro_worker_id: fro_worker_id || null }]);
-      if (insErr) throw insErr;
-      return res.json({ message: 'Station NGOs cleared' });
-    }
-
-    // Insert new assignments for selected NGOs
-    const rows = validNgoIds.map(ngo_id => ({
-      ngo_id,
-      station: station.trim(),
-      assigned_by: req.user.id,
-      fro_worker_id: fro_worker_id || null,
-    }));
+    // Insert single assignment
     const { error: insErr } = await supabase
       .from('fro_station_assignments')
-      .insert(rows);
+      .insert([{
+        station: station.trim(),
+        ngo_id: validNgoId,
+        assigned_by: req.user.id,
+        fro_worker_id: fro_worker_id || null,
+      }]);
     if (insErr) throw insErr;
 
-    return res.json({ message: 'Station NGOs updated' });
+    return res.json({ message: 'Station updated' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

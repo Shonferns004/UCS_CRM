@@ -540,7 +540,7 @@ export default function Dashboard() {
   const reactivated_monthly = Number(data.reactivated_monthly) || 0;
   const total_fro_workers = Number(data.total_fro_workers) || 0;
   const assigned_fro_count = Number(data.assigned_fro_count) || 0;
-  const fro_per_ngo = data.fro_per_ngo || {};
+  const stations_per_ngo = data.stations_per_ngo || {};
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = total_donors > 0 ? Math.round((assigned_donors / total_donors) * 100) : 0;
 
@@ -619,11 +619,11 @@ export default function Dashboard() {
               <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Assigned</div>
             </div>
           </div>
-          {selectedNgoId === 'all' && Object.keys(fro_per_ngo).length > 0 && (
+          {selectedNgoId === 'all' && Object.keys(stations_per_ngo).length > 0 && (
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6, textTransform:'uppercase' }}>Per NGO</div>
-              {Object.entries(fro_per_ngo).map(([name, count]) => {
-                const maxCount = Math.max(...Object.values(fro_per_ngo), 1);
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6, textTransform:'uppercase' }}>Stations per NGO</div>
+              {Object.entries(stations_per_ngo).map(([name, count]) => {
+                const maxCount = Math.max(...Object.values(stations_per_ngo), 1);
                 const pct = (count / maxCount) * 100;
                 return (
                   <div key={name} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
