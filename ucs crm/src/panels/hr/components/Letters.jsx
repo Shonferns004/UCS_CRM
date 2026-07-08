@@ -7,12 +7,48 @@ import jsPDF from 'jspdf';
 
 const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter'];
 
+function buildOfferLetterHTML(w, today) {
+  const r = w.role || w.department || 'Team Member';
+  const d = w.dept || w.department || 'General';
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.5;color:#000;background:#fff;padding:40px 50px">
+<div style="display:flex;align-items:center;margin-bottom:8px">
+<img src="/logo/ucs-logo.png" alt="UCS" style="width:75px;height:auto;margin-right:16px" />
+<div><div style="font-size:22px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.15">ULTIMATE CONSULTANT SOLUTIONS</div><div style="font-size:13px;font-weight:400;color:#0B73C4;letter-spacing:1px">(UCS)</div></div>
+</div>
+<svg width="100%" height="28" viewBox="0 0 700 28" preserveAspectRatio="none" style="display:block"><path d="M0,14 Q175,28 350,14 Q525,0 700,14 L700,28 L0,28 Z" fill="#0B73C4" /></svg>
+<div style="height:2.5px;background:#F58220;margin-bottom:22px"></div>
+<div style="text-align:center;font-size:15px;font-weight:700;color:#082F5A;margin:0 0 16px 0;text-transform:uppercase">Subject: Appointment as ${r}</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 14px 0;font-size:12px"><strong>Date:</strong> ${today}</td></tr></table>
+<div style="margin-bottom:14px"><strong>Dear ${w.name},</strong></div>
+<div style="text-align:justify">
+<p style="margin:0 0 10px 0">We are pleased to inform you that you have been selected for the position of <strong>${r}</strong> in the <strong>${d}</strong> department at <strong>Ultimate Consultant Solutions (UCS)</strong>. Your qualifications and experience impressed us, and we are confident that your skills will be a valuable addition to our team.</p>
+<p style="margin:0 0 10px 0">Your anticipated date of joining will be communicated to you shortly. You will be on a probation period of <strong>one (1) month</strong> from the date of joining, during which your performance will be closely monitored and evaluated. Upon satisfactory completion of the probation period, your appointment as a permanent employee will be confirmed by the management.</p>
+<p style="margin:0 0 10px 0">During your probation, you are required to perform all duties and responsibilities assigned to you by your Team Leader or Reporting Manager. Your training will consist of two stages: an initial basic training period of <strong>3 (three) days</strong> from the date of joining, followed by a comprehensive training period of <strong>24 (twenty-four) days</strong>. Please note that <strong>no leave will be permitted</strong> during the training period.</p>
+<p style="margin:0 0 10px 0"><u><strong>Office Timings:</strong></u> All employees are required to maintain office hours from <strong>10:00 a.m. to 7:00 p.m.</strong>, Monday through Saturday.</p>
+<p style="margin:0 0 10px 0"><u><strong>Office Guidelines:</strong></u></p>
+<ul style="margin:0 0 10px 0;padding-left:25px">
+<li style="margin-bottom:4px">Dress Code (Monday to Friday): Formals</li>
+<li style="margin-bottom:4px">Dress Code (Saturday): Casuals</li>
+<li style="margin-bottom:4px">Personal mobile phones are not permitted during working hours, except during lunch breaks.</li>
+</ul>
+<p style="margin:0 0 10px 0">All employees are expected to adhere to the highest standards of professionalism, integrity, and confidentiality. Any breach of the company's code of conduct or confidentiality policies may result in disciplinary action, including termination of employment.</p>
+<p style="margin:0 0 10px 0">Please note that during the probation period, you will not be eligible for any other monetary benefits beyond the stipulated stipend. If an employee absconds or voluntarily leaves during the training period, they will not be eligible for any training salary or compensation.</p>
+<p style="margin:0 0 10px 0">Kindly sign and return a copy of this appointment letter to confirm your acceptance of the terms and conditions outlined herein. Your appointment will be effective upon your acceptance.</p>
+<p style="margin:0 0 10px 0">Congratulations on your appointment, and welcome to the team!</p>
+</div>
+<div style="margin-top:28px"><p style="margin:0 0 4px 0">Yours sincerely,</p><p style="margin:24px 0 0 0"><strong>HR,</strong><br />{{hr_name}}<br /><strong>Ultimate Consultant Solutions (UCS)</strong></p></div>
+<div style="margin-top:36px;padding-top:10px"><svg width="100%" height="18" viewBox="0 0 700 18" preserveAspectRatio="none" style="display:block;margin-bottom:4px"><path d="M0,9 Q175,0 350,9 Q525,18 700,9 L700,18 L0,18 Z" fill="#0B73C4" /></svg><div style="height:2.5px;background:#F58220;margin-bottom:8px"></div><div style="text-align:center;font-size:10px;color:#6b7280"><strong>Regd. Address:</strong> {{company_address}}</div></div>
+</div>`;
+}
+
 function build(type, w) {
   const today = new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
+  if (type === 'Offer letter') {
+    return { today, body: buildOfferLetterHTML(w, today) };
+  }
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
-    'Offer letter': `Subject: Appointment as ${r}\nDate :-  ${new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' })}.\nDear   ${w.name},\n\nYou are pleased to inform you that you have been selected for the position of ${r} in our organization. You will be on a one-month probation period, during which your performance will be evaluated. Upon satisfactory completion of this period, your appointment as a permanent employee will be confirmed.\n\nDuring your probation, you are required to perform all duties and responsibilities assigned to you by your Team Leader. Your training will consist of two stages. The initial stage will be a basic training period of 3 days starting from the date of joining. The second stage will be 24 days of comprehensive training. Please note that no leave will be permitted during the training.\n\nAdditionally, please be informed that you will not be eligible for any other monetary benefits during this period. If an employee absconds or voluntarily leaves during the training period, they will not be eligible for the training salary.\n\nOffice Timings: All employees are required to maintain office hours from 10:00 a.m. to 7:00 p.m.\n\nOffice Guidelines:\n- Dress Code (Monday to Friday): Formals\n- Dress Code (Saturday): Casuals\n- Personal mobile phones are not permitted during working hours, except during lunch breaks.\n- Kindly sign and return a copy of this appointment letter to confirm your acceptance as a trainee.\n\nCongratulations on your appointment, and welcome to the team..!\n\nYours sincerely,\nHR,\nMS. Jigna Patel.\nULTIMATE FUNDRAYS SOLUTION\nRegd. Address:- 506, Sanjar Enclave, Bhadran Nagar,\nKandivali (West), Mumbai, Maharashtra 400067.`,
     'Experience letter': `To Whom It May Concern,\n\nThis is to certify that ${w.name} served as ${r} in our ${d} team. Throughout their time with us they were dependable, collaborative and consistently professional. We wish them every success ahead.\n\nWarm regards,\nThe People Team`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': `Dear ${w.name},\n\nThis letter is a formal note regarding recent conduct in your role as ${r}. We value your contribution and trust this can be resolved. Please treat this as an opportunity to realign with our shared expectations.\n\nRegards,\nThe People Team`,
@@ -37,8 +73,10 @@ export default function Letters() {
     if (!el) return;
     el.style.display = 'block';
     if (out?.type === 'Offer letter') {
-      el.innerHTML = '<div style="text-align:center;margin-bottom:20px"><img src="/logo/ucs-logo.png" alt="UCS Logo" style="width:140px;height:auto" /><div style="font-size:16px;font-weight:700;margin-top:20px">Ultimate Consultant Solutions</div><div style="font-size:14px;font-weight:600;margin-top:4px">OFFER LETTER</div></div>' + bodyText.replace(/\n/g, '<br>');
+      el.style.padding = '0';
+      el.innerHTML = bodyText;
     } else {
+      el.style.padding = '40px';
       el.textContent = bodyText;
     }
     await document.fonts?.ready;
@@ -76,7 +114,16 @@ export default function Letters() {
     setShowPdfBtn(true);
   };
 
-  const copy = () => out && navigator.clipboard?.writeText(`${out.body}`);
+  const copy = () => {
+    if (!out) return;
+    if (out.type === 'Offer letter') {
+      const t = document.createElement('div');
+      t.innerHTML = out.body;
+      navigator.clipboard?.writeText(t.textContent || t.innerText);
+    } else {
+      navigator.clipboard?.writeText(`${out.body}`);
+    }
+  };
 
   useEffect(() => {
     if (workers.length && !name) setName(workers[0].name);
@@ -99,16 +146,13 @@ export default function Letters() {
 
         {out && (
           <div className="letter">
-            {out.type === 'Offer letter' && (
-              <div style={{textAlign:'center', marginBottom:20}}>
-                <img src="/logo/ucs-logo.png" alt="UCS Logo" style={{width:140, height:'auto'}} />
-                <div style={{fontSize:16, fontWeight:'bold', marginTop:20}}>Ultimate Consultant Solutions</div>
-                <div style={{fontSize:14, fontWeight:600, marginTop:4}}>OFFER LETTER</div>
-              </div>
-            )}
-            <div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
+            {out.type === 'Offer letter' ? (
+              <div dangerouslySetInnerHTML={{ __html: out.body }} />
+            ) : (
+              <><div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
             <div style={{ color:'var(--ink-soft)', fontSize:12, marginBottom:18 }}>{out.today}</div>
-            {out.body}
+            {out.body}</>
+            )}
             <div style={{ marginTop:18, display:'flex', gap:8 }}>
               <button className="btn btn-sm" onClick={copy}>Copy text</button>
               {showPdfBtn && (
