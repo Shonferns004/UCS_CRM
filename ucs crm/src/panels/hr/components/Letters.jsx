@@ -36,7 +36,11 @@ export default function Letters() {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
-    el.textContent = bodyText;
+    if (out?.type === 'Offer letter') {
+      el.innerHTML = '<div style="text-align:center;margin-bottom:20px"><img src="/logo/ucs-logo.png" alt="UCS Logo" style="width:140px;height:auto" /><div style="font-size:16px;font-weight:700;margin-top:20px">Ultimate Consultant Solutions</div><div style="font-size:14px;font-weight:600;margin-top:4px">OFFER LETTER</div></div>' + bodyText.replace(/\n/g, '<br>');
+    } else {
+      el.textContent = bodyText;
+    }
     await document.fonts?.ready;
     await new Promise(r => setTimeout(r, 100));
     const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
@@ -95,6 +99,13 @@ export default function Letters() {
 
         {out && (
           <div className="letter">
+            {out.type === 'Offer letter' && (
+              <div style={{textAlign:'center', marginBottom:20}}>
+                <img src="/logo/ucs-logo.png" alt="UCS Logo" style={{width:140, height:'auto'}} />
+                <div style={{fontSize:16, fontWeight:'bold', marginTop:20}}>Ultimate Consultant Solutions</div>
+                <div style={{fontSize:14, fontWeight:600, marginTop:4}}>OFFER LETTER</div>
+              </div>
+            )}
             <div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
             <div style={{ color:'var(--ink-soft)', fontSize:12, marginBottom:18 }}>{out.today}</div>
             {out.body}
