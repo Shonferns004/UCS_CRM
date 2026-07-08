@@ -2618,47 +2618,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ---- RECENT NOTICES — scrollable, shows all ---- */}
-      <div className="nd-card nd-appear" style={{ animationDelay: '0.8s', marginBottom: 20, marginTop: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 className="nd-section-title" style={{ color: '#000' }}>Recent Notices</h3>
-          {recentNotices.length > 0 && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: '#3B82F6',
-              background: 'rgba(59,130,246,0.15)', borderRadius: 99, padding: '3px 10px',
-            }}>
-              {recentNotices.length}
-            </span>
-          )}
-        </div>
-        {recentNotices.length === 0 ? (
-          <p className="nd-muted">No recent notices</p>
-        ) : (
-          <div className={recentNotices.length > 3 ? 'nd-scroll-fade' : ''}>
-            <div className="nd-scroll-list">
-              {recentNotices.map((n, i) => (
-                <div key={n.id || i} className="nd-notice" style={{ background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
-                  <div className="nd-notice-icon" style={{ background: i % 2 === 0 ? '#3B82F6' : '#60A5FA' }}>
-                    <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 18 }}>
-                      {i % 2 === 0 ? 'priority_high' : 'campaign'}
-                    </span>
-                  </div>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1E3A5F' }}>{n.title}</h4>
-                    <p style={{ margin: '3px 0 4px', fontSize: 12, color: '#475569', lineHeight: 1.45 }}>
-                      {n.content && n.content.length > 110 ? n.content.slice(0, 110) + '\u2026' : n.content || ''}
-                    </p>
-                    <span style={{ fontSize: 10.5, color: '#60A5FA', fontWeight: 600 }}>
-                      {new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* ============ TOTAL SALARY PAYABLE ============ */}
       {totalSalaryPayable > 0 && (
         <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #059669', animationDelay: '0.16s', marginTop: 12, marginBottom: 20, cursor: 'pointer' }}>
