@@ -5,7 +5,10 @@ export async function listAccounts() {
     .from('email_import_accounts')
     .select('*')
     .order('created_at', { ascending: true });
-  if (error) throw error;
+  if (error) {
+    if (error.message?.includes('relation') || error.message?.includes('does not exist')) return [];
+    throw error;
+  }
 
   return (data || []).map(a => ({
     ...a,
@@ -18,7 +21,10 @@ export async function getActiveAccounts() {
     .from('email_import_accounts')
     .select('*')
     .eq('is_active', true);
-  if (error) throw error;
+  if (error) {
+    if (error.message?.includes('relation') || error.message?.includes('does not exist')) return [];
+    throw error;
+  }
   return data || [];
 }
 
