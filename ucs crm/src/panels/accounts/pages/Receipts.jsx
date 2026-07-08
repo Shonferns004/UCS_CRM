@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost } from '../api/auth'
+import { useRealtime } from '../../../hooks/useRealtime'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar'
 import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray'
@@ -214,22 +215,22 @@ export default function Receipts() {
   const [bulkState, setBulkState] = useState({ active:false, total:0, sent:0, failed:0, currentBatch:0, totalBatches:0, results:[], previousBatches:[] })
   const cancelBulkRef = useRef(false)
   const [confirmBulk, setConfirmBulk] = useState({ visible:false, donorCount:0 })
-  const [loadingDb, setLoadingDb] = useState(false)
-
   const handleDataLoaded = useCallback((data) => { setDonors(data); setSelectedIndex(null) }, [])
 
-  const loadFromDatabase = useCallback(async () => {
-    setLoadingDb(true)
+  const loadPending = useCallback(async () => {
     try {
       const data = await apiGet('/accounts/receipts/pending')
       setDonors(data)
-      setSelectedIndex(null)
-      showToast('success', `Loaded ${data.length} unsent receipts`)
-    } catch (e) {
-      showToast('error', 'Failed to load: ' + e.message)
-    }
-    setLoadingDb(false)
-  }, [showToast])
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadPending() }, [loadPending])
+
+  useRealtime('fro_donor_logs', {
+    filter: 'action=eq.disposition',
+    onInsert: () => loadPending(),
+    onUpdate: () => loadPending(),
+  })
 
   const getValidDonors = useCallback(() => {
     return donors ? donors.filter(d => { const m = String(d['Mobile No.'] || '').replace(/[^0-9]/g, ''); return m.length >= 10 }) : []
@@ -377,16 +378,6 @@ export default function Receipts() {
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-pad" style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-          <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
-            onClick={loadFromDatabase} disabled={loadingDb}>
-            {loadingDb ? <span style={{width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite',display:'inline-block'}} /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7v10c0 2 1.5 4 4 4h8c2.5 0 4-2 4-4V7"/><path d="M4 7c0-2 1.5-4 4-4h8c2.5 0 4 2 4 4"/><line x1="9" y1="12" x2="15" y2="12"/></svg>}
-            {loadingDb ? 'Loading...' : 'Load from Database'}
-          </button>
-        </div>
-      </div>
-
       <ExcelUpload onDataLoaded={handleDataLoaded} />
 
       {donors && (
@@ -471,11 +462,11 @@ export default function Receipts() {
           </div>
 
           {previewIndex != null && donors[previewIndex] && (
-            <div className="modal-overlay" onClick={() => setPreviewIndex(null)}>
-              <div className="modal" style={{ maxWidth:850, width:'90%', maxHeight:'90vh', overflow:'auto' }} onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                  <h3>{donors[previewIndex]['Donor Name']} — {getNgoSettings(donors[previewIndex]['Project'] || 'bsct').label}</h3>
-                  <div style={{ display:'flex', gap:8 }}>
+            <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:1000 }}>
+              <div className="modal" style={{ width:'95%', maxWidth:1060, height:'95vh', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header" style={{ flexShrink:0 }}>
+                  <h3 style={{ fontSize:15 }}>{donors[previewIndex]['Donor Name']} — {getNgoSettings(donors[previewIndex]['Project'] || 'bsct').label}</h3>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                     <button className="btn btn-primary btn-sm" onClick={handleDownloadSingle} disabled={downloadSingle}>
                       {downloadSingle ? 'Generating...' : 'Download PDF'}
                     </button>
@@ -483,14 +474,14 @@ export default function Receipts() {
                     <button className="btn btn-sm" onClick={() => setPreviewIndex(null)}>Close</button>
                   </div>
                 </div>
-                <div className="modal-body" style={{ padding:20, overflowX:'auto', textAlign:'center' }}>
+                <div className="modal-body" style={{ flex:1, overflow:'auto', padding:20, display:'flex', justifyContent:'center' }}>
                   {(() => {
                     const idx = previewIndex
                     const ngo = donors[idx]['Project'] || 'bsct'
                     const tpl = getNgoSettings(ngo)
                     const Comp = tpl.comp
                     return (
-                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block' }}>
+                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block', transform:'scale(0.7)', transformOrigin:'top center' }}>
                         <Comp donor={donors[idx]} project={ngo} />
                       </div>
                     )
