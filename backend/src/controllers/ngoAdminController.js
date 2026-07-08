@@ -123,29 +123,44 @@ export const getDonors = async (req, res) => {
     let latestTxMap = {};
     if (allDonorIds.length > 0) {
       try {
-        const { data: logs } = await supabase
-          .from('fro_donor_logs')
-          .select('amount_collected, transaction_datetime, assignment:fro_assignments!inner(donor_id)')
-          .in('assignment.donor_id', allDonorIds)
-          .not('amount_collected', 'is', null)
-          .order('transaction_datetime', { ascending: false, nullsLast: true });
-        for (const log of logs || []) {
-          const did = log.assignment?.donor_id;
-          if (did && latestTxMap[did] == null) latestTxMap[did] = Number(log.amount_collected) || 0;
+        const { data: assignments } = await supabase
+          .from('fro_assignments')
+          .select('id, donor_id')
+          .in('donor_id', allDonorIds);
+        const assignIds = (assignments || []).map(a => a.id);
+        if (assignIds.length > 0) {
+          const { data: logs } = await supabase
+            .from('fro_donor_logs')
+            .select('amount_collected, transaction_datetime, assignment_id')
+            .in('assignment_id', assignIds)
+            .not('amount_collected', 'is', null)
+            .order('transaction_datetime', { ascending: false, nullsLast: true });
+          const assignToDonor = {};
+          for (const a of assignments || []) assignToDonor[a.id] = a.donor_id;
+          for (const log of logs || []) {
+            const did = assignToDonor[log.assignment_id];
+            if (did && (latestTxMap[did] == null)) {
+              latestTxMap[did] = {
+                amount: Number(log.amount_collected) || 0,
+                date: log.transaction_datetime?.slice(0, 10),
+              };
+            }
+          }
         }
       } catch (_) {}
     }
 
     const paginatedData = paginatedSlice.map(d => {
-      let lastTx = 0;
+      let best = { amount: 0, date: null };
       for (const did of (d.donor_ids || [])) {
-        if (latestTxMap[did] && latestTxMap[did] > lastTx) lastTx = latestTxMap[did];
+        if (latestTxMap[did] && latestTxMap[did].amount > best.amount) best = latestTxMap[did];
       }
       return {
         ...d,
         amount: d.total_amount_all,
         total_amount: d.total_amount_all,
-        last_transaction_amount: lastTx,
+        last_transaction_amount: best.amount,
+        last_transaction_date: best.date,
         ngo_list: d.ngos,
       };
     });

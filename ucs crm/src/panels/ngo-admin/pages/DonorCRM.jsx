@@ -672,7 +672,7 @@ export default function DonorCRM() {
                   </td>
                   <td style={{ fontWeight: 600, color: '#7c3aed' }}>₹{Number(d.last_transaction_amount || 0).toLocaleString('en-IN')}</td>
                   <td style={{ fontWeight: 600 }}>₹{Number(d.total_amount || d.amount || 0).toLocaleString('en-IN')}</td>
-                  <td style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{d.last_donation_date?.slice(0, 10) || '—'}</td>
+                  <td style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{d.last_transaction_date || d.last_donation_date?.slice(0, 10) || '—'}</td>
                   <td><button className="btn btn-sm" onClick={() => setShowDonorDetail(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.User} View</button></td>
                 </tr>
               ))}
