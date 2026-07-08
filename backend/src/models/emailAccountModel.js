@@ -77,6 +77,7 @@ export async function updateAccount(id, updates) {
 }
 
 export async function deleteAccount(id) {
+  await supabase.from('email_import_log').delete().eq('account_id', id);
   const { error } = await supabase
     .from('email_import_accounts')
     .delete()
