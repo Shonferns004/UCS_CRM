@@ -1333,7 +1333,6 @@ export default function Dashboard() {
   const [ngoStationModal, setNgoStationModal] = useState(null)
   const [deptModal, setDeptModal] = useState(null)
   const [kpiModal, setKpiModal] = useState(null)
-  const [selectedNgoBtn, setSelectedNgoBtn] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1872,94 +1871,48 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ============ NGO QUICK FILTER BUTTONS ============ */}
-      {ngoUserCounts.length > 0 && (
-        <div className="nd-appear" style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', animationDelay: '0.5s' }}>
-          {['bsct', 'aflf', 'man'].map(prefix => ngoUserCounts.find(n => n.name.toLowerCase().startsWith(prefix))).filter(Boolean).map((n, i) => {
+      {/* ============ NGO TOPIC CARDS (BSCT, AFLF, MAN) ============ */}
+      {ngoUserCounts.filter(n => ['bsct', 'aflf', 'man'].some(pre => n.name.toLowerCase().startsWith(pre))).length > 0 && (
+        <div className="nd-appear" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20, animationDelay: '0.5s' }}>
+          {['bsct', 'aflf', 'man'].map(prefix => {
+            const n = ngoUserCounts.find(x => x.name.toLowerCase().startsWith(prefix))
+            if (!n) return null
             const nc = ngoColor(n.name)
-            const isActive = selectedNgoBtn === n.name
+            const ngoFros = froLiveData.filter(f => f.workers?.ngo_name === n.name)
+            const totalCollection = ngoFros.reduce((s, f) => s + Number(f.today_collection || 0), 0)
+            const totalCalls = ngoFros.reduce((s, f) => s + Number(f.today_calls || 0), 0)
+            const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.data_used || 0), 0)
+            const assignedFros = froAssignments.filter(f => (f.ngos || []).includes(n.name))
             return (
-              <button
-                key={n.name}
-                onClick={() => setSelectedNgoBtn(isActive ? null : n.name)}
-                style={{
-                  padding: '6px 16px', borderRadius: 20, border: `2px solid ${nc}`,
-                  background: nc, cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                  color: '#fff', fontFamily: 'inherit', transition: 'all 0.15s', lineHeight: 1.4,
-                  display: 'flex', alignItems: 'center', gap: 6, opacity: isActive ? 1 : 0.75,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.opacity = '1' }}
-                onMouseLeave={e => { if (!isActive) e.currentTarget.style.opacity = '0.75' }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: nc, flexShrink: 0 }} />
-                {n.name}
-                <span style={{ fontSize: 10, fontWeight: 500, opacity: 0.6 }}>{n.workers || n.count || 0}</span>
-              </button>
+              <div key={n.name} className="nd-card" style={{ padding: '12px 14px', borderLeft: `4px solid ${nc}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: nc, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: nc }}>{n.name}</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginLeft: 'auto' }}>{n.workers || n.count || 0} workers</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#E8F5E9' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Collection</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: MINT_DEEP }}>₹{totalCollection.toLocaleString('en-IN')}</div>
+                  </div>
+                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#E3F2FD' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Calls</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#1E88E5' }}>{totalCalls}</div>
+                  </div>
+                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#F3E5F5' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Data Used</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#8E24AA' }}>{totalDataUsed}</div>
+                  </div>
+                  <div style={{ padding: '8px 10px', borderRadius: 8, background: '#FFF8E1' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>FROs</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#F57C00' }}>{assignedFros.length}</div>
+                  </div>
+                </div>
+              </div>
             )
           })}
         </div>
       )}
-
-      {/* ============ NGO QUICK INLINE ============ */}
-      {selectedNgoBtn && (() => {
-        const ngoName = selectedNgoBtn
-        const nc = ngoColor(ngoName)
-        const ngoFros = froLiveData.filter(f => f.workers?.ngo_name === ngoName)
-        const totalCollection = ngoFros.reduce((s, f) => s + Number(f.today_collection || 0), 0)
-        const totalCalls = ngoFros.reduce((s, f) => s + Number(f.today_calls || 0), 0)
-        const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.data_used || 0), 0)
-        const assignedFros = froAssignments.filter(f => (f.ngos || []).includes(ngoName))
-        const workerCount = ngoUserCounts.find(n => n.name === ngoName)
-        return (
-          <div className="nd-card nd-appear" style={{ marginBottom: 16, animationDelay: '0.55s' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: nc, flexShrink: 0 }} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: nc }}>{ngoName}</span>
-              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{workerCount?.workers || workerCount?.count || 0} workers</span>
-              <button onClick={() => setSelectedNgoBtn(null)} style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#64748b', fontFamily: 'inherit' }}>Close</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
-              <div style={{ padding: '10px 12px', borderRadius: 10, background: '#E8F5E9' }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Collection</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: MINT_DEEP }}>₹{totalCollection.toLocaleString('en-IN')}</div>
-              </div>
-              <div style={{ padding: '10px 12px', borderRadius: 10, background: '#E3F2FD' }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Calls</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#1E88E5' }}>{totalCalls}</div>
-              </div>
-              <div style={{ padding: '10px 12px', borderRadius: 10, background: '#F3E5F5' }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Data Used</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#8E24AA' }}>{totalDataUsed}</div>
-              </div>
-              <div style={{ padding: '10px 12px', borderRadius: 10, background: '#FFF8E1' }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>FROs</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#F57C00' }}>{assignedFros.length} assigned</div>
-              </div>
-            </div>
-            {assignedFros.length > 0 && (
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Assigned FROs</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {assignedFros.map((f, i) => {
-                    const live = ngoFros.find(l => l.workers?.name === f.name || l.login_id === f.name)
-                    return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f8fafb', border: '1px solid #eaf3ec' }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: live ? '#10b981' : '#94a3b8', flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, fontWeight: 600, color: PRIMARY, flex: 1, minWidth: 0 }}>{f.name}</span>
-                        {live ? (
-                          <span style={{ fontSize: 11, fontWeight: 600, color: MINT_DEEP }}>₹{Number(live.today_collection || 0).toLocaleString('en-IN')}</span>
-                        ) : (
-                          <span style={{ fontSize: 11, color: '#94a3b8' }}>Offline</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })()}
 
       {/* ============ QUICK ACTION BUTTONS ============ */}
       <div className="nd-appear" style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', animationDelay: '0.05s' }}>
