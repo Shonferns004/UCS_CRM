@@ -149,47 +149,24 @@ export async function sendDirect(req, res) {
     const phone = String(to).replace(/[^0-9]/g, '');
     const tpl = templateName || 'bsct_receipt';
 
-    let mediaId = null;
+    let documentUrl = null;
     if (pdfBase64) {
-      const buffer = Buffer.from(pdfBase64, 'base64');
-      const fileName = `receipt_${receiptNo || Date.now()}.pdf`;
-      const boundary = '----FormBoundary' + Date.now();
-      const crlf = '\r\n';
-
-      const headerBuffer = Buffer.from(
-        `--${boundary}${crlf}` +
-        `Content-Disposition: form-data; name="messaging_product"${crlf}${crlf}` +
-        `whatsapp${crlf}` +
-        `--${boundary}${crlf}` +
-        `Content-Disposition: form-data; name="file"; filename="${fileName}"${crlf}` +
-        `Content-Type: application/pdf${crlf}${crlf}`
-      );
-      const footerBuffer = Buffer.from(
-        `${crlf}--${boundary}${crlf}` +
-        `Content-Disposition: form-data; name="type"${crlf}${crlf}` +
-        `application/pdf${crlf}--${boundary}--${crlf}`
-      );
-      const bodyBuffer = Buffer.concat([headerBuffer, buffer, footerBuffer]);
-
-      const mediaRes = await fetch(
-        `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/media`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${whatsappConfig.accessToken}`,
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          },
-          body: new Uint8Array(bodyBuffer),
+      try {
+        const buffer = Buffer.from(pdfBase64, 'base64');
+        const fileName = `receipts/${receiptNo || Date.now()}.pdf`;
+        const { error: upErr } = await supabase.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+        if (!upErr) {
+          const { data: pub } = supabase.storage.from('receipts').getPublicUrl(fileName);
+          documentUrl = pub?.publicUrl || null;
         }
-      );
-      const mediaText = await mediaRes.text();
-      if (!mediaRes.ok) return res.status(400).json({ message: 'Media upload failed: ' + mediaText });
-      mediaId = JSON.parse(mediaText).id;
+      } catch (e) {
+        console.error('Failed to store PDF:', e.message);
+      }
     }
 
     const components = [];
-    if (mediaId) {
-      components.push({ type: 'header', parameters: [{ type: 'document', document: { id: mediaId, filename: `receipt_${receiptNo || 'receipt'}.pdf` } }] });
+    if (documentUrl) {
+      components.push({ type: 'header', parameters: [{ type: 'document', document: { link: documentUrl } }] });
     }
 
     const msgRes = await fetch(
