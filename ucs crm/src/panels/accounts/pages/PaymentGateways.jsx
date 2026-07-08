@@ -25,6 +25,7 @@ function RazorpayAccountsManager({ onAccountsChange }) {
   const [saving, setSaving] = useState(false);
   const [syncingId, setSyncingId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [justAdded, setJustAdded] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
   async function load() {
@@ -45,9 +46,12 @@ function RazorpayAccountsManager({ onAccountsChange }) {
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.key_id || (!form.key_secret && !editing) || (!form.webhook_secret && !editing)) {
-      alert('Name, Key ID, Key Secret, and Webhook Secret are required');
+    if (!form.name || !form.key_id || (!form.key_secret && !editing)) {
+      alert('Name, Key ID, and Key Secret are required');
       return;
+    }
+    if (!editing && !form.webhook_secret) {
+      if (!confirm('Webhook Secret is empty. You can add it later after creating the webhook in Razorpay.\n\nContinue without it?')) return;
     }
     setSaving(true);
     try {
@@ -61,10 +65,14 @@ function RazorpayAccountsManager({ onAccountsChange }) {
         if (form.key_secret) body.key_secret = form.key_secret;
         if (form.webhook_secret) body.webhook_secret = form.webhook_secret;
         await apiPut(`/webhooks/razorpay/accounts/${editing.id}`, body);
+        resetForm();
       } else {
-        await apiPost('/webhooks/razorpay/accounts', form);
+        const created = await apiPost('/webhooks/razorpay/accounts', form);
+        resetForm();
+        if (created && created.id) {
+          setJustAdded(created);
+        }
       }
-      resetForm();
       await load();
       if (onAccountsChange) onAccountsChange();
     } catch (err) { alert(err.message); }
@@ -116,8 +124,44 @@ function RazorpayAccountsManager({ onAccountsChange }) {
 
   const toggleField = (field) => setForm(p => ({ ...p, [field]: !p[field] }));
 
+  const justAddedUrl = justAdded ? `${window.location.origin}/api/webhooks/razorpay/${justAdded.id}` : '';
+  const copyJustAdded = async () => {
+    try {
+      await navigator.clipboard.writeText(justAddedUrl);
+      setCopiedId('just');
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      prompt('Copy this URL:', justAddedUrl);
+    }
+  };
+
   return (
     <div className="card" style={{ marginBottom: 16 }}>
+      {justAdded && (
+        <div style={{ border: '2px solid #0d9488', borderRadius: 10, padding: 14, marginBottom: 12, background: 'linear-gradient(135deg, #0d948808 0%, #0d948815 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#0d9488' }}>Account "{justAdded.name}" added!</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#374151', marginBottom: 8 }}>
+            Copy this webhook URL and paste it in your Razorpay Dashboard → Settings → Webhooks → Add New Webhook.
+            {!justAdded.webhook_secret && ' After creating the webhook, come back and Edit this account to paste the Webhook Secret.'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <code style={{ fontSize: 12, color: '#0d9488', background: '#0d948810', padding: '6px 10px', borderRadius: 6, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+              {justAddedUrl}
+            </code>
+            <button className="btn btn-sm" onClick={copyJustAdded} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#0d9488', color: '#fff', border: 'none', padding: '6px 12px' }}>
+              {copiedId === 'just' ? (
+                <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 6L9 17l-5-5"/></svg> Copied!</>
+              ) : (
+                <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy URL</>
+              )}
+            </button>
+            <button className="btn btn-sm" onClick={() => setJustAdded(null)} style={{ padding: '6px 10px' }}>Dismiss</button>
+          </div>
+        </div>
+      )}
       <div className="filter-bar" style={{ marginBottom: showForm || accounts.length > 0 ? 12 : 0 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Razorpay Accounts</span>
         <button className="btn btn-sm" onClick={() => { resetForm(); setShowForm(!showForm); }}
@@ -143,8 +187,8 @@ function RazorpayAccountsManager({ onAccountsChange }) {
               <input type="password" value={form.key_secret} onChange={e => setForm(p => ({ ...p, key_secret: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Key secret'} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
             </label>
             <label className="field" style={{ flex: '1 1 180px', marginBottom: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Webhook Secret</span>
-              <input type="password" value={form.webhook_secret} onChange={e => setForm(p => ({ ...p, webhook_secret: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Webhook secret'} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Webhook Secret <span style={{ color: '#9ca3af', fontWeight: 400 }}>(optional now)</span></span>
+              <input type="password" value={form.webhook_secret} onChange={e => setForm(p => ({ ...p, webhook_secret: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Add after creating webhook'} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
             </label>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
@@ -183,6 +227,12 @@ function RazorpayAccountsManager({ onAccountsChange }) {
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{acc.name}</span>
                     {acc.is_default && (
                       <span className="pill" style={{ background: '#5B6B4E20', color: '#5B6B4E', fontSize: 10, padding: '1px 6px' }}>Default</span>
+                    )}
+                    {acc.webhook_secret === '••••••••' && (
+                      <span className="pill" style={{ background: '#f59e0b18', color: '#d97706', fontSize: 10, padding: '1px 6px' }}>Webhook ready</span>
+                    )}
+                    {acc.webhook_secret !== '••••••••' && (
+                      <span className="pill" style={{ background: '#f59e0b18', color: '#d97706', fontSize: 10, padding: '1px 6px' }}>No webhook secret - Edit to add</span>
                     )}
                   </div>
                   <div style={{ fontSize: 11, color: '#6b7280' }}>{acc.key_id}</div>

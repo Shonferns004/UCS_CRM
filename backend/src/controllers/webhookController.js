@@ -97,8 +97,8 @@ export async function listRazorpayAccounts(req, res) {
 export async function createRazorpayAccount(req, res) {
   try {
     const { name, key_id, key_secret, webhook_secret, is_active, is_default } = req.body;
-    if (!name || !key_id || !key_secret || !webhook_secret) {
-      return res.status(400).json({ message: 'name, key_id, key_secret, webhook_secret are required' });
+    if (!name || !key_id || !key_secret) {
+      return res.status(400).json({ message: 'name, key_id, key_secret are required' });
     }
     const account = await createAccount({ name, key_id, key_secret, webhook_secret, is_active, is_default });
     return res.json(account);

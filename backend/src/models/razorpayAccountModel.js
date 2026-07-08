@@ -51,8 +51,8 @@ export async function getDefaultAccount({ unmask = false } = {}) {
 }
 
 export async function createAccount({ name, key_id, key_secret, webhook_secret, is_active, is_default }) {
-  if (!name || !key_id || !key_secret || !webhook_secret) {
-    throw new Error('name, key_id, key_secret, webhook_secret are required');
+  if (!name || !key_id || !key_secret) {
+    throw new Error('name, key_id, key_secret are required');
   }
 
   if (is_default) {
@@ -68,7 +68,7 @@ export async function createAccount({ name, key_id, key_secret, webhook_secret, 
       name,
       key_id,
       key_secret,
-      webhook_secret,
+      webhook_secret: webhook_secret || '',
       is_active: is_active !== false,
       is_default: !!is_default,
     })
