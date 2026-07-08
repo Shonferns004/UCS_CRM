@@ -63,10 +63,22 @@ export const getDonors = async (req, res) => {
     const offset = (page - 1) * limit;
     const access = await getUserNgoAccess(req.user.id);
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoNames.push(ngo.name);
+      if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) {
+        const name = ngoNames[idx];
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+        ngoNames.splice(0, ngoNames.length, name);
+      }
     }
 
     if (ngoNames.length === 0) return res.json({ data: [], pagination: { page, pageSize: limit, total: 0, totalPages: 0 } });
@@ -1160,10 +1172,21 @@ export const getNewData = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
     let ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
-      if (ngo) ngoNames = [ngo.name];
+      if (ngo) { ngoNames = [ngo.name]; ngoIds = [req.user.ngo_id]; }
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) {
+        const name = ngoNames[idx];
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+        ngoNames.splice(0, ngoNames.length, name);
+      }
     }
 
     if (ngoNames.length === 0) {
@@ -1451,6 +1474,14 @@ export const getAlerts = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     if (ngoIds.length === 0) return res.json({ alerts: [] });
 
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) {
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
+
     const results = [];
     const workerNameMap = {};
     const allWorkerIds = new Set();
@@ -1507,6 +1538,14 @@ export const getRejectedLeads = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
     if (ngoIds.length === 0) return res.json([]);
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) {
+        ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
+      }
+    }
 
     let data = [];
     try {
