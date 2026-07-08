@@ -45,35 +45,32 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText) {
 function buildExperienceLetterHTML(w, dateText, hrNameText) {
   const r = w.role || w.department || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="/logo/ucs-logo.png" alt="UCS" style="width:65px;height:auto;margin-right:14px" />
-<div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">ULTIMATE CONSULTANT SOLUTIONS</div><div style="font-size:12px;font-weight:400;color:#0B73C4;letter-spacing:1px">(UCS)</div></div>
+<div style="text-align:left;margin-bottom:12px">
+<img src="/logo/beingsevak-logo.jpeg" alt="Beingsevak" style="width:80px;height:auto" />
 </div>
-<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
-<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:8px 0;text-transform:uppercase">UCS – Ultimate Consultancy Solution Letterhead</div>
-<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;margin:0 0 10px 0">EXPERIENCE LETTER</div>
+<h1 style="font-size:18px;font-weight:700;color:#000;margin:0 0 4px 0;text-align:center"># Beingsevak – Experience Letter</h1>
+<h2 style="font-size:16px;font-weight:700;color:#000;margin:0 0 12px 0;text-align:center">EXPERIENCE LETTER</h2>
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 10px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
-<div style="margin-bottom:8px"><strong>To Whom It May Concern,</strong></div>
+<div style="margin-bottom:8px"><strong>TO WHOM IT MAY CONCERN</strong></div>
 <div style="text-align:justify">
-<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>UCS – Ultimate Consultancy Solution</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
-<p style="margin:0 0 6px 0">During their tenure with our organization, <strong>${w.name}</strong> was responsible for:</p>
-<ul style="margin:0 0 6px 0;padding-left:22px">
-<li style="margin-bottom:4px">Managing assigned tasks and projects efficiently.</li>
-<li style="margin-bottom:4px">Coordinating with clients, team members, and stakeholders.</li>
-<li style="margin-bottom:4px">Maintaining quality standards and meeting project deadlines.</li>
-<li style="margin-bottom:4px">Preparing reports, documentation, and other job-related deliverables.</li>
-<li style="margin-bottom:4px">Performing duties and responsibilities associated with the role of <strong>${r}</strong>.</li>
-</ul>
-<p style="margin:0 0 6px 0">Throughout their employment, <strong>${w.name}</strong> demonstrated professionalism, dedication, and a positive attitude toward their work. Their performance was satisfactory, and they maintained good conduct during their association with the company.</p>
-<p style="margin:0 0 6px 0">We appreciate their contributions to <strong>UCS – Ultimate Consultancy Solution</strong> and wish them every success in their future endeavors.</p>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>Beingsevak</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
+<p style="margin:0 0 6px 0">During the tenure with our organization, <strong>${w.name}</strong> performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. <strong>${w.name}</strong> consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
+<p style="margin:0 0 6px 0">Throughout the period of employment, <strong>${w.name}</strong> maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
+<p style="margin:0 0 6px 0">We appreciate the contributions made by <strong>${w.name}</strong> to <strong>Beingsevak</strong> and thank them for their services. We wish them every success in their future professional endeavors.</p>
 <p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
 </div>
 <div style="margin-top:14px">
-<p style="margin:0 0 2px 0"><strong>Sincerely,</strong></p>
-<p style="margin:14px 0 0 0"><strong>[Authorized Signatory]</strong><br />${hrNameText || '[Name of HR/Manager]'}<br /><strong>[Designation]</strong><br /><strong>UCS – Ultimate Consultancy Solution</strong><br />Contact No.: [Phone Number]<br />Email: [Email Address]<br />Company Seal &amp; Signature</p>
+<p style="margin:0 0 2px 0"><strong>Yours faithfully,</strong></p>
+<p style="margin:0 0 2px 0"><strong>For Beingsevak</strong></p>
+<p style="margin:0 0 2px 0"><strong>Authorized Signatory</strong></p>
+<p style="margin:10px 0 2px 0">${hrNameText}</p>
+<p style="margin:0 0 2px 0">[HR Designation]</p>
+<p style="margin:6px 0 2px 0"><strong>Contact No.:</strong> [Phone Number]</p>
+<p style="margin:0 0 2px 0"><strong>Email:</strong> ${w.email || '[Email Address]'}</p>
+<p style="margin:6px 0 2px 0">Company Seal &amp; Signature</p>
 </div>
-<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
+<hr style="margin:14px 0 6px 0;border:none;border-top:1px solid #ccc" />
+<div style="text-align:center;font-size:12px;color:#6b7280"><strong>Registered Office:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra – 400067.</div>
 </div>`;
 }
 
