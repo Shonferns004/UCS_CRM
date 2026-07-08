@@ -157,7 +157,7 @@ export default function EmailImport() {
           <button className="btn btn-sm" onClick={handleTriggerFromDate} disabled={importingFromDate || !fromDate}
             style={{ background: '#5B6B4E', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            {importingFromDate ? 'Importing...' : 'Import Unseen from Date'}
+            {importingFromDate ? 'Importing...' : 'Import from Date'}
           </button>
           <button className="btn btn-sm" onClick={handleTrigger} disabled={triggering}
             style={{ background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
