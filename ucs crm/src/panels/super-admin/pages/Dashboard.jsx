@@ -2126,40 +2126,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ============ DEPARTMENTS OVERVIEW ============ */}
-      {deptData.length > 0 && (
-        <div className="nd-card nd-appear" style={{ animationDelay: '0.2s', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: MINT_DEEP }}>business</span>
-            <h3 className="nd-section-title" style={{ margin: 0 }}>Departments</h3>
-            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
-              {totalDeptWorkers} workers
-            </span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-            {deptData.map((d, i) => {
-              const color = DEPT_COLORS[i % DEPT_COLORS.length]
-              return (
-                <div
-                  key={d.name}
-                  onClick={() => setDeptModal({ title: d.name, names: [`${d.name}: ${d.value} workers`] })}
-                  style={{
-                    background: `${color}12`, borderRadius: 10, padding: '12px 14px',
-                    cursor: 'pointer', border: `1px solid ${color}30`,
-                    transition: 'transform 0.15s, box-shadow 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)' }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}
-                >
-                  <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1.2 }}>{d.value}</div>
-                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginTop: 2 }}>{d.name}</div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ============ NGO ADMIN OVERVIEW ============ */}
       <div className="nd-card nd-appear" style={{ animationDelay: '0.25s', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
