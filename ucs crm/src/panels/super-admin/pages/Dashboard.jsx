@@ -1312,6 +1312,51 @@ function NgoQuickModal({ ngoName, onClose, froLiveData, froAssignments, ngoUserC
   )
 }
 
+/* ================= CREATE NOTICE MODAL ================= */
+function CreateNoticeModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({ title: '', content: '' })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const save = async () => {
+    if (!form.title.trim()) { setErr('Title is required'); return }
+    setSaving(true); setErr('')
+    try {
+      await api('/notices', { method: 'POST', body: JSON.stringify(form) })
+      onCreated(); onClose()
+    } catch (e) { setErr(e.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="nd-modal-overlay" onClick={onClose}>
+      <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <div className="nd-modal-head">
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#3B82F6' }}>campaign</span>
+          <h3 className="nd-modal-title" style={{ color: '#1E3A5F' }}>New Notice</h3>
+          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
+        </div>
+        <div className="nd-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {err && <div style={{ fontSize: 12, color: '#dc2626', background: '#FEF2F2', padding: '8px 12px', borderRadius: 8 }}>{err}</div>}
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            Title
+            <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="Notice title" style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+          </label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            Content
+            <textarea rows={4} value={form.content} onChange={e => setForm({...form, content: e.target.value})} placeholder="Write your notice..." style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none', resize: 'vertical' }} />
+          </label>
+        </div>
+        <div className="nd-modal-actions" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #e2e8f0' }}>
+          <button className="btn" onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#3B82F6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: saving ? 0.6 : 1 }}>
+            {saving ? 'Saving...' : 'Publish'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [period, setPeriod] = useState('all')
   const [loading, setLoading] = useState(false)
@@ -1334,6 +1379,7 @@ export default function Dashboard() {
   const [deptModal, setDeptModal] = useState(null)
   const [kpiModal, setKpiModal] = useState(null)
   const [selectedNgoBtn, setSelectedNgoBtn] = useState(null)
+  const [showNoticeForm, setShowNoticeForm] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1920,7 +1966,7 @@ export default function Dashboard() {
           Add Event
         </button>
         <button
-          onClick={() => navigate('/sa/notices')}
+          onClick={() => setShowNoticeForm(true)}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             padding: '8px 16px', borderRadius: 10, flex: 1,
@@ -2685,44 +2731,21 @@ export default function Dashboard() {
 
       {/* ============ TOTAL SALARY PAYABLE ============ */}
       {totalSalaryPayable > 0 && (
-        <div style={{ marginTop: 24, marginBottom: 20 }}>
-          <div className="nd-card nd-appear" style={{ animationDelay: '0.16s', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>payments</span>
-              <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>Total Salary Payable</h3>
-            </div>
-            {totalSalaryPayable === 0 ? (
-              <p className="nd-muted">No salary data</p>
-            ) : (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
-                <div style={{
-                  width: 90, height: 90, borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #05966918, #10B98118)',
-                  border: '3px solid rgba(5,150,105,0.2)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexDirection: 'column',
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#059669' }}>account_balance</span>
-                </div>
-                <span style={{ fontSize: 32, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
-                  ₹{totalSalaryPayable.toLocaleString('en-IN')}
-                </span>
-                <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
-                  Monthly recurring salary
-                </span>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  {(() => {
-                    const wc = stats.totalWorkers || 0
-                    const avg = wc > 0 ? Math.round(totalSalaryPayable / wc) : 0
-                    return (
-                      <span style={{ fontSize: 10.5, color: '#64748b', background: '#F1F5F2', borderRadius: 99, padding: '3px 10px', fontWeight: 600 }}>
-                        Avg ₹{avg.toLocaleString('en-IN')}/worker
-                      </span>
-                    )
-                  })()}
-                </div>
-              </div>
-            )}
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #059669', animationDelay: '0.16s', marginTop: 12, marginBottom: 20, cursor: 'pointer' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>payments</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Total Salary Payable</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontSize: 22, fontWeight: 800, color: '#059669', lineHeight: 1 }}>₹{totalSalaryPayable.toLocaleString('en-IN')}</span>
+            <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600 }}>Monthly recurring</span>
+            {(() => {
+              const wc = stats.totalWorkers || 0
+              const avg = wc > 0 ? Math.round(totalSalaryPayable / wc) : 0
+              return avg > 0 ? (
+                <span style={{ fontSize: 10, color: '#64748b', background: '#F1F5F2', borderRadius: 99, padding: '2px 8px', fontWeight: 600 }}>Avg ₹{avg.toLocaleString('en-IN')}/worker</span>
+              ) : null
+            })()}
           </div>
         </div>
       )}
@@ -2906,6 +2929,9 @@ export default function Dashboard() {
       {/* ============ LEGACY FRO DETAIL MODALS ============ */}
       {selectedFro && <FroDetailModal fro={selectedFro} onClose={() => setSelectedFro(null)} onShowDeep={() => { setDeepFro(selectedFro); setSelectedFro(null) }} />}
       {deepFro && <FroDeepDetailModal fro={deepFro} onClose={() => setDeepFro(null)} />}
+
+      {/* ============ CREATE NOTICE MODAL ============ */}
+      {showNoticeForm && <CreateNoticeModal onClose={() => setShowNoticeForm(false)} onCreated={() => { fetchDashboard(); getFroLiveStatus().then(setFroLiveData).catch(() => {}) }} />}
     </div>
   )
 }
