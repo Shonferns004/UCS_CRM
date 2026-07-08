@@ -2092,10 +2092,7 @@ export default function Dashboard() {
           <span className="panel-link-label" style={{ color: '#8B5CF6' }}>Accounts</span>
           <span className="panel-link-sub">{allUserList.filter(u => u.role === 'accounts').length || 0} workers</span>
         </div>
-        <div className="panel-link-card" style={{ borderLeftColor: '#EC4899' }} onClick={() => {
-          const users = allUserList.filter(u => u.role === 'fro')
-          setDeptModal({ title: 'FRO', names: users.length > 0 ? users.map(u => u.name || u.login_id || 'Unknown') : ['No FRO users found'] })
-        }}>
+        <div className="panel-link-card" style={{ borderLeftColor: '#EC4899', cursor: 'pointer' }} onClick={() => setPanelModal('fro')}>
           <span className="material-symbols-outlined" style={{ background: '#FDF2F8', color: '#EC4899' }}>groups</span>
           <span className="panel-link-label" style={{ color: '#EC4899' }}>FRO</span>
           <span className="panel-link-sub">{allUserList.filter(u => u.role === 'fro').length || froLiveData.length} workers</span>
@@ -2113,10 +2110,7 @@ export default function Dashboard() {
           <span className="panel-link-label" style={{ color: '#F59E0B' }}>NGO Admin</span>
           <span className="panel-link-sub">{allUserList.filter(u => u.role === 'admin' || u.role === 'ngo_admin').length || 0} workers</span>
         </div>
-        <div className="panel-link-card" style={{ borderLeftColor: '#10B981' }} onClick={() => {
-          const users = allUserList.filter(u => u.role === 'recruiter')
-          setDeptModal({ title: 'Recruiter', names: users.length > 0 ? users.map(u => u.name || u.login_id || 'Unknown') : ['No Recruiter users found'] })
-        }}>
+        <div className="panel-link-card" style={{ borderLeftColor: '#10B981', cursor: 'pointer' }} onClick={() => setPanelModal('recruiter')}>
           <span className="material-symbols-outlined" style={{ background: '#ECFDF5', color: '#10B981' }}>person_search</span>
           <span className="panel-link-label" style={{ color: '#10B981' }}>Recruiter</span>
           <span className="panel-link-sub">{allUserList.filter(u => u.role === 'recruiter').length || 0} workers</span>
