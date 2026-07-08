@@ -438,10 +438,19 @@ export default function Dashboard() {
   const [selectedStatus, setSelectedStatus] = useState(null);
   const [selectedNgoId, setSelectedNgoId] = useState('all');
   const [accessibleNgos, setAccessibleNgos] = useState([]);
+  const [weakPeriod, setWeakPeriod] = useState('today');
+  const [weakPerformers, setWeakPerformers] = useState([]);
 
   useEffect(() => {
     apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const ngoParam = selectedNgoId !== 'all' ? `&ngo_id=${selectedNgoId}` : '';
+    apiGet(`/ngo-admin/fro-performance?period=${weakPeriod}${ngoParam}`)
+      .then(setWeakPerformers)
+      .catch(() => setWeakPerformers([]));
+  }, [selectedNgoId, weakPeriod]);
 
   const fetchDashboard = useCallback(() => {
     const controller = new AbortController();
@@ -709,6 +718,13 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        Verification
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginBottom: 20 }}>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer', border: '1px solid #16a34a33' }} onClick={() => setSelectedStatus('verified')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
@@ -735,6 +751,13 @@ export default function Dashboard() {
           </div>
           <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>Awaiting Accounts verification</div>
         </div>
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Workforce
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginBottom: 20 }}>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
@@ -771,6 +794,13 @@ export default function Dashboard() {
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Today's attendance rate</div>
         </div>
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--ink-soft)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        Donor Health
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginBottom: 20 }}>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
@@ -823,8 +853,9 @@ export default function Dashboard() {
                     <th>Station</th>
                     <th>Donors</th>
                     <th>Converted</th>
-                    <th>In Progress</th>
-                    <th>Negative</th>
+                    <th>Lead Done</th>
+                    <th>Connected</th>
+                    <th>Non Connected</th>
                     <th>NGOs</th>
                     <th>FRO</th>
                   </tr>
@@ -833,16 +864,18 @@ export default function Dashboard() {
                   {stationNames.map(st => {
                     const total = getStationTotal(st);
                     const info = stationInfoMap[st];
-                    const converted = DISPOSITION_GROUPS[0].statuses.reduce((t, s) => t + getCell(st, s), 0);
-                    const inProgress = DISPOSITION_GROUPS[1].statuses.reduce((t, s) => t + getCell(st, s), 0);
-                    const negative = DISPOSITION_GROUPS[2].statuses.reduce((t, s) => t + getCell(st, s), 0);
+                    const cnv = ['donation_collected','promise_to_pay','visit_donate','payment_pending','already_donated'].reduce((t, s) => t + getCell(st, s), 0);
+                    const leadDone = getCell(st, 'lead_done');
+                    const connected = ['contacted','follow_up','scheduled'].reduce((t, s) => t + getCell(st, s), 0);
+                    const nonConnected = DISPOSITION_GROUPS[2].statuses.reduce((t, s) => t + getCell(st, s), 0);
                     return (
                       <tr key={st} onClick={() => setSelectedStation(st)} style={{ cursor: 'pointer' }}>
                         <td style={{ fontWeight: 600 }}>{st}</td>
                         <td>{total}</td>
-                        <td style={{ color: '#16a34a', fontWeight: 600 }}>{converted}</td>
-                        <td style={{ color: '#d97706', fontWeight: 600 }}>{inProgress}</td>
-                        <td style={{ color: '#dc2626', fontWeight: 600 }}>{negative}</td>
+                        <td style={{ color: '#16a34a', fontWeight: 600 }}>{cnv}</td>
+                        <td style={{ color: '#7c3aed', fontWeight: 600 }}>{leadDone}</td>
+                        <td style={{ color: '#d97706', fontWeight: 600 }}>{connected}</td>
+                        <td style={{ color: '#dc2626', fontWeight: 600 }}>{nonConnected}</td>
                         <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{info?.ngos?.map(n => n.ngo_name).join(', ') || '—'}</td>
                         <td style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{info?.fro_worker_name || '—'}</td>
                       </tr>
@@ -862,9 +895,10 @@ export default function Dashboard() {
               {stationNames.map(st => {
                 const total = getStationTotal(st);
                 const info = stationInfoMap[st];
-                const converted = DISPOSITION_GROUPS[0].statuses.reduce((t, s) => t + getCell(st, s), 0);
-                const inProgress = DISPOSITION_GROUPS[1].statuses.reduce((t, s) => t + getCell(st, s), 0);
-                const negative = DISPOSITION_GROUPS[2].statuses.reduce((t, s) => t + getCell(st, s), 0);
+                const cnv = ['donation_collected','promise_to_pay','visit_donate','payment_pending','already_donated'].reduce((t, s) => t + getCell(st, s), 0);
+                const leadDone = getCell(st, 'lead_done');
+                const connected = ['contacted','follow_up','scheduled'].reduce((t, s) => t + getCell(st, s), 0);
+                const nonConnected = DISPOSITION_GROUPS[2].statuses.reduce((t, s) => t + getCell(st, s), 0);
                 return (
                   <div key={st} className="card" style={{ marginBottom: 0, padding: '12px 14px', cursor: 'pointer' }}
                     onClick={() => setSelectedStation(st)}>
@@ -873,9 +907,10 @@ export default function Dashboard() {
                       <span style={{ fontWeight: 700, fontSize: 16 }}>{total} donors</span>
                     </div>
                     <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>C: {converted}</span>
-                      <span style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>IP: {inProgress}</span>
-                      <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>N: {negative}</span>
+                      <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>C: {cnv}</span>
+                      <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>LD: {leadDone}</span>
+                      <span style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>Conn: {connected}</span>
+                      <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>NC: {nonConnected}</span>
                     </div>
                     {info?.ngos?.length > 0 && (
                       <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>NGOs: {info.ngos.map(n => n.ngo_name).join(', ')}</div>
@@ -889,6 +924,60 @@ export default function Dashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {weakPerformers.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-head">
+            <h3>⚠ Low Performance</h3>
+            <div style={{ display:'flex', gap:6 }}>
+              <button onClick={() => setWeakPeriod('today')}
+                style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: weakPeriod === 'today' ? 'var(--sage)' : '#fff', color: weakPeriod === 'today' ? '#fff' : 'var(--ink)' }}>
+                Today
+              </button>
+              <button onClick={() => setWeakPeriod('month')}
+                style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: weakPeriod === 'month' ? 'var(--sage)' : '#fff', color: weakPeriod === 'month' ? '#fff' : 'var(--ink)' }}>
+                Month
+              </button>
+            </div>
+          </div>
+          <div className="card-pad" style={{ padding:0 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{width:30}}>#</th>
+                  <th>FRO</th>
+                  <th style={{textAlign:'right'}}>Collection</th>
+                  <th style={{textAlign:'right'}}>Talk Time</th>
+                  <th style={{textAlign:'center'}}>Leads</th>
+                  <th style={{textAlign:'center'}}>Used</th>
+                  <th style={{textAlign:'center'}}>Att.</th>
+                  <th style={{textAlign:'center'}}>Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weakPerformers.map((p, i) => (
+                  <tr key={p.fro_id}>
+                    <td style={{color:'var(--ink-soft)', fontSize:11}}>{i + 1}</td>
+                    <td style={{fontWeight:600}}>{p.fro_name}</td>
+                    <td style={{textAlign:'right', fontWeight:600}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
+                    <td style={{textAlign:'right', fontSize:12, color:'var(--ink-soft)'}}>
+                      {p.avg_talk_seconds > 0 ? `${Math.floor(p.avg_talk_seconds / 60)}m ${p.avg_talk_seconds % 60}s` : '—'}
+                    </td>
+                    <td style={{textAlign:'center'}}>{p.lead_done_count}</td>
+                    <td style={{textAlign:'center'}}>{p.data_used}</td>
+                    <td style={{textAlign:'center'}}>
+                      {p.attendance_pct != null
+                        ? <span style={{color: p.attendance_pct < 50 ? '#dc2626' : p.attendance_pct < 75 ? '#f59e0b' : '#16a34a', fontWeight:600}}>{p.attendance_pct}%</span>
+                        : '—'}
+                    </td>
+                    <td style={{textAlign:'center', fontWeight:700, color:p.score < 0.2 ? '#dc2626' : '#f59e0b'}}>{p.score.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {selectedStation && (

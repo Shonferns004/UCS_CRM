@@ -627,6 +627,128 @@ export const getFroWiseCollection = async (req, res) => {
   }
 };
 
+export const getFroPerformance = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
+    let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+
+    if (ngoNames.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      const idx = ngoIds.indexOf(filterNgoId);
+      if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
+    }
+
+    if (ngoIds.length === 0) return res.json([]);
+
+    const allWorkers = (await Promise.all(ngoIds.map(ngoId => getFroWorkersByNgo(ngoId)))).flat();
+    const seen = new Set();
+    const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
+
+    const period = req.query.period || 'month';
+    const now = new Date();
+    let startDate, endDate;
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+
+    if (period === 'today') {
+      startDate = todayStart;
+      endDate = todayEnd;
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    }
+
+    const workerIds = froWorkers.map(w => w.id);
+    const batchStats = await getBatchCollectionStats(workerIds, startDate.toISOString(), endDate.toISOString(), todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
+
+    const todayStr = now.toISOString().slice(0, 10);
+    const attendanceMap = {};
+    if (workerIds.length > 0) {
+      if (period === 'today') {
+        const { data: att } = await supabase.from('attendance').select('worker_id, status').eq('date', todayStr).in('worker_id', workerIds);
+        for (const a of att || []) attendanceMap[a.worker_id] = a.status === 'present' || a.status === 'late' ? 100 : a.status === 'absent' ? 0 : null;
+      } else {
+        const monthStr = startDate.toISOString().slice(0, 7);
+        const endStr = endDate.toISOString().slice(0, 10);
+        const { data: att } = await supabase.from('attendance').select('worker_id, status').gte('date', monthStr + '-01').lte('date', endStr).in('worker_id', workerIds);
+        const counts = {};
+        for (const a of att || []) {
+          if (!counts[a.worker_id]) counts[a.worker_id] = { present: 0, total: 0 };
+          counts[a.worker_id].total++;
+          if (a.status === 'present' || a.status === 'late') counts[a.worker_id].present++;
+        }
+        for (const [wid, c] of Object.entries(counts)) {
+          attendanceMap[wid] = c.total > 0 ? Math.round((c.present / c.total) * 1000) / 10 : null;
+        }
+      }
+    }
+
+    const liveStatusMap = {};
+    if (workerIds.length > 0) {
+      const { data: live } = await supabase.from('fro_live_status').select('fro_worker_id, today_talk_seconds').in('fro_worker_id', workerIds);
+      for (const l of live || []) liveStatusMap[l.fro_worker_id] = l.today_talk_seconds || 0;
+    }
+
+    const allAssignments = (await Promise.all(ngoIds.map(ngoId => findAssignmentsByNgo(ngoId)))).flat();
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request']);
+    const workerAssignments = {};
+    for (const a of allAssignments) {
+      if (a.status === 'reassigned') continue;
+      if (!workerAssignments[a.fro_worker_id]) workerAssignments[a.fro_worker_id] = { connected: 0, total: 0 };
+      workerAssignments[a.fro_worker_id].total++;
+      if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
+    }
+
+    const performance = froWorkers.map(w => {
+      const bs = batchStats;
+      const coll = period === 'today' ? (bs.todayCollection[w.id] || 0) : (bs.monthCollection[w.id] || 0);
+      const leads = period === 'today'
+        ? (bs.verifiedToday[w.id]?.count || 0) + (bs.unverifiedToday[w.id]?.count || 0)
+        : (bs.verifiedMonth[w.id]?.count || 0) + (bs.unverifiedMonth[w.id]?.count || 0);
+      const talkSec = period === 'today' ? (liveStatusMap[w.id] || 0) : 0;
+      const wa = workerAssignments[w.id] || { connected: 0, total: 0 };
+      const attPct = attendanceMap[w.id] != null ? attendanceMap[w.id] : null;
+      return {
+        fro_id: w.id,
+        fro_name: w.name || w.login_id || 'Unknown',
+        collection_amount: coll,
+        lead_done_count: leads,
+        avg_talk_seconds: talkSec,
+        data_used: wa.connected,
+        data_total: wa.total,
+        attendance_pct: attPct,
+      };
+    });
+
+    const maxColl = Math.max(...performance.map(p => p.collection_amount), 1);
+    const maxLeads = Math.max(...performance.map(p => p.lead_done_count), 1);
+    const maxTalk = Math.max(...performance.map(p => p.avg_talk_seconds), 1);
+    const maxData = Math.max(...performance.map(p => p.data_used), 1);
+
+    const scored = performance.map(p => ({
+      ...p,
+      score: Math.round((
+        (p.collection_amount / maxColl) * 0.30 +
+        (p.lead_done_count / maxLeads) * 0.25 +
+        (p.avg_talk_seconds / maxTalk) * 0.15 +
+        (p.data_used / maxData) * 0.15 +
+        ((p.attendance_pct != null ? p.attendance_pct : 0) / 100) * 0.15
+      ) * 100) / 100,
+    }));
+
+    scored.sort((a, b) => a.score - b.score);
+    return res.json(scored.slice(0, 6));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const setAchievedTarget = async (req, res) => {
   try {
     const { fro_worker_id, month, achieved_amount } = req.body;

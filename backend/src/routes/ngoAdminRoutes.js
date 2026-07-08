@@ -54,6 +54,7 @@ import {
   getTransferDonors,
   getIncentives,
   getVerificationFroWise,
+  getFroPerformance,
 } from '../controllers/ngoAdminController.js';
 
 const router = Router();
@@ -74,6 +75,7 @@ router.get('/assignments', getAssignments);
 router.get('/targets', getTargets);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
+router.get('/fro-performance', getFroPerformance);
 router.post('/achieved-target', setAchievedTarget);
 router.get('/incentives', getIncentives);
 router.post('/incentive', setIncentive);
