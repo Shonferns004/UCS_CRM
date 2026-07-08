@@ -171,15 +171,6 @@ export async function sendDirect(req, res) {
     if (mediaId) {
       components.push({ type: 'header', parameters: [{ type: 'document', document: { id: mediaId, filename: `receipt_${receiptNo || 'receipt'}.pdf` } }] });
     }
-    components.push({
-      type: 'body',
-      parameters: [
-        { type: 'text', text: String(donorName || 'Donor') },
-        { type: 'text', text: String(amount || '0') },
-        { type: 'text', text: String(receiptNo || 'N/A') },
-        { type: 'text', text: new Date().toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' }) },
-      ],
-    });
 
     const msgRes = await fetch(
       `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/messages`,
