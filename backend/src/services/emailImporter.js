@@ -189,10 +189,6 @@ async function pollSingleAccount(account, sources, fromDate) {
       const since = new Date(fromDate);
       since.setHours(0, 0, 0, 0);
       searchQuery.receivedAfter = since;
-    } else {
-      const ninetyDaysAgo = new Date();
-      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-      searchQuery.receivedAfter = ninetyDaysAgo;
     }
     const messages = await client.search(searchQuery);
     if (!messages || messages.length === 0) {
