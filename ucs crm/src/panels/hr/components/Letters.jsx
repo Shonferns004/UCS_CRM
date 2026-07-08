@@ -62,16 +62,17 @@ export default function Letters() {
   const [letterDate, setLetterDate] = useState('');
   const [hrName, setHrName] = useState('');
   const [out, setOut] = useState(null);
-  const [showPdfBtn, setShowPdfBtn] = useState(false);
+  const [showDownload, setShowDownload] = useState(false);
   const pdfRef = useRef(null);
+  const pdfDocRef = useRef(null);
 
   useEffect(() => { fetchWorkers().then(setWorkers).catch(() => {}); }, []);
 
-  const generatePdf = async (bodyText) => {
+  const capturePdf = async (bodyText, letterType) => {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
-    if (out?.type === 'Offer letter') {
+    if (letterType === 'Offer letter') {
       el.style.padding = '0';
       el.innerHTML = bodyText;
     } else {
@@ -102,22 +103,33 @@ export default function Letters() {
       offsetY += srcH;
       remainingH -= pageH;
     }
-    pdf.save(`${type.replace(/\s+/g, '_')}.pdf`);
+    pdfDocRef.current = pdf;
   };
 
-  const generate = () => {
+  const generate = async () => {
     const w = workers.find(x => x.name === name);
     if (!w) return;
+    let body, today;
     if (type === 'Offer letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      const body = buildOfferLetterHTML(w, dateText, hrNameText);
-      setOut({ today: dateText, body, type });
+      body = buildOfferLetterHTML(w, dateText, hrNameText);
+      today = dateText;
     } else {
       const result = build(type, w);
-      setOut({ ...result, type });
+      body = result.body;
+      today = result.today;
     }
-    setShowPdfBtn(true);
+    setOut({ today, body, type });
+    setShowDownload(false);
+    await capturePdf(body, type);
+    setShowDownload(true);
+  };
+
+  const downloadPdf = () => {
+    if (pdfDocRef.current) {
+      pdfDocRef.current.save(`${type.replace(/\s+/g, '_')}.pdf`);
+    }
   };
 
   const copy = () => {
@@ -134,6 +146,10 @@ export default function Letters() {
   useEffect(() => {
     if (workers.length && !name) setName(workers[0].name);
   }, [workers, name]);
+
+  useEffect(() => {
+    if (showDownload) setShowDownload(false);
+  }, [name, type, letterDate, hrName]);
 
   return (
     <div className="card">
@@ -153,7 +169,7 @@ export default function Letters() {
           <label className="field">HR name
             <Dropdown value={hrName} onChange={e=>setHrName(e.target.value)} options={[{value:'',label:'Select HR...'}, ...workers.filter(w => (w.dept||w.department||'').toLowerCase().includes('hr') || (w.dept||w.department||'').toLowerCase().includes('admin')).map(w => ({value: w.name, label: w.name}))]} />
           </label>
-          <label className="field btn-field"><span>&nbsp;</span><button className="btn btn-primary" onClick={generate}><FileTxt width={16}/> Generate</button></label>
+          <label className="field btn-field"><span>&nbsp;</span>{!showDownload ? <button className="btn btn-primary" onClick={generate}><FileTxt width={16}/> Generate</button> : <button className="btn btn-primary" onClick={downloadPdf}><FileTxt width={16}/> Download PDF</button>}</label>
         </div>
 
         {out && (
@@ -167,9 +183,6 @@ export default function Letters() {
             )}
             <div style={{ marginTop:18, display:'flex', gap:8 }}>
               <button className="btn btn-sm" onClick={copy}>Copy text</button>
-              {showPdfBtn && (
-                <button className="btn btn-sm" onClick={() => generatePdf(out.body)} style={{ background:'#dc2626', color:'#fff', fontWeight:600, border:'1px solid #b91c1c' }}>Generate PDF</button>
-              )}
             </div>
           </div>
         )}
