@@ -3,8 +3,6 @@ import { apiGet } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 
-const PAGE_SIZE = 15;
-
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
 const SkeletonNum = () => (
@@ -33,7 +31,6 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [ngoFilter, setNgoFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [page, setPage] = useState(0);
   const [viewingId, setViewingId] = useState(null);
 
   const mountedRef = useRef(true);
@@ -87,12 +84,6 @@ export default function Dashboard() {
     );
   }, [leads, searchQuery, ngoFilter]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
-
-  useEffect(() => { setPage(0); }, [searchQuery, statusFilter, ngoFilter]);
-
   const sendToReceipts = () => {
     const verified = leads.filter(l => l.accounts_status === 'verified');
     if (verified.length === 0) return;
@@ -140,13 +131,13 @@ export default function Dashboard() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(0); }}>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); }}>
             <option value="pending">Pending ({allLeads.filter(l => l.accounts_status === 'pending').length})</option>
             <option value="verified">Verified ({allLeads.filter(l => l.accounts_status === 'verified').length})</option>
             <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
             <option value="">All ({allLeads.length})</option>
           </select>
-          <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); setPage(0); }}>
+          <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }}>
             <option value="">All NGOs</option>
             <option value="bsct">Being Sevak</option>
             <option value="maan">Mann Care</option>
@@ -178,7 +169,7 @@ export default function Dashboard() {
                   {searchQuery ? 'No leads match your search.' : 'No leads found.'}
                 </td></tr>
               ) : (
-                paged.map(l => (
+                filtered.map(l => (
                   <tr key={l.log_id} className="clickable-row" onClick={() => setViewingId(l.log_id)} style={l.accounts_status !== 'pending' ? { opacity: 0.6 } : {}}>
                     <td><strong>{l.donor_name}</strong></td>
                     <td><strong style={{ color: 'var(--sage)' }}>{currency(l.amount)}</strong></td>
@@ -197,23 +188,6 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
-        {!loading && pageCount > 1 && (
-          <div className="pagination">
-            <button disabled={safePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>{'\u276E'}</button>
-            {Array.from({ length: Math.min(pageCount, 7) }, (_, i) => {
-              const start = Math.max(0, Math.min(safePage - 3, pageCount - 7));
-              const pageIdx = start + i;
-              if (pageIdx >= pageCount) return null;
-              return (
-                <button key={pageIdx} className={safePage === pageIdx ? 'active' : ''} onClick={() => setPage(pageIdx)}>
-                  {pageIdx + 1}
-                </button>
-              );
-            })}
-            <button disabled={safePage >= pageCount - 1} onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}>{'\u276F'}</button>
-            <span className="page-info">{filtered.length} total</span>
-          </div>
-        )}
       </div>
     </div>
   );
