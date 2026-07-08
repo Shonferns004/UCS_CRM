@@ -424,7 +424,7 @@ export default function Receipts() {
               <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
                 <thead>
                   <tr>
-                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>NGO</th><th>Sent</th><th>Action</th>
+                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>NGO</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -447,9 +447,6 @@ export default function Receipts() {
                         ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
                       </td>
                       <td style={{ fontSize:12 }}><span className="pill pill-gray">{({ bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct'}</span></td>
-                      <td style={{ textAlign:'center' }}>
-                        {d.sent ? <span style={{ color:'#059669' }}>{'\u2713'}</span> : <span style={{ color:'#9ca3af' }}>{'\u2014'}</span>}
-                      </td>
                       <td style={{ display:'flex', gap:4 }}>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
                           onClick={e => { e.stopPropagation(); handleSendSingle(d, i) }}
