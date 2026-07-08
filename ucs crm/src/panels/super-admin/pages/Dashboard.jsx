@@ -2827,9 +2827,9 @@ export default function Dashboard() {
       {/* ============ PANEL SUMMARIES ============ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginTop: 24 }}>
         {/* ---- NGO Admin ---- */}
-        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.1s', cursor: 'pointer' }} onClick={() => setPanelModal('ngo-admin')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#F59E0B' }}>corporate_fare</span>
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #F59E0B', animationDelay: '0.1s', cursor: 'pointer' }} onClick={() => setPanelModal('ngo-admin')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#FFFBEB', color: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>corporate_fare</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>NGO Admin</span>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
@@ -2839,9 +2839,9 @@ export default function Dashboard() {
         </div>
 
         {/* ---- Accounts ---- */}
-        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.15s', cursor: 'pointer' }} onClick={() => setPanelModal('accounts')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#8B5CF6' }}>receipt_long</span>
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #8B5CF6', animationDelay: '0.15s', cursor: 'pointer' }} onClick={() => setPanelModal('accounts')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#F5F3FF', color: '#8B5CF6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>receipt_long</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Accounts</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -2852,9 +2852,9 @@ export default function Dashboard() {
         </div>
 
         {/* ---- Event Head ---- */}
-        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.2s', cursor: 'pointer' }} onClick={() => setPanelModal('event-head')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#3B82F6' }}>event</span>
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #3B82F6', animationDelay: '0.2s', cursor: 'pointer' }} onClick={() => setPanelModal('event-head')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#EFF6FF', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>event</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Event Head</span>
           </div>
           <div><div style={{ fontSize: 18, fontWeight: 800, color: PRIMARY }}>{upcomingEvents.length || 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Upcoming Events</div></div>
@@ -2864,9 +2864,9 @@ export default function Dashboard() {
         </div>
 
         {/* ---- HR ---- */}
-        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.25s', cursor: 'pointer' }} onClick={() => setPanelModal('hr')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#3B82F6' }}>badge</span>
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #6366F1', animationDelay: '0.25s', cursor: 'pointer' }} onClick={() => setPanelModal('hr')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#EEF2FF', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>badge</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>HR</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -2877,9 +2877,9 @@ export default function Dashboard() {
         </div>
 
         {/* ---- Recruiter ---- */}
-        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.3s', cursor: 'pointer' }} onClick={() => setPanelModal('recruiter')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#10B981' }}>person_search</span>
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #10B981', animationDelay: '0.3s', cursor: 'pointer' }} onClick={() => setPanelModal('recruiter')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#ECFDF5', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>person_search</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Recruiter</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -2890,9 +2890,9 @@ export default function Dashboard() {
         </div>
 
         {/* ---- FRO ---- */}
-        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.35s', cursor: 'pointer' }} onClick={() => setPanelModal('fro')}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#EC4899' }}>groups</span>
+        <div className="nd-card nd-appear" style={{ padding: '12px 14px', borderLeft: '4px solid #EC4899', animationDelay: '0.35s', cursor: 'pointer' }} onClick={() => setPanelModal('fro')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, width: 32, height: 32, borderRadius: 8, background: '#FDF2F8', color: '#EC4899', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>groups</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>FRO</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
