@@ -538,6 +538,9 @@ export default function Dashboard() {
   const inactive_donors = Number(data.inactive_donors) || 0;
   const reactivated_today = Number(data.reactivated_today) || 0;
   const reactivated_monthly = Number(data.reactivated_monthly) || 0;
+  const total_fro_workers = Number(data.total_fro_workers) || 0;
+  const assigned_fro_count = Number(data.assigned_fro_count) || 0;
+  const fro_per_ngo = data.fro_per_ngo || {};
   const unassigned = Math.max(0, total_donors - assigned_donors);
   const assignPct = total_donors > 0 ? Math.round((assigned_donors / total_donors) * 100) : 0;
 
@@ -598,30 +601,42 @@ export default function Dashboard() {
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Active FRO Workers</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{active_fros}</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>FRO Workers</span>
           </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <div style={{ width: 64, height: 64, flexShrink: 0 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={[{ value: active_fros, color: 'var(--sage)' }, { value: Math.max(1, 50 - active_fros), color: '#e5e7eb' }]}
-                    cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" startAngle={90} endAngle={-270}>
-                    <Cell fill="var(--sage)" />
-                    <Cell fill="#e5e7eb" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10, textAlign:'center' }}>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{total_fro_workers}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Total</div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', marginBottom: 6, overflow: 'hidden' }}>
-                <div style={{ width: `${Math.min(100, (active_fros / 50) * 100)}%`, height: '100%', borderRadius: 2, background: 'var(--sage)' }} />
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{active_fros} currently active</div>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sage)' }}>{active_fros}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Active</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>{assigned_fro_count}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Assigned</div>
             </div>
           </div>
+          {selectedNgoId === 'all' && Object.keys(fro_per_ngo).length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 6, textTransform:'uppercase' }}>Per NGO</div>
+              {Object.entries(fro_per_ngo).map(([name, count]) => {
+                const maxCount = Math.max(...Object.values(fro_per_ngo), 1);
+                const pct = (count / maxCount) * 100;
+                return (
+                  <div key={name} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                    <span style={{ fontSize:12, fontWeight:600, minWidth:50, color:'var(--ink)' }}>{name}</span>
+                    <div style={{ flex:1, height:6, borderRadius:3, background:'#e5e7eb', overflow:'hidden' }}>
+                      <div style={{ width:`${pct}%`, height:'100%', borderRadius:3, background:'var(--sage)' }} />
+                    </div>
+                    <span style={{ fontSize:12, fontWeight:600, minWidth:24, textAlign:'right', color:'var(--ink)' }}>{count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setSelectedPeriod('month')}>

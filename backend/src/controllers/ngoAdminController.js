@@ -346,6 +346,9 @@ export const getDashboard = async (req, res) => {
     }
 
     const { ngo_id: filterNgoId } = req.query;
+    const origNgoNames = [...ngoNames];
+    const origNgoIds = [...ngoIds];
+
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.indexOf(filterNgoId);
       if (idx !== -1) {
@@ -499,11 +502,32 @@ export const getDashboard = async (req, res) => {
     const activeFroCount = froWorkers.filter(w => w.is_active !== false).length;
     const attendancePct = activeFroCount > 0 ? Math.round((workersPresent / activeFroCount) * 1000) / 10 : 0;
 
+    const assignedWorkerIds = new Set(allAssignments.map(a => a.fro_worker_id).filter(Boolean));
+    const assignedFroCount = assignedWorkerIds.size;
+
+    const ngoIdToName = {};
+    for (const a of access) ngoIdToName[a.ngo_id] = a.ngo_name;
+    if (req.user.ngo_id && !ngoIdToName[req.user.ngo_id]) {
+      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoIdToName[req.user.ngo_id] = ngo.name;
+    }
+
+    const froPerNgo = {};
+    for (const ngoId of origNgoIds) {
+      const workers = await getFroWorkersByNgo(ngoId);
+      const name = ngoIdToName[ngoId] || 'Unknown';
+      if (!froPerNgo[name]) froPerNgo[name] = 0;
+      froPerNgo[name] += workers.length;
+    }
+
     return res.json({
       total_donors: totalDonors.length,
       assigned_donors: assignedCount,
       collected_donors: collectedDonations.length,
       active_fros: activeFroCount,
+      total_fro_workers: froWorkers.length,
+      assigned_fro_count: assignedFroCount,
+      fro_per_ngo: froPerNgo,
       month_collection: monthCollection,
       today_collection: todayCollection,
       total_workers: activeFroCount,
