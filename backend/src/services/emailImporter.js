@@ -184,7 +184,7 @@ async function pollSingleAccount(account, sources, fromDate) {
     await client.connect();
     await client.mailboxOpen('INBOX');
 
-    const searchQuery = { seen: false };
+    const searchQuery = {};
     if (fromDate) {
       const since = new Date(fromDate);
       since.setHours(0, 0, 0, 0);
@@ -198,6 +198,7 @@ async function pollSingleAccount(account, sources, fromDate) {
 
     for await (const msg of client.fetch(messages, { source: true })) {
       try {
+        const msgSeen = msg.flags?.includes('\\Seen') || false;
         const parsed = await simpleParser(msg.source);
         const messageId = parsed.messageId || msg.uid?.toString();
         if (!messageId) { skipped++; continue; }
@@ -245,6 +246,7 @@ async function pollSingleAccount(account, sources, fromDate) {
             parsed_sender_name: details.sender_name,
             bank_entry_id: entry.id,
             status: 'imported',
+            seen: msgSeen,
             raw_snippet: emailText.slice(0, 500),
             account_id: account.id,
             account_name: account.name,

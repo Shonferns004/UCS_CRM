@@ -14,7 +14,7 @@ export async function logImport({
   email_message_id, email_subject, email_from, received_at,
   parsed_amount, parsed_payment_id, parsed_transaction_date,
   parsed_source, parsed_sender_name, bank_entry_id, status, error_message, raw_snippet,
-  account_id, account_name,
+  account_id, account_name, seen,
 }) {
   const { data, error } = await supabase
     .from('email_import_log')
@@ -30,6 +30,7 @@ export async function logImport({
       parsed_sender_name: parsed_sender_name || null,
       bank_entry_id: bank_entry_id || null,
       status: status || 'imported',
+      seen: seen ?? false,
       error_message: error_message || null,
       raw_snippet: raw_snippet ? raw_snippet.slice(0, 1000) : null,
       account_id: account_id || null,
