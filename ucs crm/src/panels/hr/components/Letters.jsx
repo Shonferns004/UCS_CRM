@@ -42,12 +42,46 @@ function buildOfferLetterHTML(w, dateText, hrNameText, subjectText) {
 </div>`;
 }
 
+function buildExperienceLetterHTML(w, dateText, hrNameText) {
+  const r = w.role || w.department || 'Team Member';
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="/logo/ucs-logo.png" alt="UCS" style="width:65px;height:auto;margin-right:14px" />
+<div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">ULTIMATE CONSULTANT SOLUTIONS</div><div style="font-size:12px;font-weight:400;color:#0B73C4;letter-spacing:1px">(UCS)</div></div>
+</div>
+<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
+<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:8px 0;text-transform:uppercase">UCS – Ultimate Consultant Solution Letterhead</div>
+<div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;margin:0 0 10px 0">EXPERIENCE LETTER</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 10px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+<div style="margin-bottom:8px"><strong>To Whom It May Concern,</strong></div>
+<div style="text-align:justify">
+<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>UCS – Ultimate Consultant Solution</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
+<p style="margin:0 0 6px 0">During their tenure with our organization, <strong>${w.name}</strong> was responsible for:</p>
+<ul style="margin:0 0 6px 0;padding-left:22px">
+<li style="margin-bottom:4px">Managing assigned tasks and projects efficiently.</li>
+<li style="margin-bottom:4px">Coordinating with clients, team members, and stakeholders.</li>
+<li style="margin-bottom:4px">Maintaining quality standards and meeting project deadlines.</li>
+<li style="margin-bottom:4px">Preparing reports, documentation, and other job-related deliverables.</li>
+<li style="margin-bottom:4px">Performing duties and responsibilities associated with the role of <strong>${r}</strong>.</li>
+</ul>
+<p style="margin:0 0 6px 0">Throughout their employment, <strong>${w.name}</strong> demonstrated professionalism, dedication, and a positive attitude toward their work. Their performance was satisfactory, and they maintained good conduct during their association with the company.</p>
+<p style="margin:0 0 6px 0">We appreciate their contributions to <strong>UCS – Ultimate Consultant Solution</strong> and wish them every success in their future endeavors.</p>
+<p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
+</div>
+<div style="margin-top:14px">
+<p style="margin:0 0 2px 0"><strong>Sincerely,</strong></p>
+<p style="margin:14px 0 0 0"><strong>[Authorized Signatory]</strong><br />${hrNameText || '[Name of HR/Manager]'}<br /><strong>[Designation]</strong><br /><strong>UCS – Ultimate Consultant Solution</strong><br />Contact No.: [Phone Number]<br />Email: [Email Address]<br />Company Seal &amp; Signature</p>
+</div>
+<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
+</div>`;
+}
+
 function build(type, w) {
   const today = new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
-    'Experience letter': `To Whom It May Concern,\n\nThis is to certify that ${w.name} served as ${r} in our ${d} team. Throughout their time with us they were dependable, collaborative and consistently professional. We wish them every success ahead.\n\nWarm regards,\nThe People Team`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': `Dear ${w.name},\n\nThis letter is a formal note regarding recent conduct in your role as ${r}. We value your contribution and trust this can be resolved. Please treat this as an opportunity to realign with our shared expectations.\n\nRegards,\nThe People Team`,
     'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
@@ -74,7 +108,7 @@ export default function Letters() {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
-    if (letterType === 'Offer letter') {
+    if (letterType === 'Offer letter' || letterType === 'Experience letter') {
       el.style.padding = '0';
       el.innerHTML = bodyText;
     } else {
@@ -116,6 +150,11 @@ export default function Letters() {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
       body = buildOfferLetterHTML(w, dateText, hrNameText, subject);
+      today = dateText;
+    } else if (type === 'Experience letter') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const hrNameText = hrName || '{{hr_name}}';
+      body = buildExperienceLetterHTML(w, dateText, hrNameText);
       today = dateText;
     } else {
       const result = build(type, w);
@@ -168,7 +207,7 @@ export default function Letters() {
 
         {out && (
           <div className="letter">
-            {out.type === 'Offer letter' ? (
+            {out.type === 'Offer letter' || out.type === 'Experience letter' ? (
               <div dangerouslySetInnerHTML={{ __html: out.body }} />
             ) : (
               <><div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
