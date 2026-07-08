@@ -1,35 +1,41 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector, navItems }) {
+export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector, navItems, razorpayView }) {
   const [view, setView] = useState(null);
   const navigate = useNavigate();
 
   if (!open) return null;
 
+  const isRazorpay = view === 'razorpay';
+  const drawerWidth = isRazorpay ? 420 : 280;
+
   return (
     <>
       <div className="modal-overlay" onClick={() => { onClose(); setView(null); }} style={{ zIndex: 200 }} />
       <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 280,
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: drawerWidth,
         background: 'var(--card-bg)', zIndex: 201,
         boxShadow: '-4px 0 24px rgba(0,0,0,.1)',
         display: 'flex', flexDirection: 'column',
+        transition: 'width .2s ease',
         animation: 'slideInRight .2s ease'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
-          {view === 'themes' && (
+          {(view === 'themes' || isRazorpay) && (
             <button className="btn btn-sm btn-icon" onClick={() => setView(null)} style={{ padding: 4 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             </button>
           )}
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{view === 'themes' ? 'Themes' : 'Settings'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
+            {view === 'themes' ? 'Themes' : isRazorpay ? 'Razorpay Accounts' : 'Settings'}
+          </h3>
           <button className="btn btn-sm btn-icon" onClick={() => { onClose(); setView(null); }} style={{ padding: 4, marginLeft: 'auto' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: isRazorpay ? '12px' : '8px 0' }}>
           {view === 'themes' ? (
             <div style={{ padding: '0 12px' }}>
               {Object.entries(themes || {}).map(([key, theme]) => (
@@ -53,6 +59,8 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
                 </div>
               ))}
             </div>
+          ) : isRazorpay ? (
+            <div>{razorpayView}</div>
           ) : (
             <>
               {themes && (
@@ -61,6 +69,15 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
                   onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
                   <span>Themes</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
+                </div>
+              )}
+              {razorpayView && (
+                <div onClick={() => setView('razorpay')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                  <span>Razorpay Accounts</span>
                   <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
                 </div>
               )}
