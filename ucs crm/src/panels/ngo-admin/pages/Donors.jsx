@@ -63,11 +63,18 @@ export default function Donors({ onSelect }) {
   const [showAssign, setShowAssign] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [selectedNgoId, setSelectedNgoId] = useState('all');
+  const [accessibleNgos, setAccessibleNgos] = useState([]);
+
+  useEffect(() => {
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+  }, []);
 
   const load = () => {
     setLoading(true);
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
     Promise.all([
-      apiGet('/ngo-admin/donors'),
+      apiGet(`/ngo-admin/donors${ngoParam}`),
       apiGet('/ngo-admin/fro-workers'),
     ]).then(([d, f]) => {
       setDonors(d);
@@ -75,7 +82,7 @@ export default function Donors({ onSelect }) {
     }).catch(() => {}).finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(load, [selectedNgoId]);
 
   const stations = useMemo(() => {
     const s = new Set();
@@ -125,6 +132,15 @@ export default function Donors({ onSelect }) {
 
   return (
     <div>
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
+      </div>
       <div className="card">
         <div className="card-head">
           <h3>Donor Profiles</h3>

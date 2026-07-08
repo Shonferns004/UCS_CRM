@@ -501,6 +501,12 @@ export default function DonorCRM() {
   const [showDonorDetail, setShowDonorDetail] = useState(null)
   const [duplicates, setDuplicates] = useState([])
   const [err, setErr] = useState('')
+  const [selectedNgoId, setSelectedNgoId] = useState('all')
+  const [accessibleNgos, setAccessibleNgos] = useState([])
+
+  useEffect(() => {
+    api('/ngo-admin/ngos', { _prefix: 'ucs' }).then(setAccessibleNgos).catch(() => {});
+  }, []);
 
   const loadLeads = useCallback(async () => {
     setLoading(true)
@@ -524,12 +530,13 @@ export default function DonorCRM() {
       if (search) params.set('search', search)
       if (dateFrom) params.set('from_date', dateFrom)
       if (dateTo) params.set('to_date', dateTo)
+      if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId)
       const res = await api(`/ngo-admin/donors?${params}&paginated=true`, { _prefix: 'ucs' })
       setDonors(res.data || [])
       setDonorTotal(res.pagination?.total || 0)
       setDonorTotalPages(res.pagination?.totalPages || 1)
     } catch (e) { /* ignore */ }
-  }, [donorPage, donorPageSize, search, dateFrom, dateTo])
+  }, [donorPage, donorPageSize, search, dateFrom, dateTo, selectedNgoId])
 
   useEffect(() => {
     if (tab === 'leads') loadLeads()
@@ -563,6 +570,16 @@ export default function DonorCRM() {
             </>
           )}
         </div>
+      </div>
+
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
       </div>
 
       <div className="tabs">
