@@ -25,16 +25,23 @@ export default function Alerts() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [selectedNgoId, setSelectedNgoId] = useState('all');
+  const [accessibleNgos, setAccessibleNgos] = useState([]);
+
+  useEffect(() => {
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+  }, []);
 
   const load = () => {
     setLoading(true);
-    apiGet('/ngo-admin/alerts')
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+    apiGet(`/ngo-admin/alerts${ngoParam}`)
       .then(data => setAlerts(Array.isArray(data) ? data : data?.alerts || []))
       .catch(() => setAlerts([]))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(load, [selectedNgoId]);
 
   const handleAcknowledge = async (alertId) => {
     try {
@@ -50,6 +57,15 @@ export default function Alerts() {
 
   return (
     <div>
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
+      </div>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
           <h3 style={{ margin:0 }}>Alerts</h3>

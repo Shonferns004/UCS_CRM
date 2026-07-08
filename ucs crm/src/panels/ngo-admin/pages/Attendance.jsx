@@ -115,11 +115,18 @@ export default function NgoAttendance() {
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [err, setErr] = useState('');
+  const [selectedNgoId, setSelectedNgoId] = useState('all');
+  const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/attendance/all').then(setRecords).catch(e => setErr(e.message));
-    apiGet('/ngo-admin/fro-workers').then(setFroWorkers).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+    apiGet(`/attendance/all${ngoParam}`).then(setRecords).catch(e => setErr(e.message));
+    apiGet('/ngo-admin/fro-workers').then(setFroWorkers).catch(() => {});
+  }, [selectedNgoId]);
 
   const froIds = new Set(froWorkers.map(w => w.id));
 
@@ -144,6 +151,15 @@ export default function NgoAttendance() {
 
   return (
     <div>
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
+      </div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>FRO Attendance</h3></div>
         <div className="card-pad">

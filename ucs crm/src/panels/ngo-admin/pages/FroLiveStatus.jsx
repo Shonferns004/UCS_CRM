@@ -22,10 +22,17 @@ export default function FroLiveStatus() {
   const { user } = useUcs()
   const [statuses, setStatuses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedNgoId, setSelectedNgoId] = useState('all')
+  const [accessibleNgos, setAccessibleNgos] = useState([])
+
+  useEffect(() => {
+    api('/ngo-admin/ngos', { _prefix: 'ucs' }).then(setAccessibleNgos).catch(() => {});
+  }, []);
 
   const loadStatuses = async () => {
     try {
-      const data = await api('/fro/status', { _prefix: 'ucs' })
+      const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+      const data = await api(`/fro/status${ngoParam}`, { _prefix: 'ucs' })
       setStatuses(data || [])
     } catch { setStatuses([]) }
     finally { setLoading(false) }
@@ -35,7 +42,7 @@ export default function FroLiveStatus() {
     loadStatuses()
     const interval = setInterval(loadStatuses, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedNgoId])
 
   useEffect(() => {
     const channel = supabase
@@ -56,6 +63,15 @@ export default function FroLiveStatus() {
 
   return (
     <div>
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div style={{ width: 36, height: 36, borderRadius: 10, background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>radio</span>
