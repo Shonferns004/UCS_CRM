@@ -7,35 +7,6 @@ import jsPDF from 'jspdf';
 
 const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter'];
 
-function buildOfferLetterHTML(w, dateText, hrNameText, subjectText) {
-  const r = w.role || w.department || 'Team Member';
-  const d = w.dept || w.department || 'General';
-  const subj = subjectText || `Appointment as ${r}`;
-  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Subject: ${subj}</div>
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
-<div style="margin-bottom:6px"><strong>Dear ${w.name},</strong></div>
-<div style="text-align:justify">
-<p style="margin:0 0 6px 0">We are pleased to inform you that you have been selected for the position of <strong>${r}</strong> in the <strong>${d}</strong> department at <strong>Ultimate Consultancy Solutions (UCS)</strong>. Your qualifications and experience impressed us, and we are confident that your skills will be a valuable addition to our team.</p>
-<p style="margin:0 0 6px 0">Your anticipated date of joining will be communicated to you shortly. You will be on a probation period of <strong>one (1) month</strong> from the date of joining, during which your performance will be closely monitored and evaluated. Upon satisfactory completion of the probation period, your appointment as a permanent employee will be confirmed by the management.</p>
-<p style="margin:0 0 6px 0">During your probation, you are required to perform all duties and responsibilities assigned to you by your Team Leader or Reporting Manager. Your training will consist of two stages: an initial basic training period of <strong>3 (three) days</strong> from the date of joining, followed by a comprehensive training period of <strong>24 (twenty-four) days</strong>. Please note that <strong>no leave will be permitted</strong> during the training period.</p>
-<p style="margin:0 0 6px 0"><u><strong>Office Timings:</strong></u> All employees are required to maintain office hours from <strong>10:00 a.m. to 7:00 p.m.</strong>, Monday through Saturday.</p>
-<p style="margin:0 0 6px 0"><u><strong>Office Guidelines:</strong></u></p>
-<ul style="margin:0 0 6px 0;padding-left:22px">
-<li style="margin-bottom:4px">Dress Code (Monday to Friday): Formals</li>
-<li style="margin-bottom:4px">Dress Code (Saturday): Casuals</li>
-<li style="margin-bottom:4px">Personal mobile phones are not permitted during working hours, except during lunch breaks.</li>
-</ul>
-<p style="margin:0 0 6px 0">All employees are expected to adhere to the highest standards of professionalism, integrity, and confidentiality. Any breach of the company's code of conduct or confidentiality policies may result in disciplinary action, including termination of employment.</p>
-<p style="margin:0 0 6px 0">Please note that during the probation period, you will not be eligible for any other monetary benefits beyond the stipulated stipend. If an employee absconds or voluntarily leaves during the training period, they will not be eligible for any training salary or compensation.</p>
-<p style="margin:0 0 6px 0">Kindly sign and return a copy of this appointment letter to confirm your acceptance of the terms and conditions outlined herein. Your appointment will be effective upon your acceptance.</p>
-<p style="margin:0 0 6px 0">Congratulations on your appointment, and welcome to the team!</p>
-</div>
-<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>Ultimate Consultancy Solutions (UCS)</strong></p></div>
-<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
-</div>`;
-}
-
 function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText) {
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
@@ -111,6 +82,7 @@ function build(type, w) {
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
+    'Offer letter': `Dear ${w.name},\n\nWe are pleased to offer you the position of ${r} in the ${d} department at Ultimate Consultancy Solutions (UCS). We were impressed with your qualifications and are confident you will be a valuable addition to our team.\n\nYour date of joining will be communicated shortly. You will be on a probation period of one (1) month from the date of joining.\n\nWarm regards,\nThe People Team`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': `Dear ${w.name},\n\nThis letter is a formal note regarding recent conduct in your role as ${r}. We value your contribution and trust this can be resolved. Please treat this as an opportunity to realign with our shared expectations.\n\nRegards,\nThe People Team`,
     'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
@@ -138,7 +110,7 @@ export default function Letters() {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
-    if (letterType === 'Offer letter' || letterType === 'Joining letter' || letterType === 'Experience letter') {
+    if (letterType === 'Joining letter' || letterType === 'Experience letter') {
       el.style.padding = '0';
       el.innerHTML = bodyText;
     } else {
@@ -176,12 +148,7 @@ export default function Letters() {
     const w = workers.find(x => x.name === name);
     if (!w) return;
     let body, today;
-    if (type === 'Offer letter') {
-      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
-      const hrNameText = hrName || '{{hr_name}}';
-      body = buildOfferLetterHTML(w, dateText, hrNameText, subject);
-      today = dateText;
-    } else if (type === 'Joining letter') {
+    if (type === 'Joining letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
       body = buildJoiningLetterHTML(w, dateText, hrNameText, subject);
@@ -245,7 +212,7 @@ export default function Letters() {
 
         {out && (
           <div className="letter">
-            {out.type === 'Offer letter' || out.type === 'Joining letter' || out.type === 'Experience letter' ? (
+            {out.type === 'Joining letter' || out.type === 'Experience letter' ? (
               <div dangerouslySetInnerHTML={{ __html: out.body }} />
             ) : (
               <><div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
