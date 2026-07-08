@@ -164,7 +164,7 @@ export default function Dashboard() {
             <tbody>
               {loading ? (
                 Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} cols={6} />)
-              ) : paged.length === 0 ? (
+               ) : filtered.length === 0 ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                   {searchQuery ? 'No leads match your search.' : 'No leads found.'}
                 </td></tr>
