@@ -113,6 +113,7 @@ function PageShell({ children }) {
   const [showSettings, setShowSettings] = useState(false)
   const [allNotifs, setAllNotifs] = useState([])
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [mobileSidebar, setMobileSidebar] = useState(false)
   const [themeName, setThemeName] = useState(() => {
     try { return localStorage.getItem('sa_theme') || 'sky' } catch { return 'sky' }
   })
@@ -257,7 +258,7 @@ function PageShell({ children }) {
             )}
           </div>
           </div>
-          <NotificationDrawer
+          <NotificationDrawer topOffset={48}
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
@@ -271,7 +272,7 @@ function PageShell({ children }) {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <div className="content-body" style={{maxWidth:'none'}}>
+        <div className="content-body" style={{maxWidth:'none', marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           {children}
         </div>
       </div>

@@ -141,7 +141,7 @@ function AppShell() {
             )}
           </div>
           </div>
-          <NotificationDrawer
+          <NotificationDrawer topOffset={68}
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
@@ -155,7 +155,7 @@ function AppShell() {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <main className="content">
+        <main className="content" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           <p style={{color:'var(--ink-soft)',marginBottom:22,marginTop:-4}}>{meta.sub}</p>
           <Routes>
             <Route index element={<Navigate to="dashboard" replace />} />

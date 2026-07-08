@@ -188,7 +188,7 @@ function HRPageShell({ children }) {
             )}
           </div>
           </div>
-          <NotificationDrawer
+          <NotificationDrawer topOffset={66}
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             sections={drawerSections}
@@ -202,7 +202,7 @@ function HRPageShell({ children }) {
             onThemeChange={(key) => setThemeName(key)}
           />
         </header>
-        <div className="content-body">
+        <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
           {children}
         </div>
       </div>

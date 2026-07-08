@@ -20,9 +20,8 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
     <>
       {open && <div className="notif-overlay" onClick={onClose} />}
       <div ref={drawerRef} className="notif-drawer" style={{
-        position: 'fixed', top: 0, right: open ? 0 : '-340px', width: 320, maxWidth: '100vw',
-        height: '100vh', background: '#fff', zIndex: 1001,
-        boxShadow: '-4px 0 24px rgba(0,0,0,.12)',
+        position: 'fixed', top: topOffset, right: open ? 0 : '-340px', width: 320, maxWidth: '100vw',
+        height: open ? 'calc(100vh - ' + topOffset + 'px)' : '100vh', background: '#fff', zIndex: 2000,
         transition: 'right .25s ease',
         display: 'flex', flexDirection: 'column',
       }}>
@@ -36,7 +35,7 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }} className="notif-scroll">
           {sections.map((section, si) => (
             <div key={si}>
               {section.items?.length > 0 && (
@@ -118,10 +117,7 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
       </div>
 
       <style>{`
-        .notif-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 999;
-          animation: notif-fade-in .2s ease;
-        }
+        .notif-scroll::-webkit-scrollbar { display: none; }
         @keyframes notif-fade-in {
           from { opacity: 0; } to { opacity: 1; }
         }

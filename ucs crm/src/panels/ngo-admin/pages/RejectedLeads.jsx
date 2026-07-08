@@ -32,88 +32,90 @@ export default function RejectedLeads() {
   const pending = tickets.filter(t => t.status === 'pending_review');
   const acknowledged = tickets.filter(t => t.status === 'acknowledged');
 
+  function CardList({ items, emptyText }) {
+    if (items.length === 0) return <div style={{ textAlign:'center', padding:24, color:'var(--ink-soft)', fontSize:13 }}>{emptyText}</div>;
+    return (
+      <div style={{ display:'grid', gap:10 }}>
+        {items.map(t => (
+          <div key={t.id} style={{
+            background: 'var(--card-bg)', borderRadius: 'var(--radius-sm)', padding: '14px 16px',
+            border: '1px solid var(--line)', boxShadow: 'var(--shadow)',
+            opacity: t.status === 'acknowledged' ? 0.55 : 1,
+          }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6, flexWrap:'wrap' }}>
+              <strong style={{ fontSize:14 }}>{t.donor_name}</strong>
+              <span style={{ fontSize:14, fontWeight:700, color:'var(--sage)' }}>{currency(t.amount)}</span>
+              <span className="pill pill-gray" style={{ fontSize:10 }}>{t.fro_name}</span>
+              {t.status === 'pending_review'
+                ? <span className="pill pill-red" style={{ fontSize:10 }}>Pending</span>
+                : <span className="pill pill-green" style={{ fontSize:10 }}>Reviewed</span>}
+            </div>
+            <div style={{ fontSize:12, color:'var(--ink-soft)', lineHeight:1.4, whiteSpace:'pre-wrap', marginBottom:8 }}>
+              {t.rejection_reason}
+            </div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
+              <span style={{ fontSize:11, color:'var(--ink-soft)' }}>
+                {t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '\u2014'}
+              </span>
+              {t.status === 'pending_review' && (
+                <button className="btn btn-sm btn-primary" onClick={() => ack(t.id)} style={{ fontSize:11, padding:'4px 12px' }}>
+                  Acknowledge
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: '#dc262618', color: '#dc2626' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          </div>
-          <div className="stat-info">
-            <div className="stat-num">{pending.length}</div>
-            <div className="stat-lbl">Pending Review</div>
-          </div>
+      <div style={{ display:'flex', gap:12, marginBottom:16, flexWrap:'wrap' }}>
+        <div style={{ flex:1, minWidth:140, background:'var(--card-bg)', borderRadius:'var(--radius-sm)', padding:'14px 16px', border:'1px solid var(--line)', boxShadow:'var(--shadow)' }}>
+          <div style={{ fontSize:24, fontWeight:800, color:'#dc2626', lineHeight:1.1 }}>{pending.length}</div>
+          <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:4 }}>Pending Review</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: '#16a34a18', color: '#16a34a' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-          <div className="stat-info">
-            <div className="stat-num">{acknowledged.length}</div>
-            <div className="stat-lbl">Acknowledged</div>
-          </div>
+        <div style={{ flex:1, minWidth:140, background:'var(--card-bg)', borderRadius:'var(--radius-sm)', padding:'14px 16px', border:'1px solid var(--line)', boxShadow:'var(--shadow)' }}>
+          <div style={{ fontSize:24, fontWeight:800, color:'#16a34a', lineHeight:1.1 }}>{acknowledged.length}</div>
+          <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:4 }}>Acknowledged</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: '#5B6B4E18', color: '#5B6B4E' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          </div>
-          <div className="stat-info">
-            <div className="stat-num">{currency(tickets.reduce((s, t) => s + Number(t.amount || 0), 0))}</div>
-            <div className="stat-lbl">Total Amount</div>
-          </div>
+        <div style={{ flex:1, minWidth:140, background:'var(--card-bg)', borderRadius:'var(--radius-sm)', padding:'14px 16px', border:'1px solid var(--line)', boxShadow:'var(--shadow)' }}>
+          <div style={{ fontSize:24, fontWeight:800, color:'#5B6B4E', lineHeight:1.1 }}>{currency(tickets.reduce((s, t) => s + Number(t.amount || 0), 0))}</div>
+          <div style={{ fontSize:11, color:'var(--ink-soft)', marginTop:4 }}>Total Amount</div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head">
-          <h3>Rejected Leads ({tickets.length})</h3>
+      {loading ? (
+        <div style={{ display:'grid', gap:10 }}>
+          {[1,2,3].map(i => (
+            <div key={i} style={{ background:'var(--card-bg)', borderRadius:'var(--radius-sm)', padding:20, border:'1px solid var(--line)' }}>
+              <div style={{ height:14, width:'40%', borderRadius:4, marginBottom:8, background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+              <div style={{ height:12, width:'60%', borderRadius:4, background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+            </div>
+          ))}
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Donor</th>
-                <th>Amount</th>
-                <th>FRO</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
-              ) : tickets.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No rejected leads</td></tr>
-              ) : (
-                tickets.map(t => (
-                  <tr key={t.id} style={t.status === 'acknowledged' ? { opacity: 0.5 } : {}}>
-                    <td><strong>{t.donor_name}</strong></td>
-                    <td><strong style={{ color: 'var(--sage)' }}>{currency(t.amount)}</strong></td>
-                    <td><span className="pill pill-gray">{t.fro_name}</span></td>
-                    <td style={{ fontSize: 12, maxWidth: 250, whiteSpace: 'pre-wrap' }}>{t.rejection_reason}</td>
-                    <td>
-                      {t.status === 'pending_review' ? <span className="pill pill-red">Pending</span> :
-                       <span className="pill pill-green">Reviewed</span>}
-                    </td>
-                    <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>
-                      {t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014'}
-                    </td>
-                    <td>
-                      {t.status === 'pending_review' ? (
-                        <button className="btn btn-sm btn-primary" onClick={() => ack(t.id)}>Acknowledge</button>
-                      ) : (
-                        <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{'\u2014'}</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      ) : (
+        <>
+          {pending.length > 0 && (
+            <div style={{ marginBottom:16 }}>
+              <h3 style={{ fontSize:14, fontWeight:700, margin:'0 0 10px' }}>Pending Review ({pending.length})</h3>
+              <CardList items={pending} emptyText="No pending rejected leads" />
+            </div>
+          )}
+
+          {acknowledged.length > 0 && (
+            <div>
+              <h3 style={{ fontSize:14, fontWeight:700, margin:'0 0 10px' }}>Acknowledged ({acknowledged.length})</h3>
+              <CardList items={acknowledged} emptyText="No acknowledged leads" />
+            </div>
+          )}
+
+          {tickets.length === 0 && (
+            <div style={{ textAlign:'center', padding:40, color:'var(--ink-soft)', fontSize:13 }}>No rejected leads yet</div>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { apiGet } from '../api/auth';
+import { apiGet, apiPost } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
 import { generateReceiptPDF } from '../services/pdfGenerator';
@@ -56,6 +56,7 @@ export default function ReceiptHistory() {
   const [projectFilter, setProjectFilter] = useState('');
   const [waPhone, setWaPhone] = useState('');
   const [waLoading, setWaLoading] = useState(false);
+  const [waResult, setWaResult] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -123,15 +124,30 @@ export default function ReceiptHistory() {
     finally { setDownloading(false); }
   };
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = async () => {
     if (!preview) return;
     const phone = (waPhone || '').replace(/\D/g, '');
     if (!phone || phone.length < 10) { alert('Please enter a valid phone number'); return; }
-    const r = preview.receipt;
-    const projectId = (r.project_id || '').toLowerCase();
-    const foundationName = PROJECT_LABELS[projectId] || 'our foundation';
-    const amt = Number(r.amount || 0).toLocaleString('en-IN');
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(`Thank you for your generous donation of \u20B9${amt} to ${foundationName}. Your receipt (No: ${r.receipt_no || ''}) has been generated.\n\nWith gratitude,\n${foundationName} Team`)}`, '_blank');
+    setWaLoading(true);
+    setWaResult(null);
+    try {
+      const el = document.querySelector('[data-receipt-preview]');
+      let pdfBase64 = null;
+      if (el) {
+        const pdf = await generateReceiptPDF(el, { scale: 1, jpegQuality: 0.7 });
+        pdfBase64 = pdf.output('datauristring').split(',')[1];
+      }
+      const res = await apiPost(`/whatsapp/send-receipt/${preview.receipt.log_id}`, {
+        number: phone,
+        pdfBase64,
+        receiptNo: preview.receipt.receipt_no,
+        donorName: preview.receipt.donor_name,
+        amount: preview.receipt.amount,
+      });
+      setWaResult({ success: true, message: res.uploadError ? 'Sent (text only - PDF upload failed: ' + res.uploadError + ')' : 'Receipt PDF sent via WhatsApp!' });
+    } catch (err) {
+      setWaResult({ success: false, message: 'Failed: ' + err.message });
+    } finally { setWaLoading(false); }
   };
 
   const projectOptions = useMemo(() => {
@@ -142,10 +158,10 @@ export default function ReceiptHistory() {
   return (
     <div>
       <div className="stats-grid">
-        <StatCard icon={'\u{1F4C4}'} label="Total Receipts" value={stats.total} color="#5B6B4E" />
-        <StatCard icon={'\u{1F4B0}'} label="Total Amount" value={currency(stats.totalAmount)} color="#16a34a" />
+        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} label="Total Receipts" value={stats.total} color="#5B6B4E" />
+        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} color="#16a34a" />
         {Object.entries(stats.byProject).map(([pid, count]) => (
-          <StatCard key={pid} icon={'\u{1F3E1}'} label={PROJECT_LABELS[pid] || pid} value={count} color="#3b82f6" />
+          <StatCard key={pid} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>} label={PROJECT_LABELS[pid] || pid} value={count} color="#3b82f6" />
         ))}
       </div>
 
@@ -224,8 +240,13 @@ export default function ReceiptHistory() {
                 <button className="btn btn-primary btn-sm" onClick={handleDownload} disabled={downloading}>
                   {downloading ? 'Downloading...' : 'Download PDF'}
                 </button>
+                {waResult && (
+                  <span style={{ fontSize: 11, color: waResult.success ? '#059669' : '#dc2626', marginRight: 4 }}>
+                    {waResult.message}
+                  </span>
+                )}
                 <button className="btn btn-sm" style={{ background: '#25D366', color: '#fff' }} onClick={handleWhatsApp} disabled={waLoading}>
-                  {waLoading ? 'Loading...' : 'Send via WhatsApp'}
+                  {waLoading ? 'Sending...' : 'Send via WhatsApp'}
                 </button>
                 <button className="btn btn-sm" onClick={() => setPreview(null)}>Close</button>
               </div>

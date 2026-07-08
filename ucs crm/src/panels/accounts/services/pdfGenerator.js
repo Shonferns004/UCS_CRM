@@ -209,7 +209,8 @@ function waitForImage(img) {
   })
 }
 
-export async function generateReceiptPDF(element) {
+export async function generateReceiptPDF(element, opts = {}) {
+  const { scale = 2, jpegQuality = 0.95 } = opts
   const target = getReceiptTarget(element)
   await Promise.all([...target.querySelectorAll('img')].map(waitForImage))
 
@@ -245,7 +246,7 @@ export async function generateReceiptPDF(element) {
     await document.fonts?.ready
     await Promise.all(imgs.map(waitForImage))
     canvas = await html2canvas(clone, {
-      scale: 2,
+      scale,
       useCORS: false,
       allowTaint: false,
       backgroundColor: '#ffffff',
@@ -276,7 +277,7 @@ export async function generateReceiptPDF(element) {
     const renderedW = printableW * scaleToFit
     const renderedH = fullRenderedHeight * scaleToFit
     const x = margin + (printableW - renderedW) / 2
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', x, margin, renderedW, renderedH)
+    pdf.addImage(canvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', x, margin, renderedW, renderedH)
     return pdf
   }
 
@@ -294,7 +295,7 @@ export async function generateReceiptPDF(element) {
     )
     if (page > 0) pdf.addPage()
     const renderedHeight = sliceHeight / pixelsPerMm
-    pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, printableW, renderedHeight)
+    pdf.addImage(pageCanvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', margin, margin, printableW, renderedHeight)
   }
   return pdf
 }
@@ -306,19 +307,17 @@ function sanitizeFileName(name) {
 function getFilePrefix(project) {
   if (!project) return ''
   const map = {
-    ashray: 'Ashray',
-    beingsevak: 'BeingSevak',
-    manncar: 'MannCare',
+    ashray: 'Ashray', beingsevak: 'BeingSevak', manncar: 'MannCare',
+    bsct: 'BeingSevak', aflf: 'Ashray', maan: 'MannCare',
   }
   return (map[project] || project) + '_'
 }
 
 function getZipName(project) {
-  if (!project) return 'Donation_Receipts.zip'
+  if (!project || project === 'all') return 'Donation_Receipts.zip'
   const map = {
-    ashray: 'Ashray',
-    beingsevak: 'BeingSevak',
-    manncar: 'MannCare',
+    ashray: 'Ashray', beingsevak: 'BeingSevak', manncar: 'MannCare',
+    bsct: 'BeingSevak', aflf: 'Ashray', maan: 'MannCare',
   }
   return (map[project] || project) + '_Donation_Receipts.zip'
 }
@@ -328,22 +327,23 @@ export async function downloadSinglePDF(element, donor, project = '') {
   const donorName = sanitizeFileName(donor['Donor Name'])
   const prefix = getFilePrefix(project)
   const pdf = await generateReceiptPDF(element)
-  pdf.save(`${prefix}Receipt_${receiptNo}_${donorName}.pdf`)
+  pdf.save(`${prefix}${donorName}_${receiptNo}.pdf`)
 }
 
 export async function downloadAllPDFs(elements, project = '') {
   const zip = new JSZip()
-  const folder = zip.folder('Donation_Receipts')
+  const receiptsFolder = zip.folder('Donation_Receipts')
 
   for (let i = 0; i < elements.length; i++) {
     const { element, donor } = elements[i]
     const pdf = await generateReceiptPDF(element)
     const receiptNo = donor['Receipt No.'] || `ROW${i + 1}`
     const donorName = sanitizeFileName(donor['Donor Name'])
-    const prefix = getFilePrefix(project)
-    folder.file(`${prefix}Receipt_${receiptNo}_${donorName}.pdf`, pdf.output('arraybuffer'))
+    const donorProject = donor?.['Project'] || project || ''
+    const prefix = getFilePrefix(donorProject)
+    receiptsFolder.file(`${prefix}${donorName}_${receiptNo}.pdf`, pdf.output('arraybuffer'))
   }
 
   const content = await zip.generateAsync({ type: 'blob' })
-  saveAs(content, getZipName(project))
+  saveAs(content, getZipName(project || 'Donation_Receipts'))
 }
