@@ -383,7 +383,7 @@ export const getDashboard = async (req, res) => {
 
     // Batch all collection stats in a single query
     const workerIds = froWorkers.map(w => w.id);
-    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString());
+    const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
 
     let monthCollection = 0;
     for (const w of froWorkers) {

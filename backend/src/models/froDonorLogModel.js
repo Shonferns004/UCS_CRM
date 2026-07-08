@@ -38,7 +38,7 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
   return total;
 };
 
-export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, todayStart, todayEnd) => {
+export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, todayStart, todayEnd, ngoIds) => {
   if (workerIds.length === 0) {
     const zero = {};
     for (const id of workerIds) zero[id] = 0;
@@ -47,11 +47,16 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     return { monthCollection: zero, todayCollection: zero, verifiedMonth: zeroV, unverifiedMonth: zeroV, verifiedToday: zeroV, unverifiedToday: zeroV };
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('fro_donor_logs')
     .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_assignments!inner(fro_worker_id)')
-    .in('fro_assignments.fro_worker_id', workerIds)
-    .or(
+    .in('fro_assignments.fro_worker_id', workerIds);
+
+  if (ngoIds && ngoIds.length > 0) {
+    query = query.in('fro_assignments.ngo_id', ngoIds);
+  }
+
+  const { data, error } = await query.or(
       `and(action.eq.donation,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
       `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
       `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
