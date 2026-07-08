@@ -47,6 +47,7 @@ export async function ensurePaytmSource() {
 export async function processPayment({
   gateway, paymentId, orderId, amount, gatewaySource,
   senderName, senderEmail, senderPhone, eventType, rawPayload,
+  accountId, accountName,
 }) {
   try {
     let sourceId;
@@ -64,6 +65,7 @@ export async function processPayment({
 
     const remarks = [
       `Via ${gateway}`,
+      accountName ? `[${accountName}]` : '',
       gatewaySource ? `(${gatewaySource})` : '',
       orderId ? `Order: ${orderId}` : '',
       senderName ? `- ${senderName}` : '',
@@ -98,9 +100,11 @@ export async function processPayment({
       bank_entry_id: entry.id,
       status: 'processed',
       error_message: null,
+      account_id: accountId || null,
+      account_name: accountName || null,
     });
 
-    console.log(`[paymentWebhook] ${gateway}: ₹${amount} (${paymentId || orderId || 'no id'}) -> bank_audit_entry #${entry.id}`);
+    console.log(`[paymentWebhook] ${gateway}${accountName ? `/${accountName}` : ''}: ₹${amount} (${paymentId || orderId || 'no id'}) -> bank_audit_entry #${entry.id}`);
     return { success: true, entry };
   } catch (error) {
     console.error(`[paymentWebhook] ${gateway} processing error:`, error.message);
@@ -118,6 +122,8 @@ export async function processPayment({
         raw_payload: rawPayload || null,
         status: 'failed',
         error_message: error.message,
+        account_id: accountId || null,
+        account_name: accountName || null,
       });
     } catch {}
     return { success: false, error: error.message };

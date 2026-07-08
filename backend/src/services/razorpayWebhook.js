@@ -2,6 +2,12 @@ import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import config from '../config/paymentGatewayConfig.js';
 import { processPayment } from './paymentWebhookService.js';
+import {
+  getAccountById,
+  getActiveAccounts,
+  getDefaultAccount,
+  updateLastSynced,
+} from '../models/razorpayAccountModel.js';
 
 function verifyWebhookSignature(rawBody, signature, webhookSecret) {
   if (!webhookSecret) return false;
@@ -9,28 +15,93 @@ function verifyWebhookSignature(rawBody, signature, webhookSecret) {
     .createHmac('sha256', webhookSecret)
     .update(rawBody)
     .digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature || ''));
+  } catch {
+    return false;
+  }
 }
 
-const razorpayClient = config.razorpay.enabled && config.razorpay.keyId
-  ? new Razorpay({
+// Lazily-built, cached clients keyed by account id.
+// `envClient` is the .env fallback (used when DB has no accounts).
+const clientCache = new Map();
+let envClient = null;
+
+function getEnvClient() {
+  if (envClient) return envClient;
+  if (config.razorpay.enabled && config.razorpay.keyId && config.razorpay.keySecret) {
+    envClient = new Razorpay({
       key_id: config.razorpay.keyId,
       key_secret: config.razorpay.keySecret,
-    })
-  : null;
-
-export async function handleRazorpayWebhook(rawBody, signature) {
-  if (!config.razorpay.enabled) {
-    return { success: false, status: 503, message: 'Razorpay integration disabled' };
+    });
   }
+  return envClient;
+}
 
-  if (!verifyWebhookSignature(rawBody, signature, config.razorpay.webhookSecret)) {
-    return { success: false, status: 401, message: 'Invalid webhook signature' };
+function getClientForAccount(account) {
+  if (!account) return null;
+  const cached = clientCache.get(account.id);
+  if (cached) return cached;
+  const client = new Razorpay({
+    key_id: account.key_id,
+    key_secret: account.key_secret,
+  });
+  clientCache.set(account.id, client);
+  return client;
+}
+
+// Invalidate cache when an account is updated/deleted (called from controller).
+export function invalidateClient(accountId) {
+  if (accountId != null) clientCache.delete(accountId);
+  else clientCache.clear();
+}
+
+/**
+ * Handle an inbound Razorpay webhook.
+ * - If `accountId` is provided, look up that account and verify against its webhook secret.
+ * - If no `accountId` and no DB accounts exist, fall back to .env config (legacy behaviour).
+ */
+export async function handleRazorpayWebhook(rawBody, signature, accountId = null) {
+  let account = null;
+  let accountClient = null;
+
+  if (accountId != null) {
+    account = await getAccountById(accountId, { unmask: true });
+    if (!account) {
+      return { success: false, status: 404, message: 'Razorpay account not found' };
+    }
+    if (!account.is_active) {
+      return { success: false, status: 503, message: 'Razorpay account disabled' };
+    }
+    accountClient = getClientForAccount(account);
+    if (!verifyWebhookSignature(rawBody, signature, account.webhook_secret)) {
+      return { success: false, status: 401, message: 'Invalid webhook signature' };
+    }
+  } else {
+    // Legacy / fallback path: only if no DB accounts exist.
+    const active = await getActiveAccounts();
+    if (active.length > 0) {
+      return {
+        success: false,
+        status: 400,
+        message: 'Use per-account webhook URL: /api/webhooks/razorpay/:accountId',
+      };
+    }
+    if (!config.razorpay.enabled) {
+      return { success: false, status: 503, message: 'Razorpay integration disabled' };
+    }
+    if (!verifyWebhookSignature(rawBody, signature, config.razorpay.webhookSecret)) {
+      return { success: false, status: 401, message: 'Invalid webhook signature' };
+    }
+    accountClient = getEnvClient();
   }
 
   const body = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;
   const event = body.event;
   const payload = body.payload;
+
+  const accountIdForLog = account?.id || null;
+  const accountNameForLog = account?.name || null;
 
   if (event === 'payment.captured' && payload?.payment?.entity) {
     const payment = payload.payment.entity;
@@ -61,6 +132,8 @@ export async function handleRazorpayWebhook(rawBody, signature) {
       senderPhone: contact,
       eventType: event,
       rawPayload: payment,
+      accountId: accountIdForLog,
+      accountName: accountNameForLog,
     });
   }
 
@@ -78,13 +151,11 @@ export async function handleRazorpayWebhook(rawBody, signature) {
   return { success: true, message: `Unhandled event: ${event}` };
 }
 
-export async function fetchRazorpayPayments(options = {}) {
-  if (!razorpayClient) {
-    throw new Error('Razorpay not configured');
-  }
+export async function fetchRazorpayPayments(client, options = {}) {
+  if (!client) throw new Error('Razorpay client not available');
   const from = options.from || Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
   const to = options.to || Math.floor(Date.now() / 1000);
-  const payments = await razorpayClient.payments.all({
+  const payments = await client.payments.all({
     from,
     to,
     count: options.count || 100,
@@ -93,16 +164,48 @@ export async function fetchRazorpayPayments(options = {}) {
   return payments;
 }
 
-export async function syncRazorpayPayments() {
-  if (!razorpayClient) {
-    return { success: false, message: 'Razorpay not configured', count: 0 };
+/**
+ * Sync a single Razorpay account by id.
+ * Falls back to the .env default account when `accountId` is null/undefined
+ * AND there are no DB accounts (legacy behaviour for the global Sync button).
+ */
+export async function syncRazorpayPayments(accountId = null) {
+  let account = null;
+  let client = null;
+
+  if (accountId != null) {
+    account = await getAccountById(accountId, { unmask: true });
+    if (!account) return { success: false, message: 'Razorpay account not found', count: 0 };
+    if (!account.is_active) return { success: false, message: 'Account disabled', count: 0 };
+    client = getClientForAccount(account);
+  } else {
+    const def = await getDefaultAccount({ unmask: true });
+    if (def) {
+      account = def;
+      client = getClientForAccount(account);
+    } else {
+      const active = await getActiveAccounts();
+      if (active.length > 0) {
+        return {
+          success: false,
+          message: 'No default Razorpay account set. Mark one as default or sync per-account.',
+          count: 0,
+        };
+      }
+      client = getEnvClient();
+      if (!client) {
+        return { success: false, message: 'Razorpay not configured', count: 0 };
+      }
+    }
   }
 
+  const accountIdForLog = account?.id || null;
+  const accountNameForLog = account?.name || null;
   let imported = 0;
   let errors = 0;
 
   try {
-    const payments = await fetchRazorpayPayments({ count: 50 });
+    const payments = await fetchRazorpayPayments(client, { count: 50 });
     const captured = (payments.items || []).filter(p => p.status === 'captured');
 
     for (const payment of captured) {
@@ -131,16 +234,25 @@ export async function syncRazorpayPayments() {
           senderPhone: contact,
           eventType: 'sync',
           rawPayload: payment,
+          accountId: accountIdForLog,
+          accountName: accountNameForLog,
         });
 
         if (result.success) imported++;
         else errors++;
-      } catch (e) {
+      } catch {
         errors++;
       }
     }
 
-    return { success: true, message: `Synced: ${imported} imported, ${errors} errors`, count: imported };
+    if (account) await updateLastSynced(account.id);
+
+    return {
+      success: true,
+      message: `Synced ${account ? `(${account.name})` : '(env)'}: ${imported} imported, ${errors} errors`,
+      count: imported,
+      account: account ? { id: account.id, name: account.name } : null,
+    };
   } catch (error) {
     return { success: false, message: error.message, count: 0 };
   }

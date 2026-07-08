@@ -4,6 +4,7 @@ export async function logWebhook({
   gateway, event_type, payment_id, order_id, amount,
   gateway_source, sender_name, sender_email, sender_phone,
   raw_payload, bank_entry_id, status, error_message,
+  account_id, account_name,
 }) {
   const { data, error } = await supabase
     .from('payment_webhook_log')
@@ -21,6 +22,8 @@ export async function logWebhook({
       bank_entry_id: bank_entry_id || null,
       status: status || 'received',
       error_message: error_message || null,
+      account_id: account_id || null,
+      account_name: account_name || null,
     })
     .select()
     .single();
@@ -36,6 +39,7 @@ export async function getWebhookLog(filters = {}) {
 
   if (filters.gateway) query = query.eq('gateway', filters.gateway);
   if (filters.status) query = query.eq('status', filters.status);
+  if (filters.account_id) query = query.eq('account_id', filters.account_id);
   if (filters.limit) query = query.limit(filters.limit);
 
   const { data, error } = await query;
