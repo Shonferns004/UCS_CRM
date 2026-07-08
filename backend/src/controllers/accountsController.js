@@ -688,13 +688,13 @@ export const getPendingReceipts = async (req, res) => {
 
 export const markReceiptAsSent = async (req, res) => {
   try {
-    const { receiptNo } = req.body;
-    if (!receiptNo) return res.status(400).json({ message: 'receiptNo is required' });
+    const { receiptId } = req.body;
+    if (!receiptId) return res.status(400).json({ message: 'receiptId is required' });
 
     const { data, error } = await supabase
       .from('receipts')
       .update({ sent: true, sent_at: new Date().toISOString() })
-      .eq('receipt_no', receiptNo)
+      .eq('id', receiptId)
       .select();
 
     if (error) throw error;

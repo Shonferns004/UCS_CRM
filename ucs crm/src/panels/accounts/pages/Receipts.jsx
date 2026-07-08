@@ -294,7 +294,7 @@ export default function Receipts() {
         templateName: tpl.metaTemplate,
         templateLang: tpl.metaLang,
       })
-      try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
+      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id }) } catch {}
       showToast('success', `Sent to ${donor['Donor Name']}`)
     } catch (e) {
       showToast('error', e.message)
@@ -347,7 +347,7 @@ export default function Receipts() {
             templateName: tpl.metaTemplate,
             templateLang: tpl.metaLang,
           })
-          try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
+      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id }) } catch {}
         } catch (e) {
           console.error('WhatsApp send failed for', donor['Donor Name'], ':', e.message)
           allErrors.push(donor['Donor Name'] + ': ' + e.message)
