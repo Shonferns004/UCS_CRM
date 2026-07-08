@@ -112,8 +112,9 @@ async function getOrCreateSourceId(sources, name) {
 
 async function extractPaymentDetails(emailText, emailSubject, emailFrom) {
   const lower = ((emailText || '') + ' ' + (emailSubject || '')).toLowerCase();
-  const keywords = ['rs.', '₹', 'rupee', 'credited', 'debited', 'transaction', 'payment', 'upi', 'neft', 'imps', 'rtgs', 'received', 'amount', 'deposit', 'transfer', 'bank'];
-  if (!keywords.some(k => lower.includes(k))) return null;
+  const creditWords = ['credited', 'deposited', 'received', 'credit', 'deposit', 'money received', 'payment received', 'amount credited', 'transfer received', 'accredited'];
+  const hasCredit = creditWords.some(k => lower.includes(k));
+  if (!hasCredit) return null;
 
   const textToAnalyze = [
     emailSubject ? `Subject: ${emailSubject}` : '',
