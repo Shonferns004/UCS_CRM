@@ -350,14 +350,39 @@ function PanelSummaryModal({ panel, onClose, dashboardData }) {
       hr: () => Promise.all([getWorkers(), getAttendance()])
         .then(([workers, attendance]) => {
           const wList = Array.isArray(workers) ? workers : workers?.data || []
+          const attList = Array.isArray(attendance) ? attendance : attendance?.data || []
+          const today = new Date().toDateString()
+          const todayAtt = attList.filter(a => a.date && new Date(a.date).toDateString() === today)
+
+          const workerMap = {}
+          wList.forEach(w => { workerMap[w.id] = w })
+
+          const deptGroups = {}
+          wList.forEach(w => {
+            const dept = w.department || 'Unassigned'
+            if (!deptGroups[dept]) deptGroups[dept] = { total: 0, present: 0, absent: 0, late: 0 }
+            deptGroups[dept].total++
+          })
+
+          todayAtt.forEach(a => {
+            const worker = workerMap[a.worker_id]
+            const dept = worker?.department || 'Unassigned'
+            if (!deptGroups[dept]) deptGroups[dept] = { total: 0, present: 0, absent: 0, late: 0 }
+            if (a.status === 'present') deptGroups[dept].present++
+            else if (a.status === 'late') deptGroups[dept].late++
+            else if (a.status === 'absent') deptGroups[dept].absent++
+          })
+
           const totalWorkers = wList.length
           const activeWorkers = wList.filter(w => w.is_active).length
-          const today = new Date().toDateString()
-          const attList = Array.isArray(attendance) ? attendance : attendance?.data || []
-          const todayAtt = attList.filter(a => a.date && new Date(a.date).toDateString() === today)
           const presentToday = todayAtt.filter(a => a.status === 'present' || a.punched_in).length
           const totalAtt = todayAtt.length
-          return { totalWorkers, activeWorkers, presentToday, totalAtt, attendancePercent: totalAtt > 0 ? Math.round((presentToday / totalAtt) * 100) : 0 }
+
+          const departments = Object.entries(deptGroups)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([name, counts]) => ({ name, ...counts }))
+
+          return { totalWorkers, activeWorkers, presentToday, totalAtt, attendancePercent: totalAtt > 0 ? Math.round((presentToday / totalAtt) * 100) : 0, departments }
         }),
       'ngo-admin': () => {
         const dd = dashboardData
@@ -470,21 +495,45 @@ function PanelSummaryModal({ panel, onClose, dashboardData }) {
               )}
               {panel === 'hr' && data && (
                 <>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${SLATE}` }}>
-                    <span className="ps-label">👷 Total Workers</span>
-                    <span className="ps-value">{data.totalWorkers ?? 0}</span>
-                    <span className="ps-sub">All time</span>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <div className="ps-card" style={{ borderTop: `3px solid ${SLATE}`, flex: 1, minWidth: 100 }}>
+                      <span className="ps-label">👷 Total Workers</span>
+                      <span className="ps-value">{data.totalWorkers ?? 0}</span>
+                      <span className="ps-sub">All time</span>
+                    </div>
+                    <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DEEP}`, flex: 1, minWidth: 100 }}>
+                      <span className="ps-label">✅ Active</span>
+                      <span className="ps-value">{data.activeWorkers ?? 0}</span>
+                      <span className="ps-sub">Currently active</span>
+                    </div>
+                    <div className="ps-card" style={{ borderTop: `3px solid ${GOLD}`, flex: 1, minWidth: 100 }}>
+                      <span className="ps-label">📊 Attendance</span>
+                      <span className="ps-value">{data.attendancePercent ?? 0}%</span>
+                      <span className="ps-sub">{data.presentToday ?? 0} of {data.totalAtt ?? 0} today</span>
+                    </div>
                   </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${MINT_DEEP}` }}>
-                    <span className="ps-label">✅ Active Workers</span>
-                    <span className="ps-value">{data.activeWorkers ?? 0}</span>
-                    <span className="ps-sub">Currently active</span>
-                  </div>
-                  <div className="ps-card" style={{ borderTop: `3px solid ${GOLD}` }}>
-                    <span className="ps-label">📊 Attendance</span>
-                    <span className="ps-value">{data.attendancePercent ?? 0}%</span>
-                    <span className="ps-sub">{data.presentToday ?? 0} of {data.totalAtt ?? 0} today</span>
-                  </div>
+                  {data.departments?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Department Breakdown</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 50px', gap: 4, padding: '6px 10px', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', background: '#f8fafc', borderRadius: 6 }}>
+                          <span>Department</span><span style={{ textAlign: 'center' }}>Total</span><span style={{ textAlign: 'center', color: '#22C55E' }}>P</span><span style={{ textAlign: 'center', color: '#EF4444' }}>A</span><span style={{ textAlign: 'center', color: '#F59E0B' }}>L</span>
+                        </div>
+                        {data.departments.map(d => (
+                          <div key={d.name} style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 50px', gap: 4, padding: '6px 10px', fontSize: 12, borderRadius: 6, background: '#fff', border: '1px solid #f1f5f9' }}>
+                            <span style={{ fontWeight: 600, color: '#334155' }}>{d.name}</span>
+                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#334155' }}>{d.total}</span>
+                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#22C55E' }}>{d.present}</span>
+                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#EF4444' }}>{d.absent}</span>
+                            <span style={{ textAlign: 'center', fontWeight: 700, color: '#F59E0B' }}>{d.late}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 8, fontStyle: 'italic' }}>
+                        {data.presentToday} present · {data.totalAtt - data.presentToday - data.departments.reduce((s, d) => s + d.late + d.absent, 0) ? 'others' : ''} today
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
               {panel === 'ngo-admin' && data && (
