@@ -111,15 +111,24 @@ async function getOrCreateSourceId(sources, name) {
 }
 
 async function extractPaymentDetails(emailText, emailSubject, emailFrom) {
+  const lower = ((emailText || '') + ' ' + (emailSubject || '')).toLowerCase();
+  const keywords = ['rs.', '₹', 'rupee', 'credited', 'debited', 'transaction', 'payment', 'upi', 'neft', 'imps', 'rtgs', 'received', 'amount', 'deposit', 'transfer', 'bank'];
+  if (!keywords.some(k => lower.includes(k))) return null;
+
   const textToAnalyze = [
     emailSubject ? `Subject: ${emailSubject}` : '',
     emailFrom ? `From: ${emailFrom}` : '',
-    emailText ? `Body:\n${emailText.slice(0, 3000)}` : '',
+    emailText ? `Body:\n${emailText.slice(0, 2000)}` : '',
   ].filter(Boolean).join('\n');
 
   if (!textToAnalyze) return null;
 
+  const now = Date.now();
+  const waitTime = 1500 - (now - (global.__groqLastCall || 0));
+  if (waitTime > 0) await new Promise(r => setTimeout(r, waitTime));
+
   try {
+    global.__groqLastCall = Date.now();
     const completion = await groq.chat.completions.create({
       messages: [
         {
@@ -161,7 +170,24 @@ Rules:
     if (!jsonMatch) return null;
     return JSON.parse(jsonMatch[0]);
   } catch (error) {
-    console.error('Groq parse error:', error.message);
+    if (error.message?.includes('429') || error.status === 429) {
+      console.warn('Groq rate limited, waiting 5s...');
+      await new Promise(r => setTimeout(r, 5000));
+      try {
+        const completion = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: 'Extract payment details as JSON: {amount, payment_id, transaction_date, sender_name, payment_source, confidence}' },
+            { role: 'user', content: textToAnalyze },
+          ],
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 200,
+          temperature: 0.1,
+        });
+        const response = completion.choices[0]?.message?.content?.trim() || '';
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]);
+      } catch { return null; }
+    }
     return null;
   }
 }
@@ -204,9 +230,9 @@ async function pollSingleAccount(account, sources, fromDate) {
       await client.logout();
       return { processed: 0, skipped: 0, error: null, message: `No emails found (mailbox has ${mailbox.exists} total)` };
     }
-    if (messages.length > 25) {
-      messages = messages.slice(0, 25);
-      console.log(`[emailImporter] ${account.name}: limiting to 25 messages`);
+    if (messages.length > 10) {
+      messages = messages.slice(0, 10);
+      console.log(`[emailImporter] ${account.name}: limiting to 10 messages`);
     }
 
     for await (const msg of client.fetch(messages, { source: true })) {
