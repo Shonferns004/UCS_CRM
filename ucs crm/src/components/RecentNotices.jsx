@@ -95,8 +95,13 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
                     {n.content.length > 100 ? n.content.slice(0, 100) + '\u2026' : n.content}
                   </div>
                 )}
-                <div style={{ fontSize: 10, color: '#60A5FA', fontWeight: 600, marginTop: 3 }}>
+                <div style={{ fontSize: 10, color: '#60A5FA', fontWeight: 600, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
                   {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
+                  {n.created_by_name && (
+                    <span style={{ color: '#94a3b8', fontWeight: 500 }}>
+                      by {n.created_by_name}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

@@ -18,6 +18,7 @@ export const addNotice = async (req, res) => {
       target_role: target_role || 'all',
       ngo_id: req.user.ngo_id || req.body.ngo_id || null,
       created_by: req.user.id,
+      created_by_name: req.user.name || null,
     });
     return res.status(201).json({ message: 'Notice created', notice });
   } catch (error) {

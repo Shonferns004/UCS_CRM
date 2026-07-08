@@ -1313,80 +1313,6 @@ function NgoQuickModal({ ngoName, onClose, froLiveData, froAssignments, ngoUserC
 }
 
 /* ================= CREATE NOTICE MODAL ================= */
-const TARGET_ROLES = [
-  { value: 'all', label: 'All Panels', color: '#3B82F6' },
-  { value: 'admin', label: 'NGO Admin', color: '#F59E0B' },
-  { value: 'accounts', label: 'Accounts', color: '#8B5CF6' },
-  { value: 'hr', label: 'HR', color: '#6366F1' },
-  { value: 'recruiter', label: 'Recruiter', color: '#10B981' },
-  { value: 'fro', label: 'FRO', color: '#EC4899' },
-  { value: 'event_head', label: 'Event Head', color: '#3B82F6' },
-]
-
-function CreateNoticeModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ title: '', content: '', target_role: 'all' })
-  const [saving, setSaving] = useState(false)
-  const [err, setErr] = useState('')
-
-  const save = async () => {
-    if (!form.title.trim()) { setErr('Title is required'); return }
-    setSaving(true); setErr('')
-    try {
-      await api('/notices', { method: 'POST', body: JSON.stringify(form) })
-      onCreated(); onClose()
-    } catch (e) { setErr(e.message) } finally { setSaving(false) }
-  }
-
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
-        <div className="nd-modal-head">
-          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#3B82F6' }}>campaign</span>
-          <h3 className="nd-modal-title" style={{ color: '#1E3A5F' }}>New Notice</h3>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div className="nd-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {err && <div style={{ fontSize: 12, color: '#dc2626', background: '#FEF2F2', padding: '8px 12px', borderRadius: 8 }}>{err}</div>}
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            Title
-            <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="Notice title" style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
-          </label>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            Content
-            <textarea rows={4} value={form.content} onChange={e => setForm({...form, content: e.target.value})} placeholder="Write your notice..." style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, fontFamily: 'inherit', outline: 'none', resize: 'vertical' }} />
-          </label>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>visibility</span>
-              Show to
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {TARGET_ROLES.map(r => (
-                <div key={r.value} onClick={() => setForm({...form, target_role: r.value})} style={{
-                  padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                  border: `1.5px solid ${form.target_role === r.value ? r.color : '#e2e8f0'}`,
-                  background: form.target_role === r.value ? `${r.color}15` : '#fff',
-                  color: form.target_role === r.value ? r.color : '#94a3b8',
-                  transition: 'all 0.15s',
-                  fontFamily: 'inherit',
-                }}>
-                  {r.label}
-                </div>
-              ))}
-            </div>
-          </label>
-        </div>
-        <div className="nd-modal-actions" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #e2e8f0' }}>
-          <button className="btn" onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-          <button onClick={save} disabled={saving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#3B82F6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving...' : 'Publish'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function Dashboard() {
   const [period, setPeriod] = useState('all')
   const [loading, setLoading] = useState(false)
@@ -1409,7 +1335,6 @@ export default function Dashboard() {
   const [deptModal, setDeptModal] = useState(null)
   const [kpiModal, setKpiModal] = useState(null)
   const [selectedNgoBtn, setSelectedNgoBtn] = useState(null)
-  const [showNoticeForm, setShowNoticeForm] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1978,40 +1903,6 @@ export default function Dashboard() {
 
       {/* ============ QUICK ACTION BUTTONS ============ */}
       <div className="nd-appear" style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', animationDelay: '0.05s' }}>
-        <button
-          onClick={() => navigate('/sa/events')}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10, flex: 1,
-            border: '1px solid #DCEEE2', background: '#fff',
-            color: MINT_DARK, fontSize: 12, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'box-shadow 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          }}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#14B8A6' }}>add_circle</span>
-          Add Event
-        </button>
-        <button
-          onClick={() => setShowNoticeForm(true)}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10, flex: 1,
-            border: '1px solid #DCEEE2', background: '#fff',
-            color: MINT_DARK, fontSize: 12, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'box-shadow 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          }}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#3B82F6' }}>campaign</span>
-          Create Notice
-        </button>
         <button
           onClick={() => setShowFroNestedModal(true)}
           style={{
@@ -2960,8 +2851,6 @@ export default function Dashboard() {
       {selectedFro && <FroDetailModal fro={selectedFro} onClose={() => setSelectedFro(null)} onShowDeep={() => { setDeepFro(selectedFro); setSelectedFro(null) }} />}
       {deepFro && <FroDeepDetailModal fro={deepFro} onClose={() => setDeepFro(null)} />}
 
-      {/* ============ CREATE NOTICE MODAL ============ */}
-      {showNoticeForm && <CreateNoticeModal onClose={() => setShowNoticeForm(false)} onCreated={() => { fetchDashboard(); getFroLiveStatus().then(setFroLiveData).catch(() => {}) }} />}
     </div>
   )
 }
