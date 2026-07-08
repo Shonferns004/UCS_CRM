@@ -1330,7 +1330,6 @@ export default function Dashboard() {
   const [deepFro, setDeepFro] = useState(null)
   const [attendanceData, setAttendanceData] = useState([])
   const [holidaysData, setHolidaysData] = useState([])
-  const [showFroNestedModal, setShowFroNestedModal] = useState(false)
   const [ngoStationModal, setNgoStationModal] = useState(null)
   const [deptModal, setDeptModal] = useState(null)
   const [kpiModal, setKpiModal] = useState(null)
@@ -1903,23 +1902,6 @@ export default function Dashboard() {
 
       {/* ============ QUICK ACTION BUTTONS ============ */}
       <div className="nd-appear" style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', animationDelay: '0.05s' }}>
-        <button
-          onClick={() => setShowFroNestedModal(true)}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flex: 1,
-            padding: '8px 16px', borderRadius: 10,
-            border: '1px solid #DCEEE2', background: '#fff',
-            color: MINT_DARK, fontSize: 12, fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'box-shadow 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          }}
-          onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
-          onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#EC4899' }}>visibility</span>
-          View All FRO
-        </button>
         <button
           onClick={() => openAttendanceList('Present')}
           style={{
@@ -2728,14 +2710,6 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* ============ FRO NESTED MODAL ============ */}
-      {showFroNestedModal && (
-        <FroNestedModal
-          froList={froLiveData}
-          onClose={() => setShowFroNestedModal(false)}
-        />
       )}
 
       {/* ============ NGO STATION MODAL ============ */}
