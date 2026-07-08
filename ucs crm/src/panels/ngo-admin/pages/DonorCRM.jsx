@@ -654,11 +654,11 @@ export default function DonorCRM() {
         <div className="card" style={{ overflow: 'auto' }}>
           <table className="table">
             <thead>
-              <tr><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.UserCircle} Name</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.DeviceMobile} Mobile</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Buildings} NGO(s)</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CurrencyCircleDollar} Amount</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CalendarCheck} Last Donation</span></th><th></th></tr>
+              <tr><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.UserCircle} Name</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.DeviceMobile} Mobile</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Buildings} NGO(s)</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Star} Last</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CurrencyCircleDollar} Total</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CalendarCheck} Last Donation</span></th><th></th></tr>
             </thead>
             <tbody>
               {donors.length === 0 ? (
-                <tr><td colSpan={6} className="empty-state">No donors found</td></tr>
+                <tr><td colSpan={7} className="empty-state">No donors found</td></tr>
               ) : donors.map((d, idx) => (
                 <tr key={d.mobile_number || idx}>
                   <td><strong>{d.name}</strong></td>
@@ -670,7 +670,8 @@ export default function DonorCRM() {
                       ))}
                     </div>
                   </td>
-                  <td style={{ fontWeight: 600 }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
+                  <td style={{ fontWeight: 600, color: '#7c3aed' }}>₹{Number(d.last_transaction_amount || 0).toLocaleString('en-IN')}</td>
+                  <td style={{ fontWeight: 600 }}>₹{Number(d.total_amount || d.amount || 0).toLocaleString('en-IN')}</td>
                   <td style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{d.last_donation_date?.slice(0, 10) || '—'}</td>
                   <td><button className="btn btn-sm" onClick={() => setShowDonorDetail(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.User} View</button></td>
                 </tr>

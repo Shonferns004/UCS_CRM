@@ -99,9 +99,10 @@ export const getDonors = async (req, res) => {
     for (const d of allData || []) {
       const key = d.mobile_number || `no-mobile-${d.id}`;
       if (!groups[key]) {
-        groups[key] = { ...d, ngos: [d.ngo], total_amount_all: Number(d.amount || 0), records: 1 };
+        groups[key] = { ...d, ngos: [d.ngo], donor_ids: [d.id], total_amount_all: Number(d.amount || 0), records: 1 };
       } else {
         if (!groups[key].ngos.includes(d.ngo)) groups[key].ngos.push(d.ngo);
+        if (!groups[key].donor_ids.includes(d.id)) groups[key].donor_ids.push(d.id);
         groups[key].total_amount_all += Number(d.amount || 0);
         groups[key].records += 1;
         if (new Date(d.last_donation_date || 0) > new Date(groups[key].last_donation_date || 0)) {
@@ -116,11 +117,38 @@ export const getDonors = async (req, res) => {
     grouped.sort((a, b) => new Date(b.last_donation_date || 0) - new Date(a.last_donation_date || 0));
 
     const total = grouped.length;
-    const paginatedData = grouped.slice(offset, offset + limit).map(d => ({
-      ...d,
-      amount: d.total_amount_all,
-      ngo_list: d.ngos,
-    }));
+    const paginatedSlice = grouped.slice(offset, offset + limit);
+
+    const allDonorIds = paginatedSlice.flatMap(g => g.donor_ids || []);
+    let latestTxMap = {};
+    if (allDonorIds.length > 0) {
+      try {
+        const { data: logs } = await supabase
+          .from('fro_donor_logs')
+          .select('amount_collected, transaction_datetime, assignment:fro_assignments!inner(donor_id)')
+          .in('assignment.donor_id', allDonorIds)
+          .not('amount_collected', 'is', null)
+          .order('transaction_datetime', { ascending: false, nullsLast: true });
+        for (const log of logs || []) {
+          const did = log.assignment?.donor_id;
+          if (did && latestTxMap[did] == null) latestTxMap[did] = Number(log.amount_collected) || 0;
+        }
+      } catch (_) {}
+    }
+
+    const paginatedData = paginatedSlice.map(d => {
+      let lastTx = 0;
+      for (const did of (d.donor_ids || [])) {
+        if (latestTxMap[did] && latestTxMap[did] > lastTx) lastTx = latestTxMap[did];
+      }
+      return {
+        ...d,
+        amount: d.total_amount_all,
+        total_amount: d.total_amount_all,
+        last_transaction_amount: lastTx,
+        ngo_list: d.ngos,
+      };
+    });
 
     if (req.query.paginated === 'true') {
       return res.json({ data: paginatedData, pagination: { page, pageSize: limit, total, totalPages: Math.ceil(total / limit) } });
