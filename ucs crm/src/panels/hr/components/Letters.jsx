@@ -109,7 +109,7 @@ export default function Letters() {
     const w = workers.find(x => x.name === name);
     if (!w) return;
     if (type === 'Offer letter') {
-      const dateText = letterDate || '{{date}}';
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
       const body = buildOfferLetterHTML(w, dateText, hrNameText);
       setOut({ today: dateText, body, type });
@@ -148,7 +148,7 @@ export default function Letters() {
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
           </label>
           <label className="field">Date
-            <input type="text" value={letterDate} onChange={e=>setLetterDate(e.target.value)} placeholder="e.g. 19th May, 2026" style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
+            <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           <label className="field">HR name
             <input type="text" value={hrName} onChange={e=>setHrName(e.target.value)} placeholder="e.g. Jigna Patel" style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
