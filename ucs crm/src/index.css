@@ -521,7 +521,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 .panel-hr .user-menu-item.active { background:var(--sage-soft); color:var(--sage); font-weight:600; }
 .panel-hr .user-menu-label { padding:8px 16px 4px; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-soft); }
 .panel-hr .user-menu-divider { height:1px; background:var(--line); margin:4px 0; }
-.panel-hr .content-body { padding:20px 28px 60px; max-width:1080px; }
+.panel-hr .content-body { padding:20px 28px 60px; }
 .panel-hr .card { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
 .panel-hr .card-pad { padding:20px 22px; }
 .panel-hr .card-head { padding:16px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
