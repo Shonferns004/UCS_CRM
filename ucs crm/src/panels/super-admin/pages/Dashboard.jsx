@@ -2795,6 +2795,85 @@ export default function Dashboard() {
         />
       )}
 
+      {/* ============ PANEL SUMMARIES ============ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginTop: 24 }}>
+        {/* ---- NGO Admin ---- */}
+        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.1s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#F59E0B' }}>corporate_fare</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>NGO Admin</span>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: PRIMARY }}>{ngoUserCounts.length || 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>NGOs</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: PRIMARY }}>{ngoUserCounts.reduce((s, n) => s + (n.workers || n.count || 0), 0)}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Workers</div></div>
+          </div>
+        </div>
+
+        {/* ---- Accounts ---- */}
+        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.15s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#8B5CF6' }}>receipt_long</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Accounts</span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#e67e22' }}>{accountsSummary.pending ?? 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Pending</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{accountsSummary.verified ?? 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Verified</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#dc2626' }}>{accountsSummary.rejected ?? 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Rejected</div></div>
+          </div>
+        </div>
+
+        {/* ---- Event Head ---- */}
+        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.2s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#3B82F6' }}>event</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Event Head</span>
+          </div>
+          <div><div style={{ fontSize: 18, fontWeight: 800, color: PRIMARY }}>{upcomingEvents.length || 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Upcoming Events</div></div>
+          {upcomingEvents.length > 0 && (
+            <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>Next: {upcomingEvents[0]?.title}</div>
+          )}
+        </div>
+
+        {/* ---- HR ---- */}
+        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.25s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#3B82F6' }}>badge</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>HR</span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: PRIMARY }}>{stats.activeWorkers || 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Active</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: attendancePercent >= 60 ? '#16a34a' : '#dc2626' }}>{attendancePercent}%</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Attendance</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#22C55E' }}>{todayAttendance?.present ?? attendanceWorkerCounts?.present ?? 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Present</div></div>
+          </div>
+        </div>
+
+        {/* ---- Recruiter ---- */}
+        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.3s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#10B981' }}>person_search</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Recruiter</span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: PRIMARY }}>{recruiterSummary.totalLeads ?? 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Total Leads</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#3b82f6' }}>{recruiterSummary.newToday ?? 0}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>New Today</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#f97316' }}>{recruiterSummary.conversionRate != null ? Number(recruiterSummary.conversionRate).toFixed(1) + '%' : '\u2014'}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Conversion</div></div>
+          </div>
+        </div>
+
+        {/* ---- FRO ---- */}
+        <div className="nd-card nd-appear" style={{ padding: 14, animationDelay: '0.35s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#EC4899' }}>groups</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>FRO</span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#22C55E' }}>{froLiveData.filter(f => f.status === 'online' || f.status === 'on_call').length}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Online</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#94a3b8' }}>{froLiveData.filter(f => f.status !== 'online' && f.status !== 'on_call').length}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Offline</div></div>
+            <div><div style={{ fontSize: 18, fontWeight: 800, color: '#10B981' }}>{froLiveData.reduce((s, f) => s + Number(f.today_collection || 0), 0).toLocaleString('en-IN')}</div><div style={{ fontSize: 10, color: '#94a3b8' }}>Collection</div></div>
+          </div>
+        </div>
+      </div>
+
       {/* ============ LEGACY FRO DETAIL MODALS ============ */}
       {selectedFro && <FroDetailModal fro={selectedFro} onClose={() => setSelectedFro(null)} onShowDeep={() => { setDeepFro(selectedFro); setSelectedFro(null) }} />}
       {deepFro && <FroDeepDetailModal fro={deepFro} onClose={() => setDeepFro(null)} />}
