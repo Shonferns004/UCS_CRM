@@ -2087,10 +2087,7 @@ export default function Dashboard() {
 
       {/* ============ PANEL LINKS — uniform mint cards ============ */}
       <div className="panel-link-grid">
-        <div className="panel-link-card" style={{ borderLeftColor: '#8B5CF6' }} onClick={() => {
-          const accUsers = allUserList.filter(u => u.role === 'accounts')
-          setDeptModal({ title: 'Accounts', names: accUsers.length > 0 ? accUsers.map(u => u.name || u.login_id || 'Unknown') : ['No accounts users found'] })
-        }}>
+        <div className="panel-link-card" style={{ borderLeftColor: '#8B5CF6', cursor: 'pointer' }} onClick={() => setPanelModal('accounts')}>
           <span className="material-symbols-outlined" style={{ background: '#F5F3FF', color: '#8B5CF6' }}>receipt_long</span>
           <span className="panel-link-label" style={{ color: '#8B5CF6' }}>Accounts</span>
           <span className="panel-link-sub">{allUserList.filter(u => u.role === 'accounts').length || 0} workers</span>
