@@ -598,6 +598,23 @@ export default function Dashboard() {
               <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>{assignPct}% assigned</div>
             </div>
           </div>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a' }}>{data_used}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Used</div>
+              </div>
+              <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#dc2626' }}>{data_unused}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Unused</div>
+              </div>
+            </div>
+            {total_donors > 0 && (
+              <div style={{ height: 4, borderRadius: 2, background: '#fee2e2', marginTop: 8, overflow: 'hidden' }}>
+                <div style={{ width: `${(data_used / total_donors) * 100}%`, height: '100%', borderRadius: 2, background: '#16a34a' }} />
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
@@ -753,24 +770,6 @@ export default function Dashboard() {
             <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>{attendance_pct}%</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Today's attendance rate</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Used Data</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--sage)' }}>{data_used}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donors in connected statuses</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Unused Data</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>{data_unused}</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Donors in non-connected statuses</div>
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
