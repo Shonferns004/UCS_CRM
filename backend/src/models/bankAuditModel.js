@@ -114,13 +114,13 @@ export const suggestEntries = async (searchTerm) => {
   return data || [];
 };
 
-export const getEntryByPaymentId = async (paymentId) => {
-  const { data, error } = await supabase
+export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {
+  let query = supabase
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name)')
-    .eq('payment_id', paymentId)
-    .eq('status', 'unverified')
-    .maybeSingle();
+    .eq('payment_id', paymentId);
+  if (status) query = query.eq('status', status);
+  const { data, error } = await query.maybeSingle();
   if (error) throw error;
   return data || null;
 };

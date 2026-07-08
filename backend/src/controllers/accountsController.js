@@ -645,7 +645,8 @@ export const getPendingReceipts = async (req, res) => {
       .select(`
         id, amount_collected, verified_at, upi_transaction_id, transaction_datetime, payment_from, payment_mode,
         fro_assignments!inner(
-          donor_id,
+          donor_id, ngo_id,
+          ngos!left(id, name),
           donor_profiles!inner(id, name, mobile_number, city, email, pan_number, address_1, project_supported)
         )
       `)
@@ -676,7 +677,7 @@ export const getPendingReceipts = async (req, res) => {
         receipt_id: r.id,
         sent: r.sent || false,
         log_id: r.log_id,
-        project_supported: donor?.project_supported || '',
+        'Project': (log?.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : log?.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : log?.fro_assignments?.ngos?.name === 'MANN' ? 'maan' : donor?.project_supported) || '',
       };
     });
 

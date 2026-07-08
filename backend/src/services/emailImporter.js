@@ -182,22 +182,36 @@ async function pollSingleAccount(account, sources, fromDate) {
 
   try {
     await client.connect();
-    await client.mailboxOpen('INBOX');
+    const mailbox = await client.mailboxOpen('INBOX');
+    console.log(`[emailImporter] ${account.name}: mailbox opened, total=${mailbox.exists}, recent=${mailbox.recent}`);
 
-    const searchQuery = { seen: false };
-    if (fromDate) {
-      const since = new Date(fromDate);
-      since.setHours(0, 0, 0, 0);
-      searchQuery.receivedAfter = since;
+    let messages;
+    try {
+      const searchDate = fromDate ? new Date(fromDate) : new Date();
+      if (!fromDate) searchDate.setHours(0, 0, 0, 0);
+      messages = await client.search({ receivedAfter: searchDate });
+      console.log(`[emailImporter] ${account.name}: searching since ${searchDate.toISOString().slice(0,10)}, found ${messages?.length}`);
+    } catch (searchErr) {
+      console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
+      try {
+        const last30 = new Date(); last30.setDate(last30.getDate() - 30);
+        last30.setHours(0, 0, 0, 0);
+        messages = await client.search({ receivedAfter: last30 });
+        console.log(`[emailImporter] ${account.name}: fallback search last 30 days, found ${messages?.length}`);
+      } catch { messages = []; }
     }
-    const messages = await client.search(searchQuery);
     if (!messages || messages.length === 0) {
       await client.logout();
-      return { processed: 0, skipped: 0, error: null, message: 'No new emails' };
+      return { processed: 0, skipped: 0, error: null, message: `No emails since ${(fromDate || 'today')} (mailbox has ${mailbox.exists} total)` };
+    }
+    if (messages.length > 500) {
+      messages = messages.slice(0, 500);
+      console.log(`[emailImporter] ${account.name}: limiting to 500 messages`);
     }
 
     for await (const msg of client.fetch(messages, { source: true })) {
       try {
+        const msgSeen = msg.flags?.includes('\\Seen') || false;
         const parsed = await simpleParser(msg.source);
         const messageId = parsed.messageId || msg.uid?.toString();
         if (!messageId) { skipped++; continue; }
@@ -245,7 +259,10 @@ async function pollSingleAccount(account, sources, fromDate) {
             parsed_sender_name: details.sender_name,
             bank_entry_id: entry.id,
             status: 'imported',
+            seen: msgSeen,
             raw_snippet: emailText.slice(0, 500),
+            account_id: account.id,
+            account_name: account.name,
           });
 
           processed++;
@@ -258,6 +275,8 @@ async function pollSingleAccount(account, sources, fromDate) {
             status: 'skipped',
             error_message: senderSource ? `Bank alert (${senderSource}) but no amount found` : (details ? 'Low confidence or no payment data' : 'Failed to parse'),
             raw_snippet: emailText.slice(0, 500),
+            account_id: account.id,
+            account_name: account.name,
           });
           skipped++;
         }
