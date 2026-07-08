@@ -12,12 +12,6 @@ function buildOfferLetterHTML(w, dateText, hrNameText, subjectText) {
   const d = w.dept || w.department || 'General';
   const subj = subjectText || `Appointment as ${r}`;
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="/logo/ucs-logo.png" alt="UCS" style="width:65px;height:auto;margin-right:14px" />
-<div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">ULTIMATE CONSULTANCY SOLUTIONS</div><div style="font-size:12px;font-weight:400;color:#0B73C4;letter-spacing:1px">(UCS)</div></div>
-</div>
-<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
-<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Subject: ${subj}</div>
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="margin-bottom:6px"><strong>Dear ${w.name},</strong></div>
