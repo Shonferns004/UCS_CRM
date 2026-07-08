@@ -187,27 +187,19 @@ async function pollSingleAccount(account, sources, fromDate) {
 
     let messages;
     try {
-      const searchDate = fromDate ? new Date(fromDate) : new Date();
-      if (!fromDate) searchDate.setDate(searchDate.getDate() - 1);
-      searchDate.setHours(0, 0, 0, 0);
-      messages = await client.search({ receivedAfter: searchDate });
-      console.log(`[emailImporter] ${account.name}: searching since ${searchDate.toISOString().slice(0,10)}, found ${messages?.length}`);
-
+      messages = await client.search({ seen: false });
+      console.log(`[emailImporter] ${account.name}: unseen emails found: ${messages?.length}`);
       if (!messages || messages.length === 0) {
-        console.log(`[emailImporter] ${account.name}: date search empty, trying unseen`);
-        messages = await client.search({ seen: false });
-        console.log(`[emailImporter] ${account.name}: unseen search, found ${messages?.length}`);
+        messages = await client.search({ seen: true });
+        console.log(`[emailImporter] ${account.name}: seen emails found: ${messages?.length}`);
       }
     } catch (searchErr) {
       console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
-      try {
-        messages = await client.search({ seen: false });
-        console.log(`[emailImporter] ${account.name}: fallback unseen search, found ${messages?.length}`);
-      } catch { messages = []; }
+      messages = [];
     }
     if (!messages || messages.length === 0) {
       await client.logout();
-      return { processed: 0, skipped: 0, error: null, message: `No emails (mailbox has ${mailbox.exists} total, try marking some as unread)` };
+      return { processed: 0, skipped: 0, error: null, message: `No emails found (mailbox has ${mailbox.exists} total)` };
     }
     if (messages.length > 500) {
       messages = messages.slice(0, 500);
