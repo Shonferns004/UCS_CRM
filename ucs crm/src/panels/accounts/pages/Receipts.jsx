@@ -249,8 +249,16 @@ export default function Receipts() {
   const handleDownloadAll = async () => {
     setDownloadAll(true)
     try {
-      const elements = Array.from(document.querySelectorAll('[data-receipt-batch]'))
-      await downloadAllPDFs(elements.map((el, i) => ({ element: el, donor: donors[i] })), 'all')
+      const all = donors.map((d, i) => ({ element: document.querySelector(`[data-receipt-batch="${i}"]`), donor: d })).filter(x => x.element)
+      const groups = {}
+      for (const item of all) {
+        const ngo = item.donor['Project'] || 'bsct'
+        if (!groups[ngo]) groups[ngo] = []
+        groups[ngo].push(item)
+      }
+      for (const [ngo, items] of Object.entries(groups)) {
+        await downloadAllPDFs(items, ngo)
+      }
     } catch (e) { alert('Failed to download ZIP: ' + e.message) }
     setDownloadAll(false)
   }
