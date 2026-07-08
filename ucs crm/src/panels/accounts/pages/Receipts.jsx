@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet, apiPost } from '../api/auth'
+import { apiPost } from '../api/auth'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar'
 import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray'
@@ -185,17 +185,6 @@ export default function Receipts() {
   const [donors, setDonors] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [project, setProject] = useState('manncar')
-  const [templateName, setTemplateName] = useState('')
-  const [templateList, setTemplateList] = useState([])
-  const [templatesLoading, setTemplatesLoading] = useState(false)
-
-  useEffect(() => {
-    setTemplatesLoading(true)
-    apiGet('/whatsapp/templates')
-      .then(list => { setTemplateList(list || []); if (list?.length) setTemplateName(list[0].name) })
-      .catch(() => {})
-      .finally(() => setTemplatesLoading(false))
-  }, [])
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [downloadAll, setDownloadAll] = useState(false)
   const receiptRef = useRef(null)
@@ -297,7 +286,7 @@ export default function Receipts() {
             receiptNo,
             donorName: donor['Donor Name'],
             amount: donor['Amount'],
-            templateName,
+            templateName: 'bsct_receipt',
           })
           try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
         } catch (e) {
@@ -331,19 +320,11 @@ export default function Receipts() {
   return (
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-pad" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Project</h3>
-            <select className="field-input" value={project} onChange={e => setProject(e.target.value)} style={{ width:220 }}>
-              {PROJECTS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Template</h3>
-            <select className="field-input" value={templateName} onChange={e => setTemplateName(e.target.value)} style={{ width:220 }} disabled={templatesLoading}>
-              {templatesLoading ? <option>Loading...</option> : templateList.length === 0 ? <option value="">No templates found</option> : templateList.map(t => <option key={t.name} value={t.name}>{t.name} ({t.language})</option>)}
-            </select>
-          </div>
+        <div className="card-pad" style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Project</h3>
+          <select className="field-input" value={project} onChange={e => setProject(e.target.value)} style={{ width:220 }}>
+            {PROJECTS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
         </div>
       </div>
 
