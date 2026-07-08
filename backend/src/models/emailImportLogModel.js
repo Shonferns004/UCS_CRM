@@ -30,6 +30,7 @@ export async function logImport({
       parsed_sender_name: parsed_sender_name || null,
       bank_entry_id: bank_entry_id || null,
       status: status || 'imported',
+      seen: seen ?? false,
       error_message: error_message || null,
       raw_snippet: raw_snippet ? raw_snippet.slice(0, 1000) : null,
       account_id: account_id || null,
@@ -66,14 +67,15 @@ export async function countByStatus() {
 
   if (error) {
     if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
-      return { imported: 0, failed: 0, skipped: 0 };
+      return { imported: 0, failed: 0, skipped: 0, seen: 0 };
     }
     throw error;
   }
 
-  const counts = { imported: 0, failed: 0, skipped: 0 };
+  const counts = { imported: 0, failed: 0, skipped: 0, seen: 0 };
   for (const row of data || []) {
-    if (counts[row.status] !== undefined) counts[row.status]++;
+    if (row.status === 'seen') counts.seen++;
+    else if (counts[row.status] !== undefined) counts[row.status]++;
   }
   return counts;
 }

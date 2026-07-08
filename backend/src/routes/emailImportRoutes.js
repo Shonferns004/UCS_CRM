@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { triggerImport, getImportStatus, getLog } from '../controllers/emailImportController.js';
+import { triggerImport, getImportStatus, getLog, processSeenEmails } from '../controllers/emailImportController.js';
 import { list, create, update, remove } from '../controllers/emailAccountController.js';
 
 const router = Router();
 
 router.post('/trigger', authenticateRole('accounts', 'super_admin'), triggerImport);
+router.post('/process-seen', authenticateRole('accounts', 'super_admin'), processSeenEmails);
 router.get('/status', authenticateRole('accounts', 'super_admin'), getImportStatus);
 router.get('/log', authenticateRole('accounts', 'super_admin'), getLog);
 

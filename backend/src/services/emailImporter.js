@@ -192,7 +192,7 @@ Rules:
   }
 }
 
-async function pollSingleAccount(account, sources, fromDate, includeSeen) {
+async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySeenSkipped) {
   const config = {
     host: account.imap_host || 'imap.gmail.com',
     port: account.imap_port || 993,
@@ -217,17 +217,11 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen) {
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       threeDaysAgo.setHours(0, 0, 0, 0);
 
-      messages = await client.search({ seen: false, receivedAfter: threeDaysAgo });
-      console.log(`[emailImporter] ${account.name}: unseen last 3 days: ${messages?.length}`);
-
-      if (includeSeen && (!messages || messages.length < 10)) {
-        const seen = await client.search({ seen: true, receivedAfter: threeDaysAgo });
-        if (seen?.length) {
-          const merged = new Set([...(messages || []), ...seen]);
-          messages = [...merged].sort((a, b) => b - a);
-          console.log(`[emailImporter] ${account.name}: added ${seen.length} seen, total=${messages.length}`);
-        }
-      }
+      const unseen = await client.search({ seen: false, receivedAfter: threeDaysAgo });
+      const seen = await client.search({ seen: true, receivedAfter: threeDaysAgo });
+      const merged = new Set([...(unseen || []), ...(seen || [])]);
+      messages = [...merged].sort((a, b) => b - a);
+      console.log(`[emailImporter] ${account.name}: unseen=${unseen?.length}, seen=${seen?.length}, total=${messages.length}`);
     } catch (searchErr) {
       console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
       messages = [];
@@ -241,7 +235,7 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen) {
       console.log(`[emailImporter] ${account.name}: limiting to 10 messages`);
     }
 
-    for await (const msg of client.fetch(messages, { source: true })) {
+      for await (const msg of client.fetch(messages, { source: true })) {
       try {
         const msgSeen = msg.flags?.includes('\\Seen') || false;
         const parsed = await simpleParser(msg.source);
@@ -250,6 +244,22 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen) {
 
         const existing = await isEmailProcessed(messageId);
         if (existing) { skipped++; continue; }
+
+        // Skip seen emails unless includeSeen is true or onlySeenSkipped is true
+        if (msgSeen && !includeSeen && !onlySeenSkipped) {
+          await logImport({
+            email_message_id: messageId,
+            email_subject: parsed.subject || '',
+            email_from: parsed.from?.text || '',
+            received_at: parsed.date || new Date().toISOString(),
+            status: 'seen',
+            seen: true,
+            account_id: account.id,
+            account_name: account.name,
+          });
+          skipped++;
+          continue;
+        }
 
         const emailSubject = parsed.subject || '';
         const emailFrom = parsed.from?.text || '';

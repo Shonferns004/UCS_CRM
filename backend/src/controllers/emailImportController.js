@@ -12,6 +12,15 @@ export async function triggerImport(req, res) {
   }
 }
 
+export async function processSeenEmails(req, res) {
+  try {
+    const result = await pollEmailInbox(null, true);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 export async function getImportStatus(req, res) {
   try {
     const lastPoll = getLastPollResult();
