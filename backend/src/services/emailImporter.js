@@ -192,7 +192,7 @@ Rules:
   }
 }
 
-async function pollSingleAccount(account, sources, fromDate) {
+async function pollSingleAccount(account, sources, fromDate, includeSeen) {
   const config = {
     host: account.imap_host || 'imap.gmail.com',
     port: account.imap_port || 993,
@@ -217,11 +217,17 @@ async function pollSingleAccount(account, sources, fromDate) {
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       threeDaysAgo.setHours(0, 0, 0, 0);
 
-      const unseen = await client.search({ seen: false, receivedAfter: threeDaysAgo });
-      const seen = await client.search({ seen: true, receivedAfter: threeDaysAgo });
-      const merged = new Set([...(unseen || []), ...(seen || [])]);
-      messages = [...merged].sort((a, b) => b - a);
-      console.log(`[emailImporter] ${account.name}: last 3 days, unseen=${unseen?.length}, seen=${seen?.length}, total=${messages.length}`);
+      messages = await client.search({ seen: false, receivedAfter: threeDaysAgo });
+      console.log(`[emailImporter] ${account.name}: unseen last 3 days: ${messages?.length}`);
+
+      if (includeSeen && (!messages || messages.length < 10)) {
+        const seen = await client.search({ seen: true, receivedAfter: threeDaysAgo });
+        if (seen?.length) {
+          const merged = new Set([...(messages || []), ...seen]);
+          messages = [...merged].sort((a, b) => b - a);
+          console.log(`[emailImporter] ${account.name}: added ${seen.length} seen, total=${messages.length}`);
+        }
+      }
     } catch (searchErr) {
       console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
       messages = [];
@@ -321,7 +327,7 @@ async function pollSingleAccount(account, sources, fromDate) {
   }
 }
 
-export async function pollEmailInbox(fromDate) {
+export async function pollEmailInbox(fromDate, includeSeen) {
   const accounts = await getActiveAccounts();
 
   if (!accounts || accounts.length === 0) {
@@ -352,7 +358,7 @@ export async function pollEmailInbox(fromDate) {
 
   for (const account of accounts) {
     console.log(`[emailImporter] Polling ${account.name} (${account.email})...`);
-    const result = await pollSingleAccount(account, sources, fromDate);
+    const result = await pollSingleAccount(account, sources, fromDate, includeSeen);
     totalProcessed += result.processed;
     totalSkipped += result.skipped;
     if (result.error) totalErrors++;

@@ -21,6 +21,7 @@ export default function EmailImport() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [triggeringSeen, setTriggeringSeen] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [importingFromDate, setImportingFromDate] = useState(false);
   const [filterAccount, setFilterAccount] = useState('');
@@ -52,6 +53,16 @@ export default function EmailImport() {
       await loadData();
     } catch (err) { alert(err.message); }
     finally { setTriggering(false); }
+  };
+
+  const handleTriggerSeen = async () => {
+    setTriggeringSeen(true);
+    try {
+      const result = await apiPost('/accounts/email-import/trigger?includeSeen=true');
+      setStatus(prev => ({ ...prev, lastPoll: result }));
+      await loadData();
+    } catch (err) { alert(err.message); }
+    finally { setTriggeringSeen(false); }
   };
 
   const handleTriggerFromDate = async () => {
@@ -163,6 +174,11 @@ export default function EmailImport() {
             style={{ background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             {triggering ? 'Importing...' : 'Manual Import'}
+          </button>
+          <button className="btn btn-sm" onClick={handleTriggerSeen} disabled={triggeringSeen}
+            style={{ background: '#8B5CF6', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            {triggeringSeen ? 'Importing...' : 'Import Seen'}
           </button>
         </div>
 
