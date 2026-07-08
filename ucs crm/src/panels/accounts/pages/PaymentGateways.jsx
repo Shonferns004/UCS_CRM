@@ -18,26 +18,31 @@ const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') :
 export default function PaymentGateways() {
   const [log, setLog] = useState([]);
   const [counts, setCounts] = useState({});
+  const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filterGateway, setFilterGateway] = useState('');
+  const [filterAccount, setFilterAccount] = useState('');
 
   async function loadData() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filterGateway) params.set('gateway', filterGateway);
-      const [logRes, statusRes] = await Promise.allSettled([
+      if (filterAccount) params.set('account_id', filterAccount);
+      const [logRes, statusRes, accRes] = await Promise.allSettled([
         apiGet('/webhooks/log?' + params.toString()),
         apiGet('/webhooks/status'),
+        apiGet('/webhooks/razorpay/accounts'),
       ]);
       if (logRes.status === 'fulfilled') setLog(logRes.value || []);
       if (statusRes.status === 'fulfilled') setCounts(statusRes.value.counts || {});
+      if (accRes.status === 'fulfilled') setAccounts(accRes.value || []);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadData(); }, [filterGateway]);
+  useEffect(() => { loadData(); }, [filterGateway, filterAccount]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -64,7 +69,7 @@ export default function PaymentGateways() {
           <div className="stat-info">
             <div className="stat-num" style={{ fontSize: 22, fontWeight: 800, color: '#5B6B4E' }}>Payment Gateways</div>
             <div className="stat-lbl" style={{ fontSize: 13, fontWeight: 600, color: '#5B6B4E', opacity: 0.7 }}>
-              Auto-import Razorpay & Paytm payments into Bank Audit
+              Auto-imported Razorpay &amp; Paytm payments into Bank Audit
             </div>
           </div>
         </div>
@@ -113,9 +118,45 @@ export default function PaymentGateways() {
           <button className="btn btn-sm" onClick={handleSync} disabled={syncing}
             style={{ marginLeft: 'auto', background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            {syncing ? 'Syncing...' : 'Sync Razorpay'}
+            {syncing ? 'Syncing...' : 'Sync Default'}
           </button>
         </div>
+
+        {accounts.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--line)', overflowX: 'auto', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap', marginRight: 2 }}>Account:</span>
+            <button
+              onClick={() => setFilterAccount('')}
+              style={{
+                fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                background: !filterAccount ? 'var(--sage)' : 'transparent',
+                color: !filterAccount ? '#fff' : 'var(--ink)',
+                borderColor: !filterAccount ? 'var(--sage)' : 'var(--line)',
+                fontWeight: !filterAccount ? 600 : 500,
+              }}>
+              All
+            </button>
+            {accounts.map(acc => {
+              const active = String(filterAccount) === String(acc.id);
+              return (
+                <button key={acc.id}
+                  onClick={() => setFilterAccount(acc.id)}
+                  style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: active ? 'var(--sage)' : acc.is_active ? '#0d948808' : 'transparent',
+                    color: active ? '#fff' : '#374151',
+                    borderColor: active ? 'var(--sage)' : acc.is_active ? '#0d948840' : 'var(--line)',
+                    fontWeight: active ? 600 : 500,
+                    opacity: acc.is_active ? 1 : 0.55,
+                  }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: acc.is_active ? '#059669' : '#d1d5db', flexShrink: 0 }} />
+                  {acc.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="table-wrap">
           <table>
@@ -123,6 +164,7 @@ export default function PaymentGateways() {
               <tr>
                 <th>Date</th>
                 <th>Gateway</th>
+                <th>Account</th>
                 <th>Event</th>
                 <th>Amount</th>
                 <th>Payment ID</th>
@@ -133,26 +175,35 @@ export default function PaymentGateways() {
             </thead>
             <tbody>
               {loading ? (
-                <SkeletonTableRows rows={5} cols={8} />
+                <SkeletonTableRows rows={5} cols={9} />
               ) : log.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No webhook events yet</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No webhook events yet</td></tr>
               ) : (
-                log.map(e => (
+                log.map(e => {
+                  const isNegative = e.amount != null && Number(e.amount) < 0;
+                  const statusColor = e.status === 'processed' ? 'pill-green'
+                    : e.status === 'failed' ? 'pill-red'
+                    : e.status === 'dispute' ? 'pill-red'
+                    : e.status === 'unhandled' ? 'pill-red'
+                    : 'pill-gray';
+                  return (
                   <tr key={e.id}>
                     <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN') : '\u2014'}</td>
                     <td><span className="pill" style={{ background: e.gateway === 'razorpay' ? '#0d948818' : '#2563eb18', color: e.gateway === 'razorpay' ? '#0d9488' : '#2563eb', fontSize: 11 }}>{e.gateway}</span></td>
+                    <td style={{ fontSize: 11 }}>{e.account_name || '\u2014'}</td>
                     <td style={{ fontSize: 11 }}>{e.event_type || '\u2014'}</td>
-                    <td style={{ fontSize: 12, fontWeight: 600, color: 'var(--sage)' }}>{e.amount ? currency(e.amount) : '\u2014'}</td>
+                    <td style={{ fontSize: 12, fontWeight: 600, color: isNegative ? '#dc2626' : 'var(--sage)' }}>{e.amount ? currency(e.amount) : '\u2014'}</td>
                     <td style={{ fontSize: 11 }}>{e.payment_id || '\u2014'}</td>
                     <td style={{ fontSize: 11 }}>{e.order_id || '\u2014'}</td>
                     <td style={{ fontSize: 11 }}>{e.gateway_source || '\u2014'}</td>
                     <td>
-                      <span className={`pill ${e.status === 'processed' ? 'pill-green' : e.status === 'failed' ? 'pill-red' : 'pill-gray'}`} style={{ fontSize: 11 }}>
+                      <span className={`pill ${statusColor}`} style={{ fontSize: 11 }}>
                         {e.status}
                       </span>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
