@@ -187,33 +187,26 @@ async function pollSingleAccount(account, sources, fromDate) {
 
     let messages;
     try {
-      if (fromDate) {
-        const since = new Date(fromDate);
-        since.setHours(0, 0, 0, 0);
-        messages = await client.search({ receivedAfter: since });
-        console.log(`[emailImporter] ${account.name}: searched with fromDate, found ${messages?.length}`);
-      } else {
-        const seenList = await client.search({ seen: true });
-        const unseenList = await client.search({ seen: false });
-        const uidSet = new Set([...(seenList || []), ...(unseenList || [])]);
-        messages = [...uidSet].sort((a, b) => a - b);
-        console.log(`[emailImporter] ${account.name}: seen=${seenList?.length}, unseen=${unseenList?.length}, unique=${messages.length}`);
-      }
+      const searchDate = fromDate ? new Date(fromDate) : new Date();
+      if (!fromDate) searchDate.setHours(0, 0, 0, 0);
+      messages = await client.search({ receivedAfter: searchDate });
+      console.log(`[emailImporter] ${account.name}: searching since ${searchDate.toISOString().slice(0,10)}, found ${messages?.length}`);
     } catch (searchErr) {
       console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
       try {
         const last30 = new Date(); last30.setDate(last30.getDate() - 30);
+        last30.setHours(0, 0, 0, 0);
         messages = await client.search({ receivedAfter: last30 });
         console.log(`[emailImporter] ${account.name}: fallback search last 30 days, found ${messages?.length}`);
       } catch { messages = []; }
     }
     if (!messages || messages.length === 0) {
       await client.logout();
-      return { processed: 0, skipped: 0, error: null, message: `No emails found (mailbox has ${mailbox.exists} total)` };
+      return { processed: 0, skipped: 0, error: null, message: `No emails since ${(fromDate || 'today')} (mailbox has ${mailbox.exists} total)` };
     }
-    if (messages.length > 5000) {
-      messages = messages.slice(0, 5000);
-      console.log(`[emailImporter] ${account.name}: limiting to 5000 messages`);
+    if (messages.length > 500) {
+      messages = messages.slice(0, 500);
+      console.log(`[emailImporter] ${account.name}: limiting to 500 messages`);
     }
 
     for await (const msg of client.fetch(messages, { source: true })) {

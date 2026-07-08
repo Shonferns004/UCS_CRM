@@ -42,25 +42,35 @@ export async function logImport({
 }
 
 export async function getImportLog(filters = {}) {
-  let query = supabase
+  const { data, error } = await supabase
     .from('email_import_log')
-    .select('*, bank_audit_entries!left(id, amount, bank_audit_sources(name))')
+    .select('*')
     .order('created_at', { ascending: false });
 
-  if (filters.status) query = query.eq('status', filters.status);
-  if (filters.account_id) query = query.eq('account_id', filters.account_id);
-  if (filters.limit) query = query.limit(filters.limit);
+  if (error) {
+    if (error.message?.includes('relation') || error.message?.includes('does not exist')) return [];
+    throw error;
+  }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  let result = data || [];
+  if (filters.status) result = result.filter(r => r.status === filters.status);
+  if (filters.account_id) result = result.filter(r => String(r.account_id) === String(filters.account_id));
+  if (filters.limit) result = result.slice(0, filters.limit);
+  return result;
 }
 
 export async function countByStatus() {
   const { data, error } = await supabase
     .from('email_import_log')
     .select('status');
-  if (error) throw error;
+
+  if (error) {
+    if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
+      return { imported: 0, failed: 0, skipped: 0 };
+    }
+    throw error;
+  }
+
   const counts = { imported: 0, failed: 0, skipped: 0 };
   for (const row of data || []) {
     if (counts[row.status] !== undefined) counts[row.status]++;
