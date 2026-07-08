@@ -179,7 +179,7 @@ export async function sendDirect(req, res) {
             Authorization: `Bearer ${whatsappConfig.accessToken}`,
             'Content-Type': `multipart/form-data; boundary=${boundary}`,
           },
-          body: bodyBuffer,
+          body: new Uint8Array(bodyBuffer),
         }
       );
       const mediaText = await mediaRes.text();
