@@ -164,6 +164,17 @@ if (fs.existsSync(accountsDist)) {
       }
     });
 
+    app.post('/api/cron/razorpay-sync', async (req, res) => {
+      try {
+        const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
+        const result = await syncAllRazorpayAccounts();
+        res.json(result);
+      } catch (error) {
+        console.error('Razorpay sync cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ message: 'Internal server error' });

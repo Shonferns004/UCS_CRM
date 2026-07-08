@@ -1,6 +1,6 @@
 import supabase from '../config/supabase.js';
 import { logWebhook } from '../models/paymentWebhookLogModel.js';
-import { getSources } from '../models/bankAuditModel.js';
+import { getSources, getEntryByPaymentId } from '../models/bankAuditModel.js';
 
 let cachedSources = null;
 let lastSourceFetch = 0;
@@ -61,6 +61,31 @@ export async function processPayment({
 
     if (!sourceId) {
       sourceId = 1;
+    }
+
+    // Dedup: skip if this payment already exists (any status)
+    if (paymentId) {
+      const existing = await getEntryByPaymentId(paymentId, null);
+      if (existing) {
+        await logWebhook({
+          gateway,
+          event_type: eventType || null,
+          payment_id: paymentId || null,
+          order_id: orderId || null,
+          amount,
+          gateway_source: gatewaySource || null,
+          sender_name: senderName || null,
+          sender_email: senderEmail || null,
+          sender_phone: senderPhone || null,
+          raw_payload: rawPayload || null,
+          bank_entry_id: existing.id,
+          status: 'skipped_duplicate',
+          error_message: null,
+          account_id: accountId || null,
+          account_name: accountName || null,
+        });
+        return { success: true, skipped: true, entry: existing };
+      }
     }
 
     const remarks = [

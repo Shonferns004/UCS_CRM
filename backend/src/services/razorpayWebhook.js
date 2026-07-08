@@ -7,6 +7,7 @@ import {
   getActiveAccounts,
   getDefaultAccount,
   updateLastSynced,
+  listAccounts,
 } from '../models/razorpayAccountModel.js';
 
 function verifyWebhookSignature(rawBody, signature, webhookSecret) {
@@ -533,4 +534,43 @@ export async function syncRazorpayPayments(accountId = null) {
   } catch (error) {
     return { success: false, message: error.message, count: 0 };
   }
+}
+
+/**
+ * Sync all active Razorpay accounts (each account's last N captured payments).
+ * Falls back to .env if no DB accounts exist.
+ * Used by the auto-sync cron job.
+ */
+export async function syncAllRazorpayAccounts() {
+  const results = { total: 0, imported: 0, errors: 0, accounts: [] };
+
+  const dbAccounts = await getActiveAccounts();
+  if (dbAccounts.length > 0) {
+    for (const account of dbAccounts) {
+      try {
+        const result = await syncRazorpayPayments(account.id);
+        results.total++;
+        results.imported += result.count || 0;
+        if (!result.success) results.errors++;
+        results.accounts.push({ id: account.id, name: account.name, result });
+      } catch (err) {
+        results.errors++;
+        results.accounts.push({ id: account.id, name: account.name, result: { success: false, message: err.message } });
+      }
+    }
+  } else {
+    // .env fallback
+    try {
+      const result = await syncRazorpayPayments(null);
+      results.total++;
+      results.imported += result.count || 0;
+      if (!result.success) results.errors++;
+      results.accounts.push({ id: null, name: '.env', result });
+    } catch (err) {
+      results.errors++;
+      results.accounts.push({ id: null, name: '.env', result: { success: false, message: err.message } });
+    }
+  }
+
+  return results;
 }
