@@ -644,19 +644,16 @@ console.log('Scheduled: every-minute check for missed schedules (10 min overdue)
 cron.schedule('* * * * *', () => autoReturnTransfers());
 console.log('Scheduled: every-minute check for expired lead transfers');
 
-if (!process.env.VERCEL) {
-  const pollInterval = `*/${Math.max(1, emailConfig.pollIntervalMinutes)} * * * *`;
-  cron.schedule(pollInterval, () => {
-    pollEmailInbox().catch(err => console.error('[emailImporter] Cron error:', err.message));
-  });
-  console.log(`Scheduled: email import every ${emailConfig.pollIntervalMinutes} minutes`);
-}
+const pollInterval = `*/${Math.max(1, emailConfig.pollIntervalMinutes)} * * * *`;
+cron.schedule(pollInterval, () => {
+  pollEmailInbox().catch(err => console.error('[emailImporter] Cron error:', err.message));
+});
+console.log(`Scheduled: email import every ${emailConfig.pollIntervalMinutes} minutes`);
 
-if (!process.env.VERCEL) {
-  const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
-  cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, () => {
-    syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
-  });
+const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
+cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, () => {
+  syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
+});
   console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
 }
 
