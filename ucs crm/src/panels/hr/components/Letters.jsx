@@ -22,7 +22,7 @@ function buildOfferLetterHTML(w, dateText, hrNameText, subjectText) {
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="margin-bottom:6px"><strong>Dear ${w.name},</strong></div>
 <div style="text-align:justify">
-<p style="margin:0 0 6px 0">We are pleased to inform you that you have been selected for the position of <strong>${r}</strong> in the <strong>${d}</strong> department at <strong>Ultimate Consultant Solutions (UCS)</strong>. Your qualifications and experience impressed us, and we are confident that your skills will be a valuable addition to our team.</p>
+<p style="margin:0 0 6px 0">We are pleased to inform you that you have been selected for the position of <strong>${r}</strong> in the <strong>${d}</strong> department at <strong>Ultimate Consultancy Solutions (UCS)</strong>. Your qualifications and experience impressed us, and we are confident that your skills will be a valuable addition to our team.</p>
 <p style="margin:0 0 6px 0">Your anticipated date of joining will be communicated to you shortly. You will be on a probation period of <strong>one (1) month</strong> from the date of joining, during which your performance will be closely monitored and evaluated. Upon satisfactory completion of the probation period, your appointment as a permanent employee will be confirmed by the management.</p>
 <p style="margin:0 0 6px 0">During your probation, you are required to perform all duties and responsibilities assigned to you by your Team Leader or Reporting Manager. Your training will consist of two stages: an initial basic training period of <strong>3 (three) days</strong> from the date of joining, followed by a comprehensive training period of <strong>24 (twenty-four) days</strong>. Please note that <strong>no leave will be permitted</strong> during the training period.</p>
 <p style="margin:0 0 6px 0"><u><strong>Office Timings:</strong></u> All employees are required to maintain office hours from <strong>10:00 a.m. to 7:00 p.m.</strong>, Monday through Saturday.</p>
@@ -37,7 +37,7 @@ function buildOfferLetterHTML(w, dateText, hrNameText, subjectText) {
 <p style="margin:0 0 6px 0">Kindly sign and return a copy of this appointment letter to confirm your acceptance of the terms and conditions outlined herein. Your appointment will be effective upon your acceptance.</p>
 <p style="margin:0 0 6px 0">Congratulations on your appointment, and welcome to the team!</p>
 </div>
-<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>Ultimate Consultant Solutions (UCS)</strong></p></div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>Ultimate Consultancy Solutions (UCS)</strong></p></div>
 <div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
 </div>`;
 }
@@ -51,12 +51,12 @@ function buildExperienceLetterHTML(w, dateText, hrNameText) {
 </div>
 <svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
 <div style="height:2px;background:#F58220;margin-bottom:12px"></div>
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:8px 0;text-transform:uppercase">UCS – Ultimate Consultant Solution Letterhead</div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:8px 0;text-transform:uppercase">UCS – Ultimate Consultancy Solution Letterhead</div>
 <div style="text-align:center;font-size:16px;font-weight:700;color:#082F5A;margin:0 0 10px 0">EXPERIENCE LETTER</div>
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 10px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="margin-bottom:8px"><strong>To Whom It May Concern,</strong></div>
 <div style="text-align:justify">
-<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>UCS – Ultimate Consultant Solution</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>UCS – Ultimate Consultancy Solution</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
 <p style="margin:0 0 6px 0">During their tenure with our organization, <strong>${w.name}</strong> was responsible for:</p>
 <ul style="margin:0 0 6px 0;padding-left:22px">
 <li style="margin-bottom:4px">Managing assigned tasks and projects efficiently.</li>
@@ -66,12 +66,12 @@ function buildExperienceLetterHTML(w, dateText, hrNameText) {
 <li style="margin-bottom:4px">Performing duties and responsibilities associated with the role of <strong>${r}</strong>.</li>
 </ul>
 <p style="margin:0 0 6px 0">Throughout their employment, <strong>${w.name}</strong> demonstrated professionalism, dedication, and a positive attitude toward their work. Their performance was satisfactory, and they maintained good conduct during their association with the company.</p>
-<p style="margin:0 0 6px 0">We appreciate their contributions to <strong>UCS – Ultimate Consultant Solution</strong> and wish them every success in their future endeavors.</p>
+<p style="margin:0 0 6px 0">We appreciate their contributions to <strong>UCS – Ultimate Consultancy Solution</strong> and wish them every success in their future endeavors.</p>
 <p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
 </div>
 <div style="margin-top:14px">
 <p style="margin:0 0 2px 0"><strong>Sincerely,</strong></p>
-<p style="margin:14px 0 0 0"><strong>[Authorized Signatory]</strong><br />${hrNameText || '[Name of HR/Manager]'}<br /><strong>[Designation]</strong><br /><strong>UCS – Ultimate Consultant Solution</strong><br />Contact No.: [Phone Number]<br />Email: [Email Address]<br />Company Seal &amp; Signature</p>
+<p style="margin:14px 0 0 0"><strong>[Authorized Signatory]</strong><br />${hrNameText || '[Name of HR/Manager]'}<br /><strong>[Designation]</strong><br /><strong>UCS – Ultimate Consultancy Solution</strong><br />Contact No.: [Phone Number]<br />Email: [Email Address]<br />Company Seal &amp; Signature</p>
 </div>
 <div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
 </div>`;
