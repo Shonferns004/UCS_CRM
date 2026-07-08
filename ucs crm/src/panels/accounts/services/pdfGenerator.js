@@ -314,7 +314,7 @@ function getFilePrefix(project) {
 }
 
 function getZipName(project) {
-  if (!project) return 'Donation_Receipts.zip'
+  if (!project || project === 'all') return 'Donation_Receipts.zip'
   const map = {
     ashray: 'Ashray', beingsevak: 'BeingSevak', manncar: 'MannCare',
     bsct: 'BeingSevak', aflf: 'Ashray', maan: 'MannCare',
@@ -332,17 +332,18 @@ export async function downloadSinglePDF(element, donor, project = '') {
 
 export async function downloadAllPDFs(elements, project = '') {
   const zip = new JSZip()
-  const folder = zip.folder('Donation_Receipts')
+  const receiptsFolder = zip.folder('Donation_Receipts')
 
   for (let i = 0; i < elements.length; i++) {
     const { element, donor } = elements[i]
     const pdf = await generateReceiptPDF(element)
     const receiptNo = donor['Receipt No.'] || `ROW${i + 1}`
     const donorName = sanitizeFileName(donor['Donor Name'])
-    const prefix = getFilePrefix(project)
-    folder.file(`${prefix}${donorName}_${receiptNo}.pdf`, pdf.output('arraybuffer'))
+    const donorProject = donor?.['Project'] || project || ''
+    const prefix = getFilePrefix(donorProject)
+    receiptsFolder.file(`${prefix}${donorName}_${receiptNo}.pdf`, pdf.output('arraybuffer'))
   }
 
   const content = await zip.generateAsync({ type: 'blob' })
-  saveAs(content, getZipName(project))
+  saveAs(content, getZipName(project || 'Donation_Receipts'))
 }
