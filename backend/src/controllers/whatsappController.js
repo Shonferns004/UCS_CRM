@@ -153,14 +153,34 @@ export async function sendDirect(req, res) {
     if (pdfBase64) {
       const buffer = Buffer.from(pdfBase64, 'base64');
       const fileName = `receipt_${receiptNo || Date.now()}.pdf`;
-      const formData = new FormData();
-      formData.append('messaging_product', 'whatsapp');
-      formData.append('file', new Blob([buffer], { type: 'application/pdf' }), fileName);
-      formData.append('type', 'application/pdf');
+      const boundary = '----FormBoundary' + Date.now();
+      const crlf = '\r\n';
+
+      const headerBuffer = Buffer.from(
+        `--${boundary}${crlf}` +
+        `Content-Disposition: form-data; name="messaging_product"${crlf}${crlf}` +
+        `whatsapp${crlf}` +
+        `--${boundary}${crlf}` +
+        `Content-Disposition: form-data; name="file"; filename="${fileName}"${crlf}` +
+        `Content-Type: application/pdf${crlf}${crlf}`
+      );
+      const footerBuffer = Buffer.from(
+        `${crlf}--${boundary}${crlf}` +
+        `Content-Disposition: form-data; name="type"${crlf}${crlf}` +
+        `application/pdf${crlf}--${boundary}--${crlf}`
+      );
+      const bodyBuffer = Buffer.concat([headerBuffer, buffer, footerBuffer]);
 
       const mediaRes = await fetch(
         `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/media`,
-        { method: 'POST', headers: { Authorization: `Bearer ${whatsappConfig.accessToken}` }, body: formData }
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${whatsappConfig.accessToken}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          },
+          body: bodyBuffer,
+        }
       );
       const mediaText = await mediaRes.text();
       if (!mediaRes.ok) return res.status(400).json({ message: 'Media upload failed: ' + mediaText });
