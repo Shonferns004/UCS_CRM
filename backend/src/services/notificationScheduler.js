@@ -12,6 +12,7 @@ import { sendPushToMultiple } from './fcmService.js';
 import { reverseTransfer } from '../models/froAssignmentModel.js';
 import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
+import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
@@ -649,6 +650,14 @@ if (!process.env.VERCEL) {
     pollEmailInbox().catch(err => console.error('[emailImporter] Cron error:', err.message));
   });
   console.log(`Scheduled: email import every ${emailConfig.pollIntervalMinutes} minutes`);
+}
+
+if (!process.env.VERCEL) {
+  const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
+  cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, () => {
+    syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
+  });
+  console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
 }
 
 export { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders };
