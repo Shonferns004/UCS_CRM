@@ -92,6 +92,7 @@ function build(type, w) {
 export default function Letters() {
   const { fetchWorkers } = useHR();
   const [workers, setWorkers] = useState([]);
+  const [ngo, setNgo] = useState('BSCT');
   const [name, setName] = useState('');
   const [type, setType] = useState(TYPES[0]);
   const [letterDate, setLetterDate] = useState('');
@@ -186,6 +187,9 @@ export default function Letters() {
       <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
       <div className="card-pad">
         <div className="form-row">
+          <label className="field">NGOs
+            <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
+          </label>
           <label className="field">Worker
             <Dropdown value={name} onChange={e=>setName(e.target.value)}
               options={workers.map(w => ({value: w.name, label: w.name}))} />
