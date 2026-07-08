@@ -271,6 +271,7 @@ export default function Receipts() {
     setBulkState({ active:true, total:validDonors.length, sent:0, failed:0, currentBatch:0, totalBatches:batches.length, results:[], previousBatches:[] })
 
     let totalSent = 0, totalFailed = 0
+    const allErrors = []
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       if (cancelBulkRef.current) break
       const batch = batches[batchIdx]
@@ -301,6 +302,7 @@ export default function Receipts() {
           try { await apiPost('/accounts/receipts/mark-sent', { receiptNo }) } catch {}
         } catch (e) {
           console.error('WhatsApp send failed for', donor['Donor Name'], ':', e.message)
+          allErrors.push(donor['Donor Name'] + ': ' + e.message)
           throw e
         }
       }))
@@ -315,6 +317,9 @@ export default function Receipts() {
       }))
     }
     setBulkState(prev => ({ ...prev, active:false }))
+    if (totalFailed > 0 && totalSent === 0 && batchErrors.length > 0) {
+      alert('All sends failed!\n\nFirst error:\n' + allErrors[0])
+    }
     showToast(cancelBulkRef.current ? 'info' : 'success', cancelBulkRef.current ? `Cancelled. ${totalSent} sent, ${totalFailed} failed` : `Bulk send complete! ${totalSent} sent, ${totalFailed} failed`)
   }
 
