@@ -80,44 +80,6 @@ function TransferDataModal({ station, sourceName, sourceCount, stations, onClose
   );
 }
 
-function NgoSelectModal({ allNgos, selectedIds, onSave, onClose }) {
-  const [selected, setSelected] = useState(() => new Set(selectedIds));
-
-  const toggle = (id) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
-        <div className="modal-head">
-          <h3>Select NGOs</h3>
-          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {allNgos.map(n => (
-              <label key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '6px 8px', borderRadius: 4, background: selected.has(n.id) ? '#f0fdf4' : 'transparent' }}>
-                <input type="checkbox" checked={selected.has(n.id)} onChange={() => toggle(n.id)} />
-                {n.name}
-              </label>
-            ))}
-          </div>
-          <div className="modal-actions">
-            <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={() => onSave(Array.from(selected))}>
-              Save
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -125,10 +87,9 @@ export default function StationManagement() {
   const [targets, setTargets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newStation, setNewStation] = useState('');
-  const [newStationNgos, setNewStationNgos] = useState([]);
+  const [newStationNgo, setNewStationNgo] = useState('');
   const [adding, setAdding] = useState(false);
   const [editNgoStation, setEditNgoStation] = useState(null);
-  const [newNgoModalOpen, setNewNgoModalOpen] = useState(false);
   const [transferData, setTransferData] = useState(null);
   const [transfers, setTransfers] = useState([]);
   const [returningId, setReturningId] = useState(null);
@@ -231,9 +192,9 @@ export default function StationManagement() {
     try {
       await apiPost('/ngo-admin/stations', {
         station: newStation.trim(),
-        ngo_ids: newStationNgos,
+        ngo_id: newStationNgo || null,
       });
-      setNewStationNgos([]);
+      setNewStationNgo('');
       const list = await apiGet('/ngo-admin/stations');
       if (Array.isArray(list)) {
         setStations(list);
@@ -246,9 +207,9 @@ export default function StationManagement() {
     }
   };
 
-  const handleNgoChange = async (station, ngoIds) => {
+  const handleNgoChange = async (station, ngoId) => {
     try {
-      await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, { ngo_ids: ngoIds });
+      await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, { ngo_id: ngoId });
       fetchData();
     } catch (err) {
       alert(err.message);
@@ -260,7 +221,7 @@ export default function StationManagement() {
     if (!s) return;
     try {
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, {
-        ngo_ids: s.ngos.map(n => n.ngo_id),
+        ngo_id: s.ngos[0]?.ngo_id || null,
         fro_worker_id: froWorkerId,
       });
       fetchData();
@@ -319,16 +280,15 @@ export default function StationManagement() {
                 {adding ? 'Adding...' : 'Create'}
               </button>
             </div>
-            <div>
-              <label className="field" style={{ marginBottom: 0 }}>
-                NGOs
-                <button type="button" className="btn btn-outline" onClick={() => setNewNgoModalOpen(true)} style={{ width: '100%', textAlign: 'left' }}>
-                  {newStationNgos.length > 0
-                    ? `${newStationNgos.length} NGOs selected`
-                    : 'Select NGOs'}
-                </button>
-              </label>
-            </div>
+            <label className="field" style={{ marginBottom: 0, flex: 1 }}>
+              NGO
+              <select value={newStationNgo} onChange={e => setNewStationNgo(e.target.value)}>
+                <option value="">-- Select NGO --</option>
+                {allNgos.map(n => (
+                  <option key={n.id} value={n.id}>{n.name}</option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
       </div>
@@ -377,7 +337,7 @@ export default function StationManagement() {
                       <span onClick={() => setEditNgoStation(s.station)}
                         style={{ cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>
                         {s.ngos.length > 0
-                          ? s.ngos.map(n => n.ngo_name).join(', ')
+                          ? s.ngos[0].ngo_name
                           : <span style={{ color: '#9ca3af' }}>No NGO</span>}
                       </span>
                     </td>
@@ -654,21 +614,29 @@ export default function StationManagement() {
       )}
 
       {editNgoStation && (
-        <NgoSelectModal
-          allNgos={allNgos}
-          selectedIds={stations.find(s => s.station === editNgoStation)?.ngos.map(n => n.ngo_id) || []}
-          onSave={(ids) => { handleNgoChange(editNgoStation, ids); setEditNgoStation(null); }}
-          onClose={() => setEditNgoStation(null)}
-        />
-      )}
-
-      {newNgoModalOpen && (
-        <NgoSelectModal
-          allNgos={allNgos}
-          selectedIds={newStationNgos}
-          onSave={(ids) => { setNewStationNgos(ids); setNewNgoModalOpen(false); }}
-          onClose={() => setNewNgoModalOpen(false)}
-        />
+        <div className="modal-overlay" onClick={() => setEditNgoStation(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <div className="modal-head">
+              <h3>Change NGO — {editNgoStation}</h3>
+              <button className="btn btn-sm btn-outline" onClick={() => setEditNgoStation(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <label className="field">
+                Select NGO
+                <select value={stations.find(s => s.station === editNgoStation)?.ngos[0]?.ngo_id || ''}
+                  onChange={e => { handleNgoChange(editNgoStation, e.target.value); setEditNgoStation(null); }}>
+                  <option value="">-- No NGO --</option>
+                  {allNgos.map(n => (
+                    <option key={n.id} value={n.id}>{n.name}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="modal-actions" style={{ marginTop: 12 }}>
+                <button className="btn btn-outline" onClick={() => setEditNgoStation(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {transferData && (
