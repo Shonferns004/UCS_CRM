@@ -1201,7 +1201,7 @@ export const getStationStats = async (req, res) => {
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
     }
 
-    const { ngo_id: filterNgoId } = req.query;
+    const { ngo_id: filterNgoId, from, to } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.indexOf(filterNgoId);
       if (idx !== -1) {
@@ -1215,7 +1215,7 @@ export const getStationStats = async (req, res) => {
     const stationMap = {};
     const summary = {};
 
-    const allStats = await Promise.all(ngoIds.map(ngoId => getStationDispositionStats(ngoId)));
+    const allStats = await Promise.all(ngoIds.map(ngoId => getStationDispositionStats(ngoId, from, to)));
     for (const stats of allStats) {
       for (const [station, statuses] of Object.entries(stats)) {
         if (!stationMap[station]) stationMap[station] = {};
