@@ -51,7 +51,7 @@ function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, 
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Experience Letter</div>
-${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Role: ${subjectText}</div>` : ''}
+${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Designation: ${subjectText}</div>` : ''}
 <div style="margin-bottom:6px"><strong>TO WHOM IT MAY CONCERN</strong></div>
 <div style="text-align:justify">
 <p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>Being Sevak Charitable Trust</strong> from <strong>${joiningDate}</strong> to <strong>${lastWorkingDate}</strong> as a <strong>${r}</strong>.</p>
@@ -89,7 +89,7 @@ function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, su
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${title}</div>
-${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Role: ${subjectText}</div>` : ''}
+${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Designation: ${subjectText}</div>` : ''}
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="text-align:justify;white-space:pre-wrap">${bodyHtml}</div>
 <div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />${hrNameText}<br /><strong>Being Sevak Charitable Trust</strong></p></div>
@@ -211,7 +211,7 @@ export default function Letters() {
           <label className="field">HR name
             <Dropdown value={hrName} onChange={e=>setHrName(e.target.value)} options={[{value:'',label:'Select HR...'}, ...workers.filter(w => (w.dept||w.department||'').toLowerCase().includes('hr') || (w.dept||w.department||'').toLowerCase().includes('admin')).map(w => ({value: w.name, label: w.name}))]} />
           </label>
-          <label className="field">Role
+          <label className="field">Designation
             <Dropdown value={subject} onChange={e => { if (e.target.value === '__add_role__') { const r = prompt('Enter role name:'); if (r && r.trim()) { setExtraRoles(p => [...p, r.trim()]); setSubject(r.trim()); } } else { setSubject(e.target.value); } }} options={[...[...new Set([...workers.map(w => w.role || w.department || 'Team Member'), ...extraRoles])].sort().map(v => ({ value: v, label: v })), { value: '__add_role__', label: '+ Add Role' }]} renderOption={o => o.value === '__add_role__' ? <span style={{color:'#dc2626',fontWeight:600}}>+ Add Role</span> : o.label} />
           </label>
           <label className="field btn-field"><span>&nbsp;</span>{!showDownload ? <button className="btn btn-primary" onClick={generate}><FileTxt width={16}/> Generate</button> : <button className="btn btn-primary" onClick={downloadPdf} style={{background:'#dc2626',color:'#fff',fontWeight:600,border:'1px solid #b91c1c'}}><FileTxt width={16}/> Download PDF</button>}</label>
