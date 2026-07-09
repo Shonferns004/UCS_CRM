@@ -1640,6 +1640,7 @@ export const distributeNewData = async (req, res) => {
           station: station,
           assigned_by: req.user.id,
           status: 'pending',
+          assigned_at: new Date().toISOString(),
         });
       }
 
