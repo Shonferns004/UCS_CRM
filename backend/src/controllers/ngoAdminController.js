@@ -83,25 +83,93 @@ export const getDonors = async (req, res) => {
 
     if (ngoNames.length === 0) return res.json({ data: [], pagination: { page, pageSize: limit, total: 0, totalPages: 0 } });
 
-    let countQuery = supabase.from('donor_profiles').select('id', { count: 'exact', head: true }).in('ngo', ngoNames);
-    let dataQuery = supabase.from('donor_profiles').select('*').in('ngo', ngoNames).order('last_donation_date', { ascending: false, nullsLast: true }).range(offset, offset + limit - 1);
+    let baseQuery = supabase.from('donor_profiles').select('*').in('ngo', ngoNames).order('last_donation_date', { ascending: false, nullsLast: true });
 
-    if (from_date) { countQuery = countQuery.gte('last_donation_date', from_date); dataQuery = dataQuery.gte('last_donation_date', from_date); }
-    if (to_date) { countQuery = countQuery.lte('last_donation_date', to_date); dataQuery = dataQuery.lte('last_donation_date', to_date); }
+    if (from_date) baseQuery = baseQuery.gte('last_donation_date', from_date);
+    if (to_date) baseQuery = baseQuery.lte('last_donation_date', to_date);
     if (search) {
       const q = `%${search}%`;
-      countQuery = countQuery.or(`name.ilike.${q},mobile_number.ilike.${q},city.ilike.${q}`);
-      dataQuery = dataQuery.or(`name.ilike.${q},mobile_number.ilike.${q},city.ilike.${q}`);
+      baseQuery = baseQuery.or(`name.ilike.${q},mobile_number.ilike.${q},city.ilike.${q}`);
     }
 
-    const [{ count }, { data, error }] = await Promise.all([countQuery, dataQuery]);
+    const { data: allData, error } = await baseQuery;
     if (error) throw error;
 
-    const total = count || 0;
-    if (req.query.paginated === 'true') {
-      return res.json({ data: data || [], pagination: { page, pageSize: limit, total, totalPages: Math.ceil(total / limit) } });
+    const groups = {};
+    for (const d of allData || []) {
+      const key = d.mobile_number || `no-mobile-${d.id}`;
+      if (!groups[key]) {
+        groups[key] = { ...d, ngos: [d.ngo], donor_ids: [d.id], total_amount_all: Number(d.total_amount || d.amount || 0), records: 1 };
+      } else {
+        if (!groups[key].ngos.includes(d.ngo)) groups[key].ngos.push(d.ngo);
+        if (!groups[key].donor_ids.includes(d.id)) groups[key].donor_ids.push(d.id);
+        groups[key].total_amount_all += Number(d.total_amount || d.amount || 0);
+        groups[key].records += 1;
+        if (new Date(d.last_donation_date || 0) > new Date(groups[key].last_donation_date || 0)) {
+          groups[key].name = d.name;
+          groups[key].city = d.city;
+          groups[key].last_donation_date = d.last_donation_date;
+        }
+      }
     }
-    return res.json(data || []);
+
+    const grouped = Object.values(groups);
+    grouped.sort((a, b) => new Date(b.last_donation_date || 0) - new Date(a.last_donation_date || 0));
+
+    const total = grouped.length;
+    const paginatedSlice = grouped.slice(offset, offset + limit);
+
+    const allDonorIds = paginatedSlice.flatMap(g => g.donor_ids || []);
+    let latestTxMap = {};
+    if (allDonorIds.length > 0) {
+      try {
+        const { data: assignments } = await supabase
+          .from('fro_assignments')
+          .select('id, donor_id')
+          .in('donor_id', allDonorIds);
+        const assignIds = (assignments || []).map(a => a.id);
+        if (assignIds.length > 0) {
+          const { data: logs } = await supabase
+            .from('fro_donor_logs')
+            .select('amount_collected, created_at, assignment_id')
+            .in('assignment_id', assignIds)
+            .not('amount_collected', 'is', null)
+            .order('created_at', { ascending: false });
+          const assignToDonor = {};
+          for (const a of assignments || []) assignToDonor[a.id] = a.donor_id;
+          for (const log of logs || []) {
+            const did = assignToDonor[log.assignment_id];
+            if (did && (latestTxMap[did] == null)) {
+              latestTxMap[did] = {
+                amount: Number(log.amount_collected) || 0,
+                date: log.created_at?.slice(0, 10),
+              };
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    const paginatedData = paginatedSlice.map(d => {
+      let best = { amount: 0, date: null };
+      for (const did of (d.donor_ids || [])) {
+        const entry = latestTxMap[did];
+        if (entry && (!best.date || entry.date > best.date)) best = entry;
+      }
+      return {
+        ...d,
+        amount: d.total_amount_all,
+        total_amount: d.total_amount_all,
+        last_transaction_amount: best.amount,
+        last_transaction_date: best.date,
+        ngo_list: d.ngos,
+      };
+    });
+
+    if (req.query.paginated === 'true') {
+      return res.json({ data: paginatedData, pagination: { page, pageSize: limit, total, totalPages: Math.ceil(total / limit) } });
+    }
+    return res.json(paginatedData);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -345,6 +413,33 @@ export const getTargets = async (req, res) => {
   }
 };
 
+export const getDailyTarget = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0) return res.json({ daily_target: 0 });
+    const { data: ngo } = await supabase.from('ngos').select('daily_collection_target').eq('id', ngoIds[0]).single();
+    return res.json({ daily_target: ngo ? Number(ngo.daily_collection_target) || 0 : 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const setDailyTarget = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO access' });
+    const { daily_target } = req.body;
+    const target = Number(daily_target) || 0;
+    const { data, error } = await supabase.from('ngos').update({ daily_collection_target: target }).eq('id', ngoIds[0]).select('daily_collection_target').single();
+    if (error) throw error;
+    return res.json({ daily_target: Number(data.daily_collection_target) || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDashboard = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
@@ -536,6 +631,13 @@ export const getDashboard = async (req, res) => {
       }
     }
 
+    const primaryNgoId = ngoIds[0];
+    let daily_target = 0;
+    if (primaryNgoId) {
+      const { data: ngo } = await supabase.from('ngos').select('daily_collection_target').eq('id', primaryNgoId).single();
+      if (ngo) daily_target = Number(ngo.daily_collection_target) || 0;
+    }
+
     return res.json({
       total_donors: totalDonors.length,
       assigned_donors: assignedCount,
@@ -546,6 +648,7 @@ export const getDashboard = async (req, res) => {
       stations_per_ngo: stationsPerNgo,
       month_collection: monthCollection,
       today_collection: todayCollection,
+      daily_target,
       total_workers: activeFroCount,
       workers_present: workersPresent,
       workers_absent: workersAbsent,
@@ -1201,7 +1304,7 @@ export const getStationStats = async (req, res) => {
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
     }
 
-    const { ngo_id: filterNgoId } = req.query;
+    const { ngo_id: filterNgoId, from, to } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.indexOf(filterNgoId);
       if (idx !== -1) {
@@ -1215,7 +1318,7 @@ export const getStationStats = async (req, res) => {
     const stationMap = {};
     const summary = {};
 
-    const allStats = await Promise.all(ngoIds.map(ngoId => getStationDispositionStats(ngoId)));
+    const allStats = await Promise.all(ngoIds.map(ngoId => getStationDispositionStats(ngoId, from, to)));
     for (const stats of allStats) {
       for (const [station, statuses] of Object.entries(stats)) {
         if (!stationMap[station]) stationMap[station] = {};
