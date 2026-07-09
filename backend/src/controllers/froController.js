@@ -750,7 +750,7 @@ export const createDonorLogHandler = async (req, res) => {
   try {
     const workerId = req.user.id;
     const donorId = parseInt(req.params.id);
-    const { action, notes, outcome, amount_collected, disposition_category, disposition_detail, scheduled_at, payment_screenshot_url, pan_number, donor_address, donor_dob, ngo_id, project_name, remark } = req.body;
+    const { action, notes, outcome, amount_collected, disposition_category, disposition_detail, scheduled_at, payment_screenshot_url, pan_number, donor_address, donor_dob, ngo_id, project_name, remark, upi_transaction_id, transaction_datetime } = req.body;
 
     if (!action) return res.status(400).json({ message: 'action is required' });
     const allowedActions = ['call', 'visit', 'message', 'follow_up', 'donation', 'note', 'disposition'];
@@ -773,6 +773,8 @@ export const createDonorLogHandler = async (req, res) => {
       payment_screenshot_url: payment_screenshot_url || null,
       pan_number: pan_number || null,
       remark: remark || null,
+      upi_transaction_id: upi_transaction_id || null,
+      transaction_datetime: transaction_datetime || null,
       accounts_status: null,
       created_by: workerId,
     };
