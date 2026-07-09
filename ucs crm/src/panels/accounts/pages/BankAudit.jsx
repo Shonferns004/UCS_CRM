@@ -240,7 +240,7 @@ export default function BankAudit() {
         </button>
       </div>
 
-      <div className="card">
+      <div className="card" style={{ marginBottom: 16 }}>
         <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
           <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
             {selectedDate ? <span>Date</span> : <span style={{ color: 'var(--sage)', fontWeight: 600 }}>All Dates</span>}
@@ -276,7 +276,9 @@ export default function BankAudit() {
             Manage Sources
           </button>
         </div>
+      </div>
 
+      <div className="card">
         <div className="table-wrap">
           <table>
             <thead>
