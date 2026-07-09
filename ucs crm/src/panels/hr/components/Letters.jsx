@@ -78,6 +78,25 @@ function build(type, w) {
   return { today, body };
 }
 
+function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, subjectText) {
+  const r = w.role || w.department || 'Team Member';
+  const title = letterType.charAt(0).toUpperCase() + letterType.slice(1).toLowerCase();
+  const bodyHtml = bodyText.replace(/\n/g, '<br />');
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="/logo/beingsevak-logo.png" alt="Being Sevak Charitable Trust" style="width:65px;height:auto;margin-right:14px" />
+<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">BEING SEVAK CHARITABLE TRUST</div></div>
+</div>
+<div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${title}</div>
+${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Role: ${subjectText}</div>` : ''}
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+<div style="text-align:justify;white-space:pre-wrap">${bodyHtml}</div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />${hrNameText}<br /><strong>Being Sevak Charitable Trust</strong></p></div>
+<div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
+</div>`;
+}
+
 export default function Letters() {
   const { fetchWorkers } = useHR();
   const [workers, setWorkers] = useState([]);
@@ -99,13 +118,8 @@ export default function Letters() {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
-    if (letterType === 'Joining letter' || letterType === 'Experience letter') {
-      el.style.padding = '0';
-      el.innerHTML = bodyText;
-    } else {
-      el.style.padding = '40px';
-      el.textContent = bodyText;
-    }
+    el.style.padding = '0';
+    el.innerHTML = bodyText;
     await document.fonts?.ready;
     await new Promise(r => setTimeout(r, 100));
     const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
@@ -150,9 +164,11 @@ export default function Letters() {
       body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject);
       today = lastWorkingDate;
     } else {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
+      const hrNameText = hrName || '{{hr_name}}';
       const result = build(type, w);
-      body = result.body;
-      today = result.today;
+      body = buildStyledLetterHTML(w, type, result.body, dateText, hrNameText, subject);
+      today = dateText;
     }
     setOut({ today, body, type });
     setShowDownload(false);
@@ -203,14 +219,7 @@ export default function Letters() {
 
         {out && (
           <div className="letter">
-            {out.type === 'Joining letter' || out.type === 'Experience letter' ? (
-              <div dangerouslySetInnerHTML={{ __html: out.body }} />
-            ) : (
-              <><div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
-            <div style={{ color:'var(--ink-soft)', fontSize:12, marginBottom:18 }}>{out.today}</div>
-            {out.body}</>
-            )}
-
+            <div dangerouslySetInnerHTML={{ __html: out.body }} />
           </div>
         )}
       </div>
