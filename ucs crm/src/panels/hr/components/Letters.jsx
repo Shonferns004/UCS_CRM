@@ -49,7 +49,7 @@ function buildExperienceLetterHTML(w, dateText, hrNameText, subjectText) {
 <img src="/logo/beingsevak-logo.png" alt="Being Sevak Charitable Trust" style="width:65px;height:auto;margin-right:14px" />
 <div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">BEING SEVAK CHARITABLE TRUST</div></div>
 </div>
-<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
+<div style="height:2px;background:#082F5A;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Experience Letter</div>
 ${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Role: ${subjectText}</div>` : ''}
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
