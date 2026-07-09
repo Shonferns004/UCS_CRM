@@ -617,12 +617,13 @@ export const getDashboard = async (req, res) => {
       }
     }
 
-    const primaryNgoId = ngoIds[0];
     let daily_target = 0;
-    if (primaryNgoId) {
-      const { data: ngo } = await supabase.from('ngos').select('daily_collection_target').eq('id', primaryNgoId).single();
-      if (ngo) daily_target = Number(ngo.daily_collection_target) || 0;
-    }
+    const { data: workerRec } = await supabase
+      .from('workers')
+      .select('daily_collection_target')
+      .eq('id', req.user.id)
+      .maybeSingle();
+    if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
     return res.json({
       total_donors: totalDonors.length,
