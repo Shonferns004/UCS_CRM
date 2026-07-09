@@ -15,7 +15,7 @@ export const adminLogin = async (req, res) => {
       password === process.env.ADMIN_PASSWORD
     ) {
       const token = jwt.sign(
-        { email, role: 'super_admin', name: 'Super Admin' },
+        { id: 0, email, role: 'super_admin', name: 'Super Admin' },
         process.env.JWT_SECRET,
         { expiresIn: '100y' }
       );
@@ -42,7 +42,7 @@ export const unifiedLogin = async (req, res) => {
         password === process.env.ADMIN_PASSWORD
       ) {
         const token = jwt.sign(
-          { email: identifier, role: 'super_admin', name: 'Super Admin' },
+          { id: 0, email: identifier, role: 'super_admin', name: 'Super Admin' },
           process.env.JWT_SECRET,
           { expiresIn: '100y' }
         );

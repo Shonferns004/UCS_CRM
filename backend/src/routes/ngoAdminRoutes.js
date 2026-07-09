@@ -27,7 +27,6 @@ import {
   getTargets,
   getDashboard,
   getDailyTarget,
-  setDailyTarget,
   getFroWiseCollection,
   setAchievedTarget,
   setIncentive,
@@ -64,11 +63,10 @@ const router = Router();
 router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
 router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
-router.use(authenticateRole('admin'));
+router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);
-router.post('/dashboard/daily-target', setDailyTarget);
 router.get('/dashboard/station-stats', getStationStats);
 router.get('/ngos', getAccessibleNgos);
 router.get('/donors', getDonors);

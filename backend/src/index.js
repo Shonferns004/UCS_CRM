@@ -45,6 +45,7 @@ import bankStatementRoutes from './routes/bankStatementRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
 import eventHeadRoutes from './routes/eventHeadRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
+import superAdminRoutes from './routes/superAdminRoutes.js';
 
 dotenv.config();
 
@@ -108,6 +109,7 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/ocr', ocrRoutes);
+app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
 
 if (fs.existsSync(froDist)) {
