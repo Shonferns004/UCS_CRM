@@ -21,6 +21,7 @@ export default function EmailImport() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [triggeringSeen, setTriggeringSeen] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [importingFromDate, setImportingFromDate] = useState(false);
   const [filterAccount, setFilterAccount] = useState('');
@@ -54,6 +55,16 @@ export default function EmailImport() {
     finally { setTriggering(false); }
   };
 
+  const handleProcessSeen = async () => {
+    setTriggeringSeen(true);
+    try {
+      const result = await apiPost('/accounts/email-import/process-seen');
+      setStatus(prev => ({ ...prev, lastPoll: result }));
+      await loadData();
+    } catch (err) { alert(err.message); }
+    finally { setTriggeringSeen(false); }
+  };
+
   const handleTriggerFromDate = async () => {
     if (!fromDate) { alert('Please select a date'); return; }
     setImportingFromDate(true);
@@ -65,7 +76,7 @@ export default function EmailImport() {
     finally { setImportingFromDate(false); }
   };
 
-  const counts = status?.counts || { imported: 0, failed: 0, skipped: 0 };
+  const counts = status?.counts || { imported: 0, failed: 0, skipped: 0, seen: 0 };
   const lastPoll = status?.lastPoll;
 
   const SvgMail = () => (
@@ -111,15 +122,24 @@ export default function EmailImport() {
             <div className="stat-lbl">Skipped</div>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: '#dc262618', color: '#dc2626' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: '#dc262618', color: '#dc2626' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </div>
+            <div className="stat-info">
+              <div className="stat-num">{counts.failed}</div>
+              <div className="stat-lbl">Failed</div>
+            </div>
           </div>
-          <div className="stat-info">
-            <div className="stat-num">{counts.failed}</div>
-            <div className="stat-lbl">Failed</div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: '#8B5CF618', color: '#8B5CF6' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <div className="stat-info">
+              <div className="stat-num">{counts.seen}</div>
+              <div className="stat-lbl">Seen (skipped)</div>
+            </div>
           </div>
-        </div>
         {lastPoll && (
           <div className="stat-card" style={{ gridColumn: '1 / -1', background: statusBg, border: `1px solid ${statusColor}20` }}>
             <div className="stat-info" style={{ gap: 2 }}>
@@ -163,6 +183,17 @@ export default function EmailImport() {
             style={{ background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             {triggering ? 'Importing...' : 'Manual Import'}
+          </button>
+          <button className="btn btn-sm" onClick={handleProcessSeen} disabled={triggeringSeen}
+            style={{ background: '#8B5CF6', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            {triggeringSeen ? 'Importing...' : 'Process Seen'}
+          </button>
+          <button className="btn btn-sm" onClick={async () => {
+            try { await apiPost('/accounts/email-import/test'); await loadData(); } catch (e) { alert(e.message); }
+          }} style={{ background: '#f59e0b', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10"/></svg>
+            Test Email
           </button>
         </div>
 
@@ -230,9 +261,9 @@ export default function EmailImport() {
                     <td style={{ fontSize: 11 }}>{e.parsed_payment_id || '\u2014'}</td>
                     <td style={{ fontSize: 12 }}>{e.parsed_source || '\u2014'}</td>
                     <td>
-                      <span className={`pill ${e.status === 'imported' ? 'pill-green' : e.status === 'failed' ? 'pill-red' : 'pill-gray'}`}
+                      <span className={`pill ${e.status === 'imported' ? 'pill-green' : e.status === 'failed' ? 'pill-red' : e.status === 'seen' ? 'pill-yellow' : 'pill-gray'}`}
                         style={{ fontSize: 11 }}>
-                        {e.status}
+                        {e.status}{e.seen ? ' (read)' : ''}
                       </span>
                     </td>
                   </tr>

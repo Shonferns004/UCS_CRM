@@ -13,4 +13,6 @@ feereceiptapp/
 shon/
 *.aab
 main.txt
+emails.txt
+razorypay.txt
 client/assets/*.properties
