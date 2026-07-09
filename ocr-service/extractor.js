@@ -35,7 +35,6 @@ function extractWithPatterns(text, patterns) {
 
 function extractAmount(text, rawText) {
   const rawLines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
-  const flat = text;
 
   function parseNum(str) {
     const cleaned = str.replace(/,/g, '').trim();
@@ -44,58 +43,68 @@ function extractAmount(text, rawText) {
     return num;
   }
 
-  function seemsLikeAmount(str) {
-    const n = parseNum(str);
-    if (!n) return false;
+  function isAmount(n) {
     return n >= 1 && n <= 500000;
   }
 
-  const isRefNum = (str) => /^\d{10,}$/.test(str.replace(/,/g, ''));
+  const isNoiseLine = (line) => /^(upi|txn|transaction|ref|id|utr|rrn|cheque|ifsc|account|date|time|status)\b/i.test(line) && !/amount|paid|total|pay/i.test(line);
 
-  const currencyLines = rawLines.filter(l => /(?:Rs\.?|INR|[₹?])/i.test(l));
-  for (const line of currencyLines) {
-    if (/upi|transaction|txn|ref|id|date|account/i.test(line) && !/amount|paid|total|pay/i.test(line)) continue;
-    const m = line.match(/(?:Rs\.?\s*|INR\s*|[₹?]\s*)([0-9,]+(?:\.[0-9]{1,2})?)/i);
-    if (m && seemsLikeAmount(m[1]) && !isRefNum(m[1])) {
-      return parseNum(m[1]).toFixed(2);
-    }
-  }
+  const cleanNumber = (str) => {
+    return str.replace(/,/g, '').replace(/^[^0-9.]+/, '').trim();
+  };
 
-  const labelMatch = flat.match(/\b(?:Amount|Amt|Paid|Pay|Total)[:\s]*(?:Rs\.?\s*|INR\s*|[₹?]\s*)?([0-9,]+(?:\.[0-9]{1,2})?)/i);
-  if (labelMatch && seemsLikeAmount(labelMatch[1]) && !isRefNum(labelMatch[1])) {
-    return parseNum(labelMatch[1]).toFixed(2);
-  }
+  const hasDecimal2 = (str) => /\.\d{2}$/.test(str);
 
-  for (const line of rawLines) {
-    if (/upi|transaction|txn|ref|id|date|account|cheque|ifsc/i.test(line) && !/amount|paid|total|pay/i.test(line)) continue;
-    const m = line.match(/\b(\d{1,6}\.\d{2})\b/);
-    if (m && seemsLikeAmount(m[1]) && !isRefNum(m[1])) {
-      return parseNum(m[1]).toFixed(2);
-    }
+  function tryMatch(line, pattern) {
+    const m = line.match(pattern);
+    if (!m) return null;
+    const raw = m[1] || m[0];
+    const cleaned = cleanNumber(raw);
+    const n = parseNum(cleaned);
+    if (n && isAmount(n)) return n.toFixed(2);
+    return null;
   }
 
   for (const line of rawLines) {
-    if (/upi|transaction|txn|ref|id|date|account|cheque|ifsc/i.test(line) && !/amount|paid|total|pay/i.test(line)) continue;
-    const m = line.match(/(?:Rs\.?\s*|INR\s*|[₹?]\s*)([0-9,]+(?:\.[0-9]{1,2})?)/i);
-    if (m && seemsLikeAmount(m[1]) && !isRefNum(m[1])) {
-      return parseNum(m[1]).toFixed(2);
-    }
+    if (isNoiseLine(line)) continue;
+    const r = tryMatch(line, /(?:Rs\.?\s*|INR\s*|[₹?BRF]\s*)([0-9,]+(?:\.[0-9]{1,2})?)/i);
+    if (r) return r;
+  }
+
+  const flatLabel = text.match(/\b(?:Amount|Amt|Paid|Pay|Total)[:\s]*(?:Rs\.?\s*|INR\s*|[₹?BRF]\s*)?([0-9,]+(?:\.[0-9]{1,2})?)/i);
+  if (flatLabel) {
+    const cleaned = cleanNumber(flatLabel[1]);
+    const n = parseNum(cleaned);
+    if (n && isAmount(n)) return n.toFixed(2);
   }
 
   for (const line of rawLines) {
-    if (/upi|transaction|txn|ref|id|date|account|cheque|ifsc/i.test(line) && !/amount|paid|total|pay/i.test(line)) continue;
-    const m = line.match(/\b(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\b/);
-    if (m && seemsLikeAmount(m[1]) && !isRefNum(m[1])) {
-      return parseNum(m[1]).toFixed(2);
-    }
+    if (isNoiseLine(line)) continue;
+    const r = tryMatch(line, /\b(\d{1,6}\.\d{2})\b/);
+    if (r) return r;
   }
 
   for (const line of rawLines) {
-    if (/paid|amount|total/i.test(line) && !/upi|transaction|txn|ref|id/i.test(line)) {
-      const nums = line.match(/\b(\d{1,6}(?:\.\d{1,2})?)\b/g);
+    if (isNoiseLine(line)) continue;
+    const r = tryMatch(line, /(?:Rs\.?\s*|INR\s*|[₹?BRF]\s*)([0-9,]+(?:\.[0-9]{1,2})?)/i);
+    if (r) return r;
+  }
+
+  for (const line of rawLines) {
+    if (isNoiseLine(line)) continue;
+    const r = tryMatch(line, /\b(\d{1,3}(?:,\d{3})*\.\d{2})\b/);
+    if (r) return r;
+  }
+
+  for (const line of rawLines) {
+    if (isNoiseLine(line)) continue;
+    if (/paid|amount|total/i.test(line)) {
+      const nums = line.match(/\b(\d{1,6}\.\d{2})\b/g);
       if (nums) {
         for (const n of nums) {
-          if (seemsLikeAmount(n) && !isRefNum(n)) return parseNum(n).toFixed(2);
+          const cleaned = cleanNumber(n);
+          const pn = parseNum(cleaned);
+          if (pn && isAmount(pn)) return pn.toFixed(2);
         }
       }
     }
@@ -147,80 +156,139 @@ function extractDate(text) {
   return null;
 }
 
-function extractTime(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+function extractTime(rawText) {
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
 
-  const isTimeValid = (h, min, sec) => {
-    if (h < 0 || h > 23) return false;
-    if (min < 0 || min > 59) return false;
-    if (sec < 0 || sec > 59) return false;
+  function isValidTime(h, min, sec) {
+    if (min < 0 || min > 59 || sec < 0 || sec > 59) return false;
     return true;
+  }
+
+  function hourValidAMPM(h) { return h >= 1 && h <= 12; }
+  function hourValid24(h) { return h >= 0 && h <= 23; }
+
+  const isNoise = (line) => /\b(txn|transaction|upi|ref|account|ifsc|utr|rn|cheque|id)\b/i.test(line);
+  const hasDateRef = (line) => /\b(20\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line);
+  const hasDateNum = (line) => /\b\d{1,2}[-/]\d{1,2}[-/]\d{4}\b/.test(line);
+
+  const isNumericLine = (line) => {
+    const d = line.replace(/[^0-9]/g, '');
+    return d.length >= 10 && /^[\d\s,:.\-\\/]+$/.test(line.trim());
   };
 
-  const isTxnRefLine = (line) => /\b(txn|transaction|upi|ref|id|account|ifsc|utr|rn|cheque)\b/i.test(line);
-  const hasDate = (line) => /\b(20\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line);
-
-  let bestTime = null;
+  let best = null;
   let bestScore = -1;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (isTxnRefLine(line)) continue;
-    const onlyDigits = line.replace(/[^0-9]/g, '');
-    if (onlyDigits.length >= 10 && /^[\d\s,:.\-\\/]+$/.test(line.trim())) continue;
-
-    const mAMPM = line.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)\b/i);
-
-    if (mAMPM) {
-      let h = parseInt(mAMPM[1]);
-      const min = parseInt(mAMPM[2]);
-      const sec = mAMPM[3] ? parseInt(mAMPM[3]) : 0;
-      const period = mAMPM[4];
-      if (!isTimeValid(h, min, sec)) continue;
-
-      let score = 0;
-      if (hasDate(line)) score += 3;
-      if (/\b(time|at)\b/i.test(line)) score += 2;
-      if (i < lines.length - 1 && hasDate(lines[i + 1])) score += 1;
-      if (i > 0 && hasDate(lines[i - 1])) score += 1;
-
-      if (period.toUpperCase() === 'PM' && h < 12) h += 12;
-      if (period.toUpperCase() === 'AM' && h === 12) h = 0;
-
-      const formatted = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-      if (score > bestScore) { bestTime = formatted; bestScore = score; }
-    }
-  }
-
-  if (bestTime) return bestTime;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (isTxnRefLine(line)) continue;
-    const onlyDigits2 = line.replace(/[^0-9]/g, '');
-    if (onlyDigits2.length >= 10 && /^[\d\s,:.\-\\/]+$/.test(line.trim())) continue;
-
-    const m24 = line.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/);
-    if (!m24) continue;
-
-    let h = parseInt(m24[1]);
-    const min = parseInt(m24[2]);
-    const sec = m24[3] ? parseInt(m24[3]) : 0;
-    if (!isTimeValid(h, min, sec)) continue;
-
-    if (/^\d{4}\//.test(line) || /^\d{4}-\d{2}/.test(line)) continue;
-
-    let score = 0;
-    if (hasDate(line)) score += 3;
-    if (/\b(time|at)\b/i.test(line)) score += 2;
-    if (h >= 6 && h <= 23 && h !== 12) score += 1;
-
+  function record(h, min, sec, score) {
     const formatted = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-    if (score > bestScore) { bestTime = formatted; bestScore = score; }
+    if (score > bestScore) { best = formatted; bestScore = score; }
   }
 
-  return bestTime;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (isNoise(line)) continue;
+    if (isNumericLine(line)) continue;
+
+    const m = line.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)\b/i);
+    if (!m) continue;
+
+    let h = parseInt(m[1]);
+    const min = parseInt(m[2]);
+    const sec = m[3] ? parseInt(m[3]) : 0;
+    const period = m[4];
+
+    if (!hourValidAMPM(h) || !isValidTime(h, min, sec)) continue;
+
+    let score = 1;
+    if (hasDateRef(line) || hasDateNum(line)) score += 5;
+    else if (i > 0 && (hasDateRef(lines[i - 1]) || hasDateNum(lines[i - 1]))) score += 4;
+    else if (i < lines.length - 1 && (hasDateRef(lines[i + 1]) || hasDateNum(lines[i + 1]))) score += 3;
+    else if (/\b(time|at)\b/i.test(line)) score += 2;
+    else continue;
+
+    if (period.toUpperCase() === 'PM' && h < 12) h += 12;
+    if (period.toUpperCase() === 'AM' && h === 12) h = 0;
+
+    record(h, min, sec, score);
+  }
+
+  if (best) return best;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (isNoise(line)) continue;
+    if (isNumericLine(line)) continue;
+
+    const m = line.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/);
+    if (!m) continue;
+
+    let h = parseInt(m[1]);
+    const min = parseInt(m[2]);
+    const sec = m[3] ? parseInt(m[3]) : 0;
+
+    if (!hourValid24(h) || !isValidTime(h, min, sec)) continue;
+    if (h === 0 && min === 0) continue;
+
+    let score = 1;
+    if (hasDateRef(line) || hasDateNum(line)) score += 5;
+    else if (i > 0 && (hasDateRef(lines[i - 1]) || hasDateNum(lines[i - 1]))) score += 4;
+    else if (i < lines.length - 1 && (hasDateRef(lines[i + 1]) || hasDateNum(lines[i + 1]))) score += 3;
+    else if (/\b(time|at)\b/i.test(line)) score += 2;
+    else continue;
+
+    if (h < 6 && !hasDateRef(line) && !hasDateNum(line)) continue;
+    if (h >= 6 && h <= 22) score += 1;
+
+    record(h, min, sec, score);
+  }
+
+  if (best) return best;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (isNoise(line)) continue;
+    if (isNumericLine(line)) continue;
+
+    const m = line.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)\b/i);
+    if (!m) continue;
+
+    let h = parseInt(m[1]);
+    const min = parseInt(m[2]);
+    const sec = m[3] ? parseInt(m[3]) : 0;
+    const period = m[4];
+
+    if (!hourValidAMPM(h) || !isValidTime(h, min, sec)) continue;
+
+    if (period.toUpperCase() === 'PM' && h < 12) h += 12;
+    if (period.toUpperCase() === 'AM' && h === 12) h = 0;
+
+    record(h, min, sec, 1);
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (isNoise(line)) continue;
+    if (isNumericLine(line)) continue;
+
+    const m = line.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b/);
+    if (!m) continue;
+
+    let h = parseInt(m[1]);
+    const min = parseInt(m[2]);
+    const sec = m[3] ? parseInt(m[3]) : 0;
+
+    if (!hourValid24(h) || !isValidTime(h, min, sec)) continue;
+    if (h === 0 && min === 0) continue;
+    if (h < 6) continue;
+
+    record(h, min, sec, 0);
+  }
+
+  return best;
 }
 
 const TXN_ID_PATTERNS = [
@@ -302,16 +370,16 @@ function extractFromTo(raw) {
       if (val.length >= 2 && val.length <= 40) from = val;
     }
 
-    if (/^paid\s+to/i.test(line) && next) {
+    if (/^paid\s+to$/i.test(line.trim()) && next) {
       const val = next.replace(/[^A-Za-z\s.]/g, '').trim();
-      if (val.length >= 2 && val.length <= 40 && !/^(paid|upi|transaction|rs)/i.test(val)) {
+      if (val.length >= 2 && val.length <= 40 && !/^(paid|upi|transaction|rs)/i.test(val) && val !== to) {
         to = val;
       }
     }
 
-    if (/^paid\s+by/i.test(line) && next) {
+    if (/^paid\s+by$/i.test(line.trim()) && next) {
       const val = next.replace(/[^A-Za-z\s.]/g, '').trim();
-      if (val.length >= 2 && val.length <= 40 && !/^(paid|upi|transaction|rs)/i.test(val)) {
+      if (val.length >= 2 && val.length <= 40 && !/^(paid|upi|transaction|rs)/i.test(val) && val !== from) {
         from = val;
       }
     }
