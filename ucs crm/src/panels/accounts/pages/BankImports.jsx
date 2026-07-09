@@ -78,10 +78,10 @@ function EmailImportTab() {
     <div>
       <div className="stats-grid" style={{ marginBottom: 12 }}>
         {[
-          { label: 'Imported', value: counts.imported, color: '#059669', icon: <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/> },
-          { label: 'Skipped', value: counts.skipped, color: '#f59e0b', icon: <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><polyline points="16 16 23 7 16 7"/> },
-          { label: 'Seen', value: counts.seen, color: '#8B5CF6', icon: <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/> },
-          { label: 'Failed', value: counts.failed, color: '#dc2626', icon: <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/> },
+          { label: 'Imported', value: counts.imported, color: '#059669', icon: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></> },
+          { label: 'Skipped', value: counts.skipped, color: '#f59e0b', icon: <><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><polyline points="16 16 23 7 16 7"/></> },
+          { label: 'Seen', value: counts.seen, color: '#8B5CF6', icon: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> },
+          { label: 'Failed', value: counts.failed, color: '#dc2626', icon: <><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></> },
         ].map((s, i) => (
           <div key={i} className="stat-card">
             <div className="stat-icon" style={{ background: s.color + '18', color: s.color }}>
@@ -204,7 +204,7 @@ function PaymentGatewaysTab() {
         {[
           { label: 'Razorpay', value: razorpayCount, color: '#0d9488', icon: <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/> },
           { label: 'Paytm', value: paytmCount, color: '#2563eb', icon: <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/> },
-          { label: 'Failed', value: (counts['razorpay_failed'] || 0) + (counts['paytm_failed'] || 0), color: '#dc2626', icon: <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/> },
+          { label: 'Failed', value: (counts['razorpay_failed'] || 0) + (counts['paytm_failed'] || 0), color: '#dc2626', icon: <><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></> },
         ].map((s, i) => (
           <div key={i} className="stat-card">
             <div className="stat-icon" style={{ background: s.color + '18', color: s.color }}>
@@ -358,9 +358,9 @@ function BankStatementTab() {
 // ─── Main Combined Page ──────────────────────────────────────
 
 const TABS = [
-  { key: 'email', label: 'Email Import', icon: 'M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z/polyline:22,6 12,13 2,6' },
-  { key: 'gateways', label: 'Payment Gateways', icon: 'rect:1,4,22,16,2,2/line:1,10,23,10' },
-  { key: 'statement', label: 'Bank Statement', icon: 'path:M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4/polyline:7 10 12 15 17 10/line:12 15 12 3' },
+  { key: 'email', label: 'Email Import' },
+  { key: 'gateways', label: 'Payment Gateways' },
+  { key: 'statement', label: 'Bank Statement' },
 ];
 
 export default function BankImports() {
