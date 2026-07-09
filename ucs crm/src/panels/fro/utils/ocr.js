@@ -9,6 +9,10 @@ const ID_LABELS = [
   /upi[ -]*\d/i,
 ];
 
+const OCR_API = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL + '/ocr/parse'
+  : '/api/ocr/parse';
+
 function normalizeDateStr(day, monthText, year) {
   const m = MONTHS[monthText.slice(0, 3).toLowerCase()];
   if (!m) return null;
@@ -31,11 +35,9 @@ function isTimeSuspicious(timeStr) {
   const m = timeStr.match(/^(\d{2}):/);
   if (!m) return false;
   const h = parseInt(m[1]);
-  const suffixMatch = timeStr.match(/[ap]m$/i);
-  const isPM = suffixMatch && suffixMatch[0].toLowerCase() === 'pm';
-  const isAM = suffixMatch && suffixMatch[0].toLowerCase() === 'am';
-  if (isPM && h >= 1 && h <= 5) return true;
-  if (isAM && h === 12) return true;
+  const sfx = timeStr.match(/[ap]m$/i);
+  if (sfx && sfx[0].toLowerCase() === 'pm' && h >= 1 && h <= 5) return true;
+  if (sfx && sfx[0].toLowerCase() === 'am' && h === 12) return true;
   return false;
 }
 
@@ -50,37 +52,28 @@ function extractTransactionDataFromText(text) {
     if (ID_LABELS.some(p => p.test(lines[i]))) {
       if (i + 1 < lines.length) {
         const val = lines[i + 1].replace(/[^A-Z0-9a-z\-]/g, '');
-        if (/^[A-Z0-9a-z\-]{4,30}$/.test(val)) {
-          upiTransactionId = val;
-          break;
-        }
+        if (/^[A-Z0-9a-z\-]{4,30}$/.test(val)) { upiTransactionId = val; break; }
       }
     }
   }
   if (!upiTransactionId) {
     for (const line of lines) {
-      const cleaned = line.replace(/[^0-9]/g, '');
-      if (cleaned.length >= 10 && cleaned.length <= 16) {
-        upiTransactionId = cleaned;
-        break;
-      }
+      const c = line.replace(/[^0-9]/g, '');
+      if (c.length >= 10 && c.length <= 16) { upiTransactionId = c; break; }
     }
   }
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const m1 = line.match(/[₹£]\s*([\d,.]+)/);
+    const m1 = lines[i].match(/[₹£]\s*([\d,.]+)/);
     if (m1) { const v = m1[1].replace(/,/g, ''); if (v.length <= 8) { amount = v; break; } }
-    const m2 = line.match(/Rs\.?\s*([\d,.]+)/i);
+    const m2 = lines[i].match(/Rs\.?\s*([\d,.]+)/i);
     if (m2) { const v = m2[1].replace(/,/g, ''); if (v.length <= 8) { amount = v; break; } }
   }
 
   for (let i = 0; i < lines.length; i++) {
-    if (/^from\s*:?\s*$/i.test(lines[i])) {
-      if (i + 1 < lines.length) {
-        fromName = lines[i + 1].replace(/[^A-Za-z\s.]/g, '').trim();
-        if (fromName) break;
-      }
+    if (/^from\s*:?\s*$/i.test(lines[i]) && i + 1 < lines.length) {
+      fromName = lines[i + 1].replace(/[^A-Za-z\s.]/g, '').trim();
+      if (fromName) break;
     }
     const inline = lines[i].match(/^from\s*:?\s*(.+)/i);
     if (inline) {
@@ -89,22 +82,16 @@ function extractTransactionDataFromText(text) {
     }
   }
 
-  let amountLineIdx = -1;
+  let amtIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/[₹£]/.test(lines[i]) || /(?:paid|total|amount)/i.test(lines[i])) {
-      amountLineIdx = i;
-      break;
-    }
+    if (/[₹£]/.test(lines[i]) || /(?:paid|total|amount)/i.test(lines[i])) { amtIdx = i; break; }
   }
-  const searchStart = amountLineIdx >= 0 ? amountLineIdx : 0;
-  for (let i = searchStart; i < lines.length; i++) {
+  for (let i = (amtIdx >= 0 ? amtIdx : 0); i < lines.length; i++) {
     const dm = lines[i].match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,\s]+(\d{4})/i);
     if (dm) {
-      const dateStr = normalizeDateStr(dm[1], dm[2], dm[3]);
-      const timeStr = parseTimeFromLine(lines[i]);
-      if (dateStr) {
-        transactionDatetime = timeStr ? `${dateStr}T${timeStr}` : `${dateStr}T00:00:00`;
-      }
+      const ds = normalizeDateStr(dm[1], dm[2], dm[3]);
+      const ts = parseTimeFromLine(lines[i]);
+      if (ds) transactionDatetime = ts ? `${ds}T${ts}` : `${ds}T00:00:00`;
       break;
     }
   }
@@ -115,20 +102,33 @@ function extractTransactionDataFromText(text) {
 function mergeResults(a, b) {
   return {
     upiTransactionId: a.upiTransactionId || b.upiTransactionId,
-    transactionDatetime: resolveTime(a.transactionDatetime, b.transactionDatetime),
+    transactionDatetime: (() => {
+      if (!a.transactionDatetime) return b.transactionDatetime;
+      if (!b.transactionDatetime) return a.transactionDatetime;
+      const s1 = isTimeSuspicious(a.transactionDatetime.split('T')[1] || '');
+      const s2 = isTimeSuspicious(b.transactionDatetime.split('T')[1] || '');
+      if (s1 && !s2) return b.transactionDatetime;
+      if (!s1 && s2) return a.transactionDatetime;
+      return a.transactionDatetime;
+    })(),
     amount: a.amount || b.amount,
     fromName: a.fromName || b.fromName,
   };
 }
 
-function resolveTime(t1, t2) {
-  if (!t1) return t2;
-  if (!t2) return t1;
-  const s1 = isTimeSuspicious(t1.split('T')[1] || '');
-  const s2 = isTimeSuspicious(t2.split('T')[1] || '');
-  if (s1 && !s2) return t2;
-  if (!s1 && s2) return t1;
-  return t1;
+async function callBackendOcr(base64Image) {
+  try {
+    const res = await fetch(OCR_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64Image }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.text || null;
+  } catch {
+    return null;
+  }
 }
 
 async function tryTesseract(image, psm) {
@@ -144,13 +144,21 @@ async function tryTesseract(image, psm) {
 }
 
 export async function extractTransactionData(base64Image) {
-  const text1 = await tryTesseract(base64Image, 3);
-  const result1 = text1 ? extractTransactionDataFromText(text1) : {};
+  // 1. Try backend OCR (proxies to OCR.space with API key)
+  const backendText = await callBackendOcr(base64Image);
+  if (backendText) {
+    const backendResult = extractTransactionDataFromText(backendText);
+    if (backendResult.upiTransactionId || backendResult.amount || backendResult.transactionDatetime || backendResult.fromName) {
+      return backendResult;
+    }
+  }
 
-  const text2 = await tryTesseract(base64Image, 6);
-  const result2 = text2 ? extractTransactionDataFromText(text2) : {};
-
-  const merged = mergeResults(result1, result2);
+  // 2. Fallback: dual-pass Tesseract
+  const t1 = await tryTesseract(base64Image, 3);
+  const r1 = t1 ? extractTransactionDataFromText(t1) : {};
+  const t2 = await tryTesseract(base64Image, 6);
+  const r2 = t2 ? extractTransactionDataFromText(t2) : {};
+  const merged = mergeResults(r1, r2);
 
   if (merged.upiTransactionId || merged.transactionDatetime || merged.amount || merged.fromName) {
     return merged;
