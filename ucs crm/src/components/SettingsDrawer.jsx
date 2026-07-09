@@ -1,33 +1,42 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector }) {
+export default function SettingsDrawer({ open, onClose, themes, themeName, onThemeChange, selector, navItems, views }) {
   const [view, setView] = useState(null);
+  const navigate = useNavigate();
 
   if (!open) return null;
+
+  const activeView = views && view ? views.find(v => v.key === view) : null;
+  const isSubView = view === 'themes' || !!activeView;
+  const drawerWidth = activeView ? (activeView.width || 420) : 280;
 
   return (
     <>
       <div className="modal-overlay" onClick={() => { onClose(); setView(null); }} style={{ zIndex: 200 }} />
       <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 280,
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: drawerWidth,
         background: 'var(--card-bg)', zIndex: 201,
         boxShadow: '-4px 0 24px rgba(0,0,0,.1)',
         display: 'flex', flexDirection: 'column',
+        transition: 'width .2s ease',
         animation: 'slideInRight .2s ease'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
-          {view === 'themes' && (
+          {isSubView && (
             <button className="btn btn-sm btn-icon" onClick={() => setView(null)} style={{ padding: 4 }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
             </button>
           )}
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{view === 'themes' ? 'Themes' : 'Settings'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>
+            {view === 'themes' ? 'Themes' : activeView ? activeView.label : 'Settings'}
+          </h3>
           <button className="btn btn-sm btn-icon" onClick={() => { onClose(); setView(null); }} style={{ padding: 4, marginLeft: 'auto' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: isSubView ? '12px' : '8px 0' }}>
           {view === 'themes' ? (
             <div style={{ padding: '0 12px' }}>
               {Object.entries(themes || {}).map(([key, theme]) => (
@@ -51,6 +60,8 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
                 </div>
               ))}
             </div>
+          ) : activeView ? (
+            <div>{activeView.content}</div>
           ) : (
             <>
               {themes && (
@@ -62,6 +73,24 @@ export default function SettingsDrawer({ open, onClose, themes, themeName, onThe
                   <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
                 </div>
               )}
+              {views && views.map((v) => (
+                <div key={v.key} onClick={() => setView(v.key)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                  {v.icon}
+                  <span>{v.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
+                </div>
+              ))}
+              {navItems && navItems.map((item, i) => (
+                <div key={i} onClick={() => { navigate(item.path); onClose(); setView(null); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', cursor: 'pointer', fontSize: 13 }}
+                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                  {item.icon}
+                  <span>{item.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>→</span>
+                </div>
+              ))}
               {selector}
             </>
           )}

@@ -5,6 +5,7 @@ import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 import { useCall } from '../CallContext';
+import { extractTransactionData } from '../utils/ocr';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -78,6 +79,10 @@ export default function MyDonors() {
   const [projectName, setProjectName] = useState('');
   const [leadRemark, setLeadRemark] = useState('');
   const [showRemark, setShowRemark] = useState(false);
+  const [upiTransactionId, setUpiTransactionId] = useState('');
+  const [transactionDatetime, setTransactionDatetime] = useState('');
+  const [ocrFromName, setOcrFromName] = useState('');
+  const [ocrLoading, setOcrLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [showDonationModal, setShowDonationModal] = useState(false);
@@ -169,6 +174,10 @@ export default function MyDonors() {
       setLeadDob('');
       setProjectName('');
       setLeadAmount('');
+      setUpiTransactionId('');
+      setTransactionDatetime('');
+      setOcrFromName('');
+      setOcrLoading(false);
     }
   };
 
@@ -178,11 +187,25 @@ export default function MyDonors() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const result = reader.result;
       const base64 = result.split(',')[1];
       setLeadScreenshot({ base64, mime: file.type });
       setScreenshotPreview(result);
+      setOcrLoading(true);
+      try {
+        const { upiTransactionId, transactionDatetime, amount, fromName } = await extractTransactionData(result);
+        if (upiTransactionId) setUpiTransactionId(upiTransactionId);
+        if (transactionDatetime) {
+          const dt = new Date(transactionDatetime);
+          if (!isNaN(dt.getTime())) {
+            setTransactionDatetime(dt.toISOString().slice(0, 16));
+          }
+        }
+        if (amount && !leadAmount) setLeadAmount(amount);
+        if (fromName) setOcrFromName(fromName);
+      } catch {}
+      setOcrLoading(false);
     };
     reader.readAsDataURL(file);
   };
@@ -243,13 +266,15 @@ export default function MyDonors() {
         logData.project_name = projectName || null;
         logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
         logData.remark = leadRemark || null;
+        logData.upi_transaction_id = upiTransactionId || null;
+        logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
       await addDonorLog(donor.id, logData);
       if (selected) endCall();
       const newDonors = await getMyDonors(filterStatus);
       const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
       setDonors(newDonors);
-      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
+      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
       if (stillExists) {
         const newIdx = newDonors.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
         if (newIdx < newDonors.length - 1) {
@@ -525,6 +550,24 @@ export default function MyDonors() {
                       <input id="ss-input" type="file" accept="image/*" onChange={handleScreenshotChange} />
                     </div>
                   </div>
+                  <div className="detail-field-row">
+                    <div className="fld">
+                      <label>UPI Transaction ID {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)',marginLeft:4}}>OCR…</span>}</label>
+                      <input type="text" value={upiTransactionId} onChange={e => setUpiTransactionId(e.target.value)} placeholder="Auto-detected from screenshot" />
+                    </div>
+                    <div className="fld">
+                      <label>Transaction Date/Time</label>
+                      <input type="datetime-local" value={transactionDatetime} onChange={e => setTransactionDatetime(e.target.value)} />
+                    </div>
+                  </div>
+                  {ocrFromName && (
+                    <div className="detail-field-row">
+                      <div className="fld">
+                        <label>Detected From Name</label>
+                        <input type="text" value={ocrFromName} onChange={e => setOcrFromName(e.target.value)} placeholder="Auto-detected from screenshot" style={{color:'var(--md-outline)',fontStyle:'italic'}} readOnly />
+                      </div>
+                    </div>
+                  )}
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Address</label>

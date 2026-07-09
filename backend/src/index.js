@@ -44,6 +44,8 @@ import webhookRoutes from './routes/webhookRoutes.js';
 import bankStatementRoutes from './routes/bankStatementRoutes.js';
 import whatsappRoutes from './routes/whatsappRoutes.js';
 import eventHeadRoutes from './routes/eventHeadRoutes.js';
+import ocrRoutes from './routes/ocrRoutes.js';
+import superAdminRoutes from './routes/superAdminRoutes.js';
 
 dotenv.config();
 
@@ -106,6 +108,8 @@ app.use('/api/accounts/email-import', emailImportRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/ocr', ocrRoutes);
+app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
 
 if (fs.existsSync(froDist)) {
@@ -160,6 +164,17 @@ if (fs.existsSync(accountsDist)) {
         res.json(result);
       } catch (error) {
         console.error('Email import cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
+    app.post('/api/cron/razorpay-sync', async (req, res) => {
+      try {
+        const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
+        const result = await syncAllRazorpayAccounts();
+        res.json(result);
+      } catch (error) {
+        console.error('Razorpay sync cron error:', error.message);
         res.status(500).json({ success: false, message: error.message });
       }
     });

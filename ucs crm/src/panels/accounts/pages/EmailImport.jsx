@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost } from '../api/auth';
-import EmailAccountsManager from './EmailAccountsManager';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -19,25 +18,32 @@ function SkeletonTableRows({ rows, cols }) {
 export default function EmailImport() {
   const [status, setStatus] = useState(null);
   const [log, setLog] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [triggeringSeen, setTriggeringSeen] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [importingFromDate, setImportingFromDate] = useState(false);
+  const [filterAccount, setFilterAccount] = useState('');
 
   async function loadData() {
     setLoading(true);
     try {
-      const [statusRes, logRes] = await Promise.allSettled([
+      const params = new URLSearchParams();
+      if (filterAccount) params.set('account_id', filterAccount);
+      const [statusRes, logRes, accRes] = await Promise.allSettled([
         apiGet('/accounts/email-import/status'),
-        apiGet('/accounts/email-import/log'),
+        apiGet('/accounts/email-import/log?' + params.toString()),
+        apiGet('/accounts/email-import/accounts'),
       ]);
       if (statusRes.status === 'fulfilled') setStatus(statusRes.value);
       if (logRes.status === 'fulfilled') setLog(logRes.value || []);
+      if (accRes.status === 'fulfilled') setAccounts(accRes.value || []);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [filterAccount]);
 
   const handleTrigger = async () => {
     setTriggering(true);
@@ -47,6 +53,16 @@ export default function EmailImport() {
       await loadData();
     } catch (err) { alert(err.message); }
     finally { setTriggering(false); }
+  };
+
+  const handleProcessSeen = async () => {
+    setTriggeringSeen(true);
+    try {
+      const result = await apiPost('/accounts/email-import/process-seen');
+      setStatus(prev => ({ ...prev, lastPoll: result }));
+      await loadData();
+    } catch (err) { alert(err.message); }
+    finally { setTriggeringSeen(false); }
   };
 
   const handleTriggerFromDate = async () => {
@@ -60,7 +76,7 @@ export default function EmailImport() {
     finally { setImportingFromDate(false); }
   };
 
-  const counts = status?.counts || { imported: 0, failed: 0, skipped: 0 };
+  const counts = status?.counts || { imported: 0, failed: 0, skipped: 0, seen: 0 };
   const lastPoll = status?.lastPoll;
 
   const SvgMail = () => (
@@ -76,7 +92,6 @@ export default function EmailImport() {
 
   return (
     <div>
-      <EmailAccountsManager onAccountsChange={loadData} />
       <div className="stats-grid" style={{ marginBottom: 16 }}>
         <div className="stat-card" style={{ gridColumn: '1 / -1', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)', padding: '18px 22px' }}>
           <div className="stat-icon" style={{ background: '#5B6B4E20', color: '#5B6B4E', width: 48, height: 48, borderRadius: 14 }}>
@@ -107,15 +122,24 @@ export default function EmailImport() {
             <div className="stat-lbl">Skipped</div>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: '#dc262618', color: '#dc2626' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: '#dc262618', color: '#dc2626' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </div>
+            <div className="stat-info">
+              <div className="stat-num">{counts.failed}</div>
+              <div className="stat-lbl">Failed</div>
+            </div>
           </div>
-          <div className="stat-info">
-            <div className="stat-num">{counts.failed}</div>
-            <div className="stat-lbl">Failed</div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: '#8B5CF618', color: '#8B5CF6' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <div className="stat-info">
+              <div className="stat-num">{counts.seen}</div>
+              <div className="stat-lbl">Seen (skipped)</div>
+            </div>
           </div>
-        </div>
         {lastPoll && (
           <div className="stat-card" style={{ gridColumn: '1 / -1', background: statusBg, border: `1px solid ${statusColor}20` }}>
             <div className="stat-info" style={{ gap: 2 }}>
@@ -125,6 +149,15 @@ export default function EmailImport() {
               <div className="stat-lbl" style={{ fontSize: 12, color: '#6b7280' }}>
                 {lastPoll.message} — {lastPoll.timestamp ? new Date(lastPoll.timestamp).toLocaleString('en-IN') : 'N/A'}
               </div>
+              {lastPoll.details?.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  {lastPoll.details.map((d, i) => (
+                    <div key={i} style={{ fontSize: 11, color: d.result?.error ? '#dc2626' : '#059669', marginTop: 2 }}>
+                      {d.name}: {d.result?.error || d.result?.message || 'OK'}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -144,14 +177,61 @@ export default function EmailImport() {
           <button className="btn btn-sm" onClick={handleTriggerFromDate} disabled={importingFromDate || !fromDate}
             style={{ background: '#5B6B4E', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            {importingFromDate ? 'Importing...' : 'Import Unseen from Date'}
+            {importingFromDate ? 'Importing...' : 'Import from Date'}
           </button>
           <button className="btn btn-sm" onClick={handleTrigger} disabled={triggering}
             style={{ background: 'var(--sage)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             {triggering ? 'Importing...' : 'Manual Import'}
           </button>
+          <button className="btn btn-sm" onClick={handleProcessSeen} disabled={triggeringSeen}
+            style={{ background: '#8B5CF6', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            {triggeringSeen ? 'Importing...' : 'Process Seen'}
+          </button>
+          <button className="btn btn-sm" onClick={async () => {
+            try { await apiPost('/accounts/email-import/test'); await loadData(); } catch (e) { alert(e.message); }
+          }} style={{ background: '#f59e0b', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 10 10"/></svg>
+            Test Email
+          </button>
         </div>
+
+        {accounts.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--line)', overflowX: 'auto', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap', marginRight: 2 }}>Account:</span>
+            <button
+              onClick={() => setFilterAccount('')}
+              style={{
+                fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                background: !filterAccount ? 'var(--sage)' : 'transparent',
+                color: !filterAccount ? '#fff' : 'var(--ink)',
+                borderColor: !filterAccount ? 'var(--sage)' : 'var(--line)',
+                fontWeight: !filterAccount ? 600 : 500,
+              }}>
+              All
+            </button>
+            {accounts.map(acc => {
+              const active = String(filterAccount) === String(acc.id);
+              return (
+                <button key={acc.id}
+                  onClick={() => setFilterAccount(acc.id)}
+                  style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 16, border: '1px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: active ? 'var(--sage)' : acc.is_active ? '#05966908' : 'transparent',
+                    color: active ? '#fff' : '#374151',
+                    borderColor: active ? 'var(--sage)' : acc.is_active ? '#05966940' : 'var(--line)',
+                    fontWeight: active ? 600 : 500,
+                    opacity: acc.is_active ? 1 : 0.55,
+                  }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: acc.is_active ? '#059669' : '#d1d5db', flexShrink: 0 }} />
+                  {acc.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="table-wrap">
           <table>
@@ -181,9 +261,9 @@ export default function EmailImport() {
                     <td style={{ fontSize: 11 }}>{e.parsed_payment_id || '\u2014'}</td>
                     <td style={{ fontSize: 12 }}>{e.parsed_source || '\u2014'}</td>
                     <td>
-                      <span className={`pill ${e.status === 'imported' ? 'pill-green' : e.status === 'failed' ? 'pill-red' : 'pill-gray'}`}
+                      <span className={`pill ${e.status === 'imported' ? 'pill-green' : e.status === 'failed' ? 'pill-red' : e.status === 'seen' ? 'pill-yellow' : 'pill-gray'}`}
                         style={{ fontSize: 11 }}>
-                        {e.status}
+                        {e.status}{e.seen ? ' (read)' : ''}
                       </span>
                     </td>
                   </tr>

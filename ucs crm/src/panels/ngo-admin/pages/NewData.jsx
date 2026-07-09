@@ -77,11 +77,18 @@ export default function NewData() {
   const [result, setResult] = useState(null)
   const [showStationSelect, setShowStationSelect] = useState(false)
   const [stations, setStations] = useState([])
+  const [selectedNgoId, setSelectedNgoId] = useState('all')
+  const [accessibleNgos, setAccessibleNgos] = useState([])
+
+  useEffect(() => {
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+  }, []);
 
   const load = () => {
     setLoading(true)
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
     Promise.all([
-      apiGet('/ngo-admin/new-data'),
+      apiGet(`/ngo-admin/new-data${ngoParam}`),
       apiGet('/ngo-admin/stations'),
     ]).then(([d, s]) => {
       setDonors(Array.isArray(d) ? d : d?.unassigned || [])
@@ -89,7 +96,7 @@ export default function NewData() {
     }).catch(() => {}).finally(() => setLoading(false))
   }
 
-  useEffect(load, [])
+  useEffect(load, [selectedNgoId])
 
   const handleDistributeAll = async () => {
     const count = donors.length
@@ -110,6 +117,15 @@ export default function NewData() {
 
   return (
     <div>
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
+      </div>
       {result && (
         <div style={{ padding: '10px 14px', marginBottom: 16, borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
           {result.message}

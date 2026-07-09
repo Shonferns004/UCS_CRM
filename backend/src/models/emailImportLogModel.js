@@ -14,6 +14,7 @@ export async function logImport({
   email_message_id, email_subject, email_from, received_at,
   parsed_amount, parsed_payment_id, parsed_transaction_date,
   parsed_source, parsed_sender_name, bank_entry_id, status, error_message, raw_snippet,
+  account_id, account_name, seen,
 }) {
   const { data, error } = await supabase
     .from('email_import_log')
@@ -29,8 +30,11 @@ export async function logImport({
       parsed_sender_name: parsed_sender_name || null,
       bank_entry_id: bank_entry_id || null,
       status: status || 'imported',
+      seen: seen ?? false,
       error_message: error_message || null,
       raw_snippet: raw_snippet ? raw_snippet.slice(0, 1000) : null,
+      account_id: account_id || null,
+      account_name: account_name || null,
     })
     .select()
     .single();
@@ -39,27 +43,39 @@ export async function logImport({
 }
 
 export async function getImportLog(filters = {}) {
-  let query = supabase
+  const { data, error } = await supabase
     .from('email_import_log')
-    .select('*, bank_audit_entries!left(id, amount, bank_audit_sources(name))')
+    .select('*')
     .order('created_at', { ascending: false });
 
-  if (filters.status) query = query.eq('status', filters.status);
-  if (filters.limit) query = query.limit(filters.limit);
+  if (error) {
+    if (error.message?.includes('relation') || error.message?.includes('does not exist')) return [];
+    throw error;
+  }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  let result = data || [];
+  if (filters.status) result = result.filter(r => r.status === filters.status);
+  if (filters.account_id) result = result.filter(r => String(r.account_id) === String(filters.account_id));
+  if (filters.limit) result = result.slice(0, filters.limit);
+  return result;
 }
 
 export async function countByStatus() {
   const { data, error } = await supabase
     .from('email_import_log')
     .select('status');
-  if (error) throw error;
-  const counts = { imported: 0, failed: 0, skipped: 0 };
+
+  if (error) {
+    if (error.message?.includes('relation') || error.message?.includes('does not exist')) {
+      return { imported: 0, failed: 0, skipped: 0, seen: 0 };
+    }
+    throw error;
+  }
+
+  const counts = { imported: 0, failed: 0, skipped: 0, seen: 0 };
   for (const row of data || []) {
-    if (counts[row.status] !== undefined) counts[row.status]++;
+    if (row.status === 'seen') counts.seen++;
+    else if (counts[row.status] !== undefined) counts[row.status]++;
   }
   return counts;
 }

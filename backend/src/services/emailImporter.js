@@ -111,15 +111,25 @@ async function getOrCreateSourceId(sources, name) {
 }
 
 async function extractPaymentDetails(emailText, emailSubject, emailFrom) {
+  const lower = ((emailText || '') + ' ' + (emailSubject || '')).toLowerCase();
+  const creditWords = ['credited', 'deposited', 'received', 'credit', 'deposit', 'money received', 'payment received', 'amount credited', 'transfer received', 'accredited'];
+  const hasCredit = creditWords.some(k => lower.includes(k));
+  if (!hasCredit) return null;
+
   const textToAnalyze = [
     emailSubject ? `Subject: ${emailSubject}` : '',
     emailFrom ? `From: ${emailFrom}` : '',
-    emailText ? `Body:\n${emailText.slice(0, 3000)}` : '',
+    emailText ? `Body:\n${emailText.slice(0, 2000)}` : '',
   ].filter(Boolean).join('\n');
 
   if (!textToAnalyze) return null;
 
+  const now = Date.now();
+  const waitTime = 1500 - (now - (global.__groqLastCall || 0));
+  if (waitTime > 0) await new Promise(r => setTimeout(r, waitTime));
+
   try {
+    global.__groqLastCall = Date.now();
     const completion = await groq.chat.completions.create({
       messages: [
         {
@@ -161,12 +171,29 @@ Rules:
     if (!jsonMatch) return null;
     return JSON.parse(jsonMatch[0]);
   } catch (error) {
-    console.error('Groq parse error:', error.message);
+    if (error.message?.includes('429') || error.status === 429) {
+      console.warn('Groq rate limited, waiting 5s...');
+      await new Promise(r => setTimeout(r, 5000));
+      try {
+        const completion = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: 'Extract payment details as JSON: {amount, payment_id, transaction_date, sender_name, payment_source, confidence}' },
+            { role: 'user', content: textToAnalyze },
+          ],
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 200,
+          temperature: 0.1,
+        });
+        const response = completion.choices[0]?.message?.content?.trim() || '';
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]);
+      } catch { return null; }
+    }
     return null;
   }
 }
 
-async function pollSingleAccount(account, sources, fromDate) {
+async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySeenSkipped) {
   const config = {
     host: account.imap_host || 'imap.gmail.com',
     port: account.imap_port || 993,
@@ -182,22 +209,33 @@ async function pollSingleAccount(account, sources, fromDate) {
 
   try {
     await client.connect();
-    await client.mailboxOpen('INBOX');
+    const mailbox = await client.mailboxOpen('INBOX');
+    console.log(`[emailImporter] ${account.name}: mailbox opened, total=${mailbox.exists}, recent=${mailbox.recent}`);
 
-    const searchQuery = { seen: false };
-    if (fromDate) {
-      const since = new Date(fromDate);
-      since.setHours(0, 0, 0, 0);
-      searchQuery.receivedAfter = since;
+    let messages;
+    try {
+      messages = await client.search({ seen: false });
+      console.log(`[emailImporter] ${account.name}: unseen found: ${messages?.length}`);
+      if (!messages || messages.length === 0) {
+        messages = await client.search({ seen: true });
+        console.log(`[emailImporter] ${account.name}: seen found: ${messages?.length}`);
+      }
+    } catch (searchErr) {
+      console.error(`[emailImporter] ${account.name}: search failed:`, searchErr.message);
+      messages = [];
     }
-    const messages = await client.search(searchQuery);
     if (!messages || messages.length === 0) {
       await client.logout();
-      return { processed: 0, skipped: 0, error: null, message: 'No new emails' };
+      return { processed: 0, skipped: 0, error: null, message: `No emails found (mailbox has ${mailbox.exists} total)` };
+    }
+    if (messages.length > 10) {
+      messages = messages.slice(0, 10);
+      console.log(`[emailImporter] ${account.name}: limiting to 10 messages`);
     }
 
-    for await (const msg of client.fetch(messages, { source: true })) {
+      for await (const msg of client.fetch(messages, { source: true })) {
       try {
+        const msgSeen = msg.flags?.includes('\\Seen') || false;
         const parsed = await simpleParser(msg.source);
         const messageId = parsed.messageId || msg.uid?.toString();
         if (!messageId) { skipped++; continue; }
@@ -205,12 +243,43 @@ async function pollSingleAccount(account, sources, fromDate) {
         const existing = await isEmailProcessed(messageId);
         if (existing) { skipped++; continue; }
 
+        // Skip seen emails unless includeSeen is true or onlySeenSkipped is true
+        if (msgSeen && !includeSeen && !onlySeenSkipped) {
+          await logImport({
+            email_message_id: messageId,
+            email_subject: parsed.subject || '',
+            email_from: parsed.from?.text || '',
+            received_at: parsed.date || new Date().toISOString(),
+            status: 'seen',
+            seen: true,
+            account_id: account.id,
+            account_name: account.name,
+          });
+          skipped++;
+          continue;
+        }
+
         const emailSubject = parsed.subject || '';
         const emailFrom = parsed.from?.text || '';
         const emailText = parsed.text || parsed.html || '';
         const receivedAt = parsed.date || new Date().toISOString();
 
         const senderSource = detectSourceFromSender(emailFrom);
+        if (senderSource === 'Razorpay') {
+          await logImport({
+            email_message_id: messageId,
+            email_subject: emailSubject,
+            email_from: emailFrom,
+            received_at: receivedAt,
+            status: 'skipped',
+            error_message: 'Razorpay payment - ignored',
+            raw_snippet: emailText.slice(0, 500),
+            account_id: account.id,
+            account_name: account.name,
+          });
+          skipped++;
+          continue;
+        }
         const details = await extractPaymentDetails(emailText, emailSubject, emailFrom);
 
         if (details && details.confidence !== 'low' && details.amount != null) {
@@ -245,9 +314,15 @@ async function pollSingleAccount(account, sources, fromDate) {
             parsed_sender_name: details.sender_name,
             bank_entry_id: entry.id,
             status: 'imported',
+            seen: msgSeen,
             raw_snippet: emailText.slice(0, 500),
+            account_id: account.id,
+            account_name: account.name,
           });
 
+          if (!msgSeen) {
+            try { await client.messageFlagsAdd(msg.uid, ['\\Seen']); } catch {}
+          }
           processed++;
         } else {
           await logImport({
@@ -258,6 +333,8 @@ async function pollSingleAccount(account, sources, fromDate) {
             status: 'skipped',
             error_message: senderSource ? `Bank alert (${senderSource}) but no amount found` : (details ? 'Low confidence or no payment data' : 'Failed to parse'),
             raw_snippet: emailText.slice(0, 500),
+            account_id: account.id,
+            account_name: account.name,
           });
           skipped++;
         }
@@ -276,7 +353,7 @@ async function pollSingleAccount(account, sources, fromDate) {
   }
 }
 
-export async function pollEmailInbox(fromDate) {
+export async function pollEmailInbox(fromDate, includeSeen) {
   const accounts = await getActiveAccounts();
 
   if (!accounts || accounts.length === 0) {
@@ -307,7 +384,7 @@ export async function pollEmailInbox(fromDate) {
 
   for (const account of accounts) {
     console.log(`[emailImporter] Polling ${account.name} (${account.email})...`);
-    const result = await pollSingleAccount(account, sources, fromDate);
+    const result = await pollSingleAccount(account, sources, fromDate, includeSeen);
     totalProcessed += result.processed;
     totalSkipped += result.skipped;
     if (result.error) totalErrors++;

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getDonorDetail, addDonorLog, uploadPaymentScreenshot } from '../api/donors';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
+import { extractTransactionData } from '../utils/ocr';
 
 const NOT_CONNECTED = [
   { id: 'busy', label: 'Busy' },
@@ -58,6 +59,10 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
   const [addressField, setAddressField] = useState('');
   const [dobField, setDobField] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [upiTransactionId, setUpiTransactionId] = useState('');
+  const [transactionDatetime, setTransactionDatetime] = useState('');
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrFromName, setOcrFromName] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -93,6 +98,10 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
       setPanNumber('');
       setAddressField('');
       setDobField('');
+      setUpiTransactionId('');
+      setTransactionDatetime('');
+      setOcrFromName('');
+      setOcrLoading(false);
     }
   };
 
@@ -100,8 +109,23 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      setPaymentScreenshot({ base64: reader.result.split(',')[1], mime_type: file.type });
+    reader.onload = async () => {
+      const result = reader.result;
+      setPaymentScreenshot({ base64: result.split(',')[1], mime_type: file.type });
+      setOcrLoading(true);
+      try {
+        const { upiTransactionId, transactionDatetime, amount, fromName } = await extractTransactionData(result);
+        if (upiTransactionId) setUpiTransactionId(upiTransactionId);
+        if (transactionDatetime) {
+          const dt = new Date(transactionDatetime);
+          if (!isNaN(dt.getTime())) {
+            setTransactionDatetime(dt.toISOString().slice(0, 16));
+          }
+        }
+        if (amount && !paymentAmount) setPaymentAmount(amount);
+        if (fromName) setOcrFromName(fromName);
+      } catch {}
+      setOcrLoading(false);
     };
     reader.readAsDataURL(file);
   };
@@ -171,6 +195,8 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
         if (dobField) {
           logData.donor_dob = dobField;
         }
+        logData.upi_transaction_id = upiTransactionId || null;
+        logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
 
       await addDonorLog(assignmentId, logData);
@@ -185,6 +211,10 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
       setPanNumber('');
       setAddressField('');
       setDobField('');
+      setUpiTransactionId('');
+      setTransactionDatetime('');
+      setOcrFromName('');
+      setOcrLoading(false);
       load();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
@@ -319,10 +349,24 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
                 <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} min="1" placeholder="Enter amount" style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Payment Screenshot (optional)</label>
+                <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Payment Screenshot (optional) {ocrLoading && <span style={{fontSize:9,color:'var(--md-outline)'}}>OCR…</span>}</label>
                 <input type="file" accept="image/*" onChange={handleFileChange} style={{ fontSize: 13, width: '100%' }} />
                 {paymentScreenshot && <span style={{ fontSize: 11, color: 'var(--primary)' }}>File selected</span>}
               </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>UPI Transaction ID</label>
+                <input type="text" value={upiTransactionId} onChange={e => setUpiTransactionId(e.target.value)} placeholder="Auto-detected from screenshot" style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Transaction Date/Time</label>
+                <input type="datetime-local" value={transactionDatetime} onChange={e => setTransactionDatetime(e.target.value)} style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+              </div>
+              {ocrFromName && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Detected From Name</label>
+                  <input type="text" value={ocrFromName} readOnly style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box', color: 'var(--md-outline)', fontStyle: 'italic' }} />
+                </div>
+              )}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>PAN Card Number</label>
                 <input type="text" value={panNumber} onChange={e => setPanNumber(e.target.value.toUpperCase())} placeholder="e.g. ABCDE1234F" maxLength={10} style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }} />

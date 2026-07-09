@@ -26,6 +26,7 @@ import {
   setTarget,
   getTargets,
   getDashboard,
+  getDailyTarget,
   getFroWiseCollection,
   setAchievedTarget,
   setIncentive,
@@ -54,6 +55,7 @@ import {
   getTransferDonors,
   getIncentives,
   getVerificationFroWise,
+  getFroPerformance,
 } from '../controllers/ngoAdminController.js';
 
 const router = Router();
@@ -64,6 +66,7 @@ router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_a
 router.use(authenticateRole('admin'));
 
 router.get('/dashboard', getDashboard);
+router.get('/dashboard/daily-target', getDailyTarget);
 router.get('/dashboard/station-stats', getStationStats);
 router.get('/ngos', getAccessibleNgos);
 router.get('/donors', getDonors);
@@ -74,6 +77,7 @@ router.get('/assignments', getAssignments);
 router.get('/targets', getTargets);
 router.post('/targets', setTarget);
 router.get('/collections/fro-wise', getFroWiseCollection);
+router.get('/fro-performance', getFroPerformance);
 router.post('/achieved-target', setAchievedTarget);
 router.get('/incentives', getIncentives);
 router.post('/incentive', setIncentive);

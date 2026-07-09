@@ -7,10 +7,17 @@ export default function RejectedLeads() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const intervalRef = useRef(null);
+  const [selectedNgoId, setSelectedNgoId] = useState('all');
+  const [accessibleNgos, setAccessibleNgos] = useState([]);
+
+  useEffect(() => {
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+  }, []);
 
   const load = (showLoading = true) => {
     if (showLoading) setLoading(true);
-    apiGet('/ngo-admin/rejected-leads')
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+    apiGet(`/ngo-admin/rejected-leads${ngoParam}`)
       .then(d => setTickets(d || []))
       .catch(() => {})
       .finally(() => { if (showLoading) setLoading(false); });
@@ -20,7 +27,7 @@ export default function RejectedLeads() {
     load(true);
     intervalRef.current = setInterval(() => load(false), 30000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, []);
+  }, [selectedNgoId]);
 
   const ack = async (id) => {
     try {
@@ -71,6 +78,15 @@ export default function RejectedLeads() {
 
   return (
     <div>
+      <div className="filter-bar">
+        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
+        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
+          <option value="all">All NGOs</option>
+          {accessibleNgos.map(ngo => (
+            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
+          ))}
+        </select>
+      </div>
       <div style={{ display:'flex', gap:12, marginBottom:16, flexWrap:'wrap' }}>
         <div style={{ flex:1, minWidth:140, background:'var(--card-bg)', borderRadius:'var(--radius-sm)', padding:'14px 16px', border:'1px solid var(--line)', boxShadow:'var(--shadow)' }}>
           <div style={{ fontSize:24, fontWeight:800, color:'#dc2626', lineHeight:1.1 }}>{pending.length}</div>
