@@ -654,7 +654,6 @@ const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
 cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, () => {
   syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
 });
-  console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
-}
+console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
 
 export { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders };
