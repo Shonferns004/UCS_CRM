@@ -48,6 +48,12 @@ function EmailImportTab() {
   const [fromDate, setFromDate] = useState('');
   const [importingFromDate, setImportingFromDate] = useState(false);
   const [filterAccount, setFilterAccount] = useState('');
+  const [toastMsg, setToastMsg] = useState(null);
+
+  function showToast(message, type = 'info') {
+    setToastMsg({ message, type });
+    setTimeout(() => setToastMsg(null), 4000);
+  }
 
   async function loadData() {
     setLoading(true);
@@ -69,8 +75,6 @@ function EmailImportTab() {
   useEffect(() => { loadData(); }, [filterAccount]);
 
   const counts = status?.counts || { imported: 0, failed: 0, skipped: 0, seen: 0 };
-  const lastPoll = status?.lastPoll;
-  const statusColor = lastPoll?.success === true ? '#059669' : lastPoll?.success === false ? '#dc2626' : '#6b7280';
 
   if (loading) return <SkeletonTable rows={4} cols={7} />;
 
@@ -94,15 +98,6 @@ function EmailImportTab() {
           </div>
         ))}
       </div>
-      {lastPoll && (
-        <div className="card" style={{ marginBottom: 12, padding: '10px 16px', borderLeft: `3px solid ${statusColor}`, background: statusColor + '08' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: statusColor }}>Last Poll: {lastPoll.success === true ? 'Success' : 'Failed'}</div>
-          <div style={{ fontSize: 11, color: '#6b7280' }}>{lastPoll.message} — {lastPoll.timestamp ? new Date(lastPoll.timestamp).toLocaleString('en-IN') : 'N/A'}</div>
-          {lastPoll.details?.map((d, i) => (
-            <div key={i} style={{ fontSize: 11, color: d.result?.error ? '#dc2626' : '#059669', marginTop: 2 }}>{d.name}: {d.result?.error || d.result?.message || 'OK'}</div>
-          ))}
-        </div>
-      )}
       <div className="filter-bar" style={{ flexWrap: 'wrap', gap: 6, padding: '8px 12px', marginBottom: 12 }}>
         <button className="btn btn-sm" onClick={loadData} style={{ display:'flex', alignItems:'center', gap:4 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg> Refresh
@@ -111,15 +106,15 @@ function EmailImportTab() {
           <span>From</span>
           <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ fontSize:12, padding:'4px 6px', borderRadius:4, border:'1px solid var(--line)', width:140 }} />
         </label>
-        <button className="btn btn-sm" onClick={async () => { if (!fromDate) { alert('Select a date'); return }; setImportingFromDate(true); try { await apiPost('/accounts/email-import/trigger?fromDate=' + fromDate); await loadData() } catch (e) { alert(e.message) }; setImportingFromDate(false) }} disabled={importingFromDate || !fromDate}
+        <button className="btn btn-sm" onClick={async () => { if (!fromDate) { alert('Select a date'); return }; setImportingFromDate(true); try { const r = await apiPost('/accounts/email-import/trigger?fromDate=' + fromDate); showToast(r.message || 'Import complete', r.success === false ? 'error' : 'success'); await loadData() } catch (e) { showToast(e.message, 'error') }; setImportingFromDate(false) }} disabled={importingFromDate || !fromDate}
           style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'flex', alignItems:'center', gap:4 }}>
           {importingFromDate ? 'Importing...' : 'Import from Date'}
         </button>
-        <button className="btn btn-sm" onClick={async () => { setTriggering(true); try { await apiPost('/accounts/email-import/trigger'); await loadData() } catch (e) { alert(e.message) }; setTriggering(false) }} disabled={triggering}
+        <button className="btn btn-sm" onClick={async () => { setTriggering(true); try { const r = await apiPost('/accounts/email-import/trigger'); showToast(r.message || 'Import complete', r.success === false ? 'error' : 'success'); await loadData() } catch (e) { showToast(e.message, 'error') }; setTriggering(false) }} disabled={triggering}
           style={{ background:'var(--sage)', color:'#fff', border:'none', display:'flex', alignItems:'center', gap:4 }}>
           {triggering ? 'Importing...' : 'Manual Import'}
         </button>
-        <button className="btn btn-sm" onClick={async () => { setTriggeringSeen(true); try { await apiPost('/accounts/email-import/process-seen'); await loadData() } catch (e) { alert(e.message) }; setTriggeringSeen(false) }} disabled={triggeringSeen}
+        <button className="btn btn-sm" onClick={async () => { setTriggeringSeen(true); try { const r = await apiPost('/accounts/email-import/process-seen'); showToast(r.message || 'Process complete', r.success === false ? 'error' : 'success'); await loadData() } catch (e) { showToast(e.message, 'error') }; setTriggeringSeen(false) }} disabled={triggeringSeen}
           style={{ background:'#8B5CF6', color:'#fff', border:'none', display:'flex', alignItems:'center', gap:4 }}>
           {triggeringSeen ? 'Importing...' : 'Process Seen'}
         </button>
@@ -128,6 +123,18 @@ function EmailImportTab() {
           Test Email
         </button>
       </div>
+      {accounts.length > 0 && (
+        <div style={{ display:'flex', gap:6, marginBottom:8, flexWrap:'wrap', alignItems:'center' }}>
+          <span style={{ fontSize:11, fontWeight:600, color:'#6b7280', textTransform:'uppercase' }}>Account:</span>
+          <button onClick={() => setFilterAccount('')} className="btn btn-sm" style={{ background: !filterAccount ? 'var(--sage)' : 'transparent', color: !filterAccount ? '#fff' : 'var(--ink)', border:'1px solid var(--line)' }}>All</button>
+          {accounts.map(acc => (
+            <button key={acc.id} onClick={() => setFilterAccount(acc.id)}
+              className="btn btn-sm" style={{ background: String(filterAccount) === String(acc.id) ? 'var(--sage)' : 'transparent', color: String(filterAccount) === String(acc.id) ? '#fff' : '#374151', border:'1px solid var(--line)', opacity: acc.is_active ? 1 : 0.55 }}>
+              {acc.name}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Subject</th><th>From</th><th>Amount</th><th>Payment ID</th><th>Source</th><th>Status</th></tr></thead>
@@ -148,16 +155,14 @@ function EmailImportTab() {
           </tbody>
         </table>
       </div>
-      {accounts.length > 0 && (
-        <div style={{ display:'flex', gap:6, padding:'8px 0', flexWrap:'wrap', alignItems:'center', marginTop:8 }}>
-          <span style={{ fontSize:11, fontWeight:600, color:'#6b7280', textTransform:'uppercase' }}>Filter by account:</span>
-          <button onClick={() => setFilterAccount('')} className="btn btn-sm" style={{ background: !filterAccount ? 'var(--sage)' : 'transparent', color: !filterAccount ? '#fff' : 'var(--ink)', border:'1px solid var(--line)' }}>All</button>
-          {accounts.map(acc => (
-            <button key={acc.id} onClick={() => setFilterAccount(acc.id)}
-              className="btn btn-sm" style={{ background: String(filterAccount) === String(acc.id) ? 'var(--sage)' : 'transparent', color: String(filterAccount) === String(acc.id) ? '#fff' : '#374151', border:'1px solid var(--line)', opacity: acc.is_active ? 1 : 0.55 }}>
-              {acc.name}
-            </button>
-          ))}
+      {toastMsg && (
+        <div style={{ position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)', zIndex:9999, background: toastMsg.type === 'error' ? '#dc2626' : '#059669', color:'#fff', padding:'10px 24px', borderRadius:10, boxShadow:'0 4px 20px rgba(0,0,0,.15)', fontSize:13, fontWeight:500, display:'flex', alignItems:'center', gap:8 }}>
+          {toastMsg.type === 'error' ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          )}
+          {toastMsg.message}
         </div>
       )}
     </div>
