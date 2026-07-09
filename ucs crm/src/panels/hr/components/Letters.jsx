@@ -45,7 +45,7 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText) {
 function buildExperienceLetterHTML(w, dateText, hrNameText, subjectText) {
   const r = w.role || w.department || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="display:flex;align-items:center;margin-bottom:4px">
+<div style="display:flex;align-items:center;justify-content:center;margin-bottom:4px">
 <img src="/logo/beingsevak-logo.png" alt="Being Sevak Charitable Trust" style="width:65px;height:auto;margin-right:14px" />
 <div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">BEING SEVAK CHARITABLE TRUST</div></div>
 </div>
