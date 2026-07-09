@@ -27,7 +27,6 @@ import {
   getTargets,
   getDashboard,
   getDailyTarget,
-  setDailyTarget,
   getFroWiseCollection,
   setAchievedTarget,
   setIncentive,
@@ -68,7 +67,6 @@ router.use(authenticateRole('admin'));
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);
-router.post('/dashboard/daily-target', setDailyTarget);
 router.get('/dashboard/station-stats', getStationStats);
 router.get('/ngos', getAccessibleNgos);
 router.get('/donors', getDonors);

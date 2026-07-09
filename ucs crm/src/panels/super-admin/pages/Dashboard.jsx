@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers } from '../api/endpoints'
+import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoDailyTargets, setNgoDailyTarget } from '../api/endpoints'
 import { api } from '../api/auth'
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar, LineChart, Line, CartesianGrid, Legend } from 'recharts'
 
@@ -1382,6 +1382,11 @@ export default function Dashboard() {
   const [ngoStationModal, setNgoStationModal] = useState(null)
   const [deptModal, setDeptModal] = useState(null)
   const [kpiModal, setKpiModal] = useState(null)
+  const [ngoDailyTargets, setNgoDailyTargets] = useState([])
+  const [targetModalNgo, setTargetModalNgo] = useState(null)
+  const [editTargetValue, setEditTargetValue] = useState('')
+  const [targetsLoading, setTargetsLoading] = useState(false)
+  const [savingTarget, setSavingTarget] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1391,6 +1396,11 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
+
+  useEffect(() => {
+    setTargetsLoading(true)
+    getNgoDailyTargets().then(d => { setNgoDailyTargets(Array.isArray(d) ? d : []); setTargetsLoading(false) }).catch(() => setTargetsLoading(false))
+  }, [])
 
   /* Main dashboard data — refresh every 30s */
   const fetchDashboard = useCallback(() => {
@@ -2165,6 +2175,104 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* ============ DAILY TARGET MANAGEMENT ============ */}
+      <div className="nd-card nd-appear" style={{ animationDelay: '0.35s', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color: GOLD }}>track_changes</span>
+          <h3 className="nd-section-title" style={{ margin: 0 }}>Daily Target Management</h3>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+            {targetsLoading ? 'Loading...' : `${ngoDailyTargets.length} NGOs`}
+          </span>
+        </div>
+        {!targetsLoading && ngoDailyTargets.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>NGO</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Today's Collection</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Monthly Collection</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Daily Target</th>
+                  <th style={{ textAlign: 'center', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Progress</th>
+                  <th style={{ textAlign: 'center', padding: '8px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ngoDailyTargets.map(t => {
+                  const pct = t.daily_target > 0 ? Math.min(100, Math.round((t.today_collection / t.daily_target) * 100)) : 0
+                  return (
+                    <tr key={t.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '10px 10px', fontWeight: 600, color: PRIMARY }}>{t.name}</td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', color: MINT_DEEP, fontWeight: 700 }}>₹{t.today_collection.toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', color: '#64748b' }}>₹{t.monthly_collection.toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>
+                        {t.daily_target > 0 ? `₹${t.daily_target.toLocaleString('en-IN')}` : <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Not set</span>}
+                      </td>
+                      <td style={{ padding: '10px 10px', textAlign: 'center' }}>
+                        {t.daily_target > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                            <div style={{ width: 60, height: 6, borderRadius: 99, background: '#F1F5F2', overflow: 'hidden' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', borderRadius: 99, background: pct >= 100 ? MINT_DEEP : pct >= 50 ? GOLD : '#ef4444' }} />
+                            </div>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>{pct}%</span>
+                          </div>
+                        ) : <span style={{ color: '#94a3b8' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '10px 10px', textAlign: 'center' }}>
+                        <button onClick={() => { setTargetModalNgo(t); setEditTargetValue(String(t.daily_target || '')); }}
+                          style={{ padding: '4px 10px', border: '1px solid #DCEEE2', borderRadius: 6, background: '#fff', color: MINT_DARK, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          {t.daily_target > 0 ? 'Edit' : 'Set'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : targetsLoading ? (
+          <p className="nd-muted">Loading...</p>
+        ) : (
+          <p className="nd-muted">No NGO data available</p>
+        )}
+      </div>
+
+      {/* ============ TARGET EDIT MODAL ============ */}
+      {targetModalNgo && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }} onClick={() => setTargetModalNgo(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid #e5e7eb' }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>Set Daily Target — {targetModalNgo.name}</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: '#94a3b8' }} onClick={() => setTargetModalNgo(null)}>close</span>
+            </div>
+            <div style={{ padding: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Daily Target Amount (₹)</label>
+              <input type="number" min="0" value={editTargetValue} onChange={e => setEditTargetValue(e.target.value)} placeholder="e.g. 100000"
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                Today's collection: ₹{targetModalNgo.today_collection.toLocaleString('en-IN')}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 16px', borderTop: '1px solid #e5e7eb' }}>
+              <button onClick={() => setTargetModalNgo(null)}
+                style={{ padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={async () => {
+                setSavingTarget(true)
+                try {
+                  await setNgoDailyTarget(targetModalNgo.id, Number(editTargetValue) || 0)
+                  setNgoDailyTargets(prev => prev.map(t => t.id === targetModalNgo.id ? { ...t, daily_target: Number(editTargetValue) || 0 } : t))
+                  setTargetModalNgo(null)
+                } catch (e) { alert(e.message) }
+                finally { setSavingTarget(false) }
+              }} disabled={savingTarget}
+                style={{ padding: '7px 12px', border: 'none', borderRadius: 8, background: MINT_DEEP, color: '#fff', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: savingTarget ? 0.5 : 1 }}>
+                {savingTarget ? 'Saving...' : 'Save Target'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============ MAIN GRID ============ */}
       <div className="dash-grid">

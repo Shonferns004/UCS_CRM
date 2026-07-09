@@ -425,21 +425,6 @@ export const getDailyTarget = async (req, res) => {
   }
 };
 
-export const setDailyTarget = async (req, res) => {
-  try {
-    const access = await getUserNgoAccess(req.user.id);
-    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
-    if (ngoIds.length === 0) return res.status(400).json({ message: 'No NGO access' });
-    const { daily_target } = req.body;
-    const target = Number(daily_target) || 0;
-    const { data, error } = await supabase.from('ngos').update({ daily_collection_target: target }).eq('id', ngoIds[0]).select('daily_collection_target').single();
-    if (error) throw error;
-    return res.json({ daily_target: Number(data.daily_collection_target) || 0 });
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
-
 export const getDashboard = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
