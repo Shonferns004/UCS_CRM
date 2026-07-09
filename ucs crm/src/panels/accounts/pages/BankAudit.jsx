@@ -40,6 +40,7 @@ export default function BankAudit() {
   const [statusTab, setStatusTab] = useState('unverified');
   const [selectedDate, setSelectedDate] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [ngoFilter, setNgoFilter] = useState('');
   const [showAddEntry, setShowAddEntry] = useState(false);
   const [showEditEntry, setShowEditEntry] = useState(null);
   const [showSources, setShowSources] = useState(false);
@@ -163,7 +164,14 @@ export default function BankAudit() {
     return s ? s.name : 'Unknown';
   };
 
-  const totalAmount = entries.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const ngoKeywords = { bsct: ['beingsevak', 'being sevak', 'sevak'], maan: ['mann', 'maan', 'manncar', 'mann care'], aflf: ['ashray', 'aflf'] };
+  const filteredEntries = ngoFilter ? entries.filter(e => {
+    const source = (e.bank_audit_sources?.name || '').toLowerCase();
+    const remarks = (e.remarks || '').toLowerCase();
+    const keywords = ngoKeywords[ngoFilter] || [];
+    return keywords.some(k => source.includes(k) || remarks.includes(k));
+  }) : entries;
+  const totalAmount = filteredEntries.reduce((s, e) => s + Number(e.amount || 0), 0);
 
   const SvgX = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -240,6 +248,13 @@ export default function BankAudit() {
               style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)', width: 150 }} />
             {selectedDate && <button className="btn btn-sm" onClick={() => { setSelectedDate(''); doLoad('', statusTab); }} style={{ fontSize: 11, padding: '2px 6px' }}>Clear</button>}
           </label>
+          <select value={ngoFilter} onChange={e => setNgoFilter(e.target.value)}
+            style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)' }}>
+            <option value="">All NGOs</option>
+            <option value="bsct">Being Sevak</option>
+            <option value="maan">Mann Care</option>
+            <option value="aflf">Ashray</option>
+          </select>
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
             style={{ fontSize: 12, padding: '4px 6px', borderRadius: 4, border: '1px solid var(--line)' }}>
             <option value="">All Sources</option>
@@ -281,7 +296,7 @@ export default function BankAudit() {
               ) : entries.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No entries yet</td></tr>
               ) : (
-                (sourceFilter ? entries.filter(e => e.source_id === Number(sourceFilter)) : entries).map(e => (
+                (sourceFilter ? filteredEntries.filter(e => e.source_id === Number(sourceFilter)) : filteredEntries).map(e => (
                   <tr key={e.id}>
                     <td style={{ whiteSpace: 'nowrap' }}>{e.transaction_date}</td>
                     <td><span className="pill pill-gray">{e.bank_audit_sources?.name || getSourceName(e.source_id)}</span></td>
