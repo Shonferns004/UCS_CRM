@@ -1,5 +1,6 @@
 import express from 'express';
 import { createWorker } from 'tesseract.js';
+import { extractStructuredData } from './extractor.js';
 
 let worker = null;
 
@@ -27,6 +28,24 @@ app.post('/ocr', async (req, res) => {
     return res.json({ text: data.text.trim() });
   } catch (e) {
     return res.json({ text: '', error: e.message });
+  }
+});
+
+app.post('/extract', async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) return res.status(400).json({ data: null, error: 'image is required' });
+
+    let base64 = image;
+    if (base64.includes('base64,')) base64 = base64.split('base64,')[1];
+
+    const w = await getWorker();
+    const { data } = await w.recognize(Buffer.from(base64, 'base64'));
+    const extracted = extractStructuredData(data.text);
+
+    return res.json({ data: extracted, raw_text: data.text.trim() });
+  } catch (e) {
+    return res.json({ data: null, error: e.message });
   }
 });
 
