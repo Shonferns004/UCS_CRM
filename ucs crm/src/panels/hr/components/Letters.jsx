@@ -181,7 +181,7 @@ export default function Letters() {
           <label className="field">NGOs
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
           </label>
-          <label className="field">Worker
+          <label className="field">Volunteer
             <Dropdown value={name} onChange={e=>setName(e.target.value)}
               options={workers.map(w => ({value: w.name, label: w.name}))} />
           </label>
