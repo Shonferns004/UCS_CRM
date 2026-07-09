@@ -1,5 +1,3 @@
-import Tesseract from 'tesseract.js';
-
 const MONTHS = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
 const ID_LABELS = [
   /^upi[ -]*(?:transaction)?[ -]*(?:id|ref(?:erence)?|no\.?)?\s*:?\s*$/i,
@@ -31,16 +29,6 @@ function parseTimeFromLine(line) {
   if (ampm === 'pm' && h < 12) h += 12;
   if (ampm === 'am' && h === 12) h = 0;
   return `${String(h).padStart(2, '0')}:${min}:${sec}`;
-}
-
-function isTimeSuspicious(timeStr) {
-  const m = timeStr.match(/^(\d{2}):/);
-  if (!m) return false;
-  const h = parseInt(m[1]);
-  const sfx = timeStr.match(/[ap]m$/i);
-  if (sfx && sfx[0].toLowerCase() === 'pm' && h >= 1 && h <= 5) return true;
-  if (sfx && sfx[0].toLowerCase() === 'am' && h === 12) return true;
-  return false;
 }
 
 function extractTransactionDataFromText(text) {
@@ -96,7 +84,6 @@ function extractTransactionDataFromText(text) {
   for (let i = 0; i < lines.length; i++) {
     const dm = lines[i].match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,\s]+(\d{4})/i);
     if (!dm) continue;
-    const dm2 = lines[i].match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})[,\s]+(\d{4})/i);
     const ds = normalizeDateStr(dm[1], dm[2], dm[3]);
     if (!ds) continue;
     const ts = parseTimeFromLine(lines[i]) || parseTimeFromLine(lines[i + 1] || '');
@@ -105,23 +92,6 @@ function extractTransactionDataFromText(text) {
   }
 
   return { upiTransactionId, transactionDatetime, amount, fromName };
-}
-
-function mergeResults(a, b) {
-  return {
-    upiTransactionId: a.upiTransactionId || b.upiTransactionId,
-    transactionDatetime: (() => {
-      if (!a.transactionDatetime) return b.transactionDatetime;
-      if (!b.transactionDatetime) return a.transactionDatetime;
-      const s1 = isTimeSuspicious(a.transactionDatetime.split('T')[1] || '');
-      const s2 = isTimeSuspicious(b.transactionDatetime.split('T')[1] || '');
-      if (s1 && !s2) return b.transactionDatetime;
-      if (!s1 && s2) return a.transactionDatetime;
-      return a.transactionDatetime;
-    })(),
-    amount: a.amount || b.amount,
-    fromName: a.fromName || b.fromName,
-  };
 }
 
 async function callBackendOcr(base64Image) {
@@ -139,35 +109,13 @@ async function callBackendOcr(base64Image) {
   }
 }
 
-async function tryTesseract(image, psm) {
-  try {
-    const { data } = await Tesseract.recognize(image, 'eng', {
-      logger: () => {},
-      config: { 'tessedit_pageseg_mode': String(psm) },
-    });
-    return data.text;
-  } catch {
-    return null;
-  }
-}
-
 export async function extractTransactionData(base64Image) {
   const backendText = await callBackendOcr(base64Image);
-  if (backendText) {
-    const backendResult = extractTransactionDataFromText(backendText);
-    if (backendResult.upiTransactionId || backendResult.amount || backendResult.transactionDatetime || backendResult.fromName) {
-      return backendResult;
-    }
-  }
+  if (!backendText) return { upiTransactionId: null, transactionDatetime: null, amount: null, fromName: null };
 
-  const t1 = await tryTesseract(base64Image, 3);
-  const r1 = t1 ? extractTransactionDataFromText(t1) : {};
-  const t2 = await tryTesseract(base64Image, 6);
-  const r2 = t2 ? extractTransactionDataFromText(t2) : {};
-  const merged = mergeResults(r1, r2);
-
-  if (merged.upiTransactionId || merged.transactionDatetime || merged.amount || merged.fromName) {
-    return merged;
+  const result = extractTransactionDataFromText(backendText);
+  if (result.upiTransactionId || result.amount || result.transactionDatetime || result.fromName) {
+    return result;
   }
 
   return { upiTransactionId: null, transactionDatetime: null, amount: null, fromName: null };
