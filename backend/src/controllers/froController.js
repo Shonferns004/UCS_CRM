@@ -64,7 +64,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
 
   const { data: created } = await supabase
     .from('fro_assignments')
-    .insert([{ donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station }])
+    .insert([{ donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() }])
     .select('id, station')
     .single();
   return created;
