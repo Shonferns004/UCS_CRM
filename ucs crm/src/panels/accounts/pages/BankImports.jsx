@@ -110,7 +110,7 @@ function EmailImportTab() {
           style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'flex', alignItems:'center', gap:4 }}>
           {importingFromDate ? 'Importing...' : 'Import from Date'}
         </button>
-        <button className="btn btn-sm" onClick={async () => { setTriggering(true); try { const r = await apiPost('/accounts/email-import/trigger'); showToast(r.message || 'Import complete', r.success === false ? 'error' : 'success'); await loadData() } catch (e) { showToast(e.message, 'error') }; setTriggering(false) }} disabled={triggering}
+        <button className="btn btn-sm" onClick={async () => { setTriggering(true); try { const r = await apiPost('/accounts/email-import/trigger'); const errMsg = r.details?.find(d => d.result?.error)?.result?.error; showToast(errMsg || r.message || 'Import complete', r.success === false ? 'error' : 'success'); await loadData() } catch (e) { showToast(e.message, 'error') }; setTriggering(false) }} disabled={triggering}
           style={{ background:'var(--sage)', color:'#fff', border:'none', display:'flex', alignItems:'center', gap:4 }}>
           {triggering ? 'Importing...' : 'Manual Import'}
         </button>
