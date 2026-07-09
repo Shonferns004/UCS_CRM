@@ -42,7 +42,7 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText) {
 </div>`;
 }
 
-function buildExperienceLetterHTML(w, dateText, hrNameText, subjectText) {
+function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText) {
   const r = w.role || w.department || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
@@ -52,10 +52,9 @@ function buildExperienceLetterHTML(w, dateText, hrNameText, subjectText) {
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Experience Letter</div>
 ${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Role: ${subjectText}</div>` : ''}
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="margin-bottom:6px"><strong>TO WHOM IT MAY CONCERN</strong></div>
 <div style="text-align:justify">
-<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>Being Sevak Charitable Trust</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>Being Sevak Charitable Trust</strong> from <strong>${joiningDate}</strong> to <strong>${lastWorkingDate}</strong> as a <strong>${r}</strong>.</p>
 <p style="margin:0 0 6px 0">During the tenure with our organization, <strong>${w.name}</strong> performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. <strong>${w.name}</strong> consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
 <p style="margin:0 0 6px 0">Throughout the period of employment, <strong>${w.name}</strong> maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
 <p style="margin:0 0 6px 0">We appreciate the contributions made by <strong>${w.name}</strong> to <strong>Being Sevak Charitable Trust</strong> and thank them for their services. We wish them every success in their future professional endeavors.</p>
@@ -144,10 +143,12 @@ export default function Letters() {
       body = buildJoiningLetterHTML(w, dateText, hrNameText, subject);
       today = dateText;
     } else if (type === 'Experience letter') {
-      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const jd = w.date_of_joining || w.created_at || '';
+      const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
+      const lastWorkingDate = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{last_working_date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildExperienceLetterHTML(w, dateText, hrNameText, subject);
-      today = dateText;
+      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject);
+      today = lastWorkingDate;
     } else {
       const result = build(type, w);
       body = result.body;
@@ -188,7 +189,7 @@ export default function Letters() {
           <label className="field">Letter type
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
           </label>
-          <label className="field">Date
+          <label className="field">Last Working Date
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           <label className="field">HR name
