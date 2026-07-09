@@ -5,8 +5,8 @@ export const getNgoAdminTargets = async (req, res) => {
   try {
     const { data: admins, error } = await supabase
       .from('workers')
-      .select('id, name, login_id, daily_collection_target, ngo_id')
-      .or('role.eq.admin,department.ilike.%ngo admin%');
+      .select('id, name, login_id, daily_collection_target')
+      .ilike('department', '%ngo admin%');
 
     if (error) return res.status(500).json({ message: error.message });
 
