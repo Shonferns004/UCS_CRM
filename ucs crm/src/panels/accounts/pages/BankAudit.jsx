@@ -369,10 +369,10 @@ function BankStatementSection() {
 
 // ─── Entries Tab (Original Bank Audit) ───────────────────────
 
-function EntriesSection({ statusTab, setStatusTab, loading, entries, sources, summary, error, selectedDate, setSelectedDate, doLoad, ngoFilter, setNgoFilter, sourceFilter, setSourceFilter, showAddEntry, setShowAddEntry, showSources, setShowSources, entryForm, setEntryForm, showEditEntry, setShowEditEntry, saving, handleAddEntry, handleEditEntry, handleDeleteEntry, handleAddSource, handleDeleteSource, openEditEntry, sourceName, setSourceName, getSourceName, filteredEntries, SvgX, SvgBank }) {
+function EntriesSection({ statusTab, setStatusTab, loading, entries, sources, summary, error, selectedDate, setSelectedDate, doLoad, ngoFilter, setNgoFilter, sourceFilter, setSourceFilter, showAddEntry, setShowAddEntry, showSources, setShowSources, entryForm, setEntryForm, showEditEntry, setShowEditEntry, saving, handleAddEntry, handleEditEntry, handleDeleteEntry, handleAddSource, handleDeleteSource, openEditEntry, sourceName, setSourceName, getSourceName, filteredEntries, SvgX, SvgBank, hideStats }) {
   return (
     <div>
-      <div className="stats-grid">
+      {!hideStats && <div className="stats-grid">
         {loading
           ? Array.from({ length: Math.max(sources.length||4,4) }, (_, i) => <SkeletonStat key={i} />)
           : sources.filter(s => s.is_active !== false).map((s,i) => (
@@ -386,7 +386,7 @@ function EntriesSection({ statusTab, setStatusTab, loading, entries, sources, su
                 </div>
               </div>
             ))}
-      </div>
+      </div>}
 
       {error && <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'8px 12px', marginBottom:12, fontSize:13, color:'#991b1b' }}>{error}</div>}
 
@@ -561,8 +561,27 @@ export default function BankAudit() {
 
   return (
     <div>
-      {/* Main tabs */}
-      <div className="card" style={{ marginBottom:16, padding:0, overflow:'hidden' }}>
+      {/* Stats at top */}
+      {mainTab === 'entries' && loading ? (
+        <div className="stats-grid">{Array.from({length:Math.max(sources.length||4,4)}, (_,i) => <SkeletonStat key={i} />)}</div>
+      ) : mainTab === 'entries' ? (
+        <div className="stats-grid">
+          {sources.filter(s=>s.is_active!==false).map((s,i) => (
+            <div key={s.id} className="stat-card">
+              <div className="stat-icon" style={{ background:COLORS[i%COLORS.length]+'18', color:COLORS[i%COLORS.length] }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+              </div>
+              <div className="stat-info">
+                <div className="stat-num">{currency(summary[s.name]||0)}</div>
+                <div className="stat-lbl">{s.name}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Tab bar below stats */}
+      <div className="card" style={{ marginTop:16, marginBottom:16, padding:0, overflow:'hidden' }}>
         <div style={{ display:'flex', borderBottom:'1px solid var(--line)' }}>
           <TabBtn active={mainTab==='entries'} onClick={()=>setMainTab('entries')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12"/><path d="M9 9h5a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2H9"/></svg>
@@ -581,7 +600,6 @@ export default function BankAudit() {
             Bank Statement
           </TabBtn>
         </div>
-        {/* Sub-tabs for Entries */}
         {mainTab === 'entries' && (
           <div style={{ display:'flex', borderBottom:'1px solid #f3f4f6', background:'#f9fafb' }}>
             <TabBtn active={statusTab==='unverified'} onClick={()=>setStatusTab('unverified')}>Pending</TabBtn>
@@ -590,6 +608,7 @@ export default function BankAudit() {
         )}
       </div>
 
+      {/* Content below tabs */}
       {mainTab === 'entries' && (
         <EntriesSection
           statusTab={statusTab} setStatusTab={setStatusTab}
@@ -607,6 +626,7 @@ export default function BankAudit() {
           sourceName={sourceName} setSourceName={setSourceName}
           getSourceName={getSourceName} filteredEntries={filteredEntries}
           SvgX={SvgX} SvgBank={SvgBank}
+          hideStats={true}
         />
       )}
       {mainTab === 'email' && <EmailImportSection />}
