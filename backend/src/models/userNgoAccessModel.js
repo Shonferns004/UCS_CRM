@@ -7,7 +7,7 @@ export const getUserNgoAccess = async (userId) => {
     .select('role')
     .eq('id', userId)
     .maybeSingle();
-  if (user?.role === 'admin') {
+  if (user?.role === 'admin' || user?.role === 'super_admin') {
     const { data: allNgos } = await supabase.from('ngos').select('id, name');
     return (allNgos || []).map(n => ({ ngo_id: n.id, ngo_name: n.name }));
   }
