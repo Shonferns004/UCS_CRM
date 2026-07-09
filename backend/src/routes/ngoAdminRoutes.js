@@ -63,7 +63,7 @@ const router = Router();
 router.get('/rejected-leads', authenticateRole('admin', 'super_admin'), getRejectedLeads);
 router.put('/rejected-leads/:id/acknowledge', authenticateRole('admin', 'super_admin'), acknowledgeRejectedLead);
 
-router.use(authenticateRole('admin'));
+router.use(authenticateRole('admin', 'super_admin'));
 
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);
