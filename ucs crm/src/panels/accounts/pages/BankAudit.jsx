@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 
-const ₹ = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
+const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 
 function Sk({h=14,w='100%'}){return <div style={{height:h,width:typeof w==='number'?w:w,borderRadius:6,background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}}/>}
@@ -49,7 +49,7 @@ function EmailTab(){
         <td style={{whiteSpace:'nowrap',fontSize:12}}>{e.created_at?new Date(e.created_at).toLocaleDateString('en-IN'):'\u2014'}</td>
         <td style={{fontSize:12,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={e.email_subject}>{e.email_subject||'\u2014'}</td>
         <td style={{fontSize:12}}>{e.email_from?e.email_from.split('<')[0].trim():'\u2014'}</td>
-        <td style={{fontSize:12}}>{e.parsed_amount?₹(e.parsed_amount):'\u2014'}</td>
+        <td style={{fontSize:12}}>{e.parsed_amount?curr(e.parsed_amount):'\u2014'}</td>
         <td style={{fontSize:11}}>{e.parsed_payment_id||'\u2014'}</td>
         <td style={{fontSize:12}}>{e.parsed_source||'\u2014'}</td>
         <td><span className={`pill ${e.status==='imported'?'pill-green':e.status==='failed'?'pill-red':e.status==='seen'?'pill-yellow':'pill-gray'}`} style={{fontSize:11}}>{e.status}{e.seen?' (read)':''}</span></td>
@@ -85,7 +85,7 @@ function GatewayTab(){
         <td><span className="pill" style={{background:e.gateway==='razorpay'?'#0d948818':'#2563eb18',color:e.gateway==='razorpay'?'#0d9488':'#2563eb',fontSize:11}}>{e.gateway}</span></td>
         <td style={{fontSize:11}}>{e.account_name||'\u2014'}</td>
         <td style={{fontSize:11}}>{e.event_type||'\u2014'}</td>
-        <td style={{fontSize:12,fontWeight:600,color:e.amount!=null&&Number(e.amount)<0?'#dc2626':'var(--sage)'}}>{e.amount?₹(e.amount):'\u2014'}</td>
+        <td style={{fontSize:12,fontWeight:600,color:e.amount!=null&&Number(e.amount)<0?'#dc2626':'var(--sage)'}}>{e.amount?curr(e.amount):'\u2014'}</td>
         <td style={{fontSize:11}}>{e.payment_id||'\u2014'}</td>
         <td><span className={`pill ${e.status==='processed'?'pill-green':'pill-red'}`} style={{fontSize:11}}>{e.status}</span></td>
       </tr>)}</tbody>
@@ -127,9 +127,9 @@ function StatementTab(){
               <td style={{whiteSpace:'nowrap',fontSize:12}}>{r.date}</td>
               <td style={{fontSize:12,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={r.description}>{r.description||'\u2014'}</td>
               <td style={{fontSize:11}}>{r.ref_no||'\u2014'}</td>
-              <td style={{fontSize:12,color:r.debit>0?'#dc2626':'#6b7280'}}>{r.debit>0?₹(r.debit):'\u2014'}</td>
-              <td style={{fontSize:12,color:r.credit>0?'#059669':'#6b7280'}}>{r.credit>0?₹(r.credit):'\u2014'}</td>
-              <td style={{fontSize:12}}>{r.balance?₹(r.balance):'\u2014'}</td>
+              <td style={{fontSize:12,color:r.debit>0?'#dc2626':'#6b7280'}}>{r.debit>0?curr(r.debit):'\u2014'}</td>
+              <td style={{fontSize:12,color:r.credit>0?'#059669':'#6b7280'}}>{r.credit>0?curr(r.credit):'\u2014'}</td>
+              <td style={{fontSize:12}}>{r.balance?curr(r.balance):'\u2014'}</td>
             </tr>)}</tbody>
           </table>
         </div>
@@ -176,7 +176,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       <tbody>{loading?<SkTbl r=5 c={7}/>:entries.length===0?<tr><td colSpan={7} style={{textAlign:'center',padding:20,color:'#9ca3af'}}>No entries yet</td></tr>:(srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered).map(e=><tr key={e.id}>
         <td style={{whiteSpace:'nowrap'}}>{e.transaction_date}</td>
         <td><span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span></td>
-        <td style={{fontWeight:600,color:'var(--sage)'}}>{₹(e.amount)}</td>
+        <td style={{fontWeight:600,color:'var(--sage)'}}>{curr(e.amount)}</td>
         <td style={{fontSize:12}}>{e.payment_id||'\u2014'}</td>
         <td style={{fontSize:12}}>{e.check_id||'\u2014'}</td>
         <td style={{fontSize:12,maxWidth:180,whiteSpace:'pre-wrap'}}>{e.remarks||'\u2014'}</td>
@@ -230,7 +230,7 @@ export default function BankAudit(){
         <div className="stat-icon" style={{background:C[i%C.length]+'18',color:C[i%C.length]}}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
         </div>
-        <div className="stat-info"><div className="stat-num">{₹(su[s.name]||0)}</div><div className="stat-lbl">{s.name}</div></div>
+        <div className="stat-info"><div className="stat-num">{curr(su[s.name]||0)}</div><div className="stat-lbl">{s.name}</div></div>
       </div>)}
     </div>}
 
