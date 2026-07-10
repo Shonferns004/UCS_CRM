@@ -163,6 +163,40 @@ export default function HRForms() {
           fromYear: o.from_year?.toString() || '',
           toYear: o.to_year?.toString() || '',
         })));
+      } else {
+        setOrganizations([]);
+      }
+      if (data.education && Array.isArray(data.education)) {
+        setEducation(data.education.map(e => ({
+          degree: e.degree || '',
+          institution: e.institution || '',
+          university: e.university || '',
+          year: e.year?.toString() || '',
+          percentage: e.percentage?.toString() || '',
+        })));
+      } else {
+        setEducation([]);
+      }
+      if (data.family && Array.isArray(data.family)) {
+        setFamily(data.family.map(f => ({
+          name: f.name || '',
+          relationship: f.relationship || '',
+          occupation: f.occupation || '',
+          phone: f.phone || '',
+          dob: f.dob ? f.dob.slice(0, 10) : '',
+        })));
+      } else {
+        setFamily([]);
+      }
+      if (data.references && Array.isArray(data.references)) {
+        setReferences(data.references.map(r => ({
+          name: r.name || '',
+          designation: r.designation || '',
+          organization: r.organization || '',
+          phone: r.phone || '',
+        })));
+      } else {
+        setReferences([]);
       }
     } catch {}
   };
