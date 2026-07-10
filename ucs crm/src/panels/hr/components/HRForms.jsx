@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
 import { Plus, Trash } from '../icons';
@@ -101,8 +101,71 @@ function ReferenceEntry({ entry, index, onChange, onRemove }) {
 }
 
 export default function HRForms() {
-  const { fetchWorkers } = useHR();
+  const { fetchWorkers, fetchWorkerById } = useHR();
   const [section, setSection] = useState(SECTIONS[0]);
+  const [workers, setWorkers] = useState([]);
+  const [filteredWorkers, setFilteredWorkers] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  useEffect(() => {
+    fetchWorkers().then(setWorkers).catch(() => {});
+  }, []);
+
+  const handleSearchChange = (value) => {
+    setSearch(value);
+    if (value.trim()) {
+      const filtered = workers.filter(w =>
+        w.name.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredWorkers(filtered);
+      setShowDropdown(true);
+    } else {
+      setFilteredWorkers([]);
+      setShowDropdown(false);
+    }
+  };
+
+  const handleSelectWorker = async (worker) => {
+    setSearch(worker.name);
+    setShowDropdown(false);
+    try {
+      const data = await fetchWorkerById(worker.id);
+      setPersonal({
+        fullName: data.name || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        altPhone: data.alternate_phone || '',
+        fatherHusband: data.father_husband_name || '',
+        gender: data.gender || 'Male',
+        dob: data.dob ? data.dob.slice(0, 10) : '',
+        maritalStatus: data.marital_status || 'Single',
+        address: data.address || '',
+        city: data.city || '',
+        state: data.state || '',
+        pincode: data.pincode || '',
+        panNumber: data.pan_number || '',
+        aadhaarNumber: data.aadhar_number || '',
+        permanentAddress: data.permanent_address || '',
+        emergencyName: data.emergency_contact_name || '',
+        emergencyRelation: data.emergency_contact_relation || '',
+        emergencyPhone: data.emergency_contact_phone || '',
+      });
+      setBank({
+        bankName: '',
+        accountHolder: data.account_holder_name || '',
+        ifsc: data.ifsc_code || '',
+        accountNo: data.account_number || '',
+      });
+      if (data.previous_organizations && Array.isArray(data.previous_organizations)) {
+        setOrganizations(data.previous_organizations.map(o => ({
+          name: o.organization_name || o.name || '',
+          role: o.role || o.designation || '',
+          fromYear: o.from_year?.toString() || '',
+          toYear: o.to_year?.toString() || '',
+        })));
+      }
+    } catch {}
+  };
 
   const [personal, setPersonal] = useState({
     fullName: '', email: '', phone: '', altPhone: '', fatherHusband: '',
@@ -155,7 +218,18 @@ export default function HRForms() {
         return (
           <>
             <div className="card-head"><h3>Basic Information</h3>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+              <div style={{ position:'relative' }}>
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                {showDropdown && filteredWorkers.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
+                    {filteredWorkers.map(w => (
+                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
+                        {w.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="card-pad">
               <div className="form-row">
@@ -212,7 +286,19 @@ export default function HRForms() {
         return (
           <>
             <div className="card-head"><h3>Educational Qualifications</h3>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+              <div style={{ position:'relative' }}>
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                {showDropdown && filteredWorkers.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
+                    {filteredWorkers.map(w => (
+                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
+                        {w.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your educational background</p>
@@ -237,7 +323,18 @@ export default function HRForms() {
         return (
           <>
             <div className="card-head"><h3>Previous Organizations</h3>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+              <div style={{ position:'relative' }}>
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                {showDropdown && filteredWorkers.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
+                    {filteredWorkers.map(w => (
+                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
+                        {w.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your previous work experience (if any)</p>
@@ -262,7 +359,18 @@ export default function HRForms() {
         return (
           <>
             <div className="card-head"><h3>Family Details</h3>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+              <div style={{ position:'relative' }}>
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                {showDropdown && filteredWorkers.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
+                    {filteredWorkers.map(w => (
+                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
+                        {w.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your family members</p>
@@ -287,7 +395,18 @@ export default function HRForms() {
         return (
           <>
             <div className="card-head"><h3>Professional References</h3>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+              <div style={{ position:'relative' }}>
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                {showDropdown && filteredWorkers.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
+                    {filteredWorkers.map(w => (
+                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
+                        {w.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add professional references</p>
@@ -312,7 +431,19 @@ export default function HRForms() {
         return (
           <>
             <div className="card-head"><h3>Bank Account Details</h3>
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+              <div style={{ position:'relative' }}>
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                {showDropdown && filteredWorkers.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
+                    {filteredWorkers.map(w => (
+                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
+                        {w.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>These details will be used for salary disbursement</p>
