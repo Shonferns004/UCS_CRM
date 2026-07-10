@@ -70,7 +70,7 @@ function build(type, w, joiningDate = '', designation = '') {
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
-    'Offer letter': `To,\n${w.name}\n\n<strong>Designation:</strong> ${designation || r}\n\nDear ${w.name},\n\nWe are pleased to offer you the role of ${designation || r} in the ${d} department of Being Sevak Charitable Trust. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on <strong>${joiningDate}</strong> for a period of <strong>2 months</strong>, extendable by mutual consent.\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the Being Sevak family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${w.name}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
+    'Offer letter': `To,\n${w.name}\n\n<strong>Designation: ${designation || r}</strong>\n\nDear ${w.name},\n\nWe are pleased to offer you the role of ${designation || r} in the ${d} department of Being Sevak Charitable Trust. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on <strong>${joiningDate}</strong> for a period of <strong>2 months</strong>, extendable by mutual consent.\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the Being Sevak family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${w.name}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': `Dear ${w.name},\n\nThis letter is a formal note regarding recent conduct in your role as ${r}. We value your contribution and trust this can be resolved. Please treat this as an opportunity to realign with our shared expectations.\n\nRegards,\nThe People Team`,
     'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
@@ -78,7 +78,7 @@ function build(type, w, joiningDate = '', designation = '') {
   return { today, body };
 }
 
-function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, subjectText) {
+function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, subjectText, showDate = true) {
   const r = w.role || w.department || 'Team Member';
   const title = letterType.charAt(0).toUpperCase() + letterType.slice(1).toLowerCase();
   const bodyHtml = bodyText.replace(/\n/g, '<br />');
@@ -89,7 +89,7 @@ function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, su
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${title}</div>
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+${showDate ? `<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>` : ''}
 <div style="text-align:justify;white-space:pre-wrap">${bodyHtml}</div>
 <div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />${hrNameText}<br /><strong>Being Sevak Charitable Trust</strong></p></div>
 <div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
@@ -168,7 +168,7 @@ export default function Letters() {
       const jd = w.date_of_joining || w.created_at || '';
       const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
       const result = build(type, w, joiningDate, subject);
-      body = buildStyledLetterHTML(w, type, result.body, dateText, hrNameText, subject);
+      body = buildStyledLetterHTML(w, type, result.body, dateText, hrNameText, subject, type !== 'Offer letter');
       today = dateText;
     }
     setOut({ today, body, type });
