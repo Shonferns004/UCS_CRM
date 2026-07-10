@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 
 const PROJECT_OPTIONS = [
@@ -22,6 +22,12 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   const [form, setForm] = useState(emptyForm);
   const [fetchingTemplates, setFetchingTemplates] = useState(null);
   const [templateOptions, setTemplateOptions] = useState({});
+  const [agents, setAgents] = useState({});
+  const [showAgents, setShowAgents] = useState({});
+  const [agentSearch, setAgentSearch] = useState({});
+  const [agentResults, setAgentResults] = useState({});
+  const [assigning, setAssigning] = useState({});
+  const searchTimer = useRef({});
 
   async function loadAccounts() {
     setLoading(true);
@@ -117,6 +123,50 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
   };
 
   const toggleField = (field) => setForm(p => ({ ...p, [field]: !p[field] }));
+
+  const loadAgents = async (accountId) => {
+    try {
+      const data = await apiGet(`/whatsapp/accounts/${accountId}/agents`);
+      setAgents(prev => ({ ...prev, [accountId]: data || [] }));
+    } catch (err) { console.error(err); }
+  };
+
+  const toggleAgents = (accountId) => {
+    const opening = !showAgents[accountId];
+    setShowAgents(prev => ({ ...prev, [accountId]: opening }));
+    if (opening && !agents[accountId]) loadAgents(accountId);
+  };
+
+  const handleAgentSearch = (accountId, query) => {
+    setAgentSearch(prev => ({ ...prev, [accountId]: query }));
+    if (searchTimer.current[accountId]) clearTimeout(searchTimer.current[accountId]);
+    if (query.length < 2) { setAgentResults(prev => ({ ...prev, [accountId]: [] })); return; }
+    searchTimer.current[accountId] = setTimeout(async () => {
+      try {
+        const data = await apiGet(`/whatsapp/accounts/agents/search?q=${encodeURIComponent(query)}`);
+        setAgentResults(prev => ({ ...prev, [accountId]: data || [] }));
+      } catch { setAgentResults(prev => ({ ...prev, [accountId]: [] })); }
+    }, 300);
+  };
+
+  const assignAgent = async (accountId, froWorkerId) => {
+    setAssigning(prev => ({ ...prev, [accountId]: true }));
+    try {
+      await apiPost(`/whatsapp/accounts/${accountId}/agents`, { froWorkerId });
+      setAgentSearch(prev => ({ ...prev, [accountId]: '' }));
+      setAgentResults(prev => ({ ...prev, [accountId]: [] }));
+      await loadAgents(accountId);
+    } catch (err) { alert(err.message); }
+    finally { setAssigning(prev => ({ ...prev, [accountId]: false })); }
+  };
+
+  const removeAgent = async (accountId, froId, name) => {
+    if (!confirm(`Remove agent "${name}" from this account?`)) return;
+    try {
+      await apiDelete(`/whatsapp/accounts/${accountId}/agents/${froId}`);
+      await loadAgents(accountId);
+    } catch (err) { alert(err.message); }
+  };
 
   return (
     <div>
@@ -232,6 +282,55 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
                     </select>
                   </div>
                 )}
+                <div style={{ marginTop: 6, paddingLeft: 16 }}>
+                  <button className="btn btn-sm" onClick={() => toggleAgents(acc.id)}
+                    style={{ fontSize: 10, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    Agents {agents[acc.id] ? `(${agents[acc.id].length})` : ''}
+                  </button>
+                  {showAgents[acc.id] && (
+                    <div style={{ marginTop: 6, padding: '8px 10px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                      {agents[acc.id] && agents[acc.id].length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          {agents[acc.id].map(agent => {
+                            const w = agent.workers || {};
+                            return (
+                              <div key={agent.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid #f3f4f6' }}>
+                                <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{w.name || 'Unknown'}</span>
+                                <span style={{ fontSize: 10, color: '#6b7280' }}>{w.phone || ''}</span>
+                                <button className="btn btn-sm" onClick={() => removeAgent(acc.id, agent.fro_worker_id, w.name || 'Unknown')}
+                                  style={{ fontSize: 10, padding: '1px 6px', color: '#dc2626' }}>Remove</button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={agentSearch[acc.id] || ''}
+                          onChange={e => handleAgentSearch(acc.id, e.target.value)}
+                          placeholder="Search FRO by name, email, or mobile..."
+                          style={{ flex: 1, fontSize: 11, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4 }}
+                        />
+                      </div>
+                      {agentResults[acc.id] && agentResults[acc.id].length > 0 && (
+                        <div style={{ marginTop: 4, border: '1px solid #e5e7eb', borderRadius: 4, maxHeight: 150, overflowY: 'auto', background: '#fff' }}>
+                          {agentResults[acc.id].map(w => (
+                            <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6' }}
+                              onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
+                              onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                              onClick={() => assignAgent(acc.id, w.id)}>
+                              <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{w.name}</span>
+                              <span style={{ fontSize: 10, color: '#6b7280' }}>{w.phone || w.email || ''}</span>
+                              <span style={{ fontSize: 10, color: '#25D366' }}>+ Assign</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
