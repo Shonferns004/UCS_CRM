@@ -5,6 +5,7 @@ import { themes, applyTheme } from '../hr/theme'
 import { useRealtime } from '../../hooks/useRealtime'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
+import { masterSearch } from './api/auth'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import Dashboard from './pages/Dashboard'
@@ -18,11 +19,14 @@ import NgoAttendance from './pages/Attendance'
 import FroLiveStatus from './pages/FroLiveStatus'
 import Suspense from './pages/Suspense'
 import DonorCRM from './pages/DonorCRM'
+import SearchResults from './pages/SearchResults'
+import CallAnalytics from './pages/CallAnalytics'
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'station-mgmt', path: '/ngo-admin/station-mgmt', label: 'Stations & FROs', icon: 'station' },
   { id: 'fro-status', path: '/ngo-admin/fro-status', label: 'FRO Status', icon: 'froStatus' },
+  { id: 'call-analytics', path: '/ngo-admin/call-analytics', label: 'Call Analytics', icon: 'callAnalytics' },
   { id: 'donor-crm', path: '/ngo-admin/donor-crm', label: 'Donor CRM', icon: 'donorCrm' },
   { id: 'suspense', path: '/ngo-admin/suspense', label: 'Suspense', icon: 'suspense' },
   { id: 'alerts', path: '/ngo-admin/alerts', label: 'Alerts', icon: 'alerts' },
@@ -43,6 +47,7 @@ const ICONS = {
   rejected: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>,
   froStatus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 17a4 4 0 0 1 8 0"/><circle cx="9" cy="7" r="4"/><path d="M13 4.13A4 4 0 0 1 18 8v4"/><path d="M18 12v6"/><line x1="16" y1="18" x2="20" y2="18"/></svg>,
   suspense: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+  callAnalytics: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
 }
 
 const MAX_DROPDOWN = 4
@@ -109,6 +114,12 @@ export default function NgoAdminPanel() {
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('ngoadmin_theme') || 'sky')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState({ donors: [], fros: [], stations: [] })
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false)
+  const [searchingMaster, setSearchingMaster] = useState(false)
+  const searchRef = useRef(null)
+  const searchTimer = useRef(null)
   const menuRef = useRef(null)
   const location = useLocation()
 
@@ -192,6 +203,36 @@ export default function NgoAdminPanel() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showMenu, showNotifList])
 
+  const handleMasterSearch = async (q) => {
+    setSearchQuery(q);
+    if (!q || q.trim().length < 2) {
+      setSearchResults({ donors: [], fros: [], stations: [] });
+      setShowSearchDropdown(false);
+      return;
+    }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(async () => {
+      setSearchingMaster(true);
+      try {
+        const results = await masterSearch(q.trim());
+        setSearchResults(results);
+        setShowSearchDropdown(true);
+      } catch { setShowSearchDropdown(false); }
+      finally { setSearchingMaster(false); }
+    }, 300);
+  };
+
+  useEffect(() => {
+    if (!showSearchDropdown) return;
+    const handler = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setShowSearchDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSearchDropdown]);
+
+  const searchTotal = (searchResults.donors?.length || 0) + (searchResults.fros?.length || 0) + (searchResults.stations?.length || 0);
+
   const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/') || (n.id === 'donors' && location.pathname.startsWith('/ngo-admin/donors/')))
   const userName = user?.name || 'Admin'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -219,13 +260,87 @@ export default function NgoAdminPanel() {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main">
         <header className="topbar">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
             <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
             </button>
-            <div>
+            <div style={{ minWidth: 140 }}>
               <div className="eyebrow">Admin</div>
               <h2>{meta?.label || 'Dashboard'}</h2>
+            </div>
+            {/* Global search */}
+            <div ref={searchRef} style={{ position:'relative', flex: 1, maxWidth: 420 }}>
+              <div style={{ display:'flex', gap:4, alignItems:'center', background:'var(--card-bg)', borderRadius:8, border:'1px solid var(--line)', padding:'4px 8px' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" value={searchQuery}
+                  onChange={e => handleMasterSearch(e.target.value)}
+                  onFocus={() => { if (searchTotal > 0) setShowSearchDropdown(true); }}
+                  onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim().length >= 2) { setShowSearchDropdown(false); navigate(`/ngo-admin/search?q=${encodeURIComponent(searchQuery.trim())}`); } }}
+                  placeholder="Search donors, FROs, stations..."
+                  style={{ flex:1, border:'none', outline:'none', fontSize:11, fontFamily:'inherit', background:'transparent', padding:'4px 0', minWidth:0 }} />
+                {searchQuery && (
+                  <span style={{ fontSize:12, color:'var(--ink-soft)', cursor:'pointer' }}
+                    onClick={() => { setSearchQuery(''); setSearchResults({ donors:[], fros:[], stations:[] }); setShowSearchDropdown(false); }}>✕</span>
+                )}
+                {searchingMaster && <span style={{ fontSize:9, color:'var(--ink-soft)' }}>…</span>}
+              </div>
+              {showSearchDropdown && searchTotal > 0 && (
+                <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 4px 16px rgba(0,0,0,.12)', zIndex:200, maxHeight:360, overflowY:'auto', marginTop:2 }}>
+                  {searchResults.donors?.length > 0 && (
+                    <div>
+                      <div style={{ padding:'6px 10px', fontSize:9, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:.5, background:'var(--bg)' }}>Donors ({searchResults.donors.length})</div>
+                      {searchResults.donors.slice(0, 5).map(d => (
+                        <div key={d.id} onClick={() => { setShowSearchDropdown(false); navigate(`/ngo-admin/donors/${d.id}`); }}
+                          style={{ padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:8, transition:'background .1s' }}
+                          onMouseEnter={e => e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                          <div style={{ width:24, height:24, borderRadius:'50%', background:'#dcfce7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#16a34a' }}>{d.name?.[0] || '?'}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{d.name || 'Unknown'}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{d.mobile_number || ''}{d.city ? ` · ${d.city}` : ''}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {searchResults.donors.length > 5 && <div style={{ padding:'4px 10px', fontSize:9, color:'var(--ink-soft)', textAlign:'center' }}>+{searchResults.donors.length - 5} more</div>}
+                    </div>
+                  )}
+                  {searchResults.fros?.length > 0 && (
+                    <div>
+                      <div style={{ padding:'6px 10px', fontSize:9, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:.5, background:'var(--bg)' }}>FROs ({searchResults.fros.length})</div>
+                      {searchResults.fros.slice(0, 5).map(f => (
+                        <div key={f.id} onClick={() => { setShowSearchDropdown(false); navigate(`/ngo-admin/fro-status`); }}
+                          style={{ padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:8, transition:'background .1s' }}
+                          onMouseEnter={e => e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                          <div style={{ width:24, height:24, borderRadius:'50%', background:'#e0e7ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#4338ca' }}>{f.name?.[0] || '?'}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{f.name || 'Unknown'}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{f.login_id || ''}{f.is_active !== false ? ' · Active' : ' · Inactive'}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {searchResults.stations?.length > 0 && (
+                    <div>
+                      <div style={{ padding:'6px 10px', fontSize:9, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:.5, background:'var(--bg)' }}>Stations ({searchResults.stations.length})</div>
+                      {searchResults.stations.slice(0, 5).map((s, i) => (
+                        <div key={`${s.station}-${i}`} onClick={() => { setShowSearchDropdown(false); navigate('/ngo-admin/station-mgmt'); }}
+                          style={{ padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:8, transition:'background .1s' }}
+                          onMouseEnter={e => e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                          <div style={{ width:24, height:24, borderRadius:'50%', background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#d97706' }}>S</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{s.station || 'Unknown'}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{s.workers?.name || 'No FRO'}{s.donor_count != null ? ` · ${s.donor_count} donors` : ''}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ padding:'6px 10px', borderTop:'1px solid var(--line)', textAlign:'center' }}>
+                    <span onClick={() => { setShowSearchDropdown(false); navigate(`/ngo-admin/search?q=${encodeURIComponent(searchQuery.trim())}`); }}
+                      style={{ fontSize:10, color:'var(--sage)', cursor:'pointer', fontWeight:600 }}>View all results →</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
@@ -286,6 +401,8 @@ export default function NgoAdminPanel() {
             <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="fro-status" element={<FroLiveStatus />} />
             <Route path="suspense" element={<Suspense />} />
+            <Route path="search" element={<SearchResults />} />
+            <Route path="call-analytics" element={<CallAnalytics />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
