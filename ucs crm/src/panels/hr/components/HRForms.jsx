@@ -506,8 +506,13 @@ export default function HRForms() {
                 <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</span>
               </label>
               <div className="form-row">
-                <Field label="Date" placeholder="____________" readOnly={false} value="" onChange={() => {}} />
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Date</label>
+                  <input type="date" style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
+                </div>
                 <Field label="Place" placeholder="____________" readOnly={false} value="" onChange={() => {}} />
+              </div>
+              <div className="form-row">
                 <div style={{ flex: 1 }}>
                   <label className="form-label">Sign</label>
                   <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
@@ -648,8 +653,13 @@ export default function HRForms() {
               <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</span>
             </label>
             <div className="form-row">
-              <Field label="Date" value="" readOnly />
+              <div style={{ flex: 1 }}>
+                <label className="form-label">Date</label>
+                <input type="date" readOnly style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
+              </div>
               <Field label="Place" value="" readOnly />
+            </div>
+            <div className="form-row">
               <div style={{ flex: 1 }}>
                 <label className="form-label">Sign</label>
                 <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
