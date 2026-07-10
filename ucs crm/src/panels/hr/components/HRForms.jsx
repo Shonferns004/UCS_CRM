@@ -247,6 +247,10 @@ export default function HRForms() {
     setTimeout(() => setSaved(false), 3000);
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   const renderSection = () => {
     switch (section) {
       case 'Personal Details':
@@ -508,6 +512,7 @@ export default function HRForms() {
             </button>
           ))}
           <button className={`btn ${showPreview ? 'btn-primary' : ''}`} onClick={() => setShowPreview(!showPreview)} style={{ fontSize: 13 }}>Preview</button>
+          <button className="btn" onClick={handlePrint} style={{ fontSize: 13 }}>Print Form</button>
         </div>
 
         {showPreview ? (
