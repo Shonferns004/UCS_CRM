@@ -122,6 +122,7 @@ export default function HRForms() {
   });
 
   const [saved, setSaved] = useState(false);
+  const [search, setSearch] = useState('');
 
   const handlePersonalChange = (field, value) => {
     setPersonal(prev => ({ ...prev, [field]: value }));
@@ -330,6 +331,10 @@ export default function HRForms() {
               {s}
             </button>
           ))}
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
         </div>
 
         {renderSection()}
