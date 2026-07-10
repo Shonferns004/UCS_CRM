@@ -221,6 +221,7 @@ export default function HRForms() {
   const [saved, setSaved] = useState(false);
   const [search, setSearch] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+  const [place, setPlace] = useState('');
 
   const handlePersonalChange = (field, value) => {
     setPersonal(prev => ({ ...prev, [field]: value }));
@@ -510,7 +511,7 @@ export default function HRForms() {
                   <label className="form-label">Date</label>
                   <input type="date" style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
                 </div>
-                <Field label="Place" placeholder="____________" readOnly={false} value="" onChange={() => {}} />
+                <Field label="Place" placeholder="____________" readOnly={false} value={place} onChange={e => setPlace(e.target.value)} />
               </div>
               <div className="form-row">
                 <div style={{ flex: 1 }}>
@@ -657,7 +658,7 @@ export default function HRForms() {
                 <label className="form-label">Date</label>
                 <input type="date" readOnly style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
               </div>
-              <Field label="Place" value="" readOnly />
+              <Field label="Place" value={place} readOnly />
             </div>
             <div className="form-row">
               <div style={{ flex: 1 }}>
