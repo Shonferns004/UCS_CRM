@@ -1546,7 +1546,7 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 @keyframes att-spin { to{transform:rotate(360deg)} }
 
 /* ── PRINT ── */
-@media print { body { background:#fff; } .no-print { display:none !important; } }
+@media print { body { background:#fff; } .no-print { display:none !important; } .panel-hr .app, .panel-hr .main, .panel-hr .content-body, .panel-hr .sidebar { overflow:visible !important; height:auto !important; min-height:0 !important; } }
 
 /* ── BELL RING ── */
 @keyframes bell-ring {

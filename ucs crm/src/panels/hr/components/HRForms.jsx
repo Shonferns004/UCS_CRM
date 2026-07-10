@@ -222,6 +222,7 @@ export default function HRForms() {
   const [search, setSearch] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [place, setPlace] = useState('');
+  const [declarationDate, setDeclarationDate] = useState('');
 
   const handlePersonalChange = (field, value) => {
     setPersonal(prev => ({ ...prev, [field]: value }));
@@ -509,7 +510,7 @@ export default function HRForms() {
               <div className="form-row">
                 <div style={{ flex: 1 }}>
                   <label className="form-label">Date</label>
-                  <input type="date" style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
+                  <input type="date" value={declarationDate} onChange={e => setDeclarationDate(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
                 </div>
                 <Field label="Place" placeholder="____________" readOnly={false} value={place} onChange={e => setPlace(e.target.value)} />
               </div>
@@ -656,7 +657,7 @@ export default function HRForms() {
             <div className="form-row">
               <div style={{ flex: 1 }}>
                 <label className="form-label">Date</label>
-                <input type="date" readOnly style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
+                <input type="date" readOnly value={declarationDate} style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
               </div>
               <Field label="Place" value={place} readOnly />
             </div>
