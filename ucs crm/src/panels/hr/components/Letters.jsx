@@ -65,12 +65,12 @@ ${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;co
 </div>`;
 }
 
-function build(type, w) {
+function build(type, w, joiningDate = '') {
   const today = new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
-    'Offer letter': `To,\n${w.name}\n\nSubject: Offer Letter – ${r}\n\nDear ${w.name},\n\nWe are pleased to offer you the role of ${r} in the ${d} department of Being Sevak Charitable Trust. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on [joining date] for a period of [duration], extendable by mutual consent, with a commitment of approximately [hours per week / working hours].\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the Being Sevak family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${w.name}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
+    'Offer letter': `To,\n${w.name}\n\nSubject: Offer Letter – ${r}\n\nDear ${w.name},\n\nWe are pleased to offer you the role of ${r} in the ${d} department of Being Sevak Charitable Trust. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on ${joiningDate} for a period of 2 months, extendable by mutual consent.\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the Being Sevak family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${w.name}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': `Dear ${w.name},\n\nThis letter is a formal note regarding recent conduct in your role as ${r}. We value your contribution and trust this can be resolved. Please treat this as an opportunity to realign with our shared expectations.\n\nRegards,\nThe People Team`,
     'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
@@ -166,7 +166,9 @@ export default function Letters() {
     } else {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
       const hrNameText = hrName || '{{hr_name}}';
-      const result = build(type, w);
+      const jd = w.date_of_joining || w.created_at || '';
+      const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
+      const result = build(type, w, joiningDate);
       body = buildStyledLetterHTML(w, type, result.body, dateText, hrNameText, subject);
       today = dateText;
     }
