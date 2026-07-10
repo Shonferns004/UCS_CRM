@@ -531,9 +531,10 @@ export default function HRForms() {
 
   return (
     <div className="card">
-      <div className="card-head"><h3>HR Forms</h3><span className="sub">Employee onboarding form</span></div>
+      <div className="print-header">EMPLOYEE ONBOARDING FORM <small>UFS HR Department</small></div>
+      <div className="card-head no-print"><h3>HR Forms</h3><span className="sub">Employee onboarding form</span></div>
       <div className="card-pad">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+        <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
           {SECTIONS.map(s => (
             <button key={s} className={`btn ${section === s ? 'btn-primary' : ''}`} onClick={() => { setSection(s); setShowPreview(false); }} style={{ fontSize: 13 }}>
               {s}
@@ -672,7 +673,7 @@ export default function HRForms() {
           renderSection()
         )}
 
-        <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div className="no-print" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button className="btn btn-primary" onClick={handleSave} style={{ gap: 6 }}>
             {saved ? 'Saved!' : 'Save Form'}
           </button>
