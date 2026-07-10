@@ -501,9 +501,10 @@ export default function HRForms() {
           <>
             <div className="card-head"><h4>Declaration</h4></div>
             <div className="card-pad">
-              <p style={{ fontSize: 14, lineHeight: 1.8, marginBottom: 24 }}>
-                I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.
-              </p>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.8, marginBottom: 24, cursor: 'pointer' }}>
+                <input type="checkbox" style={{ marginTop: 5, transform: 'scale(1.1)' }} />
+                <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</span>
+              </label>
               <div className="form-row">
                 <Field label="Date" placeholder="____________" readOnly={false} value="" onChange={() => {}} />
                 <Field label="Place" placeholder="____________" readOnly={false} value="" onChange={() => {}} />
@@ -642,9 +643,10 @@ export default function HRForms() {
             </div>
 
             <h3 style={{ marginTop: 24, marginBottom: 16 }}>Declaration</h3>
-            <p style={{ fontSize: 14, lineHeight: 1.8, marginBottom: 16 }}>
-              I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.
-            </p>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.8, marginBottom: 16, cursor: 'pointer' }}>
+              <input type="checkbox" style={{ marginTop: 5, transform: 'scale(1.1)' }} />
+              <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</span>
+            </label>
             <div className="form-row">
               <Field label="Date" value="" readOnly />
               <Field label="Place" value="" readOnly />
