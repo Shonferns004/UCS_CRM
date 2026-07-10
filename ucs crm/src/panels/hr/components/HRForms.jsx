@@ -299,7 +299,6 @@ export default function HRForms() {
                 )}
               </div>
             </div>
-            </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your educational background</p>
               {education.length === 0 && (
@@ -443,7 +442,6 @@ export default function HRForms() {
                   </div>
                 )}
               </div>
-            </div>
             </div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>These details will be used for salary disbursement</p>
