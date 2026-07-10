@@ -118,6 +118,7 @@ export default function NgoAdminPanel() {
   const [searchResults, setSearchResults] = useState({ donors: [], fros: [], stations: [] })
   const [showSearchDropdown, setShowSearchDropdown] = useState(false)
   const [searchingMaster, setSearchingMaster] = useState(false)
+  const [selectedResult, setSelectedResult] = useState(null)
   const searchRef = useRef(null)
   const searchTimer = useRef(null)
   const menuRef = useRef(null)
@@ -290,7 +291,7 @@ export default function NgoAdminPanel() {
                     <div>
                       <div style={{ padding:'6px 10px', fontSize:9, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:.5, background:'var(--bg)' }}>Donors ({searchResults.donors.length})</div>
                       {searchResults.donors.slice(0, 5).map(d => (
-                        <div key={d.id} onClick={() => { setShowSearchDropdown(false); navigate(`/ngo-admin/donors/${d.id}`); }}
+                        <div key={d.id} onClick={() => { setShowSearchDropdown(false); setSelectedResult({ type: 'donor', data: d }); }}
                           style={{ padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:8, transition:'background .1s' }}
                           onMouseEnter={e => e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e => e.currentTarget.style.background=''}>
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#dcfce7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#16a34a' }}>{d.name?.[0] || '?'}</div>
@@ -307,7 +308,7 @@ export default function NgoAdminPanel() {
                     <div>
                       <div style={{ padding:'6px 10px', fontSize:9, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:.5, background:'var(--bg)' }}>FROs ({searchResults.fros.length})</div>
                       {searchResults.fros.slice(0, 5).map(f => (
-                        <div key={f.id} onClick={() => { setShowSearchDropdown(false); navigate(`/ngo-admin/fro-status`); }}
+                        <div key={f.id} onClick={() => { setShowSearchDropdown(false); setSelectedResult({ type: 'fro', data: f }); }}
                           style={{ padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:8, transition:'background .1s' }}
                           onMouseEnter={e => e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e => e.currentTarget.style.background=''}>
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#e0e7ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#4338ca' }}>{f.name?.[0] || '?'}</div>
@@ -323,7 +324,7 @@ export default function NgoAdminPanel() {
                     <div>
                       <div style={{ padding:'6px 10px', fontSize:9, fontWeight:700, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:.5, background:'var(--bg)' }}>Stations ({searchResults.stations.length})</div>
                       {searchResults.stations.slice(0, 5).map((s, i) => (
-                        <div key={`${s.station}-${i}`} onClick={() => { setShowSearchDropdown(false); navigate('/ngo-admin/station-mgmt'); }}
+                        <div key={`${s.station}-${i}`} onClick={() => { setShowSearchDropdown(false); setSelectedResult({ type: 'station', data: s }); }}
                           style={{ padding:'6px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:8, transition:'background .1s' }}
                           onMouseEnter={e => e.currentTarget.style.background='#f3f4f6'} onMouseLeave={e => e.currentTarget.style.background=''}>
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#d97706' }}>S</div>
@@ -407,6 +408,168 @@ export default function NgoAdminPanel() {
           </Routes>
         </div>
       </div>
+      {/* Search Result Detail Modal */}
+      {selectedResult && (() => {
+        const r = selectedResult.data
+        const close = () => setSelectedResult(null)
+        const iname = (name) => (name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+        const bgMap = { donor: '#dcfce7', fro: '#e0e7ff', station: '#fef3c7' }
+        const colorMap = { donor: '#16a34a', fro: '#4338ca', station: '#d97706' }
+        const iconMap = { donor: '👤', fro: '👤', station: '📍' }
+
+        if (selectedResult.type === 'donor') {
+          const asgn = r.assignments?.[0]
+          return (
+            <div className="modal-overlay" onClick={close}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: bgMap.donor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: colorMap.donor }}>{iname(r.name)}</div>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>{r.name || 'Unknown'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.mobile_number || ''}{r.email ? ` · ${r.email}` : ''}</div>
+                    </div>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={close}>close</span>
+                </div>
+                <div style={{ padding: '16px 22px', background: 'var(--bg)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>City</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.city || '—'}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Amount</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Status</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{asgn?.status?.replace(/_/g, ' ') || 'N/A'}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Project</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.project_supported || '—'}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Total Donated</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sage)' }}>₹{Number(r.total_amount || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Donations</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.donation_count || 0} time{(r.donation_count || 0) !== 1 ? 's' : ''}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Address</div>
+                      <div style={{ fontSize: 11, fontWeight: 500 }}>{r.address_1 || '—'}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
+                      <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Last Donation</div>
+                      <div style={{ fontSize: 11, fontWeight: 500 }}>{r.last_donation_date ? new Date(r.last_donation_date).toLocaleDateString('en-GB') : '—'}</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10, color: 'var(--ink-soft)' }}>
+                    {asgn?.workers?.name && <span className="card" style={{ margin: 0, padding: '4px 8px' }}>FRO: <strong>{asgn.workers.name}</strong></span>}
+                    {asgn?.station && <span className="card" style={{ margin: 0, padding: '4px 8px' }}>Station: <strong>{asgn.station}</strong></span>}
+                    {asgn?.ngo_id && <span className="card" style={{ margin: 0, padding: '4px 8px' }}>NGO ID: <strong>{asgn.ngo_id}</strong></span>}
+                    {!asgn && <span className="card" style={{ margin: 0, padding: '4px 8px', color: '#dc2626' }}>No assignment data</span>}
+                  </div>
+                  {(r.pan_number || r.birth_date) && (
+                    <div style={{ marginTop: 6, fontSize: 10, color: 'var(--ink-soft)', padding: '6px 10px', background: 'var(--card-bg)', borderRadius: 6 }}>
+                      {r.pan_number && <span>PAN: <strong>{r.pan_number}</strong></span>}
+                      {r.birth_date && <span> &nbsp;·&nbsp; DOB: <strong>{r.birth_date}</strong></span>}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="btn btn-sm" onClick={close} style={{ background: 'transparent', border: '1px solid var(--line)' }}>Close</button>
+                    <button className="btn btn-primary btn-sm" onClick={() => { close(); navigate(`/ngo-admin/donors/${r.id}`); }}>Open Full Detail →</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        if (selectedResult.type === 'fro') {
+          return (
+            <div className="modal-overlay" onClick={close}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: bgMap.fro, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: colorMap.fro }}>{iname(r.name)}</div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{r.name || 'Unknown'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.login_id || ''}</div>
+                    </div>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={close}>close</span>
+                </div>
+                <div style={{ padding: '16px 22px', background: 'var(--bg)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <span className={`pill ${r.is_active !== false ? 'pill-green' : 'pill-red'}`}>{r.is_active !== false ? 'Active' : 'Inactive'}</span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>ID: {r.id}</span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Joined {r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '—'}</span>
+                  </div>
+                  {r.ngo_id && (
+                    <div style={{ fontSize: 10, color: 'var(--ink-soft)', padding: '6px 10px', background: 'var(--card-bg)', borderRadius: 6 }}>
+                      NGO ID: <strong>{r.ngo_id}</strong>
+                    </div>
+                  )}
+                  <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="btn btn-sm" onClick={close} style={{ background: 'transparent', border: '1px solid var(--line)' }}>Close</button>
+                    <button className="btn btn-primary btn-sm" onClick={() => { close(); navigate('/ngo-admin/fro-status'); }}>View FRO Status →</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        if (selectedResult.type === 'station') {
+          const froName = r.workers?.name
+          return (
+            <div className="modal-overlay" onClick={close}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: bgMap.station, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: colorMap.station }}>S</div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{r.station || 'Unknown'}</div>
+                      <div style={{ fontSize: 11, color: r.workers?.name ? 'inherit' : '#dc2626' }}>{froName ? `FRO: ${froName}${r.workers?.login_id ? ` (${r.workers.login_id})` : ''}` : 'No FRO assigned'}</div>
+                    </div>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={close}>close</span>
+                </div>
+                <div style={{ padding: '16px 22px', background: 'var(--bg)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div className="card" style={{ margin: 0, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Donors</div>
+                      <div style={{ fontSize: 20, fontWeight: 700 }}>{r.donor_count || 0}</div>
+                    </div>
+                    <div className="card" style={{ margin: 0, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>NGO</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.ngo_id || '—'}</div>
+                    </div>
+                  </div>
+                  {!froName && (
+                    <div style={{ marginTop: 8, fontSize: 10, color: '#dc2626', padding: '6px 10px', background: '#fef2f2', borderRadius: 6 }}>
+                      This station has no FRO assigned. FRO data may not load if the FK relationship is missing.
+                    </div>
+                  )}
+                  <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="btn btn-sm" onClick={close} style={{ background: 'transparent', border: '1px solid var(--line)' }}>Close</button>
+                    <button className="btn btn-primary btn-sm" onClick={() => { close(); navigate('/ngo-admin/station-mgmt'); }}>Manage Station →</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        return null
+      })()}
+
       <NotificationDrawer topOffset={56}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}

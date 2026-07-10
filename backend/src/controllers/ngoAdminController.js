@@ -2062,22 +2062,35 @@ export const masterSearch = async (req, res) => {
       })(),
       // Search stations
       (async () => {
-        let query = supabase
-          .from('fro_station_assignments')
-          .select('station, ngo_id, fro_worker_id, workers!left(name, login_id)')
-          .ilike('station', term)
-          .limit(10);
-        if (ngoFilter) {
-          const { data: ngoStations } = await supabase
+        try {
+          let query = supabase
             .from('fro_station_assignments')
-            .select('station')
-            .in('ngo_id', ngoFilter);
-          const stationNames = [...new Set((ngoStations || []).map(s => s.station).filter(Boolean))];
-          if (stationNames.length > 0) query = query.in('station', stationNames);
-          else return [];
+            .select('station, ngo_id, fro_worker_id, workers!left(name, login_id)')
+            .ilike('station', term)
+            .limit(10);
+          if (ngoFilter) {
+            const { data: ngoStations } = await supabase
+              .from('fro_station_assignments')
+              .select('station')
+              .in('ngo_id', ngoFilter);
+            const stationNames = [...new Set((ngoStations || []).map(s => s.station).filter(Boolean))];
+            if (stationNames.length > 0) query = query.in('station', stationNames);
+            else return [];
+          }
+          const { data, error } = await query;
+          if (error) {
+            // Fallback: query without workers join if FK fails
+            const { data: fallback } = await supabase
+              .from('fro_station_assignments')
+              .select('station, ngo_id, fro_worker_id')
+              .ilike('station', term)
+              .limit(10);
+            return (fallback || []).map(s => ({ ...s, workers: null }));
+          }
+          return data || [];
+        } catch {
+          return [];
         }
-        const { data } = await query;
-        return data || [];
       })(),
     ]);
 
