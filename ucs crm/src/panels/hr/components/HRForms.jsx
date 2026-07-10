@@ -154,6 +154,9 @@ export default function HRForms() {
       case 'Personal Details':
         return (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
+            </div>
             <div className="card-head"><h3>Basic Information</h3></div>
             <div className="card-pad">
               <div className="form-row">
@@ -209,6 +212,9 @@ export default function HRForms() {
       case 'Education':
         return (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
+            </div>
             <div className="card-head"><h3>Educational Qualifications</h3></div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your educational background</p>
@@ -232,6 +238,9 @@ export default function HRForms() {
       case 'Previous Organizations':
         return (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
+            </div>
             <div className="card-head"><h3>Previous Organizations</h3></div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your previous work experience (if any)</p>
@@ -255,6 +264,9 @@ export default function HRForms() {
       case 'Family':
         return (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
+            </div>
             <div className="card-head"><h3>Family Details</h3></div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your family members</p>
@@ -278,6 +290,9 @@ export default function HRForms() {
       case 'References':
         return (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
+            </div>
             <div className="card-head"><h3>Professional References</h3></div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add professional references</p>
@@ -301,6 +316,9 @@ export default function HRForms() {
       case 'Bank Details':
         return (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
+            </div>
             <div className="card-head"><h3>Bank Account Details</h3></div>
             <div className="card-pad">
               <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>These details will be used for salary disbursement</p>
@@ -331,10 +349,6 @@ export default function HRForms() {
               {s}
             </button>
           ))}
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search fields..." style={{ padding:'9px 11px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:14, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:'100%', boxSizing:'border-box' }} />
         </div>
 
         {renderSection()}
