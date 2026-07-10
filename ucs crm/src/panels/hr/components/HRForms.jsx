@@ -220,6 +220,7 @@ export default function HRForms() {
 
   const [saved, setSaved] = useState(false);
   const [search, setSearch] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
 
   const handlePersonalChange = (field, value) => {
     setPersonal(prev => ({ ...prev, [field]: value }));
@@ -502,13 +503,122 @@ export default function HRForms() {
       <div className="card-pad">
         <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
           {SECTIONS.map(s => (
-            <button key={s} className={`btn ${section === s ? 'btn-primary' : ''}`} onClick={() => setSection(s)} style={{ fontSize: 13 }}>
+            <button key={s} className={`btn ${section === s ? 'btn-primary' : ''}`} onClick={() => { setSection(s); setShowPreview(false); }} style={{ fontSize: 13 }}>
               {s}
             </button>
           ))}
+          <button className={`btn ${showPreview ? 'btn-primary' : ''}`} onClick={() => setShowPreview(!showPreview)} style={{ fontSize: 13 }}>Preview</button>
         </div>
 
-        {renderSection()}
+        {showPreview ? (
+          <div className="card-pad" style={{ maxHeight: 500, overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: 16 }}>Personal Details</h3>
+            <div className="form-row">
+              <Field label="Full Name" value={personal.fullName} readOnly />
+              <Field label="Email" value={personal.email} readOnly />
+            </div>
+            <div className="form-row">
+              <Field label="Phone" value={personal.phone} readOnly />
+              <Field label="Alt. Phone" value={personal.altPhone} readOnly />
+            </div>
+            <Field label="Father / Husband Name" value={personal.fatherHusband} readOnly />
+            <div className="form-row">
+              <Field label="Gender" value={personal.gender} readOnly />
+              <Field label="Date of Birth" value={personal.dob} readOnly />
+            </div>
+            <Field label="Marital Status" value={personal.maritalStatus} readOnly />
+            <Field label="Address" value={personal.address} readOnly />
+            <div className="form-row">
+              <Field label="City" value={personal.city} readOnly />
+              <Field label="State" value={personal.state} readOnly />
+            </div>
+            <Field label="Pincode" value={personal.pincode} readOnly />
+            <div className="form-row">
+              <Field label="PAN Number" value={personal.panNumber} readOnly />
+              <Field label="Aadhaar Number" value={personal.aadhaarNumber} readOnly />
+            </div>
+            <Field label="Permanent Address" value={personal.permanentAddress} readOnly />
+            <Field label="Emergency Contact Person" value={personal.emergencyName} readOnly />
+            <div className="form-row">
+              <Field label="Emergency Relationship" value={personal.emergencyRelation} readOnly />
+              <Field label="Emergency Phone" value={personal.emergencyPhone} readOnly />
+            </div>
+
+            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Education</h3>
+            {education.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p> : education.map((e, i) => (
+              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
+                <strong>Entry {i + 1}</strong>
+                <div className="form-row" style={{ marginTop: 8 }}>
+                  <Field label="Degree" value={e.degree} readOnly />
+                  <Field label="Institution" value={e.institution} readOnly />
+                </div>
+                <div className="form-row">
+                  <Field label="University" value={e.university} readOnly />
+                  <Field label="Year" value={e.year} readOnly />
+                </div>
+                <Field label="Percentage / Grade" value={e.percentage} readOnly />
+              </div>
+            ))}
+
+            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Previous Organizations</h3>
+            {organizations.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No previous organizations</p> : organizations.map((o, i) => (
+              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
+                <strong>Organization {i + 1}</strong>
+                <div className="form-row" style={{ marginTop: 8 }}>
+                  <Field label="Organization Name" value={o.name} readOnly />
+                  <Field label="Role / Designation" value={o.role} readOnly />
+                </div>
+                <div className="form-row">
+                  <Field label="From Year" value={o.fromYear} readOnly />
+                  <Field label="To Year" value={o.toYear} readOnly />
+                </div>
+              </div>
+            ))}
+
+            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Family</h3>
+            {family.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No family members</p> : family.map((f, i) => (
+              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
+                <strong>Member {i + 1}</strong>
+                <div className="form-row" style={{ marginTop: 8 }}>
+                  <Field label="Name" value={f.name} readOnly />
+                  <Field label="Relationship" value={f.relationship} readOnly />
+                </div>
+                <div className="form-row">
+                  <Field label="Occupation" value={f.occupation} readOnly />
+                  <Field label="Phone" value={f.phone} readOnly />
+                </div>
+                <Field label="Date of Birth" value={f.dob} readOnly />
+              </div>
+            ))}
+
+            <h3 style={{ marginTop: 24, marginBottom: 16 }}>References</h3>
+            {references.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No references</p> : references.map((r, i) => (
+              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
+                <strong>Reference {i + 1}</strong>
+                <div className="form-row" style={{ marginTop: 8 }}>
+                  <Field label="Name" value={r.name} readOnly />
+                  <Field label="Designation" value={r.designation} readOnly />
+                </div>
+                <div className="form-row">
+                  <Field label="Organization" value={r.organization} readOnly />
+                  <Field label="Phone" value={r.phone} readOnly />
+                </div>
+              </div>
+            ))}
+
+            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Bank Details</h3>
+            <div className="form-row">
+              <Field label="Bank Name" value={bank.bankName} readOnly />
+              <Field label="Account Holder" value={bank.accountHolder} readOnly />
+            </div>
+            <div className="form-row">
+              <Field label="IFSC Code" value={bank.ifsc} readOnly />
+              <Field label="Account Number" value={bank.accountNo} readOnly />
+            </div>
+          </div>
+        ) : (
+          renderSection()
+        )}
 
         <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button className="btn btn-primary" onClick={handleSave} style={{ gap: 6 }}>
