@@ -42,30 +42,26 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText) {
 </div>`;
 }
 
-function buildExperienceLetterHTML(w, dateText, hrNameText) {
+function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText) {
   const r = w.role || w.department || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="text-align:left;margin-bottom:12px">
-<img src="/logo/beingsevak-logo.png" alt="Beingsevak" style="width:80px;height:auto" />
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="/logo/beingsevak-logo.png" alt="Being Sevak Charitable Trust" style="width:65px;height:auto;margin-right:14px" />
+<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">BEING SEVAK CHARITABLE TRUST</div></div>
 </div>
-<h1 style="font-size:18px;font-weight:700;color:#000;margin:0 0 4px 0;text-align:center"># Beingsevak – Experience Letter</h1>
-<h2 style="font-size:16px;font-weight:700;color:#000;margin:0 0 12px 0;text-align:center">EXPERIENCE LETTER</h2>
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 10px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
-<div style="margin-bottom:8px"><strong>TO WHOM IT MAY CONCERN</strong></div>
+<div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Experience Letter</div>
+${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Designation: ${subjectText}</div>` : ''}
+<div style="margin-bottom:6px"><strong>TO WHOM IT MAY CONCERN</strong></div>
 <div style="text-align:justify">
-<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>Beingsevak</strong> from <strong>[Joining Date]</strong> to <strong>[Last Working Date]</strong> as a <strong>${r}</strong>.</p>
+<p style="margin:0 0 6px 0">This is to certify that <strong>${w.name}</strong> was employed with <strong>Being Sevak Charitable Trust</strong> from <strong>${joiningDate}</strong> to <strong>${lastWorkingDate}</strong> as a <strong>${r}</strong>.</p>
 <p style="margin:0 0 6px 0">During the tenure with our organization, <strong>${w.name}</strong> performed the assigned responsibilities with dedication and professionalism. The role involved managing day-to-day tasks, coordinating with clients and team members, preparing necessary documentation, and supporting organizational operations related to the assigned position. <strong>${w.name}</strong> consistently demonstrated sincerity, a positive attitude, and a commitment to delivering quality work.</p>
 <p style="margin:0 0 6px 0">Throughout the period of employment, <strong>${w.name}</strong> maintained good professional conduct, worked effectively as a team member, and carried out the assigned responsibilities to our satisfaction.</p>
-<p style="margin:0 0 6px 0">We appreciate the contributions made by <strong>${w.name}</strong> to <strong>Beingsevak</strong> and thank them for their services. We wish them every success in their future professional endeavors.</p>
+<p style="margin:0 0 6px 0">We appreciate the contributions made by <strong>${w.name}</strong> to <strong>Being Sevak Charitable Trust</strong> and thank them for their services. We wish them every success in their future professional endeavors.</p>
 <p style="margin:0 0 6px 0">Should you require any further information, please feel free to contact us.</p>
 </div>
-<div style="margin-top:14px">
-<p style="margin:6px 0 2px 0"><strong>Contact No.:</strong> +91 8879035035</p>
-<p style="margin:0 0 2px 0"><strong>Email:</strong> being.sevak@gmail.com</p>
-<p style="margin:6px 0 2px 0">Company Seal &amp; Signature</p>
-</div>
-<hr style="margin:14px 0 6px 0;border:none;border-top:1px solid #ccc" />
-<div style="text-align:center;font-size:12px;color:#6b7280"><strong>Registered Office:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra – 400067.</div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br /><strong>Contact No.:</strong> +91 8879035035<br /><strong>Email:</strong> being.sevak@gmail.com<br /><br /><strong>Company Seal &amp; Signature</strong><br /><strong>Being Sevak Charitable Trust</strong></p></div>
+<div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
 </div>`;
 }
 
@@ -74,12 +70,31 @@ function build(type, w) {
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
-    'Offer letter': `Dear ${w.name},\n\nWe are pleased to offer you the position of ${r} in the ${d} department at Ultimate Consultancy Solutions (UCS). We were impressed with your qualifications and are confident you will be a valuable addition to our team.\n\nYour date of joining will be communicated shortly. You will be on a probation period of one (1) month from the date of joining.\n\nWarm regards,\nThe People Team`,
+    'Offer letter': `To,\n${w.name}\n\nSubject: Offer Letter – ${r}\n\nDear ${w.name},\n\nWe are pleased to offer you the role of ${r} in the ${d} department of Being Sevak Charitable Trust. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on [joining date] for a period of [duration], extendable by mutual consent, with a commitment of approximately [hours per week / working hours].\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the Being Sevak family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${w.name}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': `Dear ${w.name},\n\nThis letter is a formal note regarding recent conduct in your role as ${r}. We value your contribution and trust this can be resolved. Please treat this as an opportunity to realign with our shared expectations.\n\nRegards,\nThe People Team`,
     'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
   }[type];
   return { today, body };
+}
+
+function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, subjectText) {
+  const r = w.role || w.department || 'Team Member';
+  const title = letterType.charAt(0).toUpperCase() + letterType.slice(1).toLowerCase();
+  const bodyHtml = bodyText.replace(/\n/g, '<br />');
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="/logo/beingsevak-logo.png" alt="Being Sevak Charitable Trust" style="width:65px;height:auto;margin-right:14px" />
+<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">BEING SEVAK CHARITABLE TRUST</div></div>
+</div>
+<div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${title}</div>
+${subjectText ? `<div style="text-align:center;font-size:12px;font-weight:600;color:#082F5A;margin:0 0 6px 0">Designation: ${subjectText}</div>` : ''}
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+<div style="text-align:justify;white-space:pre-wrap">${bodyHtml}</div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />${hrNameText}<br /><strong>Being Sevak Charitable Trust</strong></p></div>
+<div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
+</div>`;
 }
 
 export default function Letters() {
@@ -91,6 +106,7 @@ export default function Letters() {
   const [letterDate, setLetterDate] = useState('');
   const [hrName, setHrName] = useState('');
   const [subject, setSubject] = useState('');
+  const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
   const [showDownload, setShowDownload] = useState(false);
   const pdfRef = useRef(null);
@@ -102,13 +118,8 @@ export default function Letters() {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
-    if (letterType === 'Joining letter' || letterType === 'Experience letter') {
-      el.style.padding = '0';
-      el.innerHTML = bodyText;
-    } else {
-      el.style.padding = '40px';
-      el.textContent = bodyText;
-    }
+    el.style.padding = '0';
+    el.innerHTML = bodyText;
     await document.fonts?.ready;
     await new Promise(r => setTimeout(r, 100));
     const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
@@ -146,14 +157,18 @@ export default function Letters() {
       body = buildJoiningLetterHTML(w, dateText, hrNameText, subject);
       today = dateText;
     } else if (type === 'Experience letter') {
-      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const jd = w.date_of_joining || w.created_at || '';
+      const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
+      const lastWorkingDate = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{last_working_date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildExperienceLetterHTML(w, dateText, hrNameText);
-      today = dateText;
+      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject);
+      today = lastWorkingDate;
     } else {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
+      const hrNameText = hrName || '{{hr_name}}';
       const result = build(type, w);
-      body = result.body;
-      today = result.today;
+      body = buildStyledLetterHTML(w, type, result.body, dateText, hrNameText, subject);
+      today = dateText;
     }
     setOut({ today, body, type });
     setShowDownload(false);
@@ -183,35 +198,28 @@ export default function Letters() {
           <label className="field">NGOs
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
           </label>
-          <label className="field">Worker
+          <label className="field">Volunteer
             <Dropdown value={name} onChange={e=>setName(e.target.value)}
               options={workers.map(w => ({value: w.name, label: w.name}))} />
           </label>
           <label className="field">Letter type
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
           </label>
-          <label className="field">Date
+          <label className="field">Last Working Date
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
           <label className="field">HR name
             <Dropdown value={hrName} onChange={e=>setHrName(e.target.value)} options={[{value:'',label:'Select HR...'}, ...workers.filter(w => (w.dept||w.department||'').toLowerCase().includes('hr') || (w.dept||w.department||'').toLowerCase().includes('admin')).map(w => ({value: w.name, label: w.name}))]} />
           </label>
-          <label className="field">Subject
-            <Dropdown value={subject} onChange={e=>setSubject(e.target.value)} options={['Hr','Accounts','Admin','FRO','Digital Marketing','Housekeeping']} />
+          <label className="field">Designation
+            <Dropdown value={subject} onChange={e => { if (e.target.value === '__add_role__') { const r = prompt('Enter role name:'); if (r && r.trim()) { setExtraRoles(p => [...p, r.trim()]); setSubject(r.trim()); } } else { setSubject(e.target.value); } }} options={[...[...new Set([...workers.map(w => w.role || w.department || 'Team Member'), ...extraRoles])].sort().map(v => ({ value: v, label: v })), { value: '__add_role__', label: '+ Add Role' }]} renderOption={o => o.value === '__add_role__' ? <span style={{color:'#dc2626',fontWeight:600}}>+ Add Role</span> : o.label} />
           </label>
           <label className="field btn-field"><span>&nbsp;</span>{!showDownload ? <button className="btn btn-primary" onClick={generate}><FileTxt width={16}/> Generate</button> : <button className="btn btn-primary" onClick={downloadPdf} style={{background:'#dc2626',color:'#fff',fontWeight:600,border:'1px solid #b91c1c'}}><FileTxt width={16}/> Download PDF</button>}</label>
         </div>
 
         {out && (
           <div className="letter">
-            {out.type === 'Joining letter' || out.type === 'Experience letter' ? (
-              <div dangerouslySetInnerHTML={{ __html: out.body }} />
-            ) : (
-              <><div className="lh" style={{ fontSize:18, marginBottom:4 }}>{out.type}</div>
-            <div style={{ color:'var(--ink-soft)', fontSize:12, marginBottom:18 }}>{out.today}</div>
-            {out.body}</>
-            )}
-
+            <div dangerouslySetInnerHTML={{ __html: out.body }} />
           </div>
         )}
       </div>
