@@ -58,7 +58,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.options('*', cors());
 app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => { req.rawBody = buf.toString(); },
