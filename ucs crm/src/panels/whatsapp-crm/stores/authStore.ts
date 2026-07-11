@@ -19,20 +19,26 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
 
   signIn: async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    const res = await fetch('http://localhost:5000/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || 'Login failed');
+    if (data.token) localStorage.setItem('ucs_token', data.token);
+    if (data.user) localStorage.setItem('ucs_user', JSON.stringify(data.user));
     await useAuthStore.getState().fetchUser();
   },
 
   signUp: async (email, password, firstName, lastName, orgName) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { first_name: firstName, last_name: lastName, org_name: orgName },
-      },
+    const res = await fetch('http://localhost:5000/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, first_name: firstName, last_name: lastName, org_name: orgName }),
     });
-    if (error) throw error;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || 'Registration failed');
   },
 
   signOut: async () => {
