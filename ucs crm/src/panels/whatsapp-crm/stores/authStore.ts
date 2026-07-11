@@ -36,13 +36,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   signOut: async () => {
-    try { await supabase.auth.signOut(); } catch {}
+    localStorage.removeItem('ucs_token');
+    localStorage.removeItem('ucs_user');
     set({ user: null, isAuthenticated: false });
   },
 
   fetchUser: async () => {
     try {
-      // First: try UCS CRM localStorage session
       const ucsToken = localStorage.getItem('ucs_token');
       const ucsUserRaw = localStorage.getItem('ucs_user');
       if (ucsToken && ucsUserRaw) {
@@ -64,26 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         } catch {}
       }
 
-      // Second: try Supabase Auth
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        set({ user: null, isAuthenticated: false, isLoading: false });
-        return;
-      }
-
-      const { data: profile, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
-
-      if (error || !profile) {
-        set({ user: null, isAuthenticated: false, isLoading: false });
-        return;
-      }
-
-      set({ user: profile, isAuthenticated: true, isLoading: false });
-      loadMetaCredentials();
+      set({ user: null, isAuthenticated: false, isLoading: false });
     } catch {
       set({ user: null, isAuthenticated: false, isLoading: false });
     }
