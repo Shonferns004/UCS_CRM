@@ -10,6 +10,8 @@ function SearchIcon({ size = 16 }) {
   );
 }
 
+const RCOLORS = ['#5B6B4E','#1565C0','#7A5C7E','#B5603A','#C08A2E','#00838F','#6A1B9A','#2E7D32','#E65100','#4F6472'];
+
 const STATUS_LABELS = {
   scheduled: 'Scheduled', hold: 'Pending', followed_up: 'Follow Up', call_back: 'Follow Up',
   ringing: 'Pending', unreachable: 'Pending', busy: 'Pending', switched_off: 'Pending',
