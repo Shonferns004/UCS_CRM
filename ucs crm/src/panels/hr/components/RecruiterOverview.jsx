@@ -370,35 +370,26 @@ export default function RecruiterOverview() {
       {/* ── Sixth Section: Monthly Performance Bar Chart ── */}
       <div className="ro-card" style={{ marginTop: 14 }}>
         <div className="ro-card-title">Monthly Recruiter Performance</div>
-        <div className="ro-asym-chart">
+        <div className="ro-bar-chart">
           {monthlyData.map((m, i) => {
-            const h = maxBarVal > 0 ? Math.max((m.total / maxBarVal * 140), 4) : 4;
-            const sh = maxBarVal > 0 ? Math.max((m.scheduled / maxBarVal * 140), 4) : 4;
-            const jh = maxBarVal > 0 ? Math.max((m.joined / maxBarVal * 140), 4) : 4;
-            const widths = [52, 38, 60, 44, 56, 40];
-            const offsets = [0, 18, 6, 24, 10, 20];
-            const w = widths[i % widths.length];
-            const off = offsets[i % offsets.length];
+            const h = maxBarVal > 0 ? (m.total / maxBarVal * 120) : 0;
+            const sh = maxBarVal > 0 ? (m.scheduled / maxBarVal * 120) : 0;
+            const jh = maxBarVal > 0 ? (m.joined / maxBarVal * 120) : 0;
+            const rh = maxBarVal > 0 ? (m.rejected / maxBarVal * 120) : 0;
             return (
-              <div key={m.month} className="ro-asym-col">
-                <div className="ro-asym-tooltip">
-                  <div><strong>{m.month}</strong></div>
-                  <div>Total: {m.total}</div>
-                  <div>Scheduled: {m.scheduled}</div>
-                  <div>Joined: {m.joined}</div>
+              <div key={m.month} className="ro-bar-group">
+                <div className="ro-bar-stack" style={{ height: 140 }}>
+                  <div className="ro-bar-tooltip">
+                    <div>{m.month}</div>
+                    <div>Total: {m.total}</div>
+                    <div>Scheduled: {m.scheduled}</div>
+                    <div>Joined: {m.joined}</div>
+                  </div>
+                  <div className="ro-bar-seg" style={{ height: h, background: '#1565C0' }} title={`Total: ${m.total}`} />
+                  <div className="ro-bar-seg" style={{ height: sh, background: '#5B6B4E', marginTop: 2 }} title={`Scheduled: ${m.scheduled}`} />
+                  <div className="ro-bar-seg" style={{ height: jh, background: '#6A1B9A', marginTop: 2 }} title={`Joined: ${m.joined}`} />
                 </div>
-                <div className="ro-asym-bars" style={{ height: 160, width: w, marginLeft: off }}>
-                  <div className="ro-asym-bar" style={{ height: h, background: 'linear-gradient(180deg,#1565C0,#1976D2)' }} title={`Total: ${m.total}`}>
-                    <span className="ro-asym-val">{m.total}</span>
-                  </div>
-                  <div className="ro-asym-bar" style={{ height: sh, background: 'linear-gradient(180deg,#5B6B4E,#7A9A5A)' }} title={`Scheduled: ${m.scheduled}`}>
-                    <span className="ro-asym-val">{m.scheduled}</span>
-                  </div>
-                  <div className="ro-asym-bar" style={{ height: jh, background: 'linear-gradient(180deg,#6A1B9A,#9C27B0)' }} title={`Joined: ${m.joined}`}>
-                    <span className="ro-asym-val">{m.joined}</span>
-                  </div>
-                </div>
-                <div className="ro-asym-label">{m.month}</div>
+                <div className="ro-bar-label">{m.month}</div>
               </div>
             );
           })}
