@@ -4,7 +4,7 @@ import {
   listSources, addSource, editSource, removeSource,
   listEntries, addEntry, editEntry, removeEntry, getSummary,
   suggestEntries, markEntryVerified,
-  assignEntryToNgo, listNgoSuspense, assignSuspenseToFro,
+  assignEntryToNgo, listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched,
   listFroSuspense, resolveSuspenseEntry,
 } from '../controllers/bankAuditController.js';
 
@@ -29,7 +29,8 @@ router.get('/summary', authenticateRole('accounts', 'super_admin'), getSummary);
 
 // NGO Admin routes
 router.get('/ngo-suspense', authenticateRole('admin', 'admin', 'super_admin'), listNgoSuspense);
-router.put('/ngo-suspense/:id/assign-fro', authenticateRole('admin', 'admin', 'super_admin'), assignSuspenseToFro);
+router.put('/ngo-suspense/:id/link-donor', authenticateRole('admin', 'admin', 'super_admin'), linkSuspenseToDonor);
+router.put('/ngo-suspense/:id/no-match', authenticateRole('admin', 'admin', 'super_admin'), markSuspenseUnmatched);
 
 // FRO routes
 router.get('/fro-suspense', authenticateRole('fro', 'worker', 'super_admin'), listFroSuspense);
