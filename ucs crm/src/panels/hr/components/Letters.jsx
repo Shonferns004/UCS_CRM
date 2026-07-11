@@ -10,7 +10,7 @@ const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning le
 const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
   AFLF: { name: 'AFLF', logo: '/logo/aflf-logo.png', alt: 'AFLF', footer: 'AFLF', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
-  MANN: { name: 'MANN', logo: '/logo/mann-logo.png', alt: 'MANN', footer: 'MANN', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
+  MANN: { name: 'MANN', logo: '/logo/mann-logo.png', alt: 'MANN', footer: 'MANN', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.', logoSize: 140 },
 };
 
 function getNgo(key) { return NGO_CONFIG[key] || NGO_CONFIG.BSCT; }
@@ -22,7 +22,7 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const subj = subjectText || `Joining as ${r}`;
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:100px;height:auto;margin-right:14px" />
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
 <div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
 </div>
 <svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
@@ -55,7 +55,7 @@ function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, 
   const r = designation || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:100px;height:auto;margin-right:14px" />
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
 <div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
@@ -79,7 +79,7 @@ function buildWarningLetterHTML(w, dateText, joiningDate, subjectText, ngoKey) {
   const body = `<strong>TO WHOM IT MAY CONCERN</strong>\n\nThis is to inform <strong>${w.name}</strong>, serving with <strong>${ngo.name}</strong> as a <strong>${subjectText || r}</strong> since <strong>${joiningDate}</strong>, regarding the following matter.\n\nIt has come to the notice of the management that on <strong>[date of incident]</strong>, the following conduct/issue was observed:\n\nThis is a violation of the standards of conduct expected from a Sevak of this organization, specifically with regard to <strong>[nature of violation — e.g., attendance, discipline, work conduct]</strong>. Despite prior guidance/counseling on this matter, the concerned conduct has continued, which is a matter of serious concern to the organization.\n\nThey are hereby cautioned to refrain from such conduct going forward.\n\nThis letter should be treated as a formal warning. Any recurrence of similar conduct, or failure to improve within <strong>[timeframe]</strong>, may result in further action, including but not limited to suspension or removal from the Sevak role.\n\nThe organization values the association and hopes this warning will be taken in the right spirit, with a renewed commitment to sincerity and discipline going forward.`;
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:100px;height:auto;margin-right:14px" />
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
 <div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
@@ -111,7 +111,7 @@ function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, su
   const bodyHtml = bodyText.replace(/\n/g, '<br />');
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:100px;height:auto;margin-right:14px" />
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
 <div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
