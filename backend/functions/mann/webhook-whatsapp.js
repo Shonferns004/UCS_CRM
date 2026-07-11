@@ -17,28 +17,7 @@ serve(async (req) => {
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    const { data: account } = await supabase
-      .from("whatsapp_accounts")
-      .select("access_token")
-      .eq("project", "maan")
-      .eq("is_active", true)
-      .single();
-
-    if (!account) {
-      console.error("Mann WhatsApp account not found in DB");
-      return new Response(JSON.stringify({ error: "Account not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const VERIFY_TOKEN = Deno.env.get("WHATSAPP_VERIFY_TOKEN_MANN") || "ucscompany123";
-    const WHATSAPP_ACCESS_TOKEN = account.access_token;
 
     if (req.method === "GET") {
       if (mode === "subscribe" && token === VERIFY_TOKEN) {
@@ -52,6 +31,11 @@ serve(async (req) => {
     }
 
     if (req.method === "POST") {
+      const supabase = createClient(
+        Deno.env.get("MAIN_SUPABASE_URL") || Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("MAIN_SUPABASE_SERVICE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
+
       const body = await req.json();
       console.log("Mann webhook received:", JSON.stringify(body, null, 2));
 
