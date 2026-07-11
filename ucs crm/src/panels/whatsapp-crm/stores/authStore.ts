@@ -13,13 +13,15 @@ interface AuthState {
   fetchUser: () => Promise<void>;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
   isAuthenticated: false,
 
   signIn: async (email, password) => {
-    const res = await fetch('http://localhost:5000/api/auth/login', {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier: email, password }),
@@ -32,7 +34,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   signUp: async (email, password, firstName, lastName, orgName) => {
-    const res = await fetch('http://localhost:5000/api/auth/register', {
+    const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, first_name: firstName, last_name: lastName, org_name: orgName }),
