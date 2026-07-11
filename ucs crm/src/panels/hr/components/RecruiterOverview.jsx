@@ -343,48 +343,6 @@ export default function RecruiterOverview() {
         </div>
       </div>
 
-      {/* ── Second Section: Recruiter Performance Cards ── */}
-      <div className="ro-section-title" style={{ marginTop: 20 }}>Recruiter Performance Cards</div>
-      <div className="ro-perf-grid">
-        {filteredRecruiters.map((r, i) => {
-          const rate = r.leadsCount > 0 ? Math.round(r.joined / r.leadsCount * 100) : 0;
-          return (
-            <div key={r.id} className="ro-perf-card">
-              <div className="ro-perf-head">
-                <div className="ro-perf-avatar" style={{ background: RCOLORS[i % RCOLORS.length] + '22', color: RCOLORS[i % RCOLORS.length] }}>
-                  {r.name?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-                </div>
-                <div>
-                  <div className="ro-perf-name">{r.name}</div>
-                  <div className="ro-perf-role">{r.department || 'Recruiter'}</div>
-                </div>
-                <div className="ro-perf-status-badge ro-badge-available">Available</div>
-              </div>
-              <div className="ro-perf-bar-wrap">
-                <div className="ro-perf-bar-track">
-                  <div className="ro-perf-bar-fill" style={{ width: `${Math.min(rate, 100)}%`, background: RCOLORS[i % RCOLORS.length] }} />
-                </div>
-                <span className="ro-perf-bar-pct">{rate}%</span>
-              </div>
-              <div className="ro-perf-stats-grid">
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.leadsCount}</span><span className="ro-perf-stat-lbl">Total Leads</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.scheduled}</span><span className="ro-perf-stat-lbl">Scheduled</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.interviewed}</span><span className="ro-perf-stat-lbl">Interviewed</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.joined}</span><span className="ro-perf-stat-lbl">Joined</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.pending}</span><span className="ro-perf-stat-lbl">Pending</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.rejected}</span><span className="ro-perf-stat-lbl">Rejected</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.followUp}</span><span className="ro-perf-stat-lbl">Follow Ups</span></div>
-                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.todayLeads}</span><span className="ro-perf-stat-lbl">Today's Tasks</span></div>
-              </div>
-              <div className="ro-perf-footer">
-                <span className="ro-perf-success">Success Rate {rate}%</span>
-                {r.lastActivity && <span className="ro-perf-time">Updated {new Date(r.lastActivity).toLocaleDateString('en', { month: 'short', day: 'numeric' })}</span>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {/* ── Third Section: Recruiter Leaderboard ── */}
       <div className="ro-section-title" style={{ marginTop: 20 }}>Recruiter Leaderboard</div>
       <div className="ro-leaderboard-grid">
