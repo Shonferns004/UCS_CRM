@@ -1,415 +1,555 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { useAuthStore } from '../stores/authStore';
-import { loadMetaCredentials, getCachedToken, getCachedWabaId } from '../lib/metaCredentials';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { Badge } from '../components/ui/Badge';
-import { Phone, Smartphone, UserPlus, Loader2, Plus, X, Save, Pencil, Trash2, Star, RefreshCw, Copy, Mail } from 'lucide-react';
+import {
+  Phone, Smartphone, Loader2, Plus, X, Save, Pencil, Trash2,
+  Building2, Hash, Key, Globe, Shield, CheckCircle2, AlertTriangle,
+  RefreshCw, Eye, EyeOff, ExternalLink, Copy, Send,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import type { WhatsAppPhoneNumber, User, UserRole } from 'shared';
 
-const WHATSAPP_API = 'https://graph.facebook.com/v19.0';
-const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
-  { value: 'tenant_admin', label: 'Admin' },
-  { value: 'agent', label: 'Agent' },
-  { value: 'viewer', label: 'Viewer' },
-];
+interface WhatsAppAccount {
+  id: number;
+  name: string;
+  project: string;
+  phone_number_id: string;
+  access_token: string;
+  waba_id: string;
+  template_name: string | null;
+  template_language: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  created_at: string;
+}
 
-function PhoneNumberBadge({ status }: { status: WhatsAppPhoneNumber['status'] }) {
-  const map: Record<string, 'success' | 'warning' | 'error' | 'neutral'> = {
-    verified: 'success', pending: 'warning', banned: 'error', restricted: 'error',
-  };
-  return <Badge variant={map[status] || 'neutral'}>{status}</Badge>;
+interface LiveInfo {
+  status: string;
+  quality_rating: string | null;
+  verified_name: string | null;
+  display_phone_number: string | null;
+  webhook: string | null;
+  throughput_level: string | null;
+}
+
+const PROJECT_LABELS: Record<string, string> = {
+  bsct: 'Being Sevak Charitable Trust',
+  aflf: 'Ashray For Life Foundation',
+  maan: 'Mann Care Foundation',
+};
+
+const PROJECT_COLORS: Record<string, string> = {
+  bsct: 'bg-green-100 text-green-700 border-green-200',
+  aflf: 'bg-blue-100 text-blue-700 border-blue-200',
+  maan: 'bg-purple-100 text-purple-700 border-purple-200',
+};
+
+function maskToken(token: string): string {
+  if (!token) return '—';
+  if (token.length <= 20) return '••••••••';
+  return token.slice(0, 12) + '••••' + token.slice(-8);
+}
+
+function AccountCard({
+  account,
+  live,
+  loadingLive,
+  onRefresh,
+  onEdit,
+  onDelete,
+  onTestSend,
+}: {
+  account: WhatsAppAccount;
+  live: LiveInfo | null;
+  loadingLive: boolean;
+  onRefresh: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onTestSend: () => void;
+}) {
+  const [showToken, setShowToken] = useState(false);
+
+  const statusVariant = live?.status === 'verified' ? 'success' : live?.status === 'pending' ? 'warning' : 'error';
+  const qualityVariant = live?.quality_rating === 'GREEN' ? 'success' : live?.quality_rating === 'YELLOW' ? 'warning' : 'error';
+
+  return (
+    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+            <Smartphone className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-base">{account.name}</h3>
+            <p className="text-xs text-muted-foreground">{account.project.toUpperCase()}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {account.is_default && <Badge variant="success">Default</Badge>}
+          {account.is_active ? (
+            <Badge variant="success">Active</Badge>
+          ) : (
+            <Badge variant="error">Inactive</Badge>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+        <div className="space-y-0 border-r">
+          <div className="flex items-center gap-3 px-5 py-3 border-b">
+            <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Display Number</p>
+              <p className="text-sm font-medium truncate">{live?.display_phone_number || '—'}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 px-5 py-3 border-b">
+            <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Phone Number ID</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-mono truncate">{account.phone_number_id}</p>
+                <button onClick={() => { navigator.clipboard.writeText(account.phone_number_id); toast.success('Copied'); }} className="text-muted-foreground hover:text-foreground">
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 px-5 py-3 border-b">
+            <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">WABA ID</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-mono truncate">{account.waba_id}</p>
+                <button onClick={() => { navigator.clipboard.writeText(account.waba_id); toast.success('Copied'); }} className="text-muted-foreground hover:text-foreground">
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 px-5 py-3">
+            <Key className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Access Token</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-mono truncate">{showToken ? account.access_token : maskToken(account.access_token)}</p>
+                <button onClick={() => setShowToken(!showToken)} className="text-muted-foreground hover:text-foreground">
+                  {showToken ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                </button>
+                <button onClick={() => { navigator.clipboard.writeText(account.access_token); toast.success('Token copied'); }} className="text-muted-foreground hover:text-foreground">
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-0">
+          <div className="flex items-center gap-3 px-5 py-3 border-b">
+            <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Status</p>
+              <div className="flex items-center gap-2">
+                {loadingLive ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : live ? (
+                  <>
+                    <Badge variant={statusVariant}>{live.status}</Badge>
+                    {live.verified_name && <span className="text-xs text-muted-foreground truncate">({live.verified_name})</span>}
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Click refresh to fetch</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 px-5 py-3 border-b">
+            <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Quality Rating</p>
+              <div className="flex items-center gap-2">
+                {loadingLive ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : live?.quality_rating ? (
+                  <Badge variant={qualityVariant}>{live.quality_rating}</Badge>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 px-5 py-3 border-b">
+            <Send className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Template</p>
+              <p className="text-sm">{account.template_name || '—'}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 px-5 py-3">
+            <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-foreground">Throughput</p>
+              <p className="text-sm capitalize">{live?.throughput_level || '—'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t bg-muted/20 px-5 py-3">
+        <p className="text-xs text-muted-foreground">Added {new Date(account.created_at).toLocaleDateString()}</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={onTestSend}>
+            <Send className="h-3 w-3 mr-1" /> Test Send
+          </Button>
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            <Pencil className="h-3 w-3 mr-1" /> Edit
+          </Button>
+          <Button variant="outline" size="sm" onClick={onDelete} className="text-destructive border-destructive/30 hover:bg-destructive/10">
+            <Trash2 className="h-3 w-3 mr-1" /> Delete
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function PhoneNumbersPage() {
   const queryClient = useQueryClient();
-  const { user } = useAuthStore();
-  const [showAddUser, setShowAddUser] = useState(false);
-  const [showAddNumber, setShowAddNumber] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', first_name: '', last_name: '', role: 'agent' as UserRole });
-  const [adding, setAdding] = useState(false);
-  const [newNumber, setNewNumber] = useState({ display_phone_number: '', phone_number_id: '', label: '', verified_name: '' });
-  const [editingLabel, setEditingLabel] = useState<{ id: string; label: string } | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [createdUserInfo, setCreatedUserInfo] = useState<{ email: string; password: string } | null>(null);
-  const [resetSending, setResetSending] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<WhatsAppAccount | null>(null);
+  const [liveData, setLiveData] = useState<Record<number, LiveInfo>>({});
+  const [loadingLiveMap, setLoadingLiveMap] = useState<Record<number, boolean>>({});
+  const [testingSend, setTestingSend] = useState<number | null>(null);
 
-  const handleSyncFromMeta = async () => {
-    await loadMetaCredentials();
-    const token = getCachedToken();
-    const wabaId = getCachedWabaId();
-    if (!token || !wabaId) { toast.error('Configure Meta API credentials in Settings first'); return; }
-    if (!user?.tenant_id) { toast.error('Tenant not found'); return; }
-    setSyncing(true);
+  const [form, setForm] = useState({
+    name: '',
+    project: '',
+    phone_number_id: '',
+    access_token: '',
+    waba_id: '',
+    template_name: '',
+    template_language: 'en',
+    is_active: true,
+    is_default: false,
+  });
+
+  const { data: accounts, isLoading } = useQuery<WhatsAppAccount[]>({
+    queryKey: ['whatsapp-accounts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('whatsapp_accounts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as WhatsAppAccount[];
+    },
+  });
+
+  const fetchLiveInfo = async (account: WhatsAppAccount) => {
+    setLoadingLiveMap((prev) => ({ ...prev, [account.id]: true }));
     try {
-      const res = await fetch(`${WHATSAPP_API}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `https://graph.facebook.com/v23.0/${account.phone_number_id}?fields=verified_name,display_phone_number,quality_rating,status,throughput.level&access_token=${account.access_token}`
+      );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error?.message || 'Failed to fetch');
-      let added = 0;
-      for (const pn of result.data || []) {
-        const existing = await supabase.from('whatsapp_phone_numbers').select('id').eq('phone_number_id', pn.id).maybeSingle();
-        if (!existing.data) {
-          await supabase.from('whatsapp_phone_numbers').insert({
-            tenant_id: user.tenant_id,
-            phone_number_id: pn.id,
-            display_phone_number: pn.display_phone_number,
-            verified_name: pn.verified_name || null,
-            quality_rating: pn.quality_rating || null,
-            status: 'verified',
-            label: pn.verified_name || pn.display_phone_number,
-          });
-          added++;
-        }
-      }
-      toast.success(`Synced ${result.data?.length || 0} numbers from Meta (${added} new)`);
-      queryClient.invalidateQueries({ queryKey: ['whatsapp-phone-numbers'] });
+      setLiveData((prev) => ({
+        ...prev,
+        [account.id]: {
+          status: result.status || 'unknown',
+          quality_rating: result.quality_rating || null,
+          verified_name: result.verified_name || null,
+          display_phone_number: result.display_phone_number || null,
+          webhook: result.webhook_configuration?.application || null,
+          throughput_level: result.throughput?.level || null,
+        },
+      }));
     } catch (err: any) {
-      toast.error(err.message || 'Failed to sync');
+      toast.error(`Failed to fetch live data for ${account.name}: ${err.message}`);
+      setLiveData((prev) => ({
+        ...prev,
+        [account.id]: {
+          status: 'error',
+          quality_rating: null,
+          verified_name: null,
+          display_phone_number: null,
+          webhook: null,
+          throughput_level: null,
+        },
+      }));
     } finally {
-      setSyncing(false);
+      setLoadingLiveMap((prev) => ({ ...prev, [account.id]: false }));
     }
   };
 
-  const { data: phoneNumbers, isLoading: loadingPhones } = useQuery<WhatsAppPhoneNumber[]>({
-    queryKey: ['whatsapp-phone-numbers'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('whatsapp_phone_numbers').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as WhatsAppPhoneNumber[];
-    },
-  });
+  const handleRefreshAll = () => {
+    accounts?.forEach((acc) => fetchLiveInfo(acc));
+  };
 
-  const { data: teamUsers, isLoading: loadingUsers } = useQuery<User[]>({
-    queryKey: ['team-users'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as User[];
-    },
-  });
+  const resetForm = () => {
+    setForm({
+      name: '', project: '', phone_number_id: '', access_token: '',
+      waba_id: '', template_name: '', template_language: 'en', is_active: true, is_default: false,
+    });
+  };
 
-  const handleAddNumber = async () => {
-    if (!newNumber.display_phone_number || !newNumber.label) {
-      toast.error('Phone number and NGO name are required');
+  const handleAdd = async () => {
+    if (!form.name || !form.project || !form.phone_number_id || !form.access_token || !form.waba_id) {
+      toast.error('Name, project, phone number ID, WABA ID, and access token are required');
       return;
     }
     try {
-      const { error } = await supabase.from('whatsapp_phone_numbers').insert({
-        tenant_id: user?.tenant_id,
-        display_phone_number: newNumber.display_phone_number,
-        phone_number_id: newNumber.phone_number_id || newNumber.display_phone_number.replace(/[^0-9]/g, ''),
-        label: newNumber.label,
-        verified_name: newNumber.verified_name || null,
-        status: 'verified',
+      const { error } = await supabase.from('whatsapp_accounts').insert({
+        name: form.name,
+        project: form.project,
+        phone_number_id: form.phone_number_id,
+        access_token: form.access_token,
+        waba_id: form.waba_id,
+        template_name: form.template_name || null,
+        template_language: form.template_language || 'en',
+        is_active: form.is_active,
+        is_default: form.is_default,
       });
       if (error) throw error;
-      toast.success('Phone number added');
-      setShowAddNumber(false);
-      setNewNumber({ display_phone_number: '', phone_number_id: '', label: '', verified_name: '' });
-      queryClient.invalidateQueries({ queryKey: ['whatsapp-phone-numbers'] });
+      toast.success(`${form.name} added successfully`);
+      setShowAdd(false);
+      resetForm();
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
     } catch (err: any) {
-      toast.error(err.message || 'Failed to add number');
+      toast.error(err.message || 'Failed to add account');
     }
   };
 
-  const handleSaveLabel = async () => {
-    if (!editingLabel || !editingLabel.label.trim()) return;
+  const handleEdit = async () => {
+    if (!editingAccount) return;
     try {
-      await supabase.from('whatsapp_phone_numbers').update({ label: editingLabel.label }).eq('id', editingLabel.id);
-      toast.success('Label updated');
-      setEditingLabel(null);
-      queryClient.invalidateQueries({ queryKey: ['whatsapp-phone-numbers'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update label');
-    }
-  };
-
-  const handleSetPrimary = async (id: string) => {
-    try {
-      await supabase.from('whatsapp_phone_numbers').update({ is_primary: false }).neq('id', id);
-      await supabase.from('whatsapp_phone_numbers').update({ is_primary: true }).eq('id', id);
-      toast.success('Primary number updated');
-      queryClient.invalidateQueries({ queryKey: ['whatsapp-phone-numbers'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to set primary');
-    }
-  };
-
-  const handleDeleteNumber = async (id: string, number: string) => {
-    if (!confirm(`Remove ${number}?`)) return;
-    try {
-      await supabase.from('whatsapp_phone_numbers').delete().eq('id', id);
-      toast.success('Number removed');
-      queryClient.invalidateQueries({ queryKey: ['whatsapp-phone-numbers'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to remove');
-    }
-  };
-
-  const handleAddUser = async () => {
-    if (!newUser.email || !newUser.first_name || !newUser.last_name) { toast.error('Name and email are required'); return; }
-    setAdding(true);
-    try {
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      if (!token) { toast.error('Not authenticated'); return; }
-
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(newUser),
-        }
-      );
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-      setCreatedUserInfo({ email: newUser.email, password: result.tempPassword });
-      setShowAddUser(false);
-      setNewUser({ email: '', first_name: '', last_name: '', role: 'agent' });
-      queryClient.invalidateQueries({ queryKey: ['team-users'] });
-    } catch (err: any) { toast.error(err.message || 'Failed to create user'); }
-    finally { setAdding(false); }
-  };
-
-  const handleDeleteUser = async (id: string, email: string) => {
-    if (!confirm(`Remove ${email}? This will permanently delete their account.`)) return;
-    try {
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      if (!token) { toast.error('Not authenticated'); return; }
-
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: id }),
-        }
-      );
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
-      toast.success(`User ${email} deleted`);
-      queryClient.invalidateQueries({ queryKey: ['team-users'] });
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete user');
-    }
-  };
-
-  const handleSendReset = async (email: string) => {
-    setResetSending(true);
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      const { error } = await supabase
+        .from('whatsapp_accounts')
+        .update({
+          name: form.name,
+          project: form.project,
+          phone_number_id: form.phone_number_id,
+          access_token: form.access_token,
+          waba_id: form.waba_id,
+          template_name: form.template_name || null,
+          template_language: form.template_language || 'en',
+          is_active: form.is_active,
+          is_default: form.is_default,
+        })
+        .eq('id', editingAccount.id);
       if (error) throw error;
-      toast.success(`Password reset email sent to ${email}`);
+      toast.success(`${form.name} updated`);
+      setEditingAccount(null);
+      resetForm();
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
     } catch (err: any) {
-      toast.error(err.message || 'Failed to send reset email');
-    } finally {
-      setResetSending(false);
+      toast.error(err.message || 'Failed to update');
     }
   };
+
+  const handleDelete = async (account: WhatsAppAccount) => {
+    if (!confirm(`Delete ${account.name}? This cannot be undone.`)) return;
+    try {
+      const { error } = await supabase.from('whatsapp_accounts').delete().eq('id', account.id);
+      if (error) throw error;
+      toast.success(`${account.name} deleted`);
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    }
+  };
+
+  const handleTestSend = async (account: WhatsAppAccount) => {
+    setTestingSend(account.id);
+    try {
+      const testNumber = prompt(`Enter a test phone number to send a message from ${account.name}:`, '+91');
+      if (!testNumber) { setTestingSend(null); return; }
+      const cleanNumber = testNumber.replace(/[^0-9+]/g, '');
+
+      const res = await fetch(
+        `https://graph.facebook.com/v23.0/${account.phone_number_id}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${account.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: cleanNumber.replace('+', ''),
+            type: 'text',
+            text: { preview_url: false, body: `Test message from ${account.name} WhatsApp CRM` },
+          }),
+        }
+      );
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error?.message || 'Failed to send');
+      toast.success(`Test message sent from ${account.name}`);
+    } catch (err: any) {
+      toast.error(`Test send failed: ${err.message}`);
+    } finally {
+      setTestingSend(null);
+    }
+  };
+
+  const startEdit = (account: WhatsAppAccount) => {
+    setEditingAccount(account);
+    setForm({
+      name: account.name,
+      project: account.project,
+      phone_number_id: account.phone_number_id,
+      access_token: account.access_token,
+      waba_id: account.waba_id,
+      template_name: account.template_name || '',
+      template_language: account.template_language || 'en',
+      is_active: account.is_active,
+      is_default: account.is_default,
+    });
+  };
+
+  const AccountForm = ({ isEdit }: { isEdit: boolean }) => (
+    <div className="rounded-xl border bg-card shadow-sm p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">{isEdit ? `Edit ${editingAccount?.name}` : 'Add New WhatsApp Account'}</h3>
+        <Button variant="ghost" size="icon" onClick={() => { setShowAdd(false); setEditingAccount(null); resetForm(); }}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Account Name *</Label>
+          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ashray For Life Foundation" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Project *</Label>
+          <select
+            value={form.project}
+            onChange={(e) => setForm({ ...form, project: e.target.value })}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Select project</option>
+            <option value="bsct">Being Sevak (BSCT)</option>
+            <option value="aflf">Ashray (AFLF)</option>
+            <option value="maan">Mann Care (MAAN)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Phone Number ID *</Label>
+          <Input value={form.phone_number_id} onChange={(e) => setForm({ ...form, phone_number_id: e.target.value })} placeholder="1136059359599752" className="font-mono text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">WABA ID *</Label>
+          <Input value={form.waba_id} onChange={(e) => setForm({ ...form, waba_id: e.target.value })} placeholder="1577122394424280" className="font-mono text-sm" />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs">Access Token *</Label>
+        <Input
+          value={form.access_token}
+          onChange={(e) => setForm({ ...form, access_token: e.target.value })}
+          placeholder="EAAj..."
+          className="font-mono text-sm"
+          type="password"
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Template Name</Label>
+          <Input value={form.template_name} onChange={(e) => setForm({ ...form, template_name: e.target.value })} placeholder="aflf_receipt" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Template Language</Label>
+          <Input value={form.template_language} onChange={(e) => setForm({ ...form, template_language: e.target.value })} placeholder="en" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-6">
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="rounded" />
+          Active
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} className="rounded" />
+          Default Account
+        </label>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => { setShowAdd(false); setEditingAccount(null); resetForm(); }}>Cancel</Button>
+        <Button onClick={isEdit ? handleEdit : handleAdd}>
+          <Save className="h-4 w-4 mr-1" /> {isEdit ? 'Save Changes' : 'Add Account'}
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
-      <div><h1 className="text-3xl font-bold">Phone Numbers & Team</h1><p className="text-muted-foreground">Manage your NGO WhatsApp numbers and team members</p></div>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">WhatsApp Numbers</h1>
+          <p className="text-muted-foreground">Manage your NGO WhatsApp Business accounts</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleRefreshAll} disabled={Object.values(loadingLiveMap).some(Boolean)}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${Object.values(loadingLiveMap).some(Boolean) ? 'animate-spin' : ''}`} />
+            Refresh All
+          </Button>
+          <Button onClick={() => { setShowAdd(true); setEditingAccount(null); resetForm(); }}>
+            <Plus className="h-4 w-4 mr-1" /> Add Number
+          </Button>
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2"><Smartphone className="h-5 w-5" /> Phone Numbers</CardTitle>
-            <div className="flex gap-2">
-              <Badge variant="default">{phoneNumbers?.length || 0} connected</Badge>
-              <Button variant="outline" size="sm" onClick={handleSyncFromMeta} disabled={syncing}>
-                {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sync from Meta
-              </Button>
-              <Button size="sm" onClick={() => setShowAddNumber(true)}><Plus className="h-4 w-4" /> Add Number</Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {showAddNumber && (
-            <div className="rounded-lg border p-4 space-y-3 mb-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">Register WhatsApp Number</h4>
-                <Button variant="ghost" size="icon" onClick={() => setShowAddNumber(false)}><X className="h-4 w-4" /></Button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1"><Label className="text-xs">NGO Name / Label</Label><Input value={newNumber.label} onChange={(e) => setNewNumber({ ...newNumber, label: e.target.value })} placeholder="NGO A" /></div>
-                <div className="space-y-1"><Label className="text-xs">Phone Number</Label><Input value={newNumber.display_phone_number} onChange={(e) => setNewNumber({ ...newNumber, display_phone_number: e.target.value })} placeholder="+1234567890" /></div>
-                <div className="space-y-1"><Label className="text-xs">Phone Number ID (from Meta)</Label><Input value={newNumber.phone_number_id} onChange={(e) => setNewNumber({ ...newNumber, phone_number_id: e.target.value })} placeholder="Optional" /></div>
-                <div className="space-y-1"><Label className="text-xs">Verified Business Name</Label><Input value={newNumber.verified_name} onChange={(e) => setNewNumber({ ...newNumber, verified_name: e.target.value })} placeholder="Optional" /></div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowAddNumber(false)}>Cancel</Button>
-                <Button size="sm" onClick={handleAddNumber}><Save className="h-4 w-4" /> Add</Button>
-              </div>
-            </div>
-          )}
+      {showAdd && <AccountForm isEdit={false} />}
+      {editingAccount && <AccountForm isEdit={true} />}
 
-          {loadingPhones ? (
-            <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />)}</div>
-          ) : phoneNumbers && phoneNumbers.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">NGO</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Phone Number</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Status</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Quality</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Primary</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {phoneNumbers.map((pn) => (
-                    <tr key={pn.id} className="border-b text-sm">
-                      <td className="py-3">
-                        {(editingLabel?.id === pn.id) ? (
-                          <div className="flex items-center gap-1">
-                            <Input value={editingLabel.label} onChange={(e) => setEditingLabel({ ...editingLabel, label: e.target.value })} className="h-7 text-xs w-28" />
-                            <Button variant="ghost" size="icon" onClick={handleSaveLabel}><Save className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => setEditingLabel(null)}><X className="h-3 w-3" /></Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium">{(pn as any).label || pn.verified_name || '-'}</span>
-                            <Button variant="ghost" size="icon" onClick={() => setEditingLabel({ id: pn.id, label: (pn as any).label || '' })}><Pencil className="h-3 w-3 text-muted-foreground" /></Button>
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3 text-muted-foreground">{pn.display_phone_number}</td>
-                      <td className="py-3"><PhoneNumberBadge status={pn.status} /></td>
-                      <td className="py-3 capitalize">
-                        {pn.quality_rating ? <Badge variant={pn.quality_rating === 'green' ? 'success' : pn.quality_rating === 'yellow' ? 'warning' : 'error'}>{pn.quality_rating}</Badge> : '-'}
-                      </td>
-                      <td className="py-3">
-                        {pn.is_primary ? <Badge variant="success">Primary</Badge> : <Button variant="ghost" size="sm" onClick={() => handleSetPrimary(pn.id)} className="text-xs"><Star className="h-3 w-3" /> Set</Button>}
-                      </td>
-                      <td className="py-3">
-                        <Button variant="ghost" size="icon" onClick={() => handleDeleteNumber(pn.id, pn.display_phone_number)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-              <Phone className="h-12 w-12" />
-              <p className="text-lg font-medium">No phone numbers</p>
-              <p className="text-sm">Add your NGO WhatsApp numbers above</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2"><UserPlus className="h-5 w-5" /> Team Members</CardTitle>
-            <Button size="sm" onClick={() => setShowAddUser(true)}><Plus className="h-4 w-4" /> Add User</Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {showAddUser && (
-            <div className="rounded-lg border p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">New Team Member</h4>
-                <Button variant="ghost" size="icon" onClick={() => setShowAddUser(false)}><X className="h-4 w-4" /></Button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1"><Label className="text-xs">First Name</Label><Input value={newUser.first_name} onChange={(e) => setNewUser({ ...newUser, first_name: e.target.value })} placeholder="John" /></div>
-                <div className="space-y-1"><Label className="text-xs">Last Name</Label><Input value={newUser.last_name} onChange={(e) => setNewUser({ ...newUser, last_name: e.target.value })} placeholder="Doe" /></div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1"><Label className="text-xs">Email</Label><Input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} placeholder="john@example.com" /></div>
-                <div className="space-y-1"><Label className="text-xs">Role</Label>
-                  <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                    {ROLE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowAddUser(false)}>Cancel</Button>
-                <Button size="sm" onClick={handleAddUser} disabled={adding}>
-                  {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Add Member
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {createdUserInfo && (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-green-800">User Created Successfully</h4>
-                <Button variant="ghost" size="icon" onClick={() => setCreatedUserInfo(null)}><X className="h-4 w-4 text-green-700" /></Button>
-              </div>
-              <p className="text-xs text-green-700">Share this temporary password with <strong>{createdUserInfo.email}</strong>:</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 rounded border border-green-300 bg-white px-3 py-2 text-sm font-mono">{createdUserInfo.password}</code>
-                <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(createdUserInfo.password); toast.success('Password copied'); }}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <Button size="sm" variant="secondary" onClick={() => handleSendReset(createdUserInfo.email)} disabled={resetSending}>
-                {resetSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                Send Password Reset Email
-              </Button>
-            </div>
-          )}
-
-          {loadingUsers ? (
-            <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />)}</div>
-          ) : teamUsers && teamUsers.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Name</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Email</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Role</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Status</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Last Active</th>
-                    <th className="pb-3 text-sm font-medium text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {teamUsers.map((u) => (
-                    <tr key={u.id} className="border-b text-sm">
-                      <td className="py-3 font-medium">{u.first_name || u.last_name ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : '-'}</td>
-                      <td className="py-3 text-muted-foreground">{u.email}</td>
-                      <td className="py-3 capitalize"><Badge variant={u.role === 'tenant_admin' ? 'default' : u.role === 'agent' ? 'success' : 'neutral'}>{u.role.replace('_', ' ')}</Badge></td>
-                      <td className="py-3"><Badge variant={u.status === 'active' ? 'success' : u.status === 'invited' ? 'warning' : 'error'}>{u.status}</Badge></td>
-                      <td className="py-3 text-muted-foreground">{u.last_active_at ? new Date(u.last_active_at).toLocaleDateString() : 'Never'}</td>
-                      <td className="py-3">
-                        {u.id !== user?.id && (
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteUser(u.id, u.email)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-              <UserPlus className="h-12 w-12" />
-              <p className="text-lg font-medium">No team members yet</p>
-              <p className="text-sm">Add team members to collaborate</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1, 2].map((i) => <div key={i} className="h-48 animate-pulse rounded-xl bg-muted" />)}
+        </div>
+      ) : accounts && accounts.length > 0 ? (
+        <div className="space-y-4">
+          {accounts.map((account) => (
+            <AccountCard
+              key={account.id}
+              account={account}
+              live={liveData[account.id] || null}
+              loadingLive={loadingLiveMap[account.id] || false}
+              onRefresh={() => fetchLiveInfo(account)}
+              onEdit={() => startEdit(account)}
+              onDelete={() => handleDelete(account)}
+              onTestSend={() => handleTestSend(account)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground rounded-xl border border-dashed">
+          <Smartphone className="h-12 w-12" />
+          <p className="text-lg font-medium">No WhatsApp accounts</p>
+          <p className="text-sm">Add your NGO WhatsApp Business accounts to get started</p>
+          <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4 mr-1" /> Add Number</Button>
+        </div>
+      )}
     </div>
   );
 }
