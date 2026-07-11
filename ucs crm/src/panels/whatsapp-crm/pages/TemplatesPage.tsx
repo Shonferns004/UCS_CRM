@@ -246,7 +246,7 @@ export function TemplatesPage() {
           <Button variant="outline" onClick={handleSync} disabled={syncing}>
             {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Sync from Meta
           </Button>
-          <Button onClick={() => navigate('/wcrm/templates/new')}>
+          <Button onClick={() => navigate('/templates/new')}>
             <Plus className="h-4 w-4" /> New Template
           </Button>
         </div>

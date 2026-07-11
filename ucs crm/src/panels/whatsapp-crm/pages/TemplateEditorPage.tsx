@@ -239,7 +239,7 @@ export function TemplateEditorPage() {
       if (!resp.ok) throw new Error(JSON.stringify(result.error));
       toast.success(metaTemplateId ? 'Template updated' : 'Template created');
       queryClient.invalidateQueries({ queryKey: ['whatsapp-templates'] });
-      navigate('/wcrm/templates');
+      navigate('/templates');
     } catch (err: any) {
       toast.error(err.message || 'Failed to save template');
     } finally {
@@ -307,7 +307,7 @@ export function TemplateEditorPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/wcrm/templates')}><ArrowLeft className="h-5 w-5" /></Button>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/templates')}><ArrowLeft className="h-5 w-5" /></Button>
         <div>
           <h1 className="text-2xl font-bold">{isEdit ? `Edit: ${template?.name}` : 'Create Template'}</h1>
           <p className="text-sm text-muted-foreground">{isEdit ? 'Update template components' : 'Create a new WhatsApp message template'}</p>
@@ -379,7 +379,7 @@ export function TemplateEditorPage() {
                 )}
 
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={() => navigate('/wcrm/templates')}>Cancel</Button>
+                  <Button variant="outline" onClick={() => navigate('/templates')}>Cancel</Button>
                   <Button onClick={handleNext}>Next</Button>
                 </div>
               </CardContent>

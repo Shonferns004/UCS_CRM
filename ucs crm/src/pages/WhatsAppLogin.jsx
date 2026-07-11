@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../panels/whatsapp-crm/stores/authStore'
+import { login as apiLogin, setSession } from '../api/auth'
 
 export default function WhatsAppLogin({ onBack, onSwitchToSignup }) {
   const navigate = useNavigate()
-  const { signIn } = useAuthStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -16,7 +15,10 @@ export default function WhatsAppLogin({ onBack, onSwitchToSignup }) {
     setLoading(true)
     setError('')
     try {
-      await signIn(email, password)
+      const data = await apiLogin(email, password)
+      const userData = data.user || { ...data }
+      userData.role = data.role
+      setSession('ucs', data.token, userData)
       navigate('/wcrm', { replace: true })
     } catch (err) {
       setError(err.message || 'Login failed')

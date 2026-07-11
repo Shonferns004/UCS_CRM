@@ -1,52 +1,46 @@
-import { NavLink, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot,
-  BarChart3, FileText, Phone, Headphones, Workflow,
-} from 'lucide-react';
+import { NavLink } from 'react-router-dom';
+import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-const NAV = [
-  { id: 'dashboard', path: '/wcrm', label: 'Dashboard', icon: LayoutDashboard, eyebrow: 'Overview', sub: 'Your WhatsApp at a glance' },
-  { id: 'inbox', path: '/wcrm/inbox', label: 'Inbox', icon: MessageSquare, eyebrow: 'Messages', sub: 'Incoming conversations' },
-  { id: 'contacts', path: '/wcrm/contacts', label: 'Contacts', icon: Users, eyebrow: 'People', sub: 'Manage your contacts' },
-  { id: 'conversations', path: '/wcrm/conversations', label: 'Conversations', icon: Headphones, eyebrow: 'Chat', sub: 'Active chat threads' },
-  { id: 'pipeline', path: '/wcrm/pipeline', label: 'Pipeline', icon: Kanban, eyebrow: 'Deals', sub: 'Track your sales pipeline' },
-  { id: 'automations', path: '/wcrm/automations', label: 'Automations', icon: Bot, eyebrow: 'Workflows', sub: 'Automated responses' },
-  { id: 'workflows', path: '/wcrm/workflows', label: 'Workflows', icon: Workflow, eyebrow: 'Flows', sub: 'Build message flows' },
-  { id: 'phone-numbers', path: '/wcrm/phone-numbers', label: 'Phone Numbers', icon: Phone, eyebrow: 'Numbers', sub: 'Manage connected numbers' },
-  { id: 'templates', path: '/wcrm/templates', label: 'Templates', icon: FileText, eyebrow: 'Messages', sub: 'Message templates' },
-  { id: 'analytics', path: '/wcrm/analytics', label: 'Analytics', icon: BarChart3, eyebrow: 'Reports', sub: 'Performance metrics' },
+const navigation = [
+  { name: 'Dashboard', href: '/wcrm', icon: LayoutDashboard, end: true },
+  { name: 'Inbox', href: '/wcrm/inbox', icon: MessageSquare },
+  { name: 'Contacts', href: '/wcrm/contacts', icon: Users },
+  { name: 'Pipeline', href: '/wcrm/pipeline', icon: Kanban },
+  { name: 'Automations', href: '/wcrm/automations', icon: Bot },
+  { name: 'Templates', href: '/wcrm/templates', icon: FileText },
+  { name: 'Analytics', href: '/wcrm/analytics', icon: BarChart3 },
+  { name: 'Phone Numbers', href: '/wcrm/phone-numbers', icon: Headphones },
+  { name: 'Settings', href: '/wcrm/settings', icon: Settings },
 ];
 
-export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const location = useLocation();
-
+export function Sidebar() {
   return (
-    <>
-      {open && <div className="sidebar-overlay" onClick={onClose} />}
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <div className="sidebar-brand">
-          <div className="brand-mark" style={{background:'var(--sage)',borderRadius:10,width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:18}}>W</div>
-          <div><h1>WhatsApp</h1><span>CRM Panel</span></div>
-        </div>
-        <nav className="sidebar-nav">
-          {NAV.map(n => {
-            const Icon = n.icon;
-            const active = n.id === 'dashboard'
-              ? location.pathname === '/wcrm' || location.pathname === '/wcrm/'
-              : location.pathname.startsWith(n.path);
-            return (
-              <NavLink
-                key={n.id}
-                to={n.path}
-                className={`snav-item ${active ? 'active' : ''}`}
-                onClick={() => onClose?.()}
-              >
-                <Icon className="ico" /> <span>{n.label}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-      </aside>
-    </>
+    <div className="flex w-64 flex-col border-r bg-card">
+      <div className="flex h-16 items-center gap-2 border-b px-6">
+        <MessageCircle className="h-6 w-6 text-primary" />
+        <span className="text-lg font-semibold">WhatsApp CRM</span>
+      </div>
+      <nav className="flex-1 space-y-1 p-4">
+        {navigation.map((item) => (
+          <NavLink
+            key={item.name}
+            to={item.href}
+            end={item.end}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              )
+            }
+          >
+            <item.icon className="h-5 w-5" />
+            {item.name}
+          </NavLink>
+        ))}
+      </nav>
+    </div>
   );
 }

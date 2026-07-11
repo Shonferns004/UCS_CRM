@@ -183,7 +183,7 @@ export function FlowBuilderPage() {
         toast.success('Flow saved');
       }
       queryClient.invalidateQueries({ queryKey: ['automations'] });
-      navigate('/wcrm/automations');
+      navigate('/automations');
     } catch (error) {
       console.error('Error saving flow:', error);
       toast.error('Failed to save flow');
@@ -196,7 +196,7 @@ export function FlowBuilderPage() {
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       <div className="flex items-center justify-between border-b bg-card px-4 py-3">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/wcrm/automations')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate('/automations')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Input
@@ -207,7 +207,7 @@ export function FlowBuilderPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate('/wcrm/automations')}>Cancel</Button>
+          <Button variant="outline" size="sm" onClick={() => navigate('/automations')}>Cancel</Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="h-4 w-4" />
             Save

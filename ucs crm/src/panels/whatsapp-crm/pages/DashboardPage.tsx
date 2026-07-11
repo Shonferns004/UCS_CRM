@@ -131,7 +131,7 @@ export function DashboardPage() {
         <div className="flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span className="flex-1">Meta API error: <strong>{stats.metaError || 'Connection failed'}</strong></span>
-          <Button variant="outline" size="sm" onClick={() => navigate('/wcrm/settings')} className="shrink-0">
+          <Button variant="outline" size="sm" onClick={() => navigate('/settings')} className="shrink-0">
             <Settings className="h-3 w-3" /> Update in Settings
           </Button>
         </div>
