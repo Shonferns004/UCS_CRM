@@ -42,8 +42,8 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText) {
 </div>`;
 }
 
-function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText) {
-  const r = w.role || w.department || 'Team Member';
+function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation) {
+  const r = designation || 'Team Member';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
 <div style="display:flex;align-items:center;margin-bottom:4px">
 <img src="/logo/beingsevak-logo.png" alt="Being Sevak Charitable Trust" style="width:65px;height:auto;margin-right:14px" />
@@ -176,7 +176,7 @@ export default function Letters() {
       const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
       const lastWorkingDate = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{last_working_date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject);
+      body = buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subject, subject);
       today = lastWorkingDate;
     } else if (type === 'Warning letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
