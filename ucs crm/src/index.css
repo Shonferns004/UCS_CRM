@@ -1546,7 +1546,42 @@ input,select,textarea { font-family:inherit; font-size:14px; }
 @keyframes att-spin { to{transform:rotate(360deg)} }
 
 /* ── PRINT ── */
-@media print { body { background:#fff; } .no-print { display:none !important; } }
+.print-header { display:none; }
+
+@media print {
+  body { background:#fff; margin:0; padding:0; }
+  .no-print, .no-print * { display:none !important; }
+  .panel-hr .app, .panel-hr .main, .panel-hr .content-body, .panel-hr .sidebar { overflow:visible !important; height:auto !important; min-height:0 !important; }
+  .panel-hr .sidebar, .panel-hr .topbar, .panel-hr .mobile-top { display:none !important; }
+  .panel-hr .content-body { padding:0 !important; margin:0 !important; }
+  .panel-hr .card { border:none !important; box-shadow:none !important; border-radius:0 !important; }
+  .panel-hr .card-head, .panel-hr .card-pad { padding:0 !important; border:none !important; }
+  .panel-hr .card-pad[style*="maxHeight"] { max-height:none !important; overflow:visible !important; }
+  .panel-hr .field input, .panel-hr .field textarea { border:none !important; border-bottom:1px solid #ccc !important; border-radius:0 !important; padding-left:0 !important; background:transparent !important; }
+  .panel-hr .field .form-label, .panel-hr .form-label { font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#000; margin-bottom:2px; display:block; }
+  .panel-hr .field { margin-bottom:8px; }
+  .panel-hr .card-head h3, .panel-hr .card-head .sub { display:none !important; }
+
+  .print-header { display:block !important; background:#000; color:#fff; text-align:center; padding:18px 20px; font-size:18px; font-weight:700; letter-spacing:1px; }
+  .print-header small { display:block; font-size:11px; font-weight:400; opacity:.8; margin-top:4px; }
+
+  .print-section-title { display:block; font-size:14px; font-weight:700; margin:20px 0 10px; padding:6px 10px; background:#f0f0f0; border-bottom:2px solid #000; text-transform:uppercase; letter-spacing:.5px; }
+  .print-field-row { display:flex; gap:12px; margin-bottom:6px; page-break-inside:avoid; }
+  .print-field { flex:1; font-size:12px; line-height:1.6; }
+  .print-field strong { display:inline-block; min-width:140px; font-weight:600; }
+  .print-field .val { border-bottom:1px solid #ccc; padding:2px 4px; min-height:20px; }
+
+  .print-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
+  .print-table th { background:#000; color:#fff; padding:6px 8px; text-align:left; font-weight:600; }
+  .print-table td { padding:5px 8px; border:1px solid #ccc; }
+  .print-table tr:nth-child(even) td { background:#f9f9f9; }
+
+  .print-declaration { margin-top:24px; padding-top:12px; border-top:2px solid #000; font-size:11px; line-height:1.8; }
+  .print-declaration .checkbox-placeholder { display:inline-block; width:14px; height:14px; border:1px solid #000; margin-right:6px; vertical-align:middle; }
+  .print-sign-row { display:flex; justify-content:space-between; margin-top:30px; padding-top:10px; }
+  .print-sign-box { width:180px; }
+  .print-sign-box .line { border-bottom:1px solid #000; height:1px; margin-top:30px; font-size:10px; text-align:center; }
+}
 
 /* ── BELL RING ── */
 @keyframes bell-ring {

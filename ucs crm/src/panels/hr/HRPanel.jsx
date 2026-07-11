@@ -15,6 +15,7 @@ import Offboarding from './components/Offboarding'
 import Leaves from './components/Leaves'
 import Attendance from './components/Attendance'
 import Letters from './components/Letters'
+import HRForms from './components/HRForms'
 import Holidays from './components/Holidays'
 import Recruiters from './components/Recruiters'
 import GenerateQR from './components/GenerateQR'
@@ -30,6 +31,7 @@ const NAV = [
   { id:'attendance', path:'/hr/attendance',  label:'Attendance',  icon:Clock,   eyebrow:'Daily',       sub:'Mark who is in today' },
   { id:'leaves',     path:'/hr/leaves',      label:'Leaves',      icon:Plane,   eyebrow:'Time off',    sub:'Requests and approvals' },
   { id:'letters',    path:'/hr/letters',     label:'Letters',     icon:FileTxt, eyebrow:'Documents',   sub:'Generate HR letters' },
+  { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Employee onboarding forms' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
   { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
@@ -237,6 +239,7 @@ export default function HRPanel() {
         <Route path="attendance" element={<Attendance />} />
         <Route path="leaves" element={<Leaves />} />
         <Route path="letters" element={<Letters />} />
+        <Route path="hr-forms" element={<HRForms />} />
         <Route path="recruiters" element={<Recruiters />} />
         <Route path="holidays" element={<Holidays />} />
         <Route path="qr" element={<GenerateQR />} />
