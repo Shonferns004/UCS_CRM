@@ -1,0 +1,102 @@
+export default function Template1({ personal, education }) {
+  return (
+    <div className="print-page">
+      <style>{`
+        .t1 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
+        .t1{width:210mm;min-height:297mm;margin:auto;background:#fff;border:8px double #000;padding:18px;page-break-after:always}
+        .t1 h1{text-align:center;font-size:42px;font-family:Georgia,serif;margin-bottom:5px}
+        .t1 .subtitle{text-align:center;font-size:14px;margin-bottom:12px}
+        .t1 .form-title{text-align:center;font-size:26px;font-weight:bold;text-decoration:underline;margin-bottom:20px}
+        .t1 table{width:100%;border-collapse:collapse}
+        .t1 td,.t1 th{border:1px solid #666;padding:10px;vertical-align:top}
+        .t1 .section{background:#d8d8d8;font-weight:bold;font-size:20px}
+        .t1 .label{font-weight:bold;width:25%;white-space:nowrap}
+        .t1 .photo{width:180px;text-align:center;vertical-align:middle;font-weight:bold;font-size:26px;min-height:200px;height:200px;box-sizing:border-box}
+        .t1 .blank{height:45px}
+        .t1 .address{height:80px}
+        .t1 .edu th{text-align:center}
+        .t1 .edu td{height:55px}
+        .t1 .footer{margin-top:20px;border-top:4px solid #7a2020;padding-top:10px;text-align:center;font-size:16px;line-height:1.5}
+      `}</style>
+      <div className="t1">
+        <h1>Being Sevak Charitable Trust</h1>
+        <div className="subtitle">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div className="form-title">VOLUNTEER JOINING FORM</div>
+        <table>
+          <tr><td colSpan="3" className="section">PERSONAL DETAILS</td></tr>
+          <tr>
+            <td className="label">Name :</td>
+            <td style={{fontWeight:600}}>{personal.fullName || ''}</td>
+            <td rowSpan="5" className="photo">PHOTOGRAPH</td>
+          </tr>
+          <tr>
+            <td className="label">Father's / Husband Name :</td>
+            <td style={{fontWeight:600}}>{personal.fatherHusband || ''}</td>
+          </tr>
+          <tr>
+            <td className="label">Correspondence Address :</td>
+            <td style={{fontWeight:600}}>{personal.address || ''}</td>
+          </tr>
+          <tr><td colSpan="2" className="address"></td></tr>
+          <tr><td colSpan="2"></td></tr>
+          <tr><td colSpan="3" className="label">Permanent Address :</td></tr>
+          <tr><td colSpan="3" className="address" style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td></tr>
+          <tr>
+            <td><strong>Telephone :</strong> {personal.altPhone || ''}</td>
+            <td><strong>Mobile :</strong> {personal.phone || ''}</td>
+            <td><strong>Email ID :</strong> {personal.email || ''}</td>
+          </tr>
+          <tr>
+            <td><strong>Date of Birth :</strong> {personal.dob || ''}</td>
+            <td><strong>Marital Status :</strong> {personal.maritalStatus || ''}</td>
+            <td><strong>Gender :</strong> {personal.gender || ''}</td>
+          </tr>
+          <tr>
+            <td><strong>PAN Card No :</strong> {personal.panNumber || ''}</td>
+            <td><strong>Aadhaar Card No :</strong> {personal.aadhaarNumber || ''}</td>
+            <td></td>
+          </tr>
+          <tr><td colSpan="3"><strong>Emergency Contact Details</strong></td></tr>
+          <tr>
+            <td><strong>Name :</strong> {personal.emergencyName || ''}</td>
+            <td><strong>Relation :</strong> {personal.emergencyRelation || ''}</td>
+            <td><strong>Contact No :</strong> {personal.emergencyPhone || ''}</td>
+          </tr>
+          <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS</td></tr>
+        </table>
+        <table className="edu">
+          <tr>
+            <th>Degree</th>
+            <th>University / Institute</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Percentage / Grade</th>
+            <th>Specialization</th>
+          </tr>
+          {education.length === 0 ? (
+            <>{[...Array(5)].map((_, i) => <tr key={i}><td></td><td></td><td></td><td></td><td></td><td></td></tr>)}</>
+          ) : (
+            education.map((e, i) => (
+              <tr key={i}>
+                <td>{e.degree || ''}</td>
+                <td>{e.institution || ''}</td>
+                <td>{e.year || ''}</td>
+                <td></td>
+                <td>{e.percentage || ''}</td>
+                <td></td>
+              </tr>
+            ))
+          )}
+          {education.length > 0 && education.length < 5 && [...Array(5 - education.length)].map((_, i) => (
+            <tr key={`empty-${i}`}><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          ))}
+        </table>
+        <div className="footer">
+          Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
+          Contact Sevak *8879035035 *8879034034<br />
+          E-Mail: being.sevak@gmail.com | Website: www.beingsevak.org
+        </div>
+      </div>
+    </div>
+  );
+}

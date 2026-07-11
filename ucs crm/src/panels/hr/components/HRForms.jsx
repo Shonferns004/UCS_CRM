@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
 import { Plus, Trash } from '../icons';
+import PrintForms from './forms/PrintForms';
 
 const GENDERS = ['Male', 'Female', 'Other'];
 const MARITAL_STATUSES = ['Single', 'Married', 'Divorced', 'Widowed'];
@@ -221,6 +222,7 @@ export default function HRForms() {
   const [saved, setSaved] = useState(false);
   const [search, setSearch] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
   const [place, setPlace] = useState('');
   const [declarationDate, setDeclarationDate] = useState('');
 
@@ -530,6 +532,7 @@ export default function HRForms() {
   };
 
   return (
+    <>
     <div className="card">
       <div className="print-header">EMPLOYEE ONBOARDING FORM <small>UFS HR Department</small></div>
       <div className="card-head no-print"><h3>HR Forms</h3><span className="sub">Employee onboarding form</span></div>
@@ -541,7 +544,7 @@ export default function HRForms() {
             </button>
           ))}
           <button className={`btn ${showPreview ? 'btn-primary' : ''}`} onClick={() => setShowPreview(!showPreview)} style={{ fontSize: 13 }}>Preview</button>
-          <button className="btn" onClick={handlePrint} style={{ fontSize: 13, background: 'red', color: '#fff' }}>Print Form</button>
+          <button className="btn" onClick={() => setShowPrint(true)} style={{ fontSize: 13, background: 'red', color: '#fff' }}>Print All Forms</button>
         </div>
 
         {showPreview ? (
@@ -680,5 +683,22 @@ export default function HRForms() {
         </div>
       </div>
     </div>
+
+      {showPrint && (
+        <PrintForms
+          data={{
+            personal,
+            education,
+            organizations,
+            family,
+            references,
+            bank,
+            declarationDate,
+            place,
+          }}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
+    </>
   );
 }
