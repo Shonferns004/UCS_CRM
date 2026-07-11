@@ -1,0 +1,517 @@
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useHR } from '../store';
+import { Users, Check, Clock, Bell, Cal } from '../icons';
+
+function SearchIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+const RCOLORS = ['#5B6B4E','#1565C0','#7A5C7E','#B5603A','#C08A2E','#00838F','#6A1B9A','#2E7D32','#E65100','#4F6472'];
+
+const STATUS_LABELS = {
+  scheduled: 'Scheduled', hold: 'Pending', followed_up: 'Follow Up', call_back: 'Follow Up',
+  ringing: 'Pending', unreachable: 'Pending', busy: 'Pending', switched_off: 'Pending',
+  wrong_number: 'Rejected', invalid: 'Rejected', selected: 'Interviewed', joined: 'Joined',
+  rejected: 'Rejected', not_interested: 'Rejected',
+};
+
+const STATUS_COLORS = {
+  scheduled: '#1565C0', hold: '#F59E0B', followed_up: '#7A5C7E', call_back: '#7A5C7E',
+  joined: '#5B6B4E', rejected: '#9E3B2E', selected: '#6A1B9A',
+  ringing: '#F59E0B', unreachable: '#F59E0B', busy: '#F59E0B', switched_off: '#F59E0B',
+  wrong_number: '#9E3B2E', invalid: '#9E3B2E', not_interested: '#9E3B2E',
+};
+
+function AnimatedNum({ to, suffix = '' }) {
+  const [v, setV] = useState(0);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    if (to === 0) { setV(0); return; }
+    const obs = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      const dur = 1000, s = performance.now(), d = to;
+      const tick = (n) => { const p = Math.min((n - s) / dur, 1); setV(typeof to === 'number' && to % 1 !== 0 ? parseFloat((d * (1 - Math.pow(1 - p, 3))).toFixed(1)) : Math.round(d * (1 - Math.pow(1 - p, 3)))); if (p < 1) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      obs.disconnect();
+    }, { threshold: 0.3 });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [to]);
+  return <span ref={ref}>{typeof v === 'number' && v % 1 !== 0 ? v.toLocaleString('en-IN') : v.toLocaleString('en-IN')}{suffix}</span>;
+}
+
+function SummaryCard({ icon, label, num, suffix = '', sub, color, gradient }) {
+  return (
+    <div className="ro-stat-card" style={gradient ? { background: gradient } : {}}>
+      <div className="ro-stat-top">
+        <span className="ro-stat-icon" style={{ color: color || 'var(--sage)' }}>{icon}</span>
+        <span className="ro-stat-num">
+          <AnimatedNum to={num} suffix={suffix} />
+        </span>
+      </div>
+      <div className="ro-stat-label">{label}</div>
+      {sub && <div className="ro-stat-sub">{sub}</div>}
+    </div>
+  );
+}
+
+function ProgressRing({ pct, size = 52, sw = 5, color }) {
+  const r = (size - sw) / 2, circ = 2 * Math.PI * r;
+  const offset = circ * (1 - Math.min(pct, 100) / 100);
+  const c = color || (pct >= 70 ? 'var(--sage)' : pct >= 40 ? 'var(--gold)' : 'var(--danger)');
+  const [ao, setAo] = useState(circ);
+  useEffect(() => {
+    setAo(circ);
+    const dur = 800, s = performance.now(), from = circ, to = offset;
+    const tick = (n) => { const p = Math.min((n - s) / dur, 1); setAo(from + (to - from) * (1 - Math.pow(1 - p, 3))); if (p < 1) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }, [offset, circ]);
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--line)" strokeWidth={sw} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={c} strokeWidth={sw}
+        strokeDasharray={circ} strokeDashoffset={ao} strokeLinecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central" fontSize={size * 0.22} fontWeight={800} fill="var(--ink)">{Math.round(pct)}%</text>
+    </svg>
+  );
+}
+
+function DonutChart({ data, size = 160 }) {
+  const total = data.reduce((s, d) => s + d.val, 0) || 1;
+  const r = size / 2 - 10;
+  const inner = r * 0.58;
+  let cum = 0;
+  const arcs = data.filter(d => d.val > 0).map((d, i) => {
+    const pct = d.val / total;
+    const startAngle = cum * 2 * Math.PI - Math.PI / 2;
+    cum += pct;
+    const endAngle = cum * 2 * Math.PI - Math.PI / 2;
+    const largeArc = pct > 0.5 ? 1 : 0;
+    const x1 = size / 2 + r * Math.cos(startAngle);
+    const y1 = size / 2 + r * Math.sin(startAngle);
+    const x2 = size / 2 + r * Math.cos(endAngle);
+    const y2 = size / 2 + r * Math.sin(endAngle);
+    const ix1 = size / 2 + inner * Math.cos(startAngle);
+    const iy1 = size / 2 + inner * Math.sin(startAngle);
+    const ix2 = size / 2 + inner * Math.cos(endAngle);
+    const iy2 = size / 2 + inner * Math.sin(endAngle);
+    const path = `M${x1},${y1} A${r},${r} 0 ${largeArc} 1 ${x2},${y2} L${ix2},${iy2} A${inner},${inner} 0 ${largeArc} 0 ${ix1},${iy1} Z`;
+    return { path, color: d.color, label: d.label, val: d.val, pct: (pct * 100).toFixed(1) };
+  });
+  return (
+    <div style={{ position: 'relative', width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {arcs.map((a, i) => (
+          <path key={i} d={a.path} fill={a.color} style={{ transition: 'opacity .2s' }}
+            onMouseEnter={(e) => e.target.style.opacity = 0.8}
+            onMouseLeave={(e) => e.target.style.opacity = 1}
+            title={`${a.label}: ${a.val} (${a.pct}%)`} />
+        ))}
+        <text x={size / 2} y={size / 2 - 6} textAnchor="middle" fontSize={16} fontWeight={800} fill="var(--ink)">{total}</text>
+        <text x={size / 2} y={size / 2 + 10} textAnchor="middle" fontSize={9} fill="var(--ink-soft)">Total Leads</text>
+      </svg>
+    </div>
+  );
+}
+
+export default function RecruiterOverview() {
+  const { fetchRecruiterOverview } = useHR();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterDate, setFilterDate] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSource, setFilterSource] = useState('all');
+  const [tablePage, setTablePage] = useState(0);
+  const PAGE_SIZE = 8;
+
+  const load = useCallback(async () => {
+    try {
+      const d = await fetchRecruiterOverview();
+      setData(d);
+    } catch { } finally { setLoading(false); }
+  }, [fetchRecruiterOverview]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const summary = data?.summary || {};
+  const recruiters = data?.recruiterStats || [];
+  const statusBreakdown = data?.statusBreakdown || {};
+  const monthlyData = data?.monthlyData || [];
+  const todayActivities = data?.todayActivities || [];
+  const analytics = data?.analytics || {};
+
+  const filteredRecruiters = useMemo(() => {
+    let list = [...recruiters];
+    if (searchTerm) {
+      const s = searchTerm.toLowerCase();
+      list = list.filter(r => r.name?.toLowerCase().includes(s));
+    }
+    return list;
+  }, [recruiters, searchTerm]);
+
+  const leaderboard = useMemo(() =>
+    [...filteredRecruiters].sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount),
+    [filteredRecruiters]
+  );
+
+  const sortedByLeads = useMemo(() =>
+    [...filteredRecruiters].sort((a, b) => b.leadsCount - a.leadsCount),
+    [filteredRecruiters]
+  );
+
+  const maxLeads = useMemo(() =>
+    Math.max(...sortedByLeads.map(r => r.leadsCount), 1),
+    [sortedByLeads]
+  );
+
+  const donutData = useMemo(() => {
+    const map = {};
+    Object.entries(statusBreakdown).forEach(([k, v]) => {
+      const group = STATUS_LABELS[k] || k;
+      map[group] = (map[group] || 0) + v;
+    });
+    const colors = { Scheduled: '#1565C0', Pending: '#F59E0B', 'Follow Up': '#7A5C7E', Interviewed: '#6A1B9A', Joined: '#5B6B4E', Rejected: '#9E3B2E' };
+    return Object.entries(map).map(([k, v]) => ({ label: k, val: v, color: colors[k] || '#999' }));
+  }, [statusBreakdown]);
+
+  const barColors = ['#1565C0', '#5B6B4E', '#6A1B9A', '#B5603A', '#C08A2E', '#00838F'];
+  const maxBarVal = useMemo(() => Math.max(...monthlyData.map(m => m.total), 1), [monthlyData]);
+
+  const pagedLeads = useMemo(() => {
+    const start = tablePage * PAGE_SIZE;
+    return filteredRecruiters.slice(start, start + PAGE_SIZE);
+  }, [filteredRecruiters, tablePage]);
+
+  const totalPages = Math.ceil(filteredRecruiters.length / PAGE_SIZE);
+
+  if (loading) {
+    return (
+      <div style={{ padding: '8px 0' }}>
+        <div className="ro-section-title">Recruiter Overview</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 10 }}>
+          {[...Array(6)].map((_, i) => <div key={i} className="sk" style={{ height: 90, borderRadius: 12 }} />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  return (
+    <div className="ro-wrap">
+      {/* ── Section Title ── */}
+      <div className="ro-header">
+        <div>
+          <div className="ro-section-title">Recruiter Overview</div>
+          <div className="ro-section-sub">Monitor recruiter performance, lead progress, interview scheduling and conversions in real time.</div>
+        </div>
+        <div className="ro-filters">
+          <select value={filterDate} onChange={e => setFilterDate(e.target.value)} className="ro-filter-select">
+            <option value="all">All Time</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="7days">Last 7 Days</option>
+            <option value="month">This Month</option>
+          </select>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="ro-filter-select">
+            <option value="all">All Status</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="joined">Joined</option>
+            <option value="rejected">Rejected</option>
+            <option value="hold">Pending</option>
+          </select>
+          <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="ro-filter-select">
+            <option value="all">All Sources</option>
+            <option value="Walk-in">Walk-in</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Referral">Referral</option>
+            <option value="Job Portal">Job Portal</option>
+          </select>
+          <div className="ro-search-wrap">
+            <SearchIcon size={14} />
+            <input type="text" placeholder="Search recruiter..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setTablePage(0); }} className="ro-search-input" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── First Row: 6 Summary Cards ── */}
+      <div className="ro-summary-grid">
+        <SummaryCard icon={<Users size={18} />} label="Total Recruiters" num={summary.totalRecruiters || 0} sub={`${summary.activeRecruiters || 0} Active Recruiters`} color="#1565C0" />
+        <SummaryCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="8"/><line x1="20.5" y1="6" x2="20.5" y2="10"/></svg>} label="Total Leads" num={summary.totalLeads || 0} sub="All recruiter leads" color="#5B6B4E" />
+        <SummaryCard icon={<Cal size={18} />} label="Scheduled" num={summary.totalScheduled || 0} sub="Interview Scheduled" color="#6A1B9A" />
+        <SummaryCard icon={<Clock size={18} />} label="Pending" num={summary.totalPending || 0} sub="Awaiting Follow-up" color="#F59E0B" />
+        <SummaryCard icon={<Check size={18} />} label="Joined" num={summary.totalJoined || 0} sub="Successfully Hired" color="#5B6B4E" />
+        <div className="ro-stat-card ro-conv-card">
+          <div className="ro-conv-ring">
+            <ProgressRing pct={summary.overallConversionRate || 0} size={56} sw={5} />
+          </div>
+          <div className="ro-conv-info">
+            <div className="ro-stat-label">Conversion Rate</div>
+            <div className="ro-stat-sub">Overall Performance</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Second Section: Recruiter Performance Cards ── */}
+      <div className="ro-section-title" style={{ marginTop: 20 }}>Recruiter Performance Cards</div>
+      <div className="ro-perf-grid">
+        {filteredRecruiters.map((r, i) => {
+          const rate = r.leadsCount > 0 ? Math.round(r.joined / r.leadsCount * 100) : 0;
+          return (
+            <div key={r.id} className="ro-perf-card">
+              <div className="ro-perf-head">
+                <div className="ro-perf-avatar" style={{ background: RCOLORS[i % RCOLORS.length] + '22', color: RCOLORS[i % RCOLORS.length] }}>
+                  {r.name?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div>
+                  <div className="ro-perf-name">{r.name}</div>
+                  <div className="ro-perf-role">{r.department || 'Recruiter'}</div>
+                </div>
+                <div className="ro-perf-status-badge ro-badge-available">Available</div>
+              </div>
+              <div className="ro-perf-bar-wrap">
+                <div className="ro-perf-bar-track">
+                  <div className="ro-perf-bar-fill" style={{ width: `${Math.min(rate, 100)}%`, background: RCOLORS[i % RCOLORS.length] }} />
+                </div>
+                <span className="ro-perf-bar-pct">{rate}%</span>
+              </div>
+              <div className="ro-perf-stats-grid">
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.leadsCount}</span><span className="ro-perf-stat-lbl">Total Leads</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.scheduled}</span><span className="ro-perf-stat-lbl">Scheduled</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.interviewed}</span><span className="ro-perf-stat-lbl">Interviewed</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.joined}</span><span className="ro-perf-stat-lbl">Joined</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.pending}</span><span className="ro-perf-stat-lbl">Pending</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.rejected}</span><span className="ro-perf-stat-lbl">Rejected</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.followUp}</span><span className="ro-perf-stat-lbl">Follow Ups</span></div>
+                <div className="ro-perf-stat"><span className="ro-perf-stat-val">{r.todayLeads}</span><span className="ro-perf-stat-lbl">Today's Tasks</span></div>
+              </div>
+              <div className="ro-perf-footer">
+                <span className="ro-perf-success">Success Rate {rate}%</span>
+                {r.lastActivity && <span className="ro-perf-time">Updated {new Date(r.lastActivity).toLocaleDateString('en', { month: 'short', day: 'numeric' })}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Third Section: Recruiter Leaderboard ── */}
+      <div className="ro-section-title" style={{ marginTop: 20 }}>Recruiter Leaderboard</div>
+      <div className="ro-leaderboard-grid">
+        {leaderboard.slice(0, 5).map((r, i) => {
+          const medals = ['🥇', '🥈', '🥉'];
+          const medal = medals[i] || '';
+          const isTop = i === 0;
+          const rate = r.leadsCount > 0 ? Math.round(r.joined / r.leadsCount * 100) : 0;
+          return (
+            <div key={r.id} className={`ro-lb-card ${isTop ? 'ro-lb-top' : ''}`}>
+              {isTop && <div className="ro-lb-trophy">🏆</div>}
+              <div className="ro-lb-medal">{medal || `#${i + 1}`}</div>
+              <div className="ro-lb-name">{r.name}</div>
+              <div className="ro-lb-stats">
+                <span>{r.leadsCount} Leads</span>
+                <span>{r.scheduled} Scheduled</span>
+                <span>{r.joined} Joined</span>
+                <span>{rate}% Success</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Fourth Section: Lead Distribution ── */}
+      <div className="ro-two-col">
+        <div className="ro-card">
+          <div className="ro-card-title">Lead Distribution</div>
+          <div className="ro-dist-bars">
+            {sortedByLeads.map((r, i) => {
+              const pct = maxLeads > 0 ? (r.leadsCount / maxLeads * 100) : 0;
+              return (
+                <div key={r.id} className="ro-dist-row">
+                  <span className="ro-dist-name">{r.name?.split(' ')[0]}</span>
+                  <div className="ro-dist-track">
+                    <div className="ro-dist-fill" style={{ width: `${pct}%`, background: RCOLORS[i % RCOLORS.length] }} />
+                  </div>
+                  <span className="ro-dist-val">{r.leadsCount} Leads</span>
+                  <span className="ro-dist-pct">{maxLeads > 0 ? Math.round(r.leadsCount / maxLeads * 100) : 0}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Fifth Section: Status Breakdown Donut ── */}
+        <div className="ro-card">
+          <div className="ro-card-title">Recruiter Status Breakdown</div>
+          <div className="ro-donut-wrap">
+            <DonutChart data={donutData} size={180} />
+            <div className="ro-donut-legend">
+              {donutData.map(d => (
+                <div key={d.label} className="ro-donut-item">
+                  <span className="ro-donut-dot" style={{ background: d.color }} />
+                  <span className="ro-donut-label">{d.label}</span>
+                  <span className="ro-donut-val">{d.val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Sixth Section: Monthly Performance Bar Chart ── */}
+      <div className="ro-card" style={{ marginTop: 14 }}>
+        <div className="ro-card-title">Monthly Recruiter Performance</div>
+        <div className="ro-bar-chart">
+          {monthlyData.map((m, i) => {
+            const h = maxBarVal > 0 ? (m.total / maxBarVal * 120) : 0;
+            const sh = maxBarVal > 0 ? (m.scheduled / maxBarVal * 120) : 0;
+            const jh = maxBarVal > 0 ? (m.joined / maxBarVal * 120) : 0;
+            const rh = maxBarVal > 0 ? (m.rejected / maxBarVal * 120) : 0;
+            return (
+              <div key={m.month} className="ro-bar-group">
+                <div className="ro-bar-stack" style={{ height: 140 }}>
+                  <div className="ro-bar-tooltip">
+                    <div>{m.month}</div>
+                    <div>Total: {m.total}</div>
+                    <div>Scheduled: {m.scheduled}</div>
+                    <div>Joined: {m.joined}</div>
+                  </div>
+                  <div className="ro-bar-seg" style={{ height: h, background: '#1565C0' }} title={`Total: ${m.total}`} />
+                  <div className="ro-bar-seg" style={{ height: sh, background: '#5B6B4E', marginTop: 2 }} title={`Scheduled: ${m.scheduled}`} />
+                  <div className="ro-bar-seg" style={{ height: jh, background: '#6A1B9A', marginTop: 2 }} title={`Joined: ${m.joined}`} />
+                </div>
+                <div className="ro-bar-label">{m.month}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="ro-bar-legend">
+          <span><span className="ro-bar-dot" style={{ background: '#1565C0' }} />Total</span>
+          <span><span className="ro-bar-dot" style={{ background: '#5B6B4E' }} />Scheduled</span>
+          <span><span className="ro-bar-dot" style={{ background: '#6A1B9A' }} />Joined</span>
+        </div>
+      </div>
+
+      {/* ── Seventh Section: Daily Activity Timeline ── */}
+      <div className="ro-card" style={{ marginTop: 14 }}>
+        <div className="ro-card-title">Daily Activity Timeline</div>
+        <div className="ro-timeline">
+          {todayActivities.length > 0 ? todayActivities.map((act, i) => {
+            const t = new Date(act.time);
+            const timeStr = t.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const icons = { scheduled: '📅', joined: '✅', rejected: '❌', hold: '⏸️', followed_up: '📞', call_back: '📞', selected: '👤', ringing: '📱' };
+            const icon = icons[act.status] || '📋';
+            return (
+              <div key={act.id + '-' + i} className="ro-timeline-item">
+                <div className="ro-timeline-time">{timeStr}</div>
+                <div className="ro-timeline-dot" style={{ background: STATUS_COLORS[act.status] || '#999' }} />
+                <div className="ro-timeline-content">
+                  <span className="ro-timeline-icon">{icon}</span>
+                  <span>{act.recruiter} — {act.status === 'joined' ? 'completed' : act.status === 'scheduled' ? 'scheduled Interview' : act.status === 'rejected' ? 'rejected candidate' : `updated ${act.name}`}</span>
+                </div>
+              </div>
+            );
+          }) : <div style={{ fontSize: 12, color: 'var(--ink-soft)', padding: 16, textAlign: 'center' }}>No activity today</div>}
+        </div>
+      </div>
+
+      {/* ── Eighth Section: Recruiter Lead Table ── */}
+      <div className="ro-card" style={{ marginTop: 14 }}>
+        <div className="ro-card-title">Recruiter Lead Table</div>
+        <div className="ro-table-wrap">
+          <table className="ro-table">
+            <thead>
+              <tr>
+                <th>Recruiter</th>
+                <th>Total Leads</th>
+                <th>Scheduled</th>
+                <th>Interviewed</th>
+                <th>Joined</th>
+                <th>Pending</th>
+                <th>Rejected</th>
+                <th>Follow Up</th>
+                <th>Conversion %</th>
+                <th>Today's Tasks</th>
+                <th>Last Activity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedLeads.map((r, i) => {
+                const rate = r.leadsCount > 0 ? ((r.joined / r.leadsCount) * 100).toFixed(1) : '0.0';
+                return (
+                  <tr key={r.id}>
+                    <td>
+                      <div className="ro-table-recruiter">
+                        <div className="ro-table-avatar" style={{ background: RCOLORS[i % RCOLORS.length] + '22', color: RCOLORS[i % RCOLORS.length] }}>
+                          {r.name?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+                        </div>
+                        <span>{r.name}</span>
+                      </div>
+                    </td>
+                    <td><strong>{r.leadsCount}</strong></td>
+                    <td>{r.scheduled}</td>
+                    <td>{r.interviewed}</td>
+                    <td><span className="ro-tbl-badge ro-tbl-badge-green">{r.joined}</span></td>
+                    <td>{r.pending}</td>
+                    <td><span className="ro-tbl-badge ro-tbl-badge-red">{r.rejected}</span></td>
+                    <td>{r.followUp}</td>
+                    <td>
+                      <div className="ro-tbl-conv">
+                        <div className="ro-tbl-conv-bar">
+                          <div className="ro-tbl-conv-fill" style={{ width: `${Math.min(parseFloat(rate), 100)}%` }} />
+                        </div>
+                        <span>{rate}%</span>
+                      </div>
+                    </td>
+                    <td>{r.todayLeads}</td>
+                    <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.lastActivity ? new Date(r.lastActivity).toLocaleDateString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                  </tr>
+                );
+              })}
+              {pagedLeads.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No recruiters found</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        {totalPages > 1 && (
+          <div className="ro-pagination">
+            <span className="ro-page-info">Page {tablePage + 1} of {totalPages}</span>
+            <div className="ro-page-btns">
+              <button disabled={tablePage === 0} onClick={() => setTablePage(p => p - 1)} className="ro-page-btn">Prev</button>
+              <button disabled={tablePage >= totalPages - 1} onClick={() => setTablePage(p => p + 1)} className="ro-page-btn">Next</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Ninth Section: Recruiter Analytics ── */}
+      <div className="ro-section-title" style={{ marginTop: 20 }}>Recruiter Analytics</div>
+      <div className="ro-analytics-grid">
+        <div className="ro-analytics-card">
+          <div className="ro-analytics-icon" style={{ background: '#1565C015', color: '#1565C0' }}><Clock size={18} /></div>
+          <div className="ro-analytics-val">{analytics.avgResponseTime || 0}h</div>
+          <div className="ro-analytics-lbl">Avg Response Time</div>
+        </div>
+        <div className="ro-analytics-card">
+          <div className="ro-analytics-icon" style={{ background: '#7A5C7E15', color: '#7A5C7E' }}><Clock size={18} /></div>
+          <div className="ro-analytics-val">{analytics.avgHiringTime || 0}d</div>
+          <div className="ro-analytics-lbl">Avg Hiring Time</div>
+        </div>
+        <div className="ro-analytics-card">
+          <div className="ro-analytics-icon" style={{ background: '#5B6B4E15', color: '#5B6B4E' }}><Users size={18} /></div>
+          <div className="ro-analytics-val">{analytics.avgLeadsPerRecruiter || 0}</div>
+          <div className="ro-analytics-lbl">Avg Leads / Recruiter</div>
+        </div>
+        <div className="ro-analytics-card">
+          <div className="ro-analytics-icon" style={{ background: '#C08A2E15', color: '#C08A2E' }}><Bell size={18} /></div>
+          <div className="ro-analytics-val">{analytics.avgDailyLeads || 0}</div>
+          <div className="ro-analytics-lbl">Avg Daily Leads</div>
+        </div>
+      </div>
+    </div>
+  );
+}
