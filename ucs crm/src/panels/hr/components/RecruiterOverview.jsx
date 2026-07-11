@@ -367,62 +367,67 @@ export default function RecruiterOverview() {
         })}
       </div>
 
-      {/* ── Sixth Section: Monthly Performance Bar Chart ── */}
-      <div className="ro-card" style={{ marginTop: 14 }}>
-        <div className="ro-card-title">Monthly Recruiter Performance</div>
-        <div className="ro-bar-chart">
-          {monthlyData.map((m, i) => {
-            const h = maxBarVal > 0 ? (m.total / maxBarVal * 120) : 0;
-            const sh = maxBarVal > 0 ? (m.scheduled / maxBarVal * 120) : 0;
-            const jh = maxBarVal > 0 ? (m.joined / maxBarVal * 120) : 0;
-            const rh = maxBarVal > 0 ? (m.rejected / maxBarVal * 120) : 0;
-            return (
-              <div key={m.month} className="ro-bar-group">
-                <div className="ro-bar-stack" style={{ height: 140 }}>
-                  <div className="ro-bar-tooltip">
-                    <div>{m.month}</div>
-                    <div>Total: {m.total}</div>
-                    <div>Scheduled: {m.scheduled}</div>
-                    <div>Joined: {m.joined}</div>
+      {/* ── Sixth Section: Monthly Performance + Analytics Side by Side ── */}
+      <div className="ro-split-row">
+        <div className="ro-card ro-split-chart">
+          <div className="ro-card-title">Monthly Recruiter Performance</div>
+          <div className="ro-bar-chart">
+            {monthlyData.map((m, i) => {
+              const h = maxBarVal > 0 ? (m.total / maxBarVal * 120) : 0;
+              const sh = maxBarVal > 0 ? (m.scheduled / maxBarVal * 120) : 0;
+              const jh = maxBarVal > 0 ? (m.joined / maxBarVal * 120) : 0;
+              const rh = maxBarVal > 0 ? (m.rejected / maxBarVal * 120) : 0;
+              return (
+                <div key={m.month} className="ro-bar-group">
+                  <div className="ro-bar-stack" style={{ height: 140 }}>
+                    <div className="ro-bar-tooltip">
+                      <div>{m.month}</div>
+                      <div>Total: {m.total}</div>
+                      <div>Scheduled: {m.scheduled}</div>
+                      <div>Joined: {m.joined}</div>
+                    </div>
+                    <div className="ro-bar-seg" style={{ height: h, background: '#1565C0' }} title={`Total: ${m.total}`} />
+                    <div className="ro-bar-seg" style={{ height: sh, background: '#5B6B4E', marginTop: 2 }} title={`Scheduled: ${m.scheduled}`} />
+                    <div className="ro-bar-seg" style={{ height: jh, background: '#6A1B9A', marginTop: 2 }} title={`Joined: ${m.joined}`} />
                   </div>
-                  <div className="ro-bar-seg" style={{ height: h, background: '#1565C0' }} title={`Total: ${m.total}`} />
-                  <div className="ro-bar-seg" style={{ height: sh, background: '#5B6B4E', marginTop: 2 }} title={`Scheduled: ${m.scheduled}`} />
-                  <div className="ro-bar-seg" style={{ height: jh, background: '#6A1B9A', marginTop: 2 }} title={`Joined: ${m.joined}`} />
+                  <div className="ro-bar-label">{m.month}</div>
                 </div>
-                <div className="ro-bar-label">{m.month}</div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+          <div className="ro-bar-legend">
+            <span><span className="ro-bar-dot" style={{ background: '#1565C0' }} />Total</span>
+            <span><span className="ro-bar-dot" style={{ background: '#5B6B4E' }} />Scheduled</span>
+            <span><span className="ro-bar-dot" style={{ background: '#6A1B9A' }} />Joined</span>
+          </div>
         </div>
-        <div className="ro-bar-legend">
-          <span><span className="ro-bar-dot" style={{ background: '#1565C0' }} />Total</span>
-          <span><span className="ro-bar-dot" style={{ background: '#5B6B4E' }} />Scheduled</span>
-          <span><span className="ro-bar-dot" style={{ background: '#6A1B9A' }} />Joined</span>
-        </div>
-      </div>
 
-      {/* ── Ninth Section: Recruiter Analytics ── */}
-      <div className="ro-section-title" style={{ marginTop: 20 }}>Recruiter Analytics</div>
-      <div className="ro-analytics-grid">
-        <div className="ro-analytics-card">
-          <div className="ro-analytics-icon" style={{ background: '#1565C015', color: '#1565C0' }}><Clock size={18} /></div>
-          <div className="ro-analytics-val">{analytics.avgResponseTime || 0}h</div>
-          <div className="ro-analytics-lbl">Avg Response Time</div>
-        </div>
-        <div className="ro-analytics-card">
-          <div className="ro-analytics-icon" style={{ background: '#7A5C7E15', color: '#7A5C7E' }}><Clock size={18} /></div>
-          <div className="ro-analytics-val">{analytics.avgHiringTime || 0}d</div>
-          <div className="ro-analytics-lbl">Avg Hiring Time</div>
-        </div>
-        <div className="ro-analytics-card">
-          <div className="ro-analytics-icon" style={{ background: '#5B6B4E15', color: '#5B6B4E' }}><Users size={18} /></div>
-          <div className="ro-analytics-val">{analytics.avgLeadsPerRecruiter || 0}</div>
-          <div className="ro-analytics-lbl">Avg Leads / Recruiter</div>
-        </div>
-        <div className="ro-analytics-card">
-          <div className="ro-analytics-icon" style={{ background: '#C08A2E15', color: '#C08A2E' }}><Bell size={18} /></div>
-          <div className="ro-analytics-val">{analytics.avgDailyLeads || 0}</div>
-          <div className="ro-analytics-lbl">Avg Daily Leads</div>
+        <div className="ro-split-side">
+          <div className="ro-card ro-side-analytics">
+            <div className="ro-card-title">Recruiter Analytics</div>
+            <div className="ro-side-grid">
+              <div className="ro-side-stat">
+                <div className="ro-side-icon" style={{ background: '#1565C015', color: '#1565C0' }}><Clock size={16} /></div>
+                <div className="ro-side-val">{analytics.avgResponseTime || 0}h</div>
+                <div className="ro-side-lbl">Avg Response Time</div>
+              </div>
+              <div className="ro-side-stat">
+                <div className="ro-side-icon" style={{ background: '#7A5C7E15', color: '#7A5C7E' }}><Clock size={16} /></div>
+                <div className="ro-side-val">{analytics.avgHiringTime || 0}d</div>
+                <div className="ro-side-lbl">Avg Hiring Time</div>
+              </div>
+              <div className="ro-side-stat">
+                <div className="ro-side-icon" style={{ background: '#5B6B4E15', color: '#5B6B4E' }}><Users size={16} /></div>
+                <div className="ro-side-val">{analytics.avgLeadsPerRecruiter || 0}</div>
+                <div className="ro-side-lbl">Avg Leads / Recruiter</div>
+              </div>
+              <div className="ro-side-stat">
+                <div className="ro-side-icon" style={{ background: '#C08A2E15', color: '#C08A2E' }}><Bell size={16} /></div>
+                <div className="ro-side-val">{analytics.avgDailyLeads || 0}</div>
+                <div className="ro-side-lbl">Avg Daily Leads</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
