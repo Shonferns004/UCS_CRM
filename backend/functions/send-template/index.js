@@ -148,11 +148,12 @@ serve(async (req) => {
     const phoneNumberId = account.phone_number_id;
     const accessToken = account.access_token;
     const recipientPhone = contact?.phone_normalized;
+    const proj = account.project;
 
     const { data: templateRecord } = await supabase
       .from("whatsapp_templates")
       .select("*")
-      .eq("tenant_id", tenantId)
+      .eq("project", proj)
       .eq("name", templateName)
       .maybeSingle();
 
