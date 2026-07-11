@@ -74,7 +74,6 @@ function buildWarningLetterHTML(w, dateText, joiningDate, subjectText) {
 </div>
 <div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">WARNING LETTER</div>
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
 <div style="text-align:justify;white-space:pre-wrap">${body.replace(/\n/g, '<br />')}</div>
 <div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Contact No.: +91 8879035035<br />Email: being.sevak@gmail.com</p><p style="margin:8px 0 0 0"><strong>Company Seal &amp; Signature</strong><br />Being Sevak Charitable Trust</p></div>
 <div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> 506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.</div></div>
