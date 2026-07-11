@@ -10,7 +10,7 @@ const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning le
 const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
   AFLF: { name: 'AFLF', logo: '/logo/aflf-logo.png', alt: 'AFLF', footer: 'AFLF', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
-  MANN: { name: 'MANN', logo: '/logo/mann-logo.jpg', alt: 'MANN', footer: 'MANN', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
+  MANN: { name: 'MANN', logo: '/logo/mann-logo.png', alt: 'MANN', footer: 'MANN', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
 };
 
 function getNgo(key) { return NGO_CONFIG[key] || NGO_CONFIG.BSCT; }
