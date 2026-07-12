@@ -823,3 +823,365 @@ export const getFroWorkerDashboard = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+/* ════════════════════════════════════════════════════════════════
+   SUPER ADMIN — RISK & ALERTS
+   ════════════════════════════════════════════════════════════════ */
+
+export const getSuperAdminAlerts = async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+
+    const twoDaysAgo = new Date(now); twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    const sevenDaysAgo = new Date(now); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const fourteenDaysAgo = new Date(now); fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    const threeDaysAgo = new Date(now); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const twentyFourHoursAgo = new Date(now); twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    const sevenDaysAgoForWeek = new Date(now); sevenDaysAgoForWeek.setDate(sevenDaysAgoForWeek.getDate() - 7);
+
+    const alerts = [];
+
+    // ── 1. Zero-Collection FROs (active today, called but collected nothing) ──
+    try {
+      const { data: froStatus } = await supabase
+        .from('fro_live_status')
+        .select('worker_id, today_calls, today_collection, on_break')
+        .eq('is_active', true);
+
+      const zeroFroIds = (froStatus || [])
+        .filter(f => (f.today_calls || 0) > 0 && Number(f.today_collection || 0) === 0)
+        .map(f => f.worker_id);
+
+      if (zeroFroIds.length > 0) {
+        const { data: froWorkers } = await supabase
+          .from('workers')
+          .select('id, name, login_id')
+          .in('id', zeroFroIds);
+
+        alerts.push({
+          id: 'zero-collection-fros',
+          severity: 'critical',
+          category: 'fro',
+          title: `${zeroFroIds.length} FRO(s) with zero collection today`,
+          description: `These FROs made calls today but collected nothing despite being active.`,
+          count: zeroFroIds.length,
+          actionPanel: 'fro',
+          actionLabel: 'View FRO Management',
+          details: (froWorkers || []).map(w => ({ name: w.name, value: `Login: ${w.login_id}`, id: w.id })),
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip this alert on error */ }
+
+    // ── 2. High Rejection Ratio (>10% rejected leads per FRO) ──
+    try {
+      const { data: recentLogs } = await supabase
+        .from('fro_donor_logs')
+        .select('fro_worker_id, disposition_detail, accounts_status, rejection_reason')
+        .gte('created_at', sevenDaysAgo.toISOString());
+
+      const froStats = {};
+      for (const log of recentLogs || []) {
+        const wid = log.fro_worker_id;
+        if (!wid) continue;
+        if (!froStats[wid]) froStats[wid] = { total: 0, rejected: 0 };
+        froStats[wid].total++;
+        if (log.accounts_status === 'rejected' || log.disposition_detail === 'rejected') {
+          froStats[wid].rejected++;
+        }
+      }
+
+      const highRejectFros = Object.entries(froStats)
+        .filter(([_, s]) => s.total >= 3 && (s.rejected / s.total) > 0.10)
+        .map(([wid, s]) => ({ wid, ...s, pct: Math.round((s.rejected / s.total) * 100) }))
+        .sort((a, b) => b.pct - a.pct)
+        .slice(0, 10);
+
+      if (highRejectFros.length > 0) {
+        const { data: workers } = await supabase
+          .from('workers')
+          .select('id, name, login_id')
+          .in('id', highRejectFros.map(f => f.wid));
+
+        const workerMap = {};
+        for (const w of workers || []) workerMap[w.id] = w;
+
+        alerts.push({
+          id: 'high-rejection-ratio',
+          severity: 'critical',
+          category: 'fro',
+          title: `${highRejectFros.length} FRO(s) with high rejection rate (>10%)`,
+          description: `FROs with above-threshold rejection rates in the last 7 days.`,
+          count: highRejectFros.length,
+          actionPanel: 'fro',
+          actionLabel: 'View FRO Performance',
+          details: highRejectFros.map(f => ({
+            name: workerMap[f.wid]?.name || 'Unknown',
+            value: `${f.rejected}/${f.total} rejected (${f.pct}%)`,
+            id: f.wid,
+          })),
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 3. Revenue Drop (>20% week-over-week decline) ──
+    try {
+      const { data: thisWeek } = await supabase
+        .from('fro_donor_logs')
+        .select('amount_collected')
+        .eq('accounts_status', 'verified')
+        .gte('verified_at', sevenDaysAgo.toISOString());
+
+      const { data: lastWeek } = await supabase
+        .from('fro_donor_logs')
+        .select('amount_collected')
+        .eq('accounts_status', 'verified')
+        .gte('verified_at', fourteenDaysAgo.toISOString())
+        .lt('verified_at', sevenDaysAgo.toISOString());
+
+      const thisWeekTotal = (thisWeek || []).reduce((s, l) => s + Number(l.amount_collected || 0), 0);
+      const lastWeekTotal = (lastWeek || []).reduce((s, l) => s + Number(l.amount_collected || 0), 0);
+
+      if (lastWeekTotal > 0) {
+        const dropPct = Math.round(((lastWeekTotal - thisWeekTotal) / lastWeekTotal) * 100);
+        if (dropPct >= 20) {
+          alerts.push({
+            id: 'revenue-drop',
+            severity: 'critical',
+            category: 'account',
+            title: `Revenue dropped ${dropPct}% week-over-week`,
+            description: `This week: ₹${thisWeekTotal.toLocaleString('en-IN')} vs last week: ₹${lastWeekTotal.toLocaleString('en-IN')}`,
+            count: dropPct,
+            actionPanel: 'accounts',
+            actionLabel: 'View Revenue Overview',
+            details: [
+              { name: 'This Week', value: `₹${thisWeekTotal.toLocaleString('en-IN')}` },
+              { name: 'Last Week', value: `₹${lastWeekTotal.toLocaleString('en-IN')}` },
+              { name: 'Drop', value: `${dropPct}%` },
+            ],
+            createdAt: now.toISOString(),
+          });
+        }
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 4. Unverified Receipts >48h ──
+    try {
+      const { data: stalePending, count } = await supabase
+        .from('fro_donor_logs')
+        .select('id, donor_id, amount_collected, created_at, fro_worker_id', { count: 'exact' })
+        .eq('disposition_detail', 'lead_done')
+        .eq('accounts_status', 'pending')
+        .lt('created_at', twoDaysAgo.toISOString());
+
+      if ((count || 0) > 0) {
+        const froIds = [...new Set((stalePending || []).map(l => l.fro_worker_id).filter(Boolean))];
+        const { data: froNames } = await supabase.from('workers').select('id, name').in('id', froIds);
+        const nameMap = {};
+        for (const w of froNames || []) nameMap[w.id] = w.name;
+
+        alerts.push({
+          id: 'stale-pending-verification',
+          severity: 'warning',
+          category: 'account',
+          title: `${count} donation receipt(s) pending verification >48h`,
+          description: `These donations have been waiting for accounts verification for over 2 days.`,
+          count,
+          actionPanel: 'accounts',
+          actionLabel: 'View Pending Verifications',
+          details: (stalePending || []).slice(0, 10).map(l => ({
+            name: `₹${Number(l.amount_collected || 0).toLocaleString('en-IN')}`,
+            value: `FRO: ${nameMap[l.fro_worker_id] || 'N/A'} · ${new Date(l.created_at).toLocaleDateString('en-IN')}`,
+            id: l.id,
+          })),
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 5. Unresolved Suspense Entries >7d ──
+    try {
+      const { count } = await supabase
+        .from('bank_audit_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'unverified')
+        .lt('created_at', sevenDaysAgo.toISOString());
+
+      if ((count || 0) > 0) {
+        alerts.push({
+          id: 'stale-suspense',
+          severity: 'warning',
+          category: 'account',
+          title: `${count} suspense bank entries unresolved for 7+ days`,
+          description: `Bank audit entries that haven't been verified or matched for over a week.`,
+          count,
+          actionPanel: 'accounts',
+          actionLabel: 'View Bank Audit',
+          details: [],
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 6. Missed Schedules (2+ per FRO this week) ──
+    try {
+      const { data: missedAlerts } = await supabase
+        .from('alerts')
+        .select('fro_name, fro_worker_id, donor_name')
+        .eq('type', 'missed_schedule')
+        .eq('acknowledged', false)
+        .gte('created_at', sevenDaysAgoForWeek.toISOString());
+
+      const missedByFro = {};
+      for (const a of missedAlerts || []) {
+        const key = a.fro_worker_id || a.fro_name || 'unknown';
+        if (!missedByFro[key]) missedByFro[key] = { name: a.fro_name || 'Unknown', count: 0, donors: [] };
+        missedByFro[key].count++;
+        if (a.donor_name) missedByFro[key].donors.push(a.donor_name);
+      }
+
+      const seriousMissers = Object.values(missedByFro).filter(f => f.count >= 2);
+
+      if (seriousMissers.length > 0) {
+        alerts.push({
+          id: 'missed-schedules',
+          severity: 'warning',
+          category: 'fro',
+          title: `${seriousMissers.length} FRO(s) with multiple missed schedules`,
+          description: `FROs who missed 2+ scheduled calls this week without follow-up.`,
+          count: seriousMissers.reduce((s, f) => s + f.count, 0),
+          actionPanel: 'fro',
+          actionLabel: 'View Missed Schedules',
+          details: seriousMissers.slice(0, 6).map(f => ({
+            name: f.name,
+            value: `${f.count} missed schedule(s)`,
+          })),
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 7. Unresolved Data Requests >24h ──
+    try {
+      const { data: staleRequests, count } = await supabase
+        .from('fro_data_requests')
+        .select('id, fro_worker_id, message, created_at', { count: 'exact' })
+        .eq('status', 'pending')
+        .lt('created_at', twentyFourHoursAgo.toISOString());
+
+      if ((count || 0) > 0) {
+        const workerIds = [...new Set((staleRequests || []).map(r => r.fro_worker_id).filter(Boolean))];
+        const { data: workers } = await supabase.from('workers').select('id, name').in('id', workerIds);
+        const wMap = {};
+        for (const w of workers || []) wMap[w.id] = w.name;
+
+        alerts.push({
+          id: 'stale-data-requests',
+          severity: 'warning',
+          category: 'fro',
+          title: `${count} FRO data request(s) unresolved >24h`,
+          description: `FRO workers waiting for data/admin response for over a day.`,
+          count,
+          actionPanel: 'fro',
+          actionLabel: 'View Data Requests',
+          details: (staleRequests || []).slice(0, 6).map(r => ({
+            name: wMap[r.fro_worker_id] || 'Unknown',
+            value: r.message?.slice(0, 60) || 'No message',
+          })),
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 8. Missing PAN for Large Donations (>₹10,000) ──
+    try {
+      const { count } = await supabase
+        .from('fro_donor_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('accounts_status', 'verified')
+        .gt('amount_collected', 10000)
+        .or('pan_number.is.null,pan_number.eq.')
+        .gte('created_at', sevenDaysAgo.toISOString());
+
+      if ((count || 0) > 0) {
+        alerts.push({
+          id: 'missing-pan-large-donations',
+          severity: 'warning',
+          category: 'compliance',
+          title: `${count} verified donation(s) >₹10K missing PAN`,
+          description: `Donations above ₹10,000 require PAN for tax compliance. These are missing it.`,
+          count,
+          actionPanel: 'accounts',
+          actionLabel: 'View Accounts',
+          details: [],
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 9. Stale Leads (>7 days, status 'new', no contact) ──
+    try {
+      const { count } = await supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'new')
+        .lt('created_at', sevenDaysAgo.toISOString());
+
+      if ((count || 0) > 0) {
+        alerts.push({
+          id: 'stale-leads',
+          severity: 'info',
+          category: 'lead',
+          title: `${count} lead(s) unattended for 7+ days`,
+          description: `Leads with status "new" that haven't been contacted in over a week.`,
+          count,
+          actionPanel: 'recruiter',
+          actionLabel: 'View Leads Pipeline',
+          details: [],
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── 10. Pending Leaves >3 days ──
+    try {
+      const { count } = await supabase
+        .from('leaves')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+        .lt('created_at', threeDaysAgo.toISOString());
+
+      if ((count || 0) > 0) {
+        alerts.push({
+          id: 'stale-pending-leaves',
+          severity: 'info',
+          category: 'hr',
+          title: `${count} leave request(s) pending for 3+ days`,
+          description: `Leave requests awaiting approval for over 3 working days.`,
+          count,
+          actionPanel: 'hr',
+          actionLabel: 'View Leave Requests',
+          details: [],
+          createdAt: now.toISOString(),
+        });
+      }
+    } catch (e) { /* skip */ }
+
+    // ── Sort: critical first, then warning, then info ──
+    const severityOrder = { critical: 0, warning: 1, info: 2 };
+    alerts.sort((a, b) => (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3));
+
+    const summary = {
+      critical: alerts.filter(a => a.severity === 'critical').length,
+      warning: alerts.filter(a => a.severity === 'warning').length,
+      info: alerts.filter(a => a.severity === 'info').length,
+    };
+
+    return res.json({ alerts, summary });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
