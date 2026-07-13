@@ -1,0 +1,73 @@
+export default function Template3({ personal }) {
+  return (
+    <div className="print-page">
+      <style>{`
+        .t3 *{box-sizing:border-box}
+        .t3{width:210mm;min-height:297mm;margin:auto;background:#fff;border:3px solid #222;padding:14mm 16mm;font-family:"Times New Roman",serif;page-break-after:always}
+        .t3 h1{margin:0;text-align:center;font-size:22pt}
+        .t3 .sub{text-align:center;font-size:10pt}
+        .t3 .redline{height:2px;background:#7a2b2b;margin:4px 0 8px}
+        .t3 p{font-size:10pt;line-height:1.35;text-align:justify;margin:4px 0}
+        .t3 .section{color:#8b1e1e;font-weight:bold;font-size:13pt;margin-top:8px}
+        .t3 table{width:100%;border-collapse:collapse;margin-top:6px}
+        .t3 th,.t3 td{border:1px solid #444;padding:5px;font-size:10pt;vertical-align:top}
+        .t3 th{background:#efefef}
+        .t3 .sign{display:flex;justify-content:space-between;gap:16px;margin-top:10px}
+        .t3 .field{flex:1}
+        .t3 .line{border-bottom:1px solid #000;height:20px;padding-left:4px}
+        .t3 .consent{text-align:center;font-size:16pt;font-weight:bold;color:#1f3f73;margin:14px 0 6px}
+        .t3 .footer{margin-top:16px;padding-top:6px;border-top:2px solid #7a2b2b;font-size:9pt;text-align:center}
+      `}</style>
+      <div className="t3">
+        <h1>Being Sevak Charitable Trust</h1>
+        <div className="redline"></div>
+        <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+
+        <p>You shall abide by the Trust rules and HR policies as presented in the HR Rule Copy, and by all general or administrative rules, regulations and directives of the Trust made from time to time, so long as they are not inconsistent with this agreement. For any work-related matter, issue or communication, the volunteer must contact the concerned authority directly. <strong>Dress Code:</strong> Monday to Friday [Formals]; Saturday [Casuals].</p>
+
+        <div className="section">Holiday &amp; Leave Policy (Clubbing Rule)</div>
+        <p>No leave is permitted during the probation period. Taking leave may affect increment and job continuity. Weekly off is Sunday only, subject to change. Outdoor duty and leave both require approval from the HOD. Leave should normally be applied at least three days in advance and half-day leave at least one day in advance.</p>
+        <p><strong>If leave is taken on Saturday, Monday or the day after a Public Holiday, the Sunday weekly off will be deducted from salary. If a volunteer is absent for more than six days in a month, all Sundays of that month will be deducted from salary.</strong></p>
+
+        <div className="section">Exit Formation &amp; Separation Policy</div>
+        <p>A resigning volunteer must complete the separation clearance process and hand over all assigned duties. Full &amp; Final settlement is processed in the next salary cycle. A volunteer becomes eligible for an Experience Letter after completing one year.</p>
+
+        <table>
+          <tr><th width="28%">Policy</th><th>Description</th></tr>
+          <tr><td><b>Voluntary Resignation</b></td><td>Notice Period: One month during probation and 45 days after confirmation. Leaving without completing the notice period makes the volunteer ineligible for salary.</td></tr>
+          <tr><td><b>Abandonment of Service</b></td><td>Absence from work for seven consecutive days without information will be treated as absconding and salary may be forfeited.</td></tr>
+          <tr><td><b>Termination of Service</b></td><td>Termination may result from non-performance or violation of the Trust Code of Conduct.</td></tr>
+        </table>
+
+        <div className="section">Incentive</div>
+        <p>Performance Linked Incentive (PLI), where applicable, shall be paid according to performance and HOD approval.</p>
+
+        <div className="section">Legal Indemnification</div>
+        <p>The volunteer agrees to maintain confidentiality and indemnify the Trust from damages, claims or disputes arising from any violation of confidentiality or contractual obligations. Signing below confirms that the volunteer has read, understood and accepted all terms.</p>
+        <p>Yours sincerely,<br /><b>For Being Sevak Charitable Trust – HOD</b></p>
+        <p>I accept all the terms and conditions as mentioned in this letter.</p>
+
+        <div className="sign">
+          <div className="field">Volunteer Name <div className="line">{personal.fullName || ''}</div></div>
+          <div className="field">Signature <div className="line"></div></div>
+        </div>
+        <div className="sign">
+          <div className="field">Manager Name / HOD <div className="line"></div></div>
+          <div className="field">Signature <div className="line"></div></div>
+        </div>
+
+        <div className="consent">VOLUNTEER PHOTO, VIDEO, NAME &amp; PUBLICITY CONSENT AND RELEASE FORM</div>
+        <p>I, <b>{personal.fullName || '________________________'}</b> son/daughter/spouse of <b>{personal.fatherHusband || '________________________'}</b> residing at <b>{personal.address || '________________________'}</b> hereby voluntarily grant my free, informed and unconditional consent to Being Sevak Charitable Trust to photograph, film, record and otherwise capture my image, likeness, voice and statements during my association with the Trust.</p>
+
+        <p><b>1. Grant of Permission &amp; Permitted Use</b><br />The Trust may use, reproduce, publish, distribute, edit, display and archive photographs, videos, recordings, testimonials and statements for educational, awareness, fundraising, promotional, branding, documentation and reporting purposes.</p>
+        <p><b>2. No Objection &amp; No Financial Claim</b><br />I shall not claim any royalty, fee, compensation or financial benefit for such use.</p>
+        <p><b>3. Editing Rights &amp; Intellectual Property</b><br />The Trust may crop, edit, enhance or translate the material without intentionally misrepresenting my identity. All material remains the exclusive property of Being Sevak Charitable Trust.</p>
+
+        <div className="footer">
+          Reg. Add.: Office No. 402, 4th Floor, A Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai<br />
+          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+        </div>
+      </div>
+    </div>
+  );
+}
