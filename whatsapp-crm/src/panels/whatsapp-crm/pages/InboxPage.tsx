@@ -210,69 +210,80 @@ export function InboxPage() {
   const selectedConversation = conversations?.find((c) => c.id === conversationId);
 
   const isAgent = user?.role === 'agent';
+  const WA_GREEN = '#00a884';
+  const avatarColor = (name?: string) => {
+    const colors = ['#00a884','#5f9ea0','#d4a574','#8b7e74','#c97b84','#6fa8dc','#93c47d','#e69138'];
+    let hash = 0;
+    for (let i = 0; i < (name || '').length; i++) hash = name!.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
   const avatarLetter = (name?: string) => (name?.[0] || '?').toUpperCase();
 
   return (<>
     <div className={`flex ${isAgent ? 'h-screen w-full' : 'h-[calc(100vh-12rem)]'}`}>
       {/* Conversation List */}
-      <div className="w-80 border-r bg-white flex-shrink-0 flex flex-col">
-        <div className="bg-[#075e54] text-white px-4 py-3 flex items-center justify-between">
-          <span className="font-semibold text-sm">Chats</span>
-          <div className="flex gap-2">
-            <button onClick={() => setSearchOpen(true)} className="text-white/80 hover:text-white"><Search className="h-4 w-4" /></button>
-            {!isAgent && <button onClick={() => setShowNewConv(true)} className="text-white/80 hover:text-white"><Plus className="h-4 w-4" /></button>}
+      <div className="w-80 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
+        <div className="bg-[#f0f2f5] px-4 py-3.5 flex items-center justify-between">
+          <span className="text-base font-semibold text-[#111b21]">Chats</span>
+          <div className="flex gap-4">
+            <button onClick={() => setShowNewConv(true)} className="text-[#54656f]"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
+            <button onClick={() => setSearchOpen(true)} className="text-[#54656f]"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 001.256-3.386 5.207 5.207 0 10-5.207 5.207 5.184 5.184 0 003.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.006zm-4.808 0a3.605 3.605 0 110-7.21 3.605 3.605 0 010 7.21z"/></svg></button>
           </div>
         </div>
-        <div className="relative px-3 py-2 bg-white border-b">
-          <Search className="absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search or start new chat"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 pl-7 text-xs rounded-lg bg-[#f0f2f5] border-0"
-          />
+        <div className="px-3 py-2 bg-white">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-[#667781]" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 001.256-3.386 5.207 5.207 0 10-5.207 5.207 5.184 5.184 0 003.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.006zm-4.808 0a3.605 3.605 0 110-7.21 3.605 3.605 0 010 7.21z"/></svg>
+            <input
+              placeholder="Search or start new chat"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg bg-[#f0f2f5] py-1.5 pl-10 pr-3 text-sm outline-none placeholder-[#667781]"
+            />
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loadingConvs ? (
             Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex animate-pulse items-center gap-3 border-b px-4 py-3">
-                <div className="h-12 w-12 rounded-full bg-muted" />
+              <div key={i} className="flex animate-pulse items-center gap-3 px-4 py-3">
+                <div className="h-12 w-12 rounded-full bg-gray-200" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-3 w-32 rounded bg-muted" />
-                  <div className="h-2 w-24 rounded bg-muted" />
+                  <div className="h-3 w-32 rounded bg-gray-200" />
+                  <div className="h-2 w-24 rounded bg-gray-200" />
                 </div>
               </div>
             ))
+          ) : conversations?.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 p-8 text-[#667781]">
+              <MessageSquare className="h-8 w-8" />
+              <p className="text-sm">No conversations yet</p>
+            </div>
           ) : conversations?.map((conversation) => (
             <button
               key={conversation.id}
               onClick={() => navigate(`/inbox/${conversation.id}`)}
-              className={`flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-[#f0f2f5] ${
+              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#f0f2f5] ${
                 conversation.id === conversationId ? 'bg-[#f0f2f5]' : ''
               }`}
             >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#075e54] text-sm font-semibold text-white">
+              <div
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                style={{ backgroundColor: avatarColor(conversation.contact?.wa_profile_name) }}
+              >
                 {avatarLetter(conversation.contact?.wa_profile_name)}
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1" style={{ borderBottom: '1px solid #e9edef', paddingBottom: '12px', marginBottom: '-4px' }}>
                 <div className="flex items-center justify-between">
-                  <span className="truncate text-sm font-medium">
+                  <span className="truncate text-sm font-medium text-[#111b21]">
                     {conversation.contact?.wa_profile_name || conversation.contact?.phone}
                   </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                  <span className="shrink-0 text-[11px] text-[#667781]">
                     {conversation.last_message_at ? format(new Date(conversation.last_message_at), 'HH:mm') : ''}
                   </span>
                 </div>
-                <p className="truncate text-xs text-muted-foreground">{conversation.contact?.phone}</p>
+                <p className="truncate text-[12.5px] text-[#667781]">{conversation.contact?.phone}</p>
               </div>
             </button>
-          )) || (
-            <div className="flex flex-col items-center gap-2 p-8 text-muted-foreground">
-              <MessageSquare className="h-8 w-8" />
-              <p className="text-sm">No conversations yet</p>
-              <p className="text-xs">Messages will appear here</p>
-            </div>
-          )}
+          ))}
         </div>
       </div>
 
@@ -280,16 +291,19 @@ export function InboxPage() {
       <div className="flex flex-1 flex-col bg-[#efeae2]">
         {selectedConversation ? (
           <>
-            <div className="bg-[#075e54] px-4 py-3 text-white flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-semibold">
+            <div className="bg-[#f0f2f5] px-4 py-2 flex items-center gap-3 border-l border-gray-200">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                style={{ backgroundColor: avatarColor(selectedConversation.contact?.wa_profile_name) }}
+              >
                 {avatarLetter(selectedConversation.contact?.wa_profile_name)}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{selectedConversation.contact?.wa_profile_name || selectedConversation.contact?.phone}</p>
-                <p className="text-[11px] text-white/70">{selectedConversation.contact?.phone}</p>
+                <p className="truncate text-[14.5px] font-medium text-[#111b21]">{selectedConversation.contact?.wa_profile_name || selectedConversation.contact?.phone}</p>
+                <p className="text-[11.5px] text-[#667781]">{selectedConversation.contact?.phone}</p>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d9d9d9\' fill-opacity=\'0.15\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
+            <div className="flex-1 overflow-y-auto px-12 py-4" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4d4d4\' fill-opacity=\'0.20\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
               {loadingMsgs ? (
                 <div className="space-y-4">
                   {Array.from({ length: 4 }).map((_, i) => (
@@ -304,21 +318,19 @@ export function InboxPage() {
                 <div className="space-y-1">
                   {messages?.map((message) => (
                     <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[65%] rounded-lg px-3 py-2 text-sm shadow-sm ${
+                      <div className={`max-w-[60%] px-3 py-2 text-[14.2px] shadow-sm leading-[19px] ${
                         message.direction === 'outbound'
-                          ? 'bg-[#dcf8c6] rounded-br-none'
-                          : 'bg-white rounded-bl-none'
+                          ? 'bg-[#d9fdd3] rounded-lg rounded-br-sm'
+                          : 'bg-white rounded-lg rounded-bl-sm'
                       }`}>
-                        <p className="whitespace-pre-wrap break-words">{message.body_text || (message.media_url ? '[Media]' : '')}</p>
+                        <p className="whitespace-pre-wrap break-words text-[#111b21]">{message.body_text}</p>
                         {message.media_url ? (
                           <MediaPreview url={message.media_url} mimeType={message.media_mime_type} className="mt-1" />
                         ) : message.media_id ? (
                           <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
                         ) : null}
                         <div className="mt-1 flex items-center justify-end gap-1">
-                          <span className="text-[10px] text-gray-500">
-                            {format(new Date(message.created_at), 'HH:mm')}
-                          </span>
+                          <span className="text-[10.5px] text-[#667781]">{format(new Date(message.created_at), 'HH:mm')}</span>
                           {message.direction === 'outbound' && <MessageStatusIcon status={message.status} />}
                         </div>
                       </div>
@@ -328,7 +340,7 @@ export function InboxPage() {
                 </div>
               )}
               {(!messages || messages.length === 0) && !loadingMsgs && (
-                <div className="flex h-full items-center justify-center text-muted-foreground">
+                <div className="flex h-full items-center justify-center text-[#667781]">
                   <p className="text-sm">No messages yet</p>
                 </div>
               )}
@@ -337,10 +349,10 @@ export function InboxPage() {
             <MessageComposer conversationId={selectedConversation.id} tenantId={selectedConversation.tenant_id} contactId={selectedConversation.contact_id} userId={user?.id || ''} onMessageSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
           </>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground bg-[#f0f2f5]">
-            <MessageSquare className="h-16 w-16 opacity-30" />
-            <p className="text-lg font-medium">WhatsApp CRM</p>
-            <p className="text-sm">Select a chat or start a new conversation</p>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[#667781] bg-[#f0f2f5]">
+            <MessageSquare className="h-16 w-16 opacity-20" />
+            <p className="text-base font-medium">WhatsApp CRM</p>
+            <p className="text-sm">Select a chat to start messaging</p>
           </div>
         )}
       </div>

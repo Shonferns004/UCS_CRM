@@ -1,8 +1,6 @@
 import { useState, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Button } from '../ui/Button';
-import { Input } from '../ui/Input';
-import { Send, Loader2, Image } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { MediaUploadPreview } from './MediaPreview';
 import { sendWhatsAppMessage } from '../../lib/whatsapp';
 
@@ -75,48 +73,34 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
   };
 
   return (
-    <div className="border-t p-4">
+    <div className="bg-[#f0f2f5] px-4 py-2">
       {selectedFile && (
         <div className="mb-2">
           <MediaUploadPreview file={selectedFile} onRemove={() => setSelectedFile(null)} />
         </div>
       )}
-      <div className="flex gap-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) {
-              if (f.size > 16 * 1024 * 1024) { alert('Max 16MB'); return; }
-              setSelectedFile(f);
-            }
-            e.target.value = '';
-          }}
-          className="hidden"
-        />
-        <Button
-          variant="ghost"
-          size="icon"
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={sending}
-          title="Attach file"
-        >
-          <Image className="h-5 w-5 text-muted-foreground" />
-        </Button>
-        <Input
-          placeholder="Type a message..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-          disabled={sending}
-          className="flex-1"
-        />
-        <Button onClick={handleSend} disabled={(!text.trim() && !selectedFile) || sending}>
-          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        </Button>
+      <div className="flex items-center gap-2">
+        <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" onChange={(e) => { const f = e.target.files?.[0]; if (f) { if (f.size > 16 * 1024 * 1024) { alert('Max 16MB'); return; } setSelectedFile(f); } e.target.value = ''; }} className="hidden" />
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending} className="shrink-0">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#8696a0" strokeWidth="2"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+        </button>
+        <div className="flex-1 relative">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder="Type a message"
+            disabled={sending}
+            className="w-full rounded-lg border-0 bg-white px-3 py-2.5 text-sm outline-none ring-0 focus:ring-0"
+          />
+        </div>
+        <button onClick={handleSend} disabled={(!text.trim() && !selectedFile) || sending} className="shrink-0">
+          {sending ? <Loader2 className="h-6 w-6 animate-spin text-[#8696a0]" /> : (
+            <svg viewBox="0 0 24 24" width="26" height="26" fill={text.trim() || selectedFile ? '#00a884' : '#8696a0'}>
+              <path d="M1.101 21.757L23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z"/>
+            </svg>
+          )}
+        </button>
       </div>
     </div>
   );
