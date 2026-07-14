@@ -9,12 +9,12 @@ export default function Template2({ organizations, family, references, declarati
         .t2 .header p{font-size:11px;margin-bottom:4px}
         .t2 .top-line{border-top:3px solid #7d1e1e;margin:4px 0}
         .t2 table{width:100%;border-collapse:collapse}
-        .t2 th,.t2 td{border:1px solid #666;padding:5px;font-size:12px}
+        .t2 th,.t2 td{border:1px solid #666;padding:6px 8px;font-size:12px}
         .t2 .section{background:#d8d8d8;font-weight:bold;font-size:15px;text-transform:uppercase}
         .t2 .center{text-align:center}
-        .t2 .work td{height:38px}
-        .t2 .family td{height:34px}
-        .t2 .reference td{height:30px}
+        .t2 .work td{height:48px}
+        .t2 .family td{height:40px}
+        .t2 .reference td{height:36px}
         .t2 .declaration{border:1px solid #666;border-top:none;padding:12px;flex:1}
         .t2 .declaration p{font-size:13px;line-height:1.4;text-align:justify}
         .t2 .signature{margin-top:auto;padding-top:20px;display:flex;justify-content:space-between;align-items:flex-end}
