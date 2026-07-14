@@ -27,6 +27,7 @@ export function BatchUserImport() {
   const [manualMode, setManualMode] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualEmail, setManualEmail] = useState('');
+  const [customPassword, setCustomPassword] = useState('');
 
   const { data: searchResults } = useQuery({
     queryKey: ['user-search', search],
@@ -84,7 +85,7 @@ export function BatchUserImport() {
     setError(null);
     setResult(null);
 
-    const tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
+    const tempPassword = customPassword || Math.random().toString(36).slice(-8) + 'A1!';
 
     try {
       const { data, error } = await supabase.rpc('create_agent', {
@@ -230,6 +231,10 @@ export function BatchUserImport() {
                 <Label className="text-xs">Email</Label>
                 <Input value={manualEmail} onChange={(e) => setManualEmail(e.target.value)} placeholder="john@example.com" />
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Password (leave blank to auto-generate)</Label>
+                <Input type="text" value={customPassword} onChange={(e) => setCustomPassword(e.target.value)} placeholder="Auto-generated if empty" />
+              </div>
             </div>
             <RoleAndNumbersSection />
             <Button className="w-full" onClick={handleImport} disabled={importing || !manualName || !manualEmail}>
@@ -254,6 +259,16 @@ export function BatchUserImport() {
               <Button variant="ghost" size="icon" onClick={handleClear}>
                 <X className="h-4 w-4" />
               </Button>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Password (leave blank to auto-generate)</Label>
+              <Input
+                type="text"
+                value={customPassword}
+                onChange={(e) => setCustomPassword(e.target.value)}
+                placeholder="Auto-generated if empty"
+              />
             </div>
 
             <RoleAndNumbersSection />
