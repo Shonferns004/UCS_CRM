@@ -50,17 +50,14 @@ export function QuickReplyBar({ conversationId, onSent }: QuickReplyBarProps) {
   const handleSend = async (reply: QuickReply) => {
     setSendingId(reply.id);
     try {
-      supabase.functions.invoke('send-message', {
-        body: {
-          conversationId,
-          messageText: reply.message_text || '',
-          mediaUrl: reply.media_url || undefined,
-          mediaMimeType: reply.media_type || undefined,
-        },
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      fetch(`${API_BASE}/whatsapp/send-message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, messageText: reply.message_text || '', mediaUrl: reply.media_url || undefined, mediaMimeType: reply.media_type || undefined }),
       }).catch(() => {});
       onSent();
-    } catch (err) {
-      console.error('Quick reply send error:', err);
+    } catch {
     } finally {
       setSendingId(null);
     }

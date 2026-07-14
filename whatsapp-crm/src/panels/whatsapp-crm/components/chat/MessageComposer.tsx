@@ -43,6 +43,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         mediaMimeType = selectedFile.type;
       }
 
+      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
       await supabase.from('messages').insert({
         tenant_id: tenantId,
         conversation_id: conversationId,
@@ -56,9 +57,10 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         status: 'queued',
         message_category: 'service',
       });
-
-      supabase.functions.invoke('send-message', {
-        body: { conversationId, messageText: text.trim() || undefined, mediaUrl, mediaMimeType },
+      fetch(`${API_BASE}/whatsapp/send-message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, messageText: text.trim() || undefined, mediaUrl, mediaMimeType }),
       }).catch(() => {});
 
       setText('');

@@ -177,8 +177,11 @@ export function InboxPage() {
       if (convError) throw convError;
 
       if (newConvMessage.trim()) {
-        supabase.functions.invoke('send-message', {
-          body: { conversationId: conversation.id, messageText: newConvMessage.trim() },
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        fetch(`${API_BASE}/whatsapp/send-message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId: conversation.id, messageText: newConvMessage.trim() }),
         }).catch(() => {});
       }
 
