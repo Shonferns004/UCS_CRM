@@ -1,6 +1,13 @@
 import { supabase } from './supabase';
+import { toast } from 'sonner';
 
 const META_API_VERSION = 'v23.0';
+
+function isWithin24Hours(dateStr: string | null): boolean {
+  if (!dateStr) return false;
+  const diff = Date.now() - new Date(dateStr).getTime();
+  return diff < 24 * 60 * 60 * 1000;
+}
 
 export async function sendWhatsAppMessage(
   conversationId: string,
@@ -29,22 +36,45 @@ export async function sendWhatsAppMessage(
 
     if (!contact?.phone_normalized) return false;
 
-    const payload: any = {
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-    };
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('last_inbound_at')
+      .eq('id', conversationId)
+      .maybeSingle();
 
-    if (mediaUrl && mediaMimeType) {
+    const windowOpen = isWithin24Hours(conv?.last_inbound_at);
+
+    let payload: any;
+
+    if (!windowOpen && !mediaUrl) {
+      payload = {
+        messaging_product: 'whatsapp',
+        to: contact.phone_normalized,
+        type: 'template',
+        template: {
+          name: 'hello_world',
+          language: { code: 'en_US' },
+        },
+      };
+    } else if (mediaUrl && mediaMimeType) {
       const type = mediaMimeType.startsWith('image/') ? 'image'
         : mediaMimeType.startsWith('video/') ? 'video'
         : mediaMimeType.startsWith('audio/') ? 'audio'
         : 'document';
-      payload.type = type;
-      payload[type] = { link: mediaUrl };
+      payload = {
+        messaging_product: 'whatsapp',
+        to: contact.phone_normalized,
+        type,
+        [type]: { link: mediaUrl },
+      };
       if (messageText) payload[type].caption = messageText;
     } else {
-      payload.type = 'text';
-      payload.text = { body: messageText || '' };
+      payload = {
+        messaging_product: 'whatsapp',
+        to: contact.phone_normalized,
+        type: 'text',
+        text: { body: messageText || '' },
+      };
     }
 
     const res = await fetch(`https://graph.facebook.com/${META_API_VERSION}/${phone_number_id}/messages`, {
@@ -56,11 +86,21 @@ export async function sendWhatsAppMessage(
     const result = await res.json();
 
     if (res.ok && result.messages?.[0]?.id) {
+      const isTemplate = !!payload.template;
       await supabase
         .from('messages')
-        .update({ status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() })
+        .update({
+          status: isTemplate ? 'sent' : 'sent',
+          wa_message_id: result.messages[0].id,
+          status_updated_at: new Date().toISOString(),
+        })
         .eq('conversation_id', conversationId)
         .eq('status', 'queued');
+
+      if (!windowOpen && !mediaUrl) {
+        toast.info('Sent via template (24hr window closed). Ask donor to reply to open chat.');
+      }
+
       return true;
     }
 
