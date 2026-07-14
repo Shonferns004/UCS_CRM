@@ -40,9 +40,9 @@ export function Header() {
 
   useEffect(() => {
     supabase
-      .from('whatsapp_phone_numbers')
-      .select('status, display_phone_number, quality_rating')
-      .order('is_primary', { ascending: false })
+      .from('whatsapp_accounts')
+      .select('name, phone_number_id, is_default')
+      .order('is_default', { ascending: false })
       .limit(1)
       .maybeSingle()
       .then(({ data }) => {

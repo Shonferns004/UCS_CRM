@@ -44,11 +44,10 @@ export function BatchUserImport() {
     queryKey: ['whatsapp-phone-numbers-assign'],
     queryFn: async () => {
       const { data } = await supabase
-        .from('whatsapp_phone_numbers')
-        .select('id, display_phone_number, label')
-        .eq('tenant_id', user?.tenant_id)
+        .from('whatsapp_accounts')
+        .select('id, phone_number_id, name, is_active')
         .eq('is_active', true);
-      return data || [];
+      return (data || []).map((a: any) => ({ ...a, display_phone_number: a.phone_number_id, label: a.name }));
     },
     enabled: !!user?.tenant_id,
   });

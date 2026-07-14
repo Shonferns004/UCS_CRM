@@ -31,10 +31,10 @@ export function AnalyticsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('conversations')
-        .select('created_at, status, closed_at')
+        .select('created_at, status')
         .gte('created_at', thirtyDaysAgo);
-      if (error) throw error;
-      return data as Pick<Conversation, 'created_at' | 'status' | 'closed_at'>[];
+      if (error) return [];
+      return data || [];
     },
   });
 
@@ -56,8 +56,8 @@ export function AnalyticsPage() {
       const { data, error } = await supabase
         .from('deals')
         .select('status, value, created_at');
-      if (error) throw error;
-      return data as Pick<Deal, 'status' | 'value' | 'created_at'>[];
+      if (error) return [];
+      return data || [];
     },
   });
 

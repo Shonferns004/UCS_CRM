@@ -46,13 +46,10 @@ export function InboxPage() {
   const { data: conversations, isLoading: loadingConvs } = useQuery({
     queryKey: ['conversations'],
     queryFn: async () => {
-      let query = supabase
+      const query = supabase
         .from('conversations')
         .select('*, contact:contacts(*)')
         .order('last_message_at', { ascending: false, nullsFirst: false });
-      if (selectedLabel) {
-        query = query.contains('labels', [selectedLabel]);
-      }
       const { data, error } = await query;
       if (error) throw error;
       return data;
@@ -123,16 +120,16 @@ export function InboxPage() {
   const { data: contacts } = useQuery({
     queryKey: ['contacts-list'],
     queryFn: async () => {
-      const { data } = await supabase.from('contacts').select('id, first_name, last_name, phone').order('created_at', { ascending: false }).limit(100);
-      return data || [];
+      const { data } = await supabase.from('contacts').select('id, wa_profile_name, phone, source').order('created_at', { ascending: false }).limit(100);
+      return (data || []).map((c: any) => ({ ...c, first_name: c.wa_profile_name || c.phone, last_name: '' }));
     },
   });
 
   const { data: phoneNumbers } = useQuery<WhatsAppPhoneNumber[]>({
     queryKey: ['whatsapp-phone-numbers'],
     queryFn: async () => {
-      const { data } = await supabase.from('whatsapp_phone_numbers').select('*').eq('tenant_id', user?.tenant_id).order('is_primary', { ascending: false });
-      return data as WhatsAppPhoneNumber[] || [];
+      const { data } = await supabase.from('whatsapp_accounts').select('*').order('is_default', { ascending: false });
+      return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
     },
   });
 
@@ -167,7 +164,7 @@ export function InboxPage() {
         }
       }
 
-      const { data: pn } = await supabase.from('whatsapp_phone_numbers').select('*').eq('id', newConvPhoneId).single();
+      const { data: pn } = await supabase.from('whatsapp_accounts').select('*').eq('id', newConvPhoneId).single();
       if (!pn) { toast.error('Phone number not found'); return; }
 
       const { data: conversation, error: convError } = await supabase.from('conversations').insert({
@@ -243,7 +240,7 @@ export function InboxPage() {
           <LabelFilter
             selectedLabel={selectedLabel}
             onSelect={setSelectedLabel}
-            allLabels={conversations?.flatMap((c) => c.labels || []) || []}
+            allLabels={[]}
           />
         </CardHeader>
         <CardContent className="p-0">
@@ -265,7 +262,7 @@ export function InboxPage() {
               >
                 <div className="flex items-center justify-between">
                   <div className="font-medium truncate">
-                    {conversation.contact?.first_name} {conversation.contact?.last_name || conversation.contact?.phone}
+                    {conversation.contact?.wa_profile_name || conversation.contact?.phone}
                   </div>
                   {conversation.status === 'open' && (
                     <span className="ml-2 h-2 w-2 flex-shrink-0 rounded-full bg-green-500" />
@@ -274,16 +271,13 @@ export function InboxPage() {
                 <div className="text-sm text-muted-foreground">
                   {conversation.status} · {conversation.contact?.phone}
                 </div>
-                {conversation.labels && conversation.labels.length > 0 && (
+                {(conversation.labels as any)?.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {conversation.labels.slice(0, 3).map((label: string) => (
+                    {(conversation.labels as string[] || []).slice(0, 3).map((label: string) => (
                       <span key={label} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                         {label}
                       </span>
                     ))}
-                    {conversation.labels.length > 3 && (
-                      <span className="text-[10px] text-muted-foreground">+{conversation.labels.length - 3}</span>
-                    )}
                   </div>
                 )}
               </button>
@@ -306,7 +300,7 @@ export function InboxPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>
-                      {selectedConversation.contact?.first_name} {selectedConversation.contact?.last_name}
+                      {selectedConversation.contact?.wa_profile_name || selectedConversation.contact?.phone}
                     </CardTitle>
                     <p className="text-sm text-muted-foreground">
                       {selectedConversation.contact?.phone}
@@ -315,7 +309,7 @@ export function InboxPage() {
                   <div className="flex items-center gap-2">
                     <ConversationLabels
                       conversationId={selectedConversation.id}
-                      currentLabels={selectedConversation.labels || []}
+                      currentLabels={[]}
                     />
                     <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize text-muted-foreground">
                       {selectedConversation.status}

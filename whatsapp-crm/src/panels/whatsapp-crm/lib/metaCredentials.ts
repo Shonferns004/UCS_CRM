@@ -19,7 +19,7 @@ export async function loadMetaCredentials(): Promise<void> {
         cachedToken = s.wa_access_token || null;
         cachedWabaId = s.waba_id || null;
       }
-      const { data: phone } = await supabase.from('whatsapp_phone_numbers').select('phone_number_id').eq('tenant_id', profile.tenant_id).eq('is_primary', true).maybeSingle();
+      const { data: phone } = await supabase.from('whatsapp_accounts').select('phone_number_id').eq('is_default', true).maybeSingle();
       cachedPhoneNumberId = phone?.phone_number_id || null;
     } catch {
       // Silently fail - keep existing cache
