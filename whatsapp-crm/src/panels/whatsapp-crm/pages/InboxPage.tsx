@@ -28,11 +28,12 @@ function avatarColor(name?: string) {
 function avatarLetter(name?: string) { return (name?.[0] || '?').toUpperCase(); }
 
 function WAAvatar({ name, size = 'md' }: { waId?: string; name?: string; size?: 'sm' | 'md' }) {
-  const px = size === 'sm' ? 'h-8 w-8 text-[11px]' : 'h-12 w-12 text-sm';
+  const px = size === 'sm' ? 'h-8 w-8' : 'h-12 w-12';
   return (
-    <div className={`${px} shrink-0 flex items-center justify-center rounded-full font-semibold text-white`}
-      style={{ backgroundColor: avatarColor(name) }}>
-      {avatarLetter(name)}
+    <div className={`${px} shrink-0 flex items-center justify-center rounded-full bg-[#dfe5e7]`}>
+      <svg viewBox="0 0 40 40" width={size === 'sm' ? '20' : '28'} height={size === 'sm' ? '20' : '28'} fill="#54656f">
+        <path d="M20 20c4.42 0 8-3.58 8-8s-3.58-8-8-8-8 3.58-8 8 3.58 8 8 8zm0 4c-5.33 0-16 2.67-16 8v4h32v-4c0-5.33-10.67-8-16-8z"/>
+      </svg>
     </div>
   );
 }
