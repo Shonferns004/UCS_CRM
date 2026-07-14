@@ -85,18 +85,17 @@ export function BatchUserImport() {
     setResult(null);
 
     const tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
-    const API_BASE = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
 
     try {
-      const res = await fetch(`${API_BASE}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, password: tempPassword }),
+      const { data, error } = await supabase.rpc('create_agent', {
+        p_email: payload.email,
+        p_password: tempPassword,
+        p_name: payload.first_name + ' ' + payload.last_name,
+        p_role: role,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || data.error || 'Registration failed');
+      if (error || !data) {
+        setError(error?.message || 'Failed to create agent');
       } else {
         setResult({ success: true, email: payload.email, password: tempPassword });
         setSelected(null);

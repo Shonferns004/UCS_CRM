@@ -203,15 +203,9 @@ function TeamSettings() {
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete ${name}?`)) return;
-    const API_BASE = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
     try {
-      const token = localStorage.getItem('ucs_token');
-      const res = await fetch(`${API_BASE}/auth/users/${id}`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Delete failed');
+      const { error } = await supabase.rpc('delete_agent', { p_id: id });
+      if (error) throw new Error(error.message);
       toast.success('User deleted');
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
     } catch (err: any) {
