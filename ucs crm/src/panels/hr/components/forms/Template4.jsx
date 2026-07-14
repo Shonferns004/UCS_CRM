@@ -1,4 +1,4 @@
-export default function Template4({ personal, declarationDate, place }) {
+export default function Template4({ personal }) {
   return (
     <div className="print-page">
       <style>{`
@@ -8,63 +8,48 @@ export default function Template4({ personal, declarationDate, place }) {
         .t4 .sub{text-align:center;font-size:11pt}
         .t4 .red{height:3px;background:#7b2020;margin:8px 0 14px}
         .t4 .sec{color:#7b2020;font-weight:bold;font-size:15pt;margin-top:14px}
-        .t4 .title{text-align:center;color:#1f3f73;font-size:20pt;font-weight:bold;margin:24px 0}
         .t4 p{font-size:11pt;line-height:1.45;text-align:justify;margin:6px 0}
-        .t4 .row{display:flex;justify-content:space-between;margin:18px 0}
-        .t4 .line{display:inline-block;border-bottom:1px solid #000;min-width:180px;height:18px;padding-left:4px}
-        .t4 table{width:100%;border-collapse:collapse;margin:10px 0}
-        .t4 th,.t4 td{border:1px solid #444;padding:6px;font-size:10.5pt}
-        .t4 th{background:#efefef;text-align:left}
         .t4 .footer{border-top:2px solid #7b2020;margin-top:18px;padding-top:8px;text-align:center;font-size:10pt}
+        .t4 .logo-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:2mm}
+        .t4 .logo-row img{height:60px;width:auto}
       `}</style>
       <div className="t4">
+        <div className="logo-row">
+          <img src="/logo/beingsevak-logo.png" alt="Being Sevak Logo" />
+        </div>
         <h1>Being Sevak Charitable Trust</h1>
         <div className="red"></div>
         <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
 
-        <div className="sec">DECLARATION</div>
-        <p>I hereby declare that the statements made in my application form are true, complete and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</p>
+        <div className="sec">10. Social Media Policy</div>
+        <p>Volunteers shall not publish, post, upload, or distribute any information, photographs, videos, documents, or confidential material relating to the Trust through personal social media platforms or any public forum without obtaining prior approval from the authorized representatives of the Trust. The Trust may, however, use photographs, videos, names, testimonials, or recordings of volunteers for its official website, social media platforms, awareness campaigns, CSR reports, annual reports, fundraising initiatives, newsletters, brochures, and other promotional or educational purposes unless the volunteer has submitted a written objection in advance.</p>
 
-        <div className="row">
-          <div>Date: <span className="line">{declarationDate || ''}</span></div>
-          <div>Place: <span className="line">{place || ''}</span></div>
-          <div>Sign: <span className="line"></span></div>
-        </div>
+        <div className="sec">11. Child &amp; Beneficiary Protection</div>
+        <p>Every volunteer is responsible for ensuring the safety, dignity, and well-being of all beneficiaries associated with the Trust. Volunteers shall treat every child, beneficiary, and community member with respect and shall refrain from any form of abuse, harassment, discrimination, intimidation, exploitation, or inappropriate behavior. The privacy and confidentiality of beneficiaries must always be protected, and any safeguarding concern, misconduct, or suspected abuse must be reported immediately to the appropriate authority within the Trust.</p>
 
-        <div className="title">JOINING HR RULE COPY</div>
+        <div className="sec">12. Leave Policy</div>
+        <p>Volunteers are expected to inform their reporting authority well in advance whenever leave is required. Emergency leave shall be communicated immediately through appropriate means of communication. Repeated absenteeism, unauthorized leave, or continuous absence without proper information may adversely affect the volunteer's association with the Trust and may result in discontinuation of volunteer engagement.</p>
 
-        <div className="sec">1. APPOINTMENT</div>
-        <p>You have been hired on a contract basis for six (6) months. You shall report to the designated reporting manager or any person nominated by the Trust.</p>
+        <div className="sec">13. Restricted Areas</div>
+        <p>Certain areas within the Trust premises are restricted to authorized personnel only. Volunteers shall not enter management cabins, the Accounts Department, Human Resources Department, server rooms, storage areas, or any other restricted location without obtaining prior permission from the concerned authority. Unauthorized access to restricted areas may lead to disciplinary action.</p>
 
-        <div className="sec">2. REMUNERATION</div>
-        <p>Your monthly volunteer expenses will be Rs. (__________). Rs.1000 per month will be deducted for the first two months and refunded after successful completion of the six-month contract, subject to Trust policy.</p>
+        <div className="sec">14. Dress Code</div>
+        <p>Volunteers are expected to maintain a clean, neat, and professional appearance at all times while representing the Trust. Formal attire shall be worn from Monday to Friday, while smart casual attire may be permitted on Saturdays unless otherwise instructed. Volunteers are expected to present themselves appropriately in a manner consistent with the values and professional image of the Trust.</p>
 
-        <div className="sec">3. PROBATION, CONFIRMATION AND TERMINATION</div>
-        <p>You will be on probation for 6 months from the date of joining, extendable by up to 3 months based on performance. During probation, the Trust may terminate the volunteer's services without notice for misconduct or non-performance. Upon successful completion, the appointment will be confirmed.
+        <div className="sec">15. Volunteer Code of Conduct</div>
+        <p>Every volunteer shall perform assigned responsibilities honestly, ethically, and responsibly while respecting fellow volunteers, employees, beneficiaries, donors, visitors, and members of the public. Volunteers are expected to protect Trust property, maintain punctuality, preserve confidentiality, comply with all organizational policies and procedures, and conduct themselves with integrity, professionalism, and accountability throughout their period of association with the Trust.</p>
 
-Note:
+        <div className="sec">16. Grievance Policy</div>
+        <p>Any volunteer experiencing concerns, disputes, or grievances relating to workplace conduct, operations, or interpersonal issues should first report the matter to the concerned Team Leader. If the matter remains unresolved, the volunteer may escalate the issue to the Human Resources Department or the Trustee for appropriate review and resolution. The Trust is committed to addressing genuine grievances fairly, impartially, and confidentially.</p>
 
-Any volunteer terminated within one week of joining due to misconduct or non-performance will not be eligible for salary.</p>
+        <div className="sec">17. Volunteer Withdrawal</div>
+        <p>A volunteer who wishes to discontinue their association with the Trust should communicate their decision in writing to the appropriate authority and complete the proper handover of all assigned responsibilities, documents, equipment, identification cards, and other Trust assets before their final day of association.</p>
 
-        <div className="sec">4. OFFICE TIME</div>
-        <p>Office hours are 10:00 AM–7:00 PM or 9:30 AM–6:30 PM including breaks. Attendance is recorded through the attendance system or manually. Grace period and deductions are as per Trust policy.</p>
+        <div className="sec">18. Discontinuation of Volunteer Engagement</div>
+        <p>The Trust reserves the absolute right to discontinue the engagement of any volunteer at its discretion in cases involving misconduct, indiscipline, poor performance, repeated absenteeism, misuse of Trust property, breach of confidentiality, fraud, harassment, violation of organizational policies, or any conduct considered detrimental to the interests, reputation, or objectives of the Trust.</p>
 
-        <table>
-          <tr><th>Late / Early Exit Duration Per Month</th><th>Deduction in Salary</th></tr>
-          <tr><td>Up to 180 minutes</td><td>No deduction</td></tr>
-          <tr><td>181–240 minutes</td><td>Half-day deduction</td></tr>
-          <tr><td>241–480 minutes</td><td>1 day deduction</td></tr>
-          <tr><td>More than 480 minutes</td><td>As per attendance policy</td></tr>
-        </table>
-
-        <div className="sec">5. OFFICE ASSETS &amp; COMPANY DEVICES</div>
-        <p>All office assets must be handled carefully. Any damage may result in disciplinary action. Devices provided by the Trust are for official use only.</p>
-
-        <div className="sec">6. MOBILE USAGE &amp; WORKPLACE DISCIPLINE</div>
-        <p>Personal mobile phones are not permitted during working hours except lunch. Volunteers are expected to maintain professionalism, discipline and proper time management.</p>
-
-        <div className="sec">7. GENERAL RULES &amp; COMMUNICATION</div>
-        <p>Volunteers must maintain confidentiality, follow Trust policies, work collaboratively and adhere to deadlines. Violations may result in disciplinary action including termination.</p>
+        <div className="sec">19. Volunteer Appreciation Certificate</div>
+        <p>The Trust may issue a Volunteer Appreciation Certificate or Volunteer Service Certificate to volunteers who have successfully completed their period of service with satisfactory performance and conduct, subject to the applicable policies and approval of the Trust management.</p>
 
         <div className="footer">
           Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
