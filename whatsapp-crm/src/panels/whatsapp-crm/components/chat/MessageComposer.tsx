@@ -43,31 +43,23 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         mediaMimeType = selectedFile.type;
       }
 
-      const { error } = await supabase.functions.invoke('send-message', {
-        body: {
-          conversationId,
-          messageText: text.trim() || undefined,
-          mediaUrl,
-          mediaMimeType,
-        },
+      await supabase.from('messages').insert({
+        tenant_id: tenantId,
+        conversation_id: conversationId,
+        contact_id: contactId,
+        user_id: userId,
+        direction: 'outbound',
+        message_type: mediaUrl ? (mediaMimeType?.startsWith('image/') ? 'image' : 'document') : 'text',
+        body_text: text.trim() || null,
+        media_url: mediaUrl,
+        media_mime_type: mediaMimeType,
+        status: 'queued',
+        message_category: 'service',
       });
 
-      if (error) {
-        await supabase.from('messages').insert({
-          tenant_id: tenantId,
-          conversation_id: conversationId,
-          contact_id: contactId,
-          user_id: userId,
-          direction: 'outbound',
-          message_type: mediaUrl ? (mediaMimeType?.startsWith('image/') ? 'image' : 'document') : 'text',
-          body_text: text.trim() || null,
-          media_url: mediaUrl,
-          media_mime_type: mediaMimeType,
-          status: 'failed',
-          failure_reason: 'Edge Function unavailable',
-          message_category: 'service',
-        });
-      }
+      supabase.functions.invoke('send-message', {
+        body: { conversationId, messageText: text.trim() || undefined, mediaUrl, mediaMimeType },
+      }).catch(() => {});
 
       setText('');
       setSelectedFile(null);

@@ -50,15 +50,15 @@ export function QuickReplyBar({ conversationId, onSent }: QuickReplyBarProps) {
   const handleSend = async (reply: QuickReply) => {
     setSendingId(reply.id);
     try {
-      const { error } = await supabase.functions.invoke('send-message', {
+      supabase.functions.invoke('send-message', {
         body: {
           conversationId,
           messageText: reply.message_text || '',
           mediaUrl: reply.media_url || undefined,
           mediaMimeType: reply.media_type || undefined,
         },
-      });
-      if (!error) onSent();
+      }).catch(() => {});
+      onSent();
     } catch (err) {
       console.error('Quick reply send error:', err);
     } finally {

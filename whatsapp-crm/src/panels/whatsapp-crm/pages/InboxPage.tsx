@@ -105,7 +105,6 @@ export function InboxPage() {
         event: 'INSERT',
         schema: 'public',
         table: 'conversations',
-        filter: `tenant_id=eq.${user?.tenant_id}`,
       }, () => {
         queryClient.invalidateQueries({ queryKey: ['conversations'] });
       })
@@ -139,8 +138,8 @@ export function InboxPage() {
     if (!newConvPhoneId) { toast.error('Select a WhatsApp number to send from'); return; }
     setCreatingConv(true);
     try {
-      const session = await supabase.auth.getSession();
-      if (!session.data.session) {
+      const token = localStorage.getItem('ucs_token');
+      if (!token) {
         toast.error('Not authenticated');
         setCreatingConv(false);
         return;
@@ -178,23 +177,9 @@ export function InboxPage() {
       if (convError) throw convError;
 
       if (newConvMessage.trim()) {
-        const { error: sendError } = await supabase.functions.invoke('send-message', {
+        supabase.functions.invoke('send-message', {
           body: { conversationId: conversation.id, messageText: newConvMessage.trim() },
-        });
-        if (sendError) {
-          await supabase.from('messages').insert({
-            tenant_id: user?.tenant_id,
-            conversation_id: conversation.id,
-            contact_id: contactId,
-            user_id: user?.id,
-            direction: 'outbound',
-            message_type: 'text',
-            body_text: newConvMessage.trim(),
-            status: 'failed',
-            failure_reason: 'Failed to send',
-            message_category: 'service',
-          });
-        }
+        }).catch(() => {});
       }
 
       setShowNewConv(false);
