@@ -21,7 +21,7 @@ export function MessageSearchModal({ open, onClose }: { open: boolean; onClose: 
     try {
       const { data, error } = await supabase
         .from('messages')
-        .select('*, contact:contacts(first_name, last_name, phone)')
+        .select('*, contact:contacts(wa_profile_name, phone)')
         .ilike('body_text', `%${query.trim()}%`)
         .order('created_at', { ascending: false })
         .limit(50);

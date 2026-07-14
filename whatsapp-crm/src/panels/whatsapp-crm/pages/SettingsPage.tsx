@@ -294,7 +294,7 @@ function ApiKeysSettings() {
     queryKey: ['api-keys'],
     queryFn: async () => {
       const { data, error } = await supabase.from('api_keys').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) return [];
       return data as ApiKey[];
     },
   });
@@ -405,7 +405,7 @@ function QuickRepliesSettings() {
         .select('*')
         .order('label')
         .order('sort_order');
-      if (error) throw error;
+      if (error) return [];
       return data as QuickReply[];
     },
   });
@@ -554,7 +554,7 @@ function MediaLibrarySettings() {
     queryKey: ['media-library-all'],
     queryFn: async () => {
       const { data, error } = await supabase.from('media_library').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
+      if (error) return [];
       return data as MediaItem[];
     },
   });

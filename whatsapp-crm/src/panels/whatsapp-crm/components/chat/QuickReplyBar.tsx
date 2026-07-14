@@ -43,7 +43,7 @@ export function QuickReplyBar({ conversationId, onSent }: QuickReplyBarProps) {
       if (activeCategory) query = query.eq('category', activeCategory);
 
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) return [];
       return data as QuickReply[];
     },
   });
