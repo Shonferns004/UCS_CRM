@@ -3,7 +3,6 @@ import { supabase } from '../../lib/supabase';
 import { Loader2 } from 'lucide-react';
 import { sendWhatsAppMessage } from '../../lib/whatsapp';
 import { MediaUploadPreview } from './MediaPreview';
-import { sendWhatsAppMessage } from '../../lib/whatsapp';
 
 interface MessageComposerProps {
   conversationId: string;
