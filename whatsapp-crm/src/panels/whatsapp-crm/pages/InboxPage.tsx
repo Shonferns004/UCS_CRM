@@ -17,7 +17,7 @@ import { MessageSearchModal } from '../components/chat/MessageSearch';
 import { MessageComposer } from '../components/chat/MessageComposer';
 import { sendWhatsAppMessage } from '../lib/whatsapp';
 import { QuickReplyBar } from '../components/chat/QuickReplyBar';
-import { MediaPreview } from '../components/chat/MediaPreview';
+import { MediaPreview, MediaFromMeta } from '../components/chat/MediaPreview';
 
 function MessageStatusIcon({ status }: { status: string }) {
   if (status === 'sent') return <Check className="h-3.5 w-3.5 text-muted-foreground" />;
