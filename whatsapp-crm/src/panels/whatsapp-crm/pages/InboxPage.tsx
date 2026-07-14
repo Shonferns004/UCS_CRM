@@ -52,7 +52,14 @@ export function InboxPage() {
         .select('*, contact:contacts(*)')
         .order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return data || [];
+      const seen = new Map<string, any>();
+      for (const c of data || []) {
+        const key = c.contact_id;
+        if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
+          seen.set(key, c);
+        }
+      }
+      return Array.from(seen.values());
     },
     refetchInterval: 10000,
   });
@@ -61,10 +68,15 @@ export function InboxPage() {
     queryKey: ['messages', conversationId],
     queryFn: async () => {
       if (!conversationId) return [];
+      const { data: conv } = await supabase.from('conversations').select('contact_id').eq('id', conversationId).maybeSingle();
+      if (!conv?.contact_id) return [];
+      const { data: allConvs } = await supabase.from('conversations').select('id').eq('contact_id', conv.contact_id);
+      const ids = (allConvs || []).map((c: any) => c.id);
+      if (ids.length === 0) return [];
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .eq('conversation_id', conversationId)
+        .in('conversation_id', ids)
         .order('created_at', { ascending: true });
       if (error) throw error;
       return data as Message[];
@@ -199,7 +211,7 @@ export function InboxPage() {
 
   return (<>
     <div className="flex h-[calc(100vh-12rem)] gap-4">
-      <div className="w-80 flex-shrink-0">
+      <div className="w-72 flex-shrink-0">
         <div className="mb-2 flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)} className="flex-1 justify-start gap-2 text-muted-foreground">
             <Search className="h-4 w-4" />
