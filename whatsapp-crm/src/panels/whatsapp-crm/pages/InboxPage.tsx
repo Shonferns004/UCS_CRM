@@ -143,8 +143,11 @@ export function InboxPage() {
     setCreatingConv(true);
     try {
       const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      if (!token) { toast.error('Not authenticated'); return; }
+      if (!session.data.session) {
+        toast.error('Not authenticated');
+        setCreatingConv(false);
+        return;
+      }
 
       let contactId = newConvContactId;
       if (!contactId) {
@@ -178,12 +181,10 @@ export function InboxPage() {
       if (convError) throw convError;
 
       if (newConvMessage.trim()) {
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-message`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: conversation.id, messageText: newConvMessage.trim() }),
+        const { error: sendError } = await supabase.functions.invoke('send-message', {
+          body: { conversationId: conversation.id, messageText: newConvMessage.trim() },
         });
-        if (!res.ok) {
+        if (sendError) {
           await supabase.from('messages').insert({
             tenant_id: user?.tenant_id,
             conversation_id: conversation.id,

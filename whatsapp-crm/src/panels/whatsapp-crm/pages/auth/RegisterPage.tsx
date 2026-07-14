@@ -11,9 +11,6 @@ import { Label } from '../../components/ui/Label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../../components/ui/Card';
 
 const registerSchema = z.object({
-  firstName: z.string().min(1, 'First name is required'),
-  lastName: z.string().min(1, 'Last name is required'),
-  orgName: z.string().min(1, 'Organization name is required'),
   email: z.string().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
@@ -36,8 +33,8 @@ export function RegisterPage() {
   const onSubmit = async (data: RegisterForm) => {
     setIsLoading(true);
     try {
-      await signUp(data.email, data.password, data.firstName, data.lastName, data.orgName);
-      toast.success('Account created successfully! Please check your email to verify your account.');
+      await signUp(data.email, data.password);
+      toast.success('Check your email for a verification link. After verifying, sign in to become Admin.');
       navigate('/auth/login');
     } catch (error: any) {
       toast.error(error.message || 'Failed to create account');
@@ -50,45 +47,10 @@ export function RegisterPage() {
     <Card>
       <CardHeader>
         <CardTitle>Create an account</CardTitle>
-        <CardDescription>Get started with WhatsApp CRM</CardDescription>
+        <CardDescription>Sign up for WhatsApp CRM</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="firstName">First name</Label>
-              <Input
-                id="firstName"
-                placeholder="John"
-                {...register('firstName')}
-              />
-              {errors.firstName && (
-                <p className="text-sm text-destructive">{errors.firstName.message}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lastName">Last name</Label>
-              <Input
-                id="lastName"
-                placeholder="Doe"
-                {...register('lastName')}
-              />
-              {errors.lastName && (
-                <p className="text-sm text-destructive">{errors.lastName.message}</p>
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="orgName">Organization Name</Label>
-            <Input
-              id="orgName"
-              placeholder="My Business"
-              {...register('orgName')}
-            />
-            {errors.orgName && (
-              <p className="text-sm text-destructive">{errors.orgName.message}</p>
-            )}
-          </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input

@@ -7,7 +7,8 @@ import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { BatchUserImport } from '../components/admin/BatchUserImport';
 import { Badge } from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, Save, QrCode, FileText, MessageSquare, Eye, EyeOff, CheckCircle2, XCircle } from 'lucide-react';
+import { useAuthStore } from '../stores/authStore';
+import { Plus, Pencil, Trash2, Save, QrCode, FileText, MessageSquare, Eye, EyeOff, CheckCircle2, XCircle, Users, Mail, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import type { QuickReply, MediaItem } from 'shared';
 import { loadMetaCredentials, getCachedToken, getCachedWabaId, saveMetaCredentials, clearMetaCredentials } from '../lib/metaCredentials';
@@ -188,9 +189,91 @@ function WhatsAppSettings() {
 }
 
 function TeamSettings() {
+  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const { data: teamMembers } = useQuery({
+    queryKey: ['team-members'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('list_whatsapp_users');
+      if (error) return [];
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return (parsed || []).map((u: any) => ({ ...u, source: 'user' }));
+    },
+  });
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Delete ${name}?`)) return;
+    const API_BASE = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+    try {
+      const token = localStorage.getItem('ucs_token');
+      const res = await fetch(`${API_BASE}/auth/users/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Delete failed');
+      toast.success('User deleted');
+      queryClient.invalidateQueries({ queryKey: ['team-members'] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    }
+  };
+
+  const roleDisplay: Record<string, string> = {
+    admin: 'Admin',
+    agent: 'Agent',
+    viewer: 'Viewer',
+  };
+  const roleBadge: Record<string, string> = {
+    admin: 'bg-purple-100 text-purple-700',
+    agent: 'bg-blue-100 text-blue-700',
+    viewer: 'bg-gray-100 text-gray-700',
+  };
+
   return (
-    <div className="space-y-6">
-      <BatchUserImport />
+    <div className="grid grid-cols-2 gap-6">
+      <div>
+        <BatchUserImport />
+      </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2"><Users className="h-4 w-4" /> Team Members</CardTitle>
+            <span className="text-xs text-muted-foreground">{teamMembers?.length || 0} members</span>
+          </div>
+        </CardHeader>
+        <CardContent className="max-h-[600px] overflow-y-auto">
+          {teamMembers?.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No team members yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {teamMembers?.map((m: any) => (
+                <div key={`${m.source}-${m.id}`} className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-xs font-medium shrink-0">
+                      {(m.name?.[0] || m.email?.[0] || '?').toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{m.name || ''}</p>
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Mail className="h-3 w-3 shrink-0" /> {m.email}
+                      </p>
+
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge className={roleBadge[m.role] || 'bg-gray-100 text-gray-700'}>{roleDisplay[m.role] || m.role}</Badge>
+                    <span className={`h-2 w-2 rounded-full ${m.is_active !== false ? 'bg-green-500' : 'bg-red-400'}`} />
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(m.id, m.name)} className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

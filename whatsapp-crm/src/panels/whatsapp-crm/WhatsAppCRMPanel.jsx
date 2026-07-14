@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
@@ -8,6 +7,8 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { AdminProtectedRoute } from './components/admin/AdminProtectedRoute'
 import { AdminLayout } from './components/admin/AdminLayout'
 
+import { LoginPage } from './pages/auth/LoginPage'
+import { RegisterPage } from './pages/auth/RegisterPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { InboxPage } from './pages/InboxPage'
 import { ContactsPage } from './pages/ContactsPage'
@@ -44,6 +45,10 @@ export default function WhatsAppCRMPanel() {
   return (
     <QueryClientProvider client={queryClient}>
       <Routes>
+        {/* Auth routes */}
+        <Route path="auth/login" element={<LoginPage />} />
+        <Route path="auth/register" element={<RegisterPage />} />
+
         {/* Main app routes */}
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
@@ -81,7 +86,7 @@ export default function WhatsAppCRMPanel() {
         </Route>
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/wcrm" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="top-right" />
     </QueryClientProvider>

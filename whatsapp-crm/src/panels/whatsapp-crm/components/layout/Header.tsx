@@ -122,7 +122,7 @@ export function Header() {
             </DropdownMenuLabel>
             <DropdownMenuDescription>{user?.email}</DropdownMenuDescription>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/wcrm/settings')}>
+            <DropdownMenuItem onClick={() => navigate('/settings')}>
               <Settings className="h-4 w-4" />
               Settings
             </DropdownMenuItem>

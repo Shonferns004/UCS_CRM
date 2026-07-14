@@ -8,14 +8,12 @@ import NgoAdminPanel from './panels/ngo-admin/NgoAdminPanel'
 import FROPanel from './panels/fro/FROPanel'
 import RecruiterPanel from './panels/recruiter/RecruiterPanel'
 import EventHeadPanel from './panels/event-head/EventHeadPanel'
-import WhatsAppCRMPanel from './panels/whatsapp-crm/WhatsAppCRMPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
   admin: '/ngo-admin',
   hr: '/hr',
   accounts: '/accounts',
-  whatsapp_crm: '/wcrm',
   recruiter: '/recruiter',
   fro: '/fro',
   worker: '/fro',
@@ -30,7 +28,6 @@ const ROLE_PANELS = {
   admin: { panel: NgoAdminPanel, cls: 'panel-ngo-admin' },
   hr: { panel: HRPanel, cls: 'panel-hr' },
   accounts: { panel: AccountsPanel, cls: 'panel-accounts' },
-  whatsapp_crm: { panel: WhatsAppCRMPanel, cls: 'panel-wcrm' },
   fro: { panel: FROPanel, cls: 'panel-fro' },
   recruiter: { panel: RecruiterPanel, cls: 'panel-recruiter' },
   event_head: { panel: EventHeadPanel, cls: 'panel-event-head' },
@@ -141,7 +138,6 @@ export default function App() {
             <PanelWrapper roleKey="event_head" />
           </ProtectedRoute>
         } />
-        <Route path="/wcrm/*" element={<PanelWrapper roleKey="whatsapp_crm" />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

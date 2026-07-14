@@ -3,15 +3,15 @@ import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarC
 import { cn } from '../../lib/utils';
 
 const navigation = [
-  { name: 'Dashboard', href: '/wcrm', icon: LayoutDashboard, end: true },
-  { name: 'Inbox', href: '/wcrm/inbox', icon: MessageSquare },
-  { name: 'Contacts', href: '/wcrm/contacts', icon: Users },
-  { name: 'Pipeline', href: '/wcrm/pipeline', icon: Kanban },
-  { name: 'Automations', href: '/wcrm/automations', icon: Bot },
-  { name: 'Templates', href: '/wcrm/templates', icon: FileText },
-  { name: 'Analytics', href: '/wcrm/analytics', icon: BarChart3 },
-  { name: 'Phone Numbers', href: '/wcrm/phone-numbers', icon: Headphones },
-  { name: 'Settings', href: '/wcrm/settings', icon: Settings },
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
+  { name: 'Inbox', href: '/inbox', icon: MessageSquare },
+  { name: 'Contacts', href: '/contacts', icon: Users },
+  { name: 'Pipeline', href: '/pipeline', icon: Kanban },
+  { name: 'Automations', href: '/automations', icon: Bot },
+  { name: 'Templates', href: '/templates', icon: FileText },
+  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'Phone Numbers', href: '/phone-numbers', icon: Headphones },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function Sidebar() {

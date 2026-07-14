@@ -18,11 +18,11 @@ export function AdminProtectedRoute() {
   }
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/auth/login" replace />;
   }
 
   if (user.role !== 'super_admin' && user.role !== 'tenant_admin') {
-    return <Navigate to="/wcrm" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

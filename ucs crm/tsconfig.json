@@ -16,8 +16,7 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"],
-      "shared": ["./src/panels/whatsapp-crm/shared/src"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"]
