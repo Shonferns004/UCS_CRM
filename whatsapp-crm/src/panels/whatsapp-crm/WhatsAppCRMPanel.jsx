@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 
 import { AppLayout } from './components/layout/AppLayout'
+import { AgentOnlyInbox } from './components/layout/AgentLayout'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { AdminProtectedRoute } from './components/admin/AdminProtectedRoute'
 import { AdminLayout } from './components/admin/AdminLayout'
@@ -51,24 +52,26 @@ export default function WhatsAppCRMPanel() {
 
         {/* Main app routes */}
         <Route element={<ProtectedRoute />}>
-          <Route element={<AppLayout />}>
-            <Route index element={<DashboardPage />} />
-            <Route path="inbox" element={<InboxPage />} />
-            <Route path="inbox/:conversationId" element={<InboxPage />} />
-            <Route path="contacts" element={<ContactsPage />} />
-            <Route path="contacts/:id" element={<ContactDetailPage />} />
-            <Route path="pipeline" element={<PipelinePage />} />
-            <Route path="automations" element={<AutomationsPage />} />
-            <Route path="automations/new" element={<FlowBuilderPage />} />
-            <Route path="automations/:id" element={<FlowBuilderPage />} />
-            <Route path="analytics" element={<AnalyticsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="phone-numbers" element={<PhoneNumbersPage />} />
-            <Route path="templates" element={<TemplatesPage />} />
-            <Route path="templates/new" element={<TemplateEditorPage />} />
-            <Route path="templates/:id" element={<TemplateEditorPage />} />
-            <Route path="conversations" element={<InboxPage />} />
-            <Route path="workflows" element={<AutomationsPage />} />
+          <Route element={<AgentOnlyInbox />}>
+            <Route element={<AppLayout />}>
+              <Route index element={<DashboardPage />} />
+              <Route path="inbox" element={<InboxPage />} />
+              <Route path="inbox/:conversationId" element={<InboxPage />} />
+              <Route path="contacts" element={<ContactsPage />} />
+              <Route path="contacts/:id" element={<ContactDetailPage />} />
+              <Route path="pipeline" element={<PipelinePage />} />
+              <Route path="automations" element={<AutomationsPage />} />
+              <Route path="automations/new" element={<FlowBuilderPage />} />
+              <Route path="automations/:id" element={<FlowBuilderPage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="phone-numbers" element={<PhoneNumbersPage />} />
+              <Route path="templates" element={<TemplatesPage />} />
+              <Route path="templates/new" element={<TemplateEditorPage />} />
+              <Route path="templates/:id" element={<TemplateEditorPage />} />
+              <Route path="conversations" element={<InboxPage />} />
+              <Route path="workflows" element={<AutomationsPage />} />
+            </Route>
           </Route>
         </Route>
 
