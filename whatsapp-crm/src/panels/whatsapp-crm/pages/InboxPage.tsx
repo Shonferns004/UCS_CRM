@@ -209,153 +209,117 @@ export function InboxPage() {
 
   const selectedConversation = conversations?.find((c) => c.id === conversationId);
 
+  const isAgent = user?.role === 'agent';
+  const avatarLetter = (name?: string) => (name?.[0] || '?').toUpperCase();
+
   return (<>
-    <div className={`flex ${user?.role === 'agent' ? 'h-screen' : 'h-[calc(100vh-12rem)]'} gap-4`}>
-      <div className="w-72 flex-shrink-0">
-        <div className="mb-2 flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)} className="flex-1 justify-start gap-2 text-muted-foreground">
-            <Search className="h-4 w-4" />
-            <span className="text-xs">Search messages...</span>
-          </Button>
+    <div className={`flex ${isAgent ? 'h-screen w-full' : 'h-[calc(100vh-12rem)]'}`}>
+      {/* Conversation List */}
+      <div className="w-80 border-r bg-white flex-shrink-0 flex flex-col">
+        <div className="bg-[#075e54] text-white px-4 py-3 flex items-center justify-between">
+          <span className="font-semibold text-sm">Chats</span>
+          <div className="flex gap-2">
+            <button onClick={() => setSearchOpen(true)} className="text-white/80 hover:text-white"><Search className="h-4 w-4" /></button>
+            {!isAgent && <button onClick={() => setShowNewConv(true)} className="text-white/80 hover:text-white"><Plus className="h-4 w-4" /></button>}
+          </div>
         </div>
-          <Card className="overflow-hidden">
-          <CardHeader className="space-y-3 pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle>Conversations</CardTitle>
-            <Button size="sm" onClick={() => setShowNewConv(true)}><Plus className="h-4 w-4" /> New</Button>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 pl-7 text-xs"
-            />
-          </div>
-          <LabelFilter
-            selectedLabel={selectedLabel}
-            onSelect={setSelectedLabel}
-            allLabels={[]}
+        <div className="relative px-3 py-2 bg-white border-b">
+          <Search className="absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search or start new chat"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-8 pl-7 text-xs rounded-lg bg-[#f0f2f5] border-0"
           />
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="max-h-[calc(100vh-16rem)] overflow-y-auto">
-            {loadingConvs ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="animate-pulse border-b p-4">
-                  <div className="mb-2 h-4 w-32 rounded bg-muted" />
-                  <div className="h-3 w-24 rounded bg-muted" />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {loadingConvs ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex animate-pulse items-center gap-3 border-b px-4 py-3">
+                <div className="h-12 w-12 rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-32 rounded bg-muted" />
+                  <div className="h-2 w-24 rounded bg-muted" />
                 </div>
-              ))
-            ) : conversations?.map((conversation) => (
-              <button
-                key={conversation.id}
-                onClick={() => navigate(`/inbox/${conversation.id}`)}
-                className={`w-full border-b p-4 text-left transition-colors hover:bg-accent ${
-                  conversation.id === conversationId ? 'bg-accent' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="font-medium truncate">
-                    {conversation.contact?.wa_profile_name || conversation.contact?.phone}
-                  </div>
-                  {conversation.status === 'open' && (
-                    <span className="ml-2 h-2 w-2 flex-shrink-0 rounded-full bg-green-500" />
-                  )}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {conversation.status} · {conversation.contact?.phone}
-                </div>
-                {(conversation.labels as any)?.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {(conversation.labels as string[] || []).slice(0, 3).map((label: string) => (
-                      <span key={label} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </button>
-            )) || (
-              <div className="flex flex-col items-center gap-2 p-8 text-muted-foreground">
-                <MessageSquare className="h-8 w-8" />
-                <p className="text-sm">No conversations yet</p>
-                <p className="text-xs">Messages from WhatsApp will appear here</p>
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            ))
+          ) : conversations?.map((conversation) => (
+            <button
+              key={conversation.id}
+              onClick={() => navigate(`/inbox/${conversation.id}`)}
+              className={`flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-[#f0f2f5] ${
+                conversation.id === conversationId ? 'bg-[#f0f2f5]' : ''
+              }`}
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#075e54] text-sm font-semibold text-white">
+                {avatarLetter(conversation.contact?.wa_profile_name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="truncate text-sm font-medium">
+                    {conversation.contact?.wa_profile_name || conversation.contact?.phone}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {conversation.last_message_at ? format(new Date(conversation.last_message_at), 'HH:mm') : ''}
+                  </span>
+                </div>
+                <p className="truncate text-xs text-muted-foreground">{conversation.contact?.phone}</p>
+              </div>
+            </button>
+          )) || (
+            <div className="flex flex-col items-center gap-2 p-8 text-muted-foreground">
+              <MessageSquare className="h-8 w-8" />
+              <p className="text-sm">No conversations yet</p>
+              <p className="text-xs">Messages will appear here</p>
+            </div>
+          )}
+        </div>
       </div>
 
-      <Card className="flex flex-1 flex-col overflow-hidden">
+      {/* Chat Area */}
+      <div className="flex flex-1 flex-col bg-[#efeae2]">
         {selectedConversation ? (
           <>
-            <CardHeader className="border-b">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>
-                      {selectedConversation.contact?.wa_profile_name || selectedConversation.contact?.phone}
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedConversation.contact?.phone}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <ConversationLabels
-                      conversationId={selectedConversation.id}
-                      currentLabels={[]}
-                    />
-                    <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize text-muted-foreground">
-                      {selectedConversation.status}
-                    </span>
-                  </div>
-                </div>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto p-4">
+            <div className="bg-[#075e54] px-4 py-3 text-white flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-semibold">
+                {avatarLetter(selectedConversation.contact?.wa_profile_name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{selectedConversation.contact?.wa_profile_name || selectedConversation.contact?.phone}</p>
+                <p className="text-[11px] text-white/70">{selectedConversation.contact?.phone}</p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d9d9d9\' fill-opacity=\'0.15\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
               {loadingMsgs ? (
                 <div className="space-y-4">
                   {Array.from({ length: 4 }).map((_, i) => (
                     <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-                      <div className={`animate-pulse rounded-lg p-3 ${
-                        i % 2 === 0 ? 'bg-muted' : 'bg-primary/20'
-                      }`}>
-                        <div className={`h-4 rounded ${i % 2 === 0 ? 'w-48' : 'w-32'} bg-muted-foreground/20`} />
+                      <div className={`animate-pulse rounded-lg p-3 ${i % 2 === 0 ? 'bg-white' : 'bg-[#dcf8c6]'}`}>
+                        <div className={`h-4 rounded ${i % 2 === 0 ? 'w-48' : 'w-32'} bg-gray-200`} />
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-1">
                   {messages?.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div className="group max-w-[70%]">
-                        <div
-                          className={cn(
-                            'rounded-lg p-3',
-                            message.direction === 'outbound'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted'
-                          )}
-                        >
-                          <p className="whitespace-pre-wrap break-words">{message.body_text}</p>
-                          {message.media_url ? (
-                            <MediaPreview url={message.media_url} mimeType={message.media_mime_type} className="mt-1" />
-                          ) : message.media_id ? (
-                            <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
-                          ) : null}
-                          <div className="mt-1 flex items-center justify-end gap-1">
-                            <span className="text-xs opacity-70">
-                              {format(new Date(message.created_at), 'HH:mm')}
-                            </span>
-                            {message.direction === 'outbound' && (
-                              <MessageStatusIcon status={message.status} />
-                            )}
-                          </div>
+                    <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[65%] rounded-lg px-3 py-2 text-sm shadow-sm ${
+                        message.direction === 'outbound'
+                          ? 'bg-[#dcf8c6] rounded-br-none'
+                          : 'bg-white rounded-bl-none'
+                      }`}>
+                        <p className="whitespace-pre-wrap break-words">{message.body_text || (message.media_url ? '[Media]' : '')}</p>
+                        {message.media_url ? (
+                          <MediaPreview url={message.media_url} mimeType={message.media_mime_type} className="mt-1" />
+                        ) : message.media_id ? (
+                          <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
+                        ) : null}
+                        <div className="mt-1 flex items-center justify-end gap-1">
+                          <span className="text-[10px] text-gray-500">
+                            {format(new Date(message.created_at), 'HH:mm')}
+                          </span>
+                          {message.direction === 'outbound' && <MessageStatusIcon status={message.status} />}
                         </div>
                       </div>
                     </div>
@@ -365,110 +329,65 @@ export function InboxPage() {
               )}
               {(!messages || messages.length === 0) && !loadingMsgs && (
                 <div className="flex h-full items-center justify-center text-muted-foreground">
-                  No messages yet. Start the conversation!
+                  <p className="text-sm">No messages yet</p>
                 </div>
               )}
-            </CardContent>
-            <QuickReplyBar
-              conversationId={selectedConversation.id}
-              onSent={() => {
-                queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
-              }}
-            />
-            <MessageComposer
-              conversationId={selectedConversation.id}
-              tenantId={selectedConversation.tenant_id}
-              contactId={selectedConversation.contact_id}
-              userId={user?.id || ''}
-              onMessageSent={() => {
-                queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
-                queryClient.invalidateQueries({ queryKey: ['conversations'] });
-              }}
-            />
+            </div>
+            <QuickReplyBar conversationId={selectedConversation.id} onSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
+            <MessageComposer conversationId={selectedConversation.id} tenantId={selectedConversation.tenant_id} contactId={selectedConversation.contact_id} userId={user?.id || ''} onMessageSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
           </>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-            <MessageSquare className="h-16 w-16" />
-            <p className="text-lg font-medium">Select a conversation</p>
-            <p className="text-sm">Choose a conversation from the left to start chatting</p>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground bg-[#f0f2f5]">
+            <MessageSquare className="h-16 w-16 opacity-30" />
+            <p className="text-lg font-medium">WhatsApp CRM</p>
+            <p className="text-sm">Select a chat or start a new conversation</p>
           </div>
         )}
-      </Card>
       </div>
+    </div>
 
-      <MessageSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+    <MessageSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      {showNewConv && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNewConv(false)}>
-          <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">New Conversation</h2>
-              <Button variant="ghost" size="icon" onClick={() => setShowNewConv(false)}><X className="h-4 w-4" /></Button>
+    {showNewConv && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNewConv(false)}>
+        <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">New Conversation</h2>
+            <Button variant="ghost" size="icon" onClick={() => setShowNewConv(false)}><X className="h-4 w-4" /></Button>
+          </div>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-xs">Contact</Label>
+              <Input placeholder="Search or enter phone number..." value={newConvPhone} onChange={(e) => { setNewConvPhone(e.target.value); setNewConvContactId(null); }} />
+              {newConvPhone.length > 2 && !newConvContactId && (
+                <div className="max-h-32 overflow-y-auto rounded border text-sm">
+                  {contacts?.filter((c) => c.phone?.includes(newConvPhone) || (c.wa_profile_name || '').toLowerCase().includes(newConvPhone.toLowerCase())).slice(0, 5).map((c) => (
+                    <button key={c.id} className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent text-left" onClick={() => { setNewConvPhone(c.phone); setNewConvContactId(c.id); }}>
+                      <span className="font-medium">{c.wa_profile_name || c.phone}</span>
+                      <span className="text-muted-foreground">{c.phone}</span>
+                    </button>
+                  )) || null}
+                </div>
+              )}
             </div>
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <Label className="text-xs">Contact</Label>
-                <Input
-                  placeholder="Search or enter phone number..."
-                  value={newConvPhone}
-                  onChange={(e) => {
-                    setNewConvPhone(e.target.value);
-                    setNewConvContactId(null);
-                  }}
-                />
-                {newConvPhone.length > 2 && !newConvContactId && (
-                  <div className="max-h-32 overflow-y-auto rounded border text-sm">
-                    {contacts?.filter((c) =>
-                      c.phone?.includes(newConvPhone) || `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase().includes(newConvPhone.toLowerCase())
-                    ).slice(0, 5).map((c) => (
-                      <button
-                        key={c.id}
-                        className="flex w-full items-center gap-2 px-3 py-2 hover:bg-accent text-left"
-                        onClick={() => {
-                          setNewConvPhone(c.phone);
-                          setNewConvContactId(c.id);
-                        }}
-                      >
-                        <span className="font-medium">{c.first_name} {c.last_name}</span>
-                        <span className="text-muted-foreground">{c.phone}</span>
-                      </button>
-                    )) || null}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Send From (WhatsApp Number)</Label>
-                <select
-                  value={newConvPhoneId}
-                  onChange={(e) => setNewConvPhoneId(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select a number...</option>
-                  {phoneNumbers?.map((pn) => (
-                    <option key={pn.id} value={pn.id}>
-                      {(pn as any).label || pn.display_phone_number} ({pn.display_phone_number})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Initial Message (optional)</Label>
-                <textarea
-                  value={newConvMessage}
-                  onChange={(e) => setNewConvMessage(e.target.value)}
-                  placeholder="Type your first message..."
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <Button className="w-full" onClick={handleStartConversation} disabled={creatingConv}>
-                {creatingConv ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Start Conversation
-              </Button>
+            <div className="space-y-1">
+              <Label className="text-xs">Send From</Label>
+              <select value={newConvPhoneId} onChange={(e) => setNewConvPhoneId(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="">Select a number...</option>
+                {phoneNumbers?.map((pn) => (<option key={pn.id} value={pn.id}>{(pn as any).label || pn.display_phone_number} ({pn.display_phone_number})</option>))}
+              </select>
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Initial Message (optional)</Label>
+              <textarea value={newConvMessage} onChange={(e) => setNewConvMessage(e.target.value)} placeholder="Type your first message..." className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+            </div>
+            <Button className="w-full" onClick={handleStartConversation} disabled={creatingConv}>
+              {creatingConv ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Start Conversation
+            </Button>
           </div>
         </div>
-      )}
-    </>
-  );
+      </div>
+    )}
+  </>);
 }
