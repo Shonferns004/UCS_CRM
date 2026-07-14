@@ -4,6 +4,7 @@ import Template2 from './Template2'
 import Template3 from './Template3'
 import Template4 from './Template4'
 import Template5 from './Template5'
+import Template6 from './Template6'
 
 
 export default function PrintForms({ data, onClose }) {
@@ -78,6 +79,7 @@ export default function PrintForms({ data, onClose }) {
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
         <Template4 personal={data.personal} />
         <Template5 personal={data.personal} />
+        <Template6 />
 
       </div>
     </div>
