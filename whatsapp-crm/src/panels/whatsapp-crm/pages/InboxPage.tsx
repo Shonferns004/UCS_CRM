@@ -52,12 +52,7 @@ export function InboxPage() {
         .select('*, contact:contacts(*)')
         .order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
-      const seen = new Map<string, any>();
-      for (const c of data || []) {
-        const key = c.contact_id;
-        if (!seen.has(key)) seen.set(key, c);
-      }
-      return Array.from(seen.values());
+      return data || [];
     },
     refetchInterval: 10000,
   });
