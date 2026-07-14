@@ -50,12 +50,20 @@ export function QuickReplyBar({ conversationId, onSent }: QuickReplyBarProps) {
   const handleSend = async (reply: QuickReply) => {
     setSendingId(reply.id);
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      fetch(`${API_BASE}/whatsapp/send-message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId, messageText: reply.message_text || '', mediaUrl: reply.media_url || undefined, mediaMimeType: reply.media_type || undefined }),
-      }).catch(() => {});
+      const body = { conversationId, messageText: reply.message_text || '', mediaUrl: reply.media_url || undefined, mediaMimeType: reply.media_type || undefined };
+      const token = localStorage.getItem('ucs_token');
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+      if (token && !token.startsWith('rpc_') && SUPABASE_URL) {
+        fetch(`${SUPABASE_URL}/functions/v1/send-message`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).catch(() => {});
+      } else {
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        fetch(`${API_BASE}/whatsapp/send-message`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).catch(() => {});
+      }
       onSent();
     } catch {
     } finally {

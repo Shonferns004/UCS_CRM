@@ -177,12 +177,19 @@ export function InboxPage() {
       if (convError) throw convError;
 
       if (newConvMessage.trim()) {
-        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-        fetch(`${API_BASE}/whatsapp/send-message`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: conversation.id, messageText: newConvMessage.trim() }),
-        }).catch(() => {});
+        const msgBody = { conversationId: conversation.id, messageText: newConvMessage.trim() };
+        const token = localStorage.getItem('ucs_token');
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+        if (token && !token.startsWith('rpc_') && SUPABASE_URL) {
+          fetch(`${SUPABASE_URL}/functions/v1/send-message`, {
+            method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(msgBody),
+          }).catch(() => {});
+        } else {
+          const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+          fetch(`${API_BASE}/whatsapp/send-message`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msgBody),
+          }).catch(() => {});
+        }
       }
 
       setShowNewConv(false);
