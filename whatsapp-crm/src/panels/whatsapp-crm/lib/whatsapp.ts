@@ -53,10 +53,13 @@ export async function sendWhatsAppMessage(
 
     let payload: any;
 
+    let mediaId: string | null = null;
+    let fileType: string | null = null;
+
     if (mediaFile) {
-      const mediaId = await uploadMedia(access_token, phone_number_id, mediaFile);
+      mediaId = await uploadMedia(access_token, phone_number_id, mediaFile);
       if (!mediaId) return false;
-      const fileType = mediaFile.type.startsWith('image/') ? 'image'
+      fileType = mediaFile.type.startsWith('image/') ? 'image'
         : mediaFile.type.startsWith('video/') ? 'video' : 'document';
       payload = {
         messaging_product: 'whatsapp',
@@ -88,8 +91,9 @@ export async function sendWhatsAppMessage(
     const result = await res.json();
 
     if (res.ok && result.messages?.[0]?.id) {
-      await supabase.from('messages').update({ status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() })
-        .eq('conversation_id', conversationId).eq('status', 'queued');
+      const updates: any = { status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() };
+      if (mediaId) { updates.media_id = mediaId; updates.media_mime_type = mediaFile?.type; }
+      await supabase.from('messages').update(updates).eq('conversation_id', conversationId).eq('status', 'queued');
       if (!windowOpen && !mediaFile) toast.info('Sent via template. Ask donor to reply to open chat.');
       return true;
     }

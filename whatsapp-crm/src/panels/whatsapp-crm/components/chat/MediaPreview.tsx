@@ -83,25 +83,25 @@ interface MediaUploadPreviewProps {
 export function MediaUploadPreview({ file, onRemove }: MediaUploadPreviewProps) {
   const [preview, setPreview] = useState<string | null>(null);
 
-  useState(() => {
+  useEffect(() => {
     if (file.type.startsWith('image/')) {
       const url = URL.createObjectURL(file);
       setPreview(url);
       return () => URL.revokeObjectURL(url);
     }
-  });
+  }, [file]);
 
   return (
-    <div className="relative mb-2 inline-block rounded-lg border p-2">
+    <div className="relative mb-1 inline-block rounded-xl border bg-white p-1.5 shadow-sm">
       {preview ? (
-        <img src={preview} alt="Preview" className="max-h-32 rounded object-contain" />
+        <img src={preview} alt="Preview" className="max-h-40 rounded-lg object-contain" />
       ) : (
-        <div className="flex items-center gap-2 p-2">
-          <FileText className="h-6 w-6 text-muted-foreground" />
+        <div className="flex items-center gap-2 px-2 py-3">
+          <FileText className="h-5 w-5 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">{file.name}</span>
         </div>
       )}
-      <button onClick={onRemove} className="absolute -right-2 -top-2 rounded-full bg-destructive p-0.5 text-destructive-foreground">
+      <button onClick={onRemove} className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-700 text-white hover:bg-gray-900 shadow">
         <X className="h-3 w-3" />
       </button>
     </div>

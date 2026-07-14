@@ -1,6 +1,7 @@
-import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useAuthStore } from '../../stores/authStore';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
@@ -15,6 +16,7 @@ const navigation = [
 ];
 
 export function Sidebar() {
+  const navigate = useNavigate();
   return (
     <div className="flex w-64 flex-col border-r bg-card">
       <div className="flex h-16 items-center gap-2 border-b px-6">
@@ -41,6 +43,15 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      <div className="border-t p-4">
+        <button
+          onClick={() => { useAuthStore.getState().signOut(); navigate('/auth/login'); }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <LogOut className="h-5 w-5" />
+          Log out
+        </button>
+      </div>
     </div>
   );
 }
