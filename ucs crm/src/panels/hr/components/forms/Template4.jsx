@@ -3,12 +3,12 @@ export default function Template4({ personal }) {
     <div className="print-page">
       <style>{`
         .t4 *{box-sizing:border-box}
-        .t4{width:210mm;min-height:297mm;margin:auto;background:#fff;border:3px solid #222;padding:18mm;font-family:"Times New Roman",serif;page-break-after:always}
+        .t4{width:210mm;height:auto;margin:auto;background:#fff;border:3px solid #222;padding:18mm;font-family:"Times New Roman",serif;page-break-after:always}
         .t4 h1{text-align:center;margin:0;font-size:24pt}
         .t4 .sub{text-align:center;font-size:11pt}
         .t4 .red{height:3px;background:#7b2020;margin:8px 0 14px}
-        .t4 .sec{color:#7b2020;font-weight:bold;font-size:15pt;margin-top:14px}
-        .t4 p{font-size:11pt;line-height:1.45;text-align:justify;margin:6px 0}
+        .t4 .sec{color:#7b2020;font-weight:bold;font-size:15pt;margin-top:14px;page-break-inside:avoid}
+        .t4 p{font-size:11pt;line-height:1.45;text-align:justify;margin:6px 0;page-break-inside:avoid}
         .t4 .footer{border-top:2px solid #7b2020;margin-top:18px;padding-top:8px;text-align:center;font-size:10pt}
         .t4 .logo-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:2mm}
         .t4 .logo-row img{height:60px;width:auto}
