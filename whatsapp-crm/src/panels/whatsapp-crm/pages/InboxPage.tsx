@@ -15,6 +15,7 @@ import type { Message, WhatsAppPhoneNumber } from 'shared';
 import { ConversationLabels, LabelFilter } from '../components/chat/ConversationLabels';
 import { MessageSearchModal } from '../components/chat/MessageSearch';
 import { MessageComposer } from '../components/chat/MessageComposer';
+import { sendWhatsAppMessage } from '../lib/whatsapp';
 import { QuickReplyBar } from '../components/chat/QuickReplyBar';
 import { MediaPreview } from '../components/chat/MediaPreview';
 
@@ -177,19 +178,7 @@ export function InboxPage() {
       if (convError) throw convError;
 
       if (newConvMessage.trim()) {
-        const msgBody = { conversationId: conversation.id, messageText: newConvMessage.trim() };
-        const token = localStorage.getItem('ucs_token');
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-        if (token && !token.startsWith('rpc_') && SUPABASE_URL) {
-          fetch(`${SUPABASE_URL}/functions/v1/send-message`, {
-            method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(msgBody),
-          }).catch(() => {});
-        } else {
-          const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-          fetch(`${API_BASE}/whatsapp/send-message`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msgBody),
-          }).catch(() => {});
-        }
+        sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim());
       }
 
       setShowNewConv(false);

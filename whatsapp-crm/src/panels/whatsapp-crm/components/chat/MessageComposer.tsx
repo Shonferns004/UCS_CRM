@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Send, Loader2, Image } from 'lucide-react';
 import { MediaUploadPreview } from './MediaPreview';
+import { sendWhatsAppMessage } from '../../lib/whatsapp';
 
 interface MessageComposerProps {
   conversationId: string;
@@ -61,24 +62,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
       const token = localStorage.getItem('ucs_token');
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-      async function trySend() {
-        const t = localStorage.getItem('ucs_token');
-        const su = import.meta.env.VITE_SUPABASE_URL;
-        if (t && !t.startsWith('rpc_') && su) {
-          const r = await fetch(`${su}/functions/v1/send-message`, {
-            method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          });
-          if (r.ok) return true;
-        }
-        const api = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-        const r = await fetch(`${api}/whatsapp/send-message`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        });
-        return r.ok;
-      }
-      trySend().then(ok => {
-        if (!ok) supabase.from('messages').update({ status: 'failed', failure_reason: 'Send failed' }).eq('conversation_id', conversationId).eq('status', 'queued').catch(() => {});
-      });
+      sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, mediaUrl, mediaMimeType);
 
       setText('');
       setSelectedFile(null);
