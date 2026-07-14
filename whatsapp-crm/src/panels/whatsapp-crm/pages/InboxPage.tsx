@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
-import { Loader2, Check, CheckCheck, XCircle, MessageSquare, Search, Plus, X, Send } from 'lucide-react';
+import { Loader2, Check, CheckCheck, XCircle, MessageSquare, Search, Plus, X, Send, User, LogOut, Mail, Shield } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { format } from 'date-fns';
@@ -34,6 +34,53 @@ function WAAvatar({ name, size = 'md' }: { waId?: string; name?: string; size?: 
       <svg viewBox="0 0 40 40" width={size === 'sm' ? '20' : '28'} height={size === 'sm' ? '20' : '28'} fill="#54656f">
         <path d="M20 20c4.42 0 8-3.58 8-8s-3.58-8-8-8-8 3.58-8 8 3.58 8 8 8zm0 4c-5.33 0-16 2.67-16 8v4h32v-4c0-5.33-10.67-8-16-8z"/>
       </svg>
+    </div>
+  );
+}
+
+function AgentMenu() {
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  return (
+    <>
+      <div className="relative">
+        <button onClick={() => setOpen(!open)} className="text-[#54656f]"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 7a2 2 0 110-4 2 2 0 010 4zm0 7a2 2 0 110-4 2 2 0 010 4zm0 7a2 2 0 110-4 2 2 0 010 4z"/></svg></button>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div className="absolute right-0 top-8 z-50 w-44 rounded-lg border bg-white shadow-lg">
+              <button onClick={() => { setOpen(false); setProfileOpen(true); }} className="flex w-full items-center gap-3 rounded-t-lg px-4 py-3 text-sm text-[#111b21] hover:bg-[#f0f2f5]">
+                <User className="h-4 w-4 text-[#667781]" /> Profile
+              </button>
+              <button onClick={() => { setOpen(false); useAuthStore.getState().signOut(); navigate('/auth/login'); }} className="flex w-full items-center gap-3 rounded-b-lg px-4 py-3 text-sm text-red-500 hover:bg-[#f0f2f5]">
+                <LogOut className="h-4 w-4" /> Log out
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+      {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+    </>
+  );
+}
+
+function ProfileModal({ onClose }: { onClose: () => void }) {
+  const { user } = useAuthStore();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="w-80 rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#00a884] text-2xl font-bold text-white">
+            {(user?.first_name?.[0] || user?.email?.[0] || '?').toUpperCase()}
+          </div>
+          <p className="text-lg font-semibold text-[#111b21]">{user?.first_name} {user?.last_name}</p>
+          <div className="flex items-center gap-2 text-sm text-[#667781]"><Mail className="h-4 w-4" /> {user?.email}</div>
+          <div className="flex items-center gap-2 text-sm text-[#667781]"><Shield className="h-4 w-4" /> Role: <span className="capitalize font-medium text-[#111b21]">{user?.role}</span></div>
+          <button onClick={onClose} className="mt-2 rounded-lg bg-[#00a884] px-6 py-1.5 text-sm font-medium text-white hover:bg-[#008f72]">Close</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -255,7 +302,7 @@ export function InboxPage() {
           <div className="flex gap-4">
             <button onClick={() => setShowNewConv(true)} className="text-[#54656f]"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
             <button onClick={() => setSearchOpen(true)} className="text-[#54656f]"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.009 13.805h-.636l-.22-.219a5.184 5.184 0 001.256-3.386 5.207 5.207 0 10-5.207 5.207 5.184 5.184 0 003.385-1.255l.221.22v.635l4.004 3.999 1.194-1.195-3.997-4.006zm-4.808 0a3.605 3.605 0 110-7.21 3.605 3.605 0 010 7.21z"/></svg></button>
-            {isAgent && <button onClick={() => { useAuthStore.getState().signOut(); navigate('/auth/login'); }} className="text-[#54656f]" title="Log out"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M16 17v-3H9v-4h7V7l5 5-5 5M14 2a2 2 0 012 2v2h-2V4H5v16h9v-2h2v2a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2h9z"/></svg></button>}
+            {isAgent && <AgentMenu />}
           </div>
         </div>
         <div className="px-3 py-2 bg-white">
