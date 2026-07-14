@@ -61,7 +61,15 @@ export function InboxPage() {
   const [newConvMessage, setNewConvMessage] = useState('');
   const [newConvPhoneId, setNewConvPhoneId] = useState('');
   const [creatingConv, setCreatingConv] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewMime, setPreviewMime] = useState<string | undefined>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleDeleteMsg = async (msgId: string) => {
+    if (!confirm('Delete this message?')) return;
+    const { error } = await supabase.rpc('delete_message', { p_id: msgId });
+    if (!error) { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); }
+  };
 
   const { data: conversations, isLoading: loadingConvs } = useQuery({
     queryKey: ['conversations'],
@@ -241,7 +249,7 @@ export function InboxPage() {
   return (<>
     <div className={`flex ${isAgent ? 'h-screen w-full' : 'h-[calc(100vh-12rem)]'}`}>
       {/* Conversation List */}
-      <div className="w-80 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
+      <div className="w-80 max-md:w-16 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
         <div className="bg-[#f0f2f5] px-4 py-3.5 flex items-center justify-between">
           <span className="text-base font-semibold text-[#111b21]">Chats</span>
           <div className="flex gap-4">
@@ -327,21 +335,26 @@ export function InboxPage() {
               ) : (
                 <div className="space-y-1">
                   {messages?.map((message) => (
-                    <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[60%] px-3 py-2 text-[14.2px] shadow-sm leading-[19px] ${
+                    <div key={message.id} className={`group flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`relative max-w-[60%] px-3 py-2 text-[14.2px] shadow-sm leading-[19px] ${
                         message.direction === 'outbound'
                           ? 'bg-[#d9fdd3] rounded-lg rounded-br-sm'
                           : 'bg-white rounded-lg rounded-bl-sm'
                       }`}>
                         <p className="whitespace-pre-wrap break-words text-[#111b21]">{message.body_text}</p>
                         {message.media_url ? (
-                          <MediaPreview url={message.media_url} mimeType={message.media_mime_type} className="mt-1" />
+                          <div className="relative mt-1">
+                            <img src={message.media_url} alt="" className="max-w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => { setPreviewUrl(message.media_url); setPreviewMime(message.media_mime_type); }} />
+                          </div>
                         ) : message.media_id ? (
-                          <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
+                          <div className="relative mt-1 cursor-pointer" onClick={() => { setPreviewUrl(message.media_id); setPreviewMime(message.media_mime_type); }}>
+                            <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
+                          </div>
                         ) : null}
                         <div className="mt-1 flex items-center justify-end gap-1">
                           <span className="text-[10.5px] text-[#667781]">{format(new Date(message.created_at), 'HH:mm')}</span>
                           {message.direction === 'outbound' && <MessageStatusIcon status={message.status} />}
+                          <button onClick={() => handleDeleteMsg(message.id)} className="hidden group-hover:inline text-[10px] text-red-400 hover:text-red-600 ml-1">delete</button>
                         </div>
                       </div>
                     </div>
@@ -367,6 +380,26 @@ export function InboxPage() {
         )}
       </div>
     </div>
+
+    {previewUrl && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { setPreviewUrl(null); setPreviewMime(undefined); }}>
+        <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+          {previewMime?.startsWith('video/') ? (
+            <video controls className="max-h-[80vh] rounded-lg" src={previewUrl} />
+          ) : (
+            <img src={previewUrl} alt="Preview" className="max-h-[80vh] rounded-lg object-contain" />
+          )}
+          <div className="absolute top-2 right-2 flex gap-2">
+            <a href={previewUrl} download target="_blank" rel="noopener noreferrer" className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            </a>
+            <button onClick={() => { setPreviewUrl(null); setPreviewMime(undefined); }} className="flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     <MessageSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
 

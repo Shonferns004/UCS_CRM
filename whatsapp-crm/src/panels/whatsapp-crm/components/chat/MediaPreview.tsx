@@ -21,7 +21,7 @@ export function MediaPreview({ url, mimeType, caption, className }: MediaPreview
     <div className={cn('overflow-hidden rounded-lg', className)}>
       {isImage ? (
         <a href={url} target="_blank" rel="noopener noreferrer">
-          <img src={url} alt={caption || 'Image'} className="max-w-full cursor-pointer rounded-lg object-cover" />
+          <img src={url} alt={caption || 'Image'} className="max-w-full max-h-60 cursor-pointer rounded-lg object-cover" />
         </a>
       ) : isVideo ? (
         <video controls className="max-w-full rounded-lg">

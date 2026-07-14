@@ -18,7 +18,7 @@ const navigation = [
 export function Sidebar() {
   const navigate = useNavigate();
   return (
-    <div className="flex w-64 flex-col border-r bg-card">
+    <div className="flex w-64 max-md:w-16 flex-col border-r bg-card">
       <div className="flex h-16 items-center gap-2 border-b px-6">
         <MessageCircle className="h-6 w-6 text-primary" />
         <span className="text-lg font-semibold">WhatsApp CRM</span>
