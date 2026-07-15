@@ -98,10 +98,17 @@ export function BatchUserImport() {
         setError(error?.message || 'Failed to create agent');
       } else {
         const userData = typeof data === 'string' ? JSON.parse(data) : data;
-        if (selectedNumbers.length > 0 && userData?.id) {
-          await supabase.from('agent_phone_assignments').insert(
-            selectedNumbers.map((accountId: string) => ({ user_id: userData.id, account_id: parseInt(accountId) || accountId }))
-          );
+        if (userData?.id) {
+          let ids = selectedNumbers.map((id: string) => parseInt(id) || id);
+          if (ids.length === 0) {
+            const { data: def } = await supabase.from('whatsapp_accounts').select('id').eq('is_default', true).limit(1).maybeSingle();
+            if (def) ids = [def.id];
+          }
+          if (ids.length > 0) {
+            await supabase.from('agent_phone_assignments').insert(
+              ids.map((accountId: number | string) => ({ user_id: userData.id, account_id: accountId }))
+            );
+          }
         }
         setResult({ success: true, email: payload.email, password: tempPassword });
         setSelected(null);
