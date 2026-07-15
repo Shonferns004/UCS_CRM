@@ -197,7 +197,7 @@ export function InboxPage() {
       return data as Message[];
     },
     enabled: !!conversationId,
-    refetchInterval: 2000,
+    refetchInterval: 1000,
   });
 
   useEffect(() => {
@@ -502,7 +502,7 @@ export function InboxPage() {
               <QuickReplyBar conversationId={conversationId} onSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
             )}
             {conversationId && (
-              <MessageComposer conversationId={conversationId} tenantId={currentConv?.tenant_id} contactId={currentConv?.contact_id} userId={user?.id || ''} onMessageSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
+              <MessageComposer conversationId={conversationId} tenantId={currentConv?.tenant_id} contactId={currentConv?.contact_id} userId={user?.id || ''} onMessageSent={() => { queryClient.refetchQueries({ queryKey: ['messages', conversationId] }); queryClient.refetchQueries({ queryKey: ['conversations'] }); }} />
             )}
           </>
         ) : (
