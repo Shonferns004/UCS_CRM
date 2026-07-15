@@ -305,11 +305,35 @@ export function InboxPage() {
       const { data: pn } = await supabase.from('whatsapp_accounts').select('*').eq('id', newConvPhoneId).single();
       if (!pn) { toast.error('Phone number not found'); return; }
 
+      const project = pn.project || null;
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('*, contact:contacts(*)')
+        .eq('contact_id', contactId)
+        .eq('project', project)
+        .eq('status', 'open')
+        .maybeSingle();
+
+      if (existingConv) {
+        navigate(`/inbox/${existingConv.id}`);
+        if (newConvMessage.trim()) {
+          sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id);
+        }
+        setShowNewConv(false);
+        setNewConvPhone('');
+        setNewConvContactId(null);
+        setNewConvMessage('');
+        setNewConvPhoneId('');
+        toast.info('Using existing conversation');
+        setCreatingConv(false);
+        return;
+      }
+
       const { data: conversation, error: convError } = await supabase.from('conversations').insert({
         tenant_id: user?.tenant_id,
         contact_id: contactId,
         status: 'open',
-        project: pn.project || null,
+        project: project,
         last_message_at: new Date().toISOString(),
       }).select('*, contact:contacts(*)').single();
       if (convError) throw convError;
