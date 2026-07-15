@@ -19,6 +19,12 @@ export default function Template1({ personal, education }) {
         .t1 .edu td{height:45px}
         .t1 .edu{border-bottom:1px solid #666}
         .t1 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:8pt;line-height:1.3}
+        .t1 .decl-header{background:#d9d9d9;font-weight:bold;font-size:14px;padding:5px 8px;text-transform:uppercase;border:1px solid #666}
+        .t1 .decl-text{font-family:"Times New Roman",serif;font-size:9pt;line-height:1.2;text-align:justify;margin:6px 0 8px 0}
+        .t1 .decl-sig{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin-top:8px}
+        .t1 .decl-sig .decl-field{font-size:9pt;font-weight:bold}
+        .t1 .decl-sig .decl-line{display:inline-block;border-bottom:1px solid #000;min-width:90px;height:14px;vertical-align:bottom}
+        .t1 .decl-sig .decl-sign-box{width:120px;height:35px;border:1px solid #000;border-radius:8px;background:#fff}
       `}</style>
       <div className="t1">
         <div className="header">
@@ -124,6 +130,21 @@ export default function Template1({ personal, education }) {
             </tr>
           ))}
         </table>
+        <div className="footer">
+          Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
+          Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
+        </div>
+      </div>
+      <div className="t1" style={{borderTop:'none'}}>
+        <div className="decl-header">DECLARATION</div>
+        <div className="decl-text">
+          I hereby declare that the above statements made in my application form are true, complete and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.
+        </div>
+        <div className="decl-sig">
+          <div className="decl-field">Date: <span className="decl-line"></span></div>
+          <div className="decl-field">Place: <span className="decl-line"></span></div>
+          <div className="decl-field">Sign: <span className="decl-sign-box"></span></div>
+        </div>
         <div className="footer">
           Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
           Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
