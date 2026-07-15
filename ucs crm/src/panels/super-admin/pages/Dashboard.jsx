@@ -1,9 +1,13 @@
 ﻿
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getDashboard, getFroLiveStatus, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts } from '../api/endpoints'
+import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts } from '../api/endpoints'
 import { api } from '../api/auth'
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar, LineChart, Line, CartesianGrid, Legend } from 'recharts'
+import { fmt, STATUS_META, StatBox } from '../components/froShared'
+import { FroMiniCard } from '../components/FroMiniCard'
+import { FroDetailModal, FroDeepDetailModal } from '../components/FroModals'
+import { FroNestedModal } from '../components/FroNestedModal'
 
 /* ============ MINT PALETTE ============ */
 const MINT = '#8CCDA4'          // fills, charts, borders
@@ -338,13 +342,13 @@ function PanelSummaryModal({ panel, onClose, dashboardData }) {
             total: { count: list.length, amount: list.reduce((s, l) => s + Number(l.amount || 0), 0) },
           }
         }),
-      fro: () => getFroLiveStatus()
+      fro: () => api('/fro/status', { _prefix: 'ucs' })
         .then(list => {
           const arr = Array.isArray(list) ? list : []
-          const active = arr.filter(f => f.is_active)
-          const punchedIn = arr.filter(f => f.is_punched_in)
-          const totalCollection = arr.reduce((s, f) => s + Number(f.today_collection || 0), 0)
-          const totalData = arr.reduce((s, f) => s + Number(f.data_used || 0), 0)
+          const active = arr.filter(f => f.worker?.is_active)
+          const punchedIn = arr.filter(f => f.worker?.is_punched_in)
+          const totalCollection = arr.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0)
+          const totalData = arr.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)
           return { total: arr.length, active: active.length, inactive: arr.length - active.length, punchedIn: punchedIn.length, totalCollection, totalData }
         }),
       hr: () => Promise.all([getWorkers(), getAttendance()])
@@ -691,204 +695,9 @@ function AnimatedNum({ to, suffix = '' }) {
   return <span ref={ref}>{v.toLocaleString('en-IN')}{suffix}</span>;
 }
 
-/* ─── FRO status helpers (from LiveFroStatus) ─── */
-function fmt(seconds) {
-  if (seconds == null) return '00:00'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
 
-const STATUS_META = {
-  on_call: { label: 'On Call', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
-  online: { label: 'Online', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
-  idle: { label: 'Idle', color: '#f59e0b', bg: '#fefce8', border: '#fde68a' },
-  break: { label: 'Break', color: '#d97706', bg: '#fefce8', border: '#fde68a' },
-  offline: { label: 'Offline', color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb' },
-}
 
-function StatBox({ label, value, icon }) {
-  return (
-    <div style={{ padding: '8px 10px', borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-      <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, marginBottom: 2 }}>{icon} {label}</div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: '#091426' }}>{value}</div>
-    </div>
-  )
-}
 
-function FroDeepDetailModal({ fro, onClose }) {
-  if (!fro) return null
-  const workerName = fro.workers?.name || 'Unknown'
-  const meta = STATUS_META[fro.status] || STATUS_META.offline
-  const totalActive = (fro.today_talk_seconds || 0) + (fro.today_idle_seconds || 0)
-  const productivity = totalActive > 0 ? Math.round(((fro.today_talk_seconds || 0) / totalActive) * 100) : null
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="card" style={{ width: 420, padding: '24px 28px', background: '#fff', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: '50%', background: meta.bg, color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>
-              {workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-            </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{workerName}</div>
-              <div style={{ fontSize: 11, color: '#64748b' }}>{fro.workers?.login_id || ''}</div>
-            </div>
-          </div>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div style={{ padding: '10px 12px', borderRadius: 6, background: meta.bg, border: `1px solid ${meta.border}`, textAlign: 'center', marginBottom: 12 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: meta.color }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
-            {meta.label}
-          </span>
-        </div>
-        {fro.status === 'on_call' && (
-          <div style={{ padding: '10px 12px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: '#991b1b', fontWeight: 600, marginBottom: 4 }}>📞 Current Call</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.call_started_at ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000)) : '00:00'}
-              </span>
-            </div>
-          </div>
-        )}
-        {fro.status === 'break' && (
-          <div style={{ padding: '10px 12px', borderRadius: 6, background: fro.today_break_seconds > 3600 ? '#fef2f2' : '#fefce8', border: `1px solid ${fro.today_break_seconds > 3600 ? '#fecaca' : '#fde68a'}`, marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: '#92400e', fontWeight: 600, marginBottom: 4 }}>☕ On Break</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: fro.today_break_seconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.break_started_at ? fmt(Math.floor((Date.now() - new Date(fro.break_started_at).getTime()) / 1000)) : '00:00'}
-              </span>
-              <span style={{ fontSize: 11, color: '#92400e' }}>today: {fmt(fro.today_break_seconds || 0)}</span>
-            </div>
-          </div>
-        )}
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#091426', marginBottom: 8 }}>📊 Today's Performance</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <StatBox label="Calls" value={fro.today_calls || 0} icon="📞" />
-          <StatBox label="Talk Time" value={fmt(fro.today_talk_seconds || 0)} icon="⏱️" />
-          <StatBox label="Skipped" value={fro.today_skipped || 0} icon="⏳" />
-          <StatBox label="Idle Time" value={fmt(fro.today_idle_seconds || 0)} icon="🕊️" />
-          {fro.today_break_seconds > 0 && <StatBox label="Break" value={fmt(fro.today_break_seconds || 0)} icon="☕" />}
-          {productivity !== null && <StatBox label="Productivity" value={`${productivity}%`} icon="📊" />}
-        </div>
-        <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 14, textAlign: 'center' }}>Auto-refreshes every 30s</div>
-      </div>
-    </div>
-  )
-}
-
-function FroDetailModal({ fro, onClose, onShowDeep }) {
-  if (!fro) return null
-  const meta = STATUS_META[fro.status] || STATUS_META.offline
-  const workerName = fro.workers?.name || 'Unknown'
-  const totalActive = (fro.today_talk_seconds || 0) + (fro.today_idle_seconds || 0)
-  const productivity = totalActive > 0 ? Math.round(((fro.today_talk_seconds || 0) / totalActive) * 100) : null
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="card" style={{ width: 340, padding: '20px 24px', background: '#fff', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={onShowDeep}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: meta.bg, color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
-              {workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-            </div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: MINT_DEEP }}>{workerName} <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>→</span></div>
-              <div style={{ fontSize: 10, color: '#64748b' }}>{fro.workers?.login_id || ''}</div>
-            </div>
-          </div>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div style={{ padding: '10px 12px', borderRadius: 6, background: meta.bg, border: `1px solid ${meta.border}`, marginBottom: 12, textAlign: 'center' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: meta.color }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
-            {meta.label}
-          </span>
-        </div>
-        {fro.status === 'on_call' && (
-          <div style={{ padding: '8px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#dc2626' }}>call</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.call_started_at ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000)) : '00:00'}
-              </span>
-            </div>
-          </div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <StatBox label="Today Calls" value={fro.today_calls || 0} icon="📞" />
-          <StatBox label="Talk Time" value={fmt(fro.today_talk_seconds || 0)} icon="⏱️" />
-          {fro.today_skipped > 0 && <StatBox label="Skipped" value={fro.today_skipped} icon="⏳" />}
-          <StatBox label="Idle Time" value={fmt(fro.today_idle_seconds || 0)} icon="🕊️" />
-          {fro.today_break_seconds > 0 && <StatBox label="Break" value={fmt(fro.today_break_seconds || 0)} icon="☕" />}
-          {productivity !== null && <StatBox label="Productivity" value={`${productivity}%`} icon="📊" />}
-        </div>
-        <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 12, textAlign: 'center' }}>
-          Last seen: {fro.updated_at ? new Date(fro.updated_at).toLocaleTimeString('en-IN') : '—'}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ─── Mini FRO card for dashboard ─── */
-function FroMiniCard({ fro, onCardClick }) {
-  if (!fro) return null
-  const meta = STATUS_META[fro.status] || STATUS_META.offline
-  const workerName = fro.workers?.name || 'Unknown'
-  const initials = workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const totalActive = (fro.today_talk_seconds || 0) + (fro.today_idle_seconds || 0)
-  const productivity = totalActive > 0 ? Math.round(((fro.today_talk_seconds || 0) / totalActive) * 100) : null
-  const callTimer = fro.status === 'on_call' && fro.call_started_at
-    ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000))
-    : null
-  const breakTimer = fro.status === 'break' && fro.break_started_at
-    ? fmt(Math.floor((Date.now() - new Date(fro.break_started_at).getTime()) / 1000))
-    : null
-
-  return (
-    <div className="fro-mini-card" onClick={() => onCardClick(fro)}
-      style={{ borderLeft: `4px solid ${meta.color}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <div style={{ width: 34, height: 34, borderRadius: '50%', background: meta.bg, color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-          {initials}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: PRIMARY }}>{workerName}</div>
-          <div style={{ fontSize: 10, color: '#94a3b8' }}>{fro.workers?.login_id || ''}</div>
-        </div>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
-          <span style={{ fontSize: 10, fontWeight: 600, color: meta.color }}>{meta.label}</span>
-        </span>
-      </div>
-      {fro.status === 'on_call' && callTimer && (
-        <div style={{ padding: '6px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#dc2626' }}>call</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{callTimer}</span>
-        </div>
-      )}
-      {fro.status === 'break' && breakTimer && (
-        <div style={{ padding: '6px 10px', borderRadius: 6, background: '#fefce8', border: '1px solid #fde68a', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#d97706' }}>free_breakfast</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#92400e', flex: 1 }}>{fro.today_break_seconds > 3600 ? 'Break 🔴' : 'On Break'}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{breakTimer}</span>
-        </div>
-      )}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 10, color: '#94a3b8' }}>
-        <span>📞 <strong style={{ color: PRIMARY }}>{fro.today_calls || 0}</strong></span>
-        <span style={{ fontVariantNumeric: 'tabular-nums' }}>⏱️ <strong style={{ color: PRIMARY }}>{fmt(fro.today_talk_seconds || 0)}</strong></span>
-        {productivity !== null && (
-          <span style={{ color: productivity < 50 ? RED_DEEP : MINT_DEEP, fontWeight: 600 }}>📊 {productivity}%</span>
-        )}
-      </div>
-    </div>
-  )
-}
 
 /* ─── Monthly Attendance Heatmap ─── */
 function AttendanceHeatmap({ attendance, holidays }) {
@@ -977,140 +786,7 @@ function PipelineFlow({ stages, color, height }) {
   )
 }
 
-/* ================= FRO NESTED MODAL (split layout + recharts) ================= */
-function FroNestedDetail({ fro }) {
-  if (!fro) return null
-  const meta = STATUS_META[fro.status] || STATUS_META.offline
-  const workerName = fro.workers?.name || 'Unknown'
-  const totalActive = (fro.today_talk_seconds || 0) + (fro.today_idle_seconds || 0)
-  const productivity = totalActive > 0 ? Math.round(((fro.today_talk_seconds || 0) / totalActive) * 100) : 0
-  const callTimer = fro.status === 'on_call' && fro.call_started_at
-    ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000))
-    : null
-  const breakTimer = fro.status === 'break' && fro.break_started_at
-    ? fmt(Math.floor((Date.now() - new Date(fro.break_started_at).getTime()) / 1000))
-    : null
-  const statColor = (v) => v > 0 ? '#059669' : '#94a3b8'
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 42, height: 42, borderRadius: '50%', background: meta.bg, color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>
-            {workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-          </div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: PRIMARY }}>{workerName}</div>
-            <div style={{ fontSize: 11, color: '#64748b' }}>{fro.workers?.login_id || ''} · {fro.workers?.ngo_name || ''}</div>
-          </div>
-        </div>
-        <div style={{ padding: '5px 14px', borderRadius: 99, background: meta.bg, border: `1px solid ${meta.border}` }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: meta.color }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
-            {meta.label}
-          </span>
-        </div>
-      </div>
-      {fro.status === 'on_call' && callTimer && (
-        <div style={{ padding: '8px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#dc2626' }}>call</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name || 'On Call'}</span>
-          <span style={{ fontSize: 18, fontWeight: 800, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{callTimer}</span>
-        </div>
-      )}
-      {fro.status === 'break' && breakTimer && (
-        <div style={{ padding: '8px 14px', borderRadius: 8, background: '#fefce8', border: '1px solid #fde68a', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>free_breakfast</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e', flex: 1 }}>Break</span>
-          <span style={{ fontSize: 18, fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{breakTimer}</span>
-        </div>
-      )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-        <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '12px 14px', border: '1px solid #bbf7d0' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Today Collection</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>₹{Number(fro.today_collection || 0).toLocaleString('en-IN')}</div>
-        </div>
-        <div style={{ background: '#fefce8', borderRadius: 10, padding: '12px 14px', border: '1px solid #fde68a' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Data Used</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#d97706', lineHeight: 1.2 }}>{fro.data_used || 0} <span style={{ fontSize: 12, fontWeight: 600 }}>MB</span></div>
-        </div>
-        <div style={{ background: '#eff6ff', borderRadius: 10, padding: '12px 14px', border: '1px solid #bfdbfe' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Today Calls</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#2563eb', lineHeight: 1.2 }}>{fro.today_calls || 0}</div>
-        </div>
-        <div style={{ background: '#faf5ff', borderRadius: 10, padding: '12px 14px', border: '1px solid #e9d5ff' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Leads</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#7c3aed', lineHeight: 1.2 }}>{fro.today_skipped || 0}</div>
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-        <StatBox label="Talk Time" value={fmt(fro.today_talk_seconds || 0)} icon="⏱️" />
-        <StatBox label="Idle" value={fmt(fro.today_idle_seconds || 0)} icon="🕊️" />
-        <StatBox label="Break" value={fmt(fro.today_break_seconds || 0)} icon="☕" />
-        <StatBox label="Productivity" value={`${productivity}%`} icon="📊" />
-      </div>
-      <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 10, textAlign: 'center' }}>
-        Last seen: {fro.updated_at ? new Date(fro.updated_at).toLocaleTimeString('en-IN') : '—'}
-      </div>
-    </>
-  )
-}
 
-function FroNestedModal({ froList, onClose }) {
-  const [selId, setSelId] = useState(null)
-  const validList = Array.isArray(froList) ? froList : []
-  const selected = selId ? validList.find(f => f && f.id === selId) : (validList[0] || null)
-  useEffect(() => { if (validList.length > 0 && !selId) setSelId(validList[0].id) }, [validList])
-  return (
-    <div className="nd-modal-overlay" onClick={onClose}>
-      <div className="nd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 880, height: '80vh', maxHeight: 700, display: 'flex', flexDirection: 'column' }}>
-        <div className="nd-modal-head" style={{ borderColor: `${MINT}50`, flexShrink: 0 }}>
-          <span className="material-symbols-outlined" style={{ color: MINT_DEEP, fontSize: 22 }}>groups</span>
-          <h3 className="nd-modal-title">FRO Live Detail</h3>
-          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
-            {validList.filter(f => f && (f.status === 'online' || f.status === 'on_call')).length}/{validList.length} active
-          </span>
-          <button className="nd-modal-close" onClick={onClose}><span className="material-symbols-outlined">close</span></button>
-        </div>
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <div style={{ width: 280, borderRight: '1px solid #EAF3EC', overflowY: 'auto', flexShrink: 0 }}>
-            {validList.map(f => {
-              if (!f) return null
-              const m = STATUS_META[f.status] || STATUS_META.offline
-              const nm = f.workers?.name || f.login_id || 'Unknown'
-              const init = nm.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-              const isSel = f.id === selId
-              return (
-                <div key={f.id} onClick={() => setSelId(f.id)} style={{
-                  padding: '10px 12px', cursor: 'pointer',
-                  borderLeft: `3px solid ${isSel ? m.color : 'transparent'}`,
-                  background: isSel ? MINT_LIGHT : 'transparent',
-                  borderBottom: '1px solid #F0F7F2', transition: 'background 0.15s',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0, background: m.bg, color: m.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700 }}>{init}</div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: PRIMARY }}>{nm}</div>
-                      <div style={{ fontSize: 9, color: '#94a3b8' }}>{f.workers?.login_id || ''}</div>
-                    </div>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, fontSize: 9, color: '#64748b', paddingLeft: 38 }}>
-                    <span>₹{Number(f.today_collection || 0).toLocaleString('en-IN')}</span>
-                    <span>📞{f.today_calls || 0}</span>
-                    <span>📊{f.data_used || 0}MB</span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-            <FroNestedDetail key={selected?.id} fro={selected} />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 /* ================= NGO STATION MODAL ================= */
 const NGO_DISPOSITION_LABELS = {
@@ -1298,10 +974,10 @@ function NgoStationModal({ ngoName, onClose }) {
 
 /* ================= NGO QUICK MODAL ================= */
 function NgoQuickModal({ ngoName, onClose, froLiveData, froAssignments, ngoUserCounts, accountsSummary }) {
-  const ngoFros = froLiveData.filter(f => f.workers?.ngo_name === ngoName)
-  const totalCollection = ngoFros.reduce((s, f) => s + Number(f.today_collection || 0), 0)
-  const totalCalls = ngoFros.reduce((s, f) => s + Number(f.today_calls || 0), 0)
-  const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.data_used || 0), 0)
+  const ngoFros = froLiveData.filter(f => f.worker?.ngo_name === ngoName)
+  const totalCollection = ngoFros.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0)
+  const totalCalls = ngoFros.reduce((s, f) => s + Number(f.performance?.today_calls || 0), 0)
+  const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)
   const assignedFros = froAssignments.filter(f => (f.ngos || []).includes(ngoName))
   const workerCount = ngoUserCounts.find(n => n.name === ngoName)
   const nc = ngoColor(ngoName)
@@ -1339,7 +1015,7 @@ function NgoQuickModal({ ngoName, onClose, froLiveData, froAssignments, ngoUserC
               <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Assigned FROs</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {assignedFros.map((f, i) => {
-                  const live = ngoFros.find(l => l.workers?.name === f.name || l.login_id === f.name)
+                  const live = ngoFros.find(l => l.worker?.name === f.name || l.worker?.login_id === f.name)
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f8fafb', border: '1px solid #eaf3ec' }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: live ? '#10b981' : '#94a3b8', flexShrink: 0 }} />
@@ -1556,7 +1232,7 @@ export default function Dashboard() {
 
   /* FRO live data on dashboard — independent 30s poll */
   const fetchFroLiveInline = useCallback(() => {
-    getFroLiveStatus().then(d => setFroLiveData(Array.isArray(d) ? d : [])).catch(() => {})
+    api('/fro/status', { _prefix: 'ucs' }).then(d => setFroLiveData(Array.isArray(d) ? d : [])).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -2229,17 +1905,17 @@ export default function Dashboard() {
             const n = ngoUserCounts.find(x => x.name.toLowerCase().startsWith(prefix))
             if (!n) return null
             const nc = ngoColor(n.name)
-            const ngoFros = froLiveData.filter(f => f.workers?.ngo_name === n.name)
-            const totalCollection = ngoFros.reduce((s, f) => s + Number(f.today_collection || 0), 0)
-            const totalCalls = ngoFros.reduce((s, f) => s + Number(f.today_calls || 0), 0)
-            const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.data_used || 0), 0)
+            const ngoFros = froLiveData.filter(f => f.worker?.ngo_name === n.name)
+            const totalCollection = ngoFros.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0)
+            const totalCalls = ngoFros.reduce((s, f) => s + Number(f.performance?.today_calls || 0), 0)
+            const totalDataUsed = ngoFros.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)
             const assignedFros = froAssignments.filter(f => (f.ngos || []).includes(n.name))
             return (
               <div key={n.name} className="nd-card" style={{ padding: '12px 14px', borderLeft: `4px solid ${nc}` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: nc, flexShrink: 0 }} />
                   <span style={{ fontSize: 13, fontWeight: 700, color: nc }}>{n.name}</span>
-                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginLeft: 'auto' }}>{n.workers || n.count || 0} volunteers</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginLeft: 'auto' }}>{n.workers || n.count || 0} volunteers · <span style={{ color: '#16a34a' }}>{ngoFros.filter(f => f.status === 'on_call' || f.status === 'online').length} live</span></span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   <div style={{ padding: '8px 10px', borderRadius: 8, background: '#E8F5E9' }}>
@@ -2743,34 +2419,34 @@ export default function Dashboard() {
             <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#000' }}>monitoring</span>
             <h3 className="nd-section-title" style={{ margin: 0, color: '#000' }}>FRO Performance — Today</h3>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
-              {froLiveData.reduce((s, f) => s + (f.today_calls || 0), 0)} total calls
+              {froLiveData.reduce((s, f) => s + (f.performance?.today_calls || 0), 0)} total calls
             </span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
             <div style={{ padding: '10px 12px', borderRadius: 10, background: '#E8F5E9' }}>
               <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Collection</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: MINT_DEEP }}>₹{froLiveData.reduce((s, f) => s + Number(f.today_collection || 0), 0).toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: MINT_DEEP }}>₹{froLiveData.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0).toLocaleString('en-IN')}</div>
             </div>
             <div style={{ padding: '10px 12px', borderRadius: 10, background: '#E3F2FD' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Active FROs</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1E88E5' }}>{froLiveData.filter(f => f.is_active).length}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Online FROs</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#1E88E5' }}>{froLiveData.filter(f => f.worker?.is_active && (f.status === 'online' || f.status === 'on_call')).length}/{froLiveData.length}</div>
             </div>
             <div style={{ padding: '10px 12px', borderRadius: 10, background: '#F3E5F5' }}>
               <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Data Used</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#8E24AA' }}>{froLiveData.reduce((s, f) => s + Number(f.data_used || 0), 0)}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#8E24AA' }}>{froLiveData.reduce((s, f) => s + Number(f.performance?.data_used || 0), 0)}</div>
             </div>
             <div style={{ padding: '10px 12px', borderRadius: 10, background: '#FFF8E1' }}>
               <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Avg Collection</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: '#F57C00' }}>
-                ₹{froLiveData.length > 0 ? Math.round(froLiveData.reduce((s, f) => s + Number(f.today_collection || 0), 0) / froLiveData.length).toLocaleString('en-IN') : 0}
+                ₹{froLiveData.length > 0 ? Math.round(froLiveData.reduce((s, f) => s + Number(f.performance?.today_collection || 0), 0) / froLiveData.length).toLocaleString('en-IN') : 0}
               </div>
             </div>
           </div>
           <div style={{ height: Math.max(160, Math.min(froLiveData.length * 20, 300)) }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={froLiveData.map(f => ({
-                name: (f.workers?.name || f.login_id || 'Unknown').replace(/_.*$/, ''),
-                collection: Number(f.today_collection || 0),
+                name: (f.worker?.name || f.worker?.login_id || 'Unknown').replace(/_.*$/, ''),
+                collection: Number(f.performance?.today_collection || 0),
               })).sort((a, b) => a.name.localeCompare(b.name))} margin={{ top: 10, right: 16, bottom: 40, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748b', angle: -45, textAnchor: 'end' }} interval={0} height={60} />
@@ -2782,24 +2458,24 @@ export default function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          {froLiveData.filter(f => Number(f.today_calls || 0) > 0).length > 1 && (
+          {froLiveData.filter(f => Number(f.performance?.today_calls || 0) > 0).length > 1 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
               <div style={{ padding: '8px 12px', borderRadius: 10, background: '#f8fafb', border: '1px solid #eaf3ec' }}>
                 <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Top Collector</div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: PRIMARY }}>
-                  {froLiveData.reduce((best, f) => Number(f.today_collection || 0) > Number(best.today_collection || 0) ? f : best, froLiveData[0])?.workers?.name || '—'}
+                  {froLiveData.reduce((best, f) => Number(f.performance?.today_collection || 0) > Number(best.performance?.today_collection || 0) ? f : best, froLiveData[0])?.worker?.name || '—'}
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: MINT_DEEP }}>
-                  ₹{froLiveData.reduce((best, f) => Number(f.today_collection || 0) > Number(best.today_collection || 0) ? f : best, froLiveData[0]).today_collection?.toLocaleString('en-IN') || 0}
+                  ₹{froLiveData.reduce((best, f) => Number(f.performance?.today_collection || 0) > Number(best.performance?.today_collection || 0) ? f : best, froLiveData[0]).performance?.today_collection?.toLocaleString('en-IN') || 0}
                 </div>
               </div>
               <div style={{ padding: '8px 12px', borderRadius: 10, background: '#f8fafb', border: '1px solid #eaf3ec' }}>
                 <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Most Calls</div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: PRIMARY }}>
-                  {froLiveData.reduce((best, f) => (f.today_calls || 0) > (best.today_calls || 0) ? f : best, froLiveData[0])?.workers?.name || '—'}
+                  {froLiveData.reduce((best, f) => (f.performance?.today_calls || 0) > (best.performance?.today_calls || 0) ? f : best, froLiveData[0])?.worker?.name || '—'}
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: PRIMARY }}>
-                  {froLiveData.reduce((best, f) => (f.today_calls || 0) > (best.today_calls || 0) ? f : best, froLiveData[0]).today_calls || 0} calls
+                  {froLiveData.reduce((best, f) => (f.performance?.today_calls || 0) > (best.performance?.today_calls || 0) ? f : best, froLiveData[0]).performance?.today_calls || 0} calls
                 </div>
               </div>
             </div>
