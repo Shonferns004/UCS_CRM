@@ -4,7 +4,6 @@ import Template2 from './Template2'
 import Template3 from './Template3'
 import Template4 from './Template4'
 import Template5 from './Template5'
-import Template6 from './Template6'
 
 
 export default function PrintForms({ data, onClose }) {
@@ -29,9 +28,10 @@ export default function PrintForms({ data, onClose }) {
         @page { size: A4; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
         .print-page { page-break-after: always; }
-        .t3 { min-height: 297mm; height: auto !important; }
-        .t4 { min-height: 297mm; height: auto !important; }
-        .t5 { overflow: visible !important; height: auto !important; }
+        .t2 { height: 297mm !important; overflow: hidden !important; }
+        .t4 { height: 297mm !important; overflow: hidden !important; }
+        .t5 { height: 297mm !important; overflow: hidden !important; }
+        .t6 { height: 297mm !important; overflow: hidden !important; }
         img { max-width: 100%; }
         @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
       </style>
@@ -69,19 +69,10 @@ export default function PrintForms({ data, onClose }) {
       </div>
       <div ref={ref}>
         <Template1 personal={data.personal} education={data.education} />
-        <Template2
-          organizations={data.organizations}
-          family={data.family}
-          references={data.references}
-          declarationDate={data.declarationDate}
-          place={data.place}
-        />
+        <Template2 />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
         <Template4 personal={data.personal} />
-        <Template5 personal={data.personal} />
-        <Template6 />
-
-      </div>
+        <Template5 />      </div>
     </div>
   )
 }
