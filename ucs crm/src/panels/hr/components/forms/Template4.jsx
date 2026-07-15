@@ -3,7 +3,7 @@ export default function Template4({ personal }) {
     <div className="print-page">
       <style>{`
         .t4 *{box-sizing:border-box}
-        .t4{width:210mm;min-height:297mm;height:auto !important;margin:auto;background:#fff;border:3px solid #222;padding:10mm 12mm;font-family:"Times New Roman",serif;page-break-after:always}
+        .t4{width:210mm;min-height:297mm;height:auto !important;margin:auto;background:#fff;border:8px double #000;padding:10mm 12mm;font-family:"Times New Roman",serif;page-break-after:always}
         .t4 h1{text-align:center;margin:0 0 2px;font-size:22pt}
         .t4 .sub{text-align:center;font-size:9pt;margin:0 0 4px}
         .t4 .red{height:2px;background:#7b2020;margin:2px 0 6px}

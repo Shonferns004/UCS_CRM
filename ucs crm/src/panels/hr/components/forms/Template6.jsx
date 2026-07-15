@@ -3,7 +3,7 @@ export default function Template6() {
     <div className="print-page">
       <style>{`
         .t6 *{box-sizing:border-box}
-        .t6{width:210mm;min-height:297mm;margin:auto;background:#fff;border:3px solid #222;position:relative;padding:14px 22px 46px 22px;font-family:"Times New Roman",serif;page-break-after:always}
+        .t6{width:210mm;min-height:297mm;margin:auto;background:#fff;border:8px double #000;position:relative;padding:14px 22px 46px 22px;font-family:"Times New Roman",serif;page-break-after:always}
         .t6 .inner{border:1px solid #222;padding:8px 18px 120px 18px;min-height:279mm}
         .t6 h1{margin:0;text-align:center;font-size:30px;font-weight:700}
         .t6 .sub{text-align:center;font-size:12px;margin-top:6px}

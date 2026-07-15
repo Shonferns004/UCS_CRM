@@ -3,7 +3,7 @@ export default function Template3({ personal, declarationDate, place }) {
     <div className="print-page">
       <style>{`
         .t3 *{box-sizing:border-box}
-        .t3{width:210mm;min-height:297mm;height:auto !important;margin:auto;background:#fff;border:3px solid #222;padding:10mm 12mm;font-family:"Times New Roman",serif;page-break-after:always}
+        .t3{width:210mm;min-height:297mm;height:auto !important;margin:auto;background:#fff;border:8px double #000;padding:10mm 12mm;font-family:"Times New Roman",serif;page-break-after:always}
         .t3 h1{text-align:center;margin:0 0 2px;font-size:22pt}
         .t3 .sub{text-align:center;font-size:9pt;margin:0 0 4px}
         .t3 .red{height:2px;background:#7b2020;margin:2px 0 6px}
