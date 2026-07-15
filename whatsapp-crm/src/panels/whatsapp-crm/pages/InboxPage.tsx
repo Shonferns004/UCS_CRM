@@ -147,16 +147,27 @@ export function InboxPage() {
   };
 
   const { data: conversations, isLoading: loadingConvs } = useQuery({
-    queryKey: ['conversations'],
+    queryKey: ['conversations', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('*, contact:contacts(*)')
-        .order('last_message_at', { ascending: false, nullsFirst: false });
+      let query = supabase.from('conversations').select('*, contact:contacts(*)');
+
+      if (user?.role === 'agent') {
+        const { data: assign } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', user.id);
+        if (assign && assign.length > 0) {
+          const ids = assign.map((a: any) => a.account_id);
+          const { data: accts } = await supabase.from('whatsapp_accounts').select('project').in('id', ids);
+          if (accts && accts.length > 0) {
+            const projects = accts.map((a: any) => a.project).filter(Boolean);
+            if (projects.length > 0) query = query.in('project', projects);
+          }
+        }
+      }
+
+      const { data, error } = await query.order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
       const seen = new Map<string, any>();
       for (const c of data || []) {
-        const key = c.contact_id;
+        const key = c.contact_id + '|' + (c.project || '');
         if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
           seen.set(key, c);
         }
@@ -170,9 +181,11 @@ export function InboxPage() {
     queryKey: ['messages', conversationId],
     queryFn: async () => {
       if (!conversationId) return [];
-      const { data: conv } = await supabase.from('conversations').select('contact_id').eq('id', conversationId).maybeSingle();
+      const { data: conv } = await supabase.from('conversations').select('contact_id, project').eq('id', conversationId).maybeSingle();
       if (!conv?.contact_id) return [];
-      const { data: allConvs } = await supabase.from('conversations').select('id').eq('contact_id', conv.contact_id);
+      let q = supabase.from('conversations').select('id').eq('contact_id', conv.contact_id);
+      if (conv.project) q = q.eq('project', conv.project);
+      const { data: allConvs } = await q;
       const ids = (allConvs || []).map((c: any) => c.id);
       if (ids.length === 0) return [];
       const { data, error } = await supabase
@@ -296,6 +309,7 @@ export function InboxPage() {
         tenant_id: user?.tenant_id,
         contact_id: contactId,
         status: 'open',
+        project: pn.project || null,
         last_message_at: new Date().toISOString(),
       }).select('*, contact:contacts(*)').single();
       if (convError) throw convError;
