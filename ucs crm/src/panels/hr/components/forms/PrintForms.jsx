@@ -30,6 +30,7 @@ export default function PrintForms({ data, onClose }) {
         body { margin: 0; padding: 0; background: #fff; }
         .print-page { page-break-after: always; }
         .t3 { min-height: 297mm; height: auto !important; }
+        .t3-lunch { font-size: 12pt !important; line-height: 1.6 !important; }
         .t4 { min-height: 297mm; height: auto !important; }
         .t5 { overflow: visible !important; height: auto !important; }
         img { max-width: 100%; }
