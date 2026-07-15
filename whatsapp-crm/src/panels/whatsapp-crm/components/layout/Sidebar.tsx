@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones, MoreVertical, LogOut, User, Mail, Shield } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones, MoreVertical, LogOut, User, Mail, Shield, Phone } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
 
 const navigation = [
@@ -18,6 +19,18 @@ const navigation = [
 
 function ProfileModal({ onClose }: { onClose: () => void }) {
   const { user } = useAuthStore();
+  const [accounts, setAccounts] = useState<any[]>([]);
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data: assign } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', user.id);
+      if (!assign?.length) return;
+      const ids = assign.map((a: any) => a.account_id);
+      const { data } = await supabase.from('whatsapp_accounts').select('name, phone_number_id').in('id', ids);
+      if (data) setAccounts(data);
+    })();
+  }, [user?.id]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="w-80 rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -28,6 +41,22 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
           <p className="text-lg font-semibold text-[#111b21]">{user?.first_name} {user?.last_name}</p>
           <div className="flex items-center gap-2 text-sm text-[#667781]"><Mail className="h-4 w-4" /> {user?.email}</div>
           <div className="flex items-center gap-2 text-sm text-[#667781]"><Shield className="h-4 w-4" /> Role: <span className="capitalize font-medium text-[#111b21]">{user?.role}</span></div>
+          {accounts.length > 0 && (
+            <div className="w-full border-t pt-3 mt-1 space-y-2">
+              <p className="text-xs font-medium text-[#667781] text-center">Assigned WhatsApp Account{accounts.length > 1 ? 's' : ''}</p>
+              {accounts.map((a: any) => (
+                <div key={a.phone_number_id} className="flex items-center gap-2 rounded-lg bg-[#f0f2f5] px-3 py-2 text-sm">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-[10px] font-bold text-white">
+                    {(a.name?.[0] || '?').toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[#111b21]">{a.name}</p>
+                    <p className="text-[11px] text-[#667781]">{a.phone_number_id}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <button onClick={onClose} className="mt-2 rounded-lg bg-[#00a884] px-6 py-1.5 text-sm font-medium text-white hover:bg-[#008f72]">Close</button>
         </div>
       </div>
