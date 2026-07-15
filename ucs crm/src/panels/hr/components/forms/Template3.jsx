@@ -1,61 +1,50 @@
-export default function Template3({ personal, declarationDate, place }) {
+export default function Template4({ personal }) {
   return (
     <div className="print-page">
       <style>{`
-        .t3 *{box-sizing:border-box}
-        .t3{width:210mm;min-height:297mm;height:auto !important;margin:auto;background:#fff;border:8px double #000;padding:10mm 12mm;font-family:"Times New Roman",serif;page-break-after:always;display:flex;flex-direction:column}
-        .t3 h1{text-align:center;margin:0 0 2px;font-size:22pt}
-        .t3 .sub{text-align:center;font-size:9pt;margin:0 0 4px}
-        .t3 .red{height:2px;background:#7b2020;margin:2px 0 6px}
-        .t3 .sec{color:#7b2020;font-weight:bold;font-size:11pt;margin-top:7px}
-        .t3 .title{text-align:center;color:#1f3f73;font-size:14pt;font-weight:bold;margin:10px 0}
-        .t3 p{font-size:9pt;line-height:1.3;text-align:justify;margin:2px 0}
-        .t3 .row{display:flex;justify-content:space-between;margin:6px 0}
-        .t3 .line{display:inline-block;border-bottom:1px solid #000;min-width:120px;height:14px;padding-left:4px}
-        .t3 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:4px;text-align:center;font-size:9pt;line-height:1.4}
+        .t4 *{box-sizing:border-box}
+        .t4{width:210mm;min-height:297mm;height:auto !important;margin:auto;background:#fff;border:8px double #000;padding:10mm 12mm;font-family:"Times New Roman",serif;page-break-after:always;display:flex;flex-direction:column}
+        .t4 h1{text-align:center;margin:0 0 2px;font-size:22pt}
+        .t4 .sub{text-align:center;font-size:9pt;margin:0 0 4px}
+        .t4 .red{height:2px;background:#7b2020;margin:2px 0 6px}
+        .t4 .sec{color:#7b2020;font-weight:bold;font-size:11pt;margin-top:7px}
+        .t4 p{font-size:9pt;line-height:1.3;text-align:justify;margin:2px 0}
+        .t4 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:4px;text-align:center;font-size:9pt;line-height:1.4}
       `}</style>
-      <div className="t3">
+      <div className="t4">
         <h1>Being Sevak Charitable Trust</h1>
         <div className="red"></div>
         <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
 
-        <div className="sec">DECLARATION</div>
-        <p>I hereby declare that the statements made in my application form are true, complete and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</p>
+        <div className="sec">10. Social Media Policy</div>
+        <p>Volunteers shall not publish, post, upload, or distribute any information, photographs, videos, documents, or confidential material relating to the Trust through personal social media platforms or any public forum without obtaining prior approval from the authorized representatives of the Trust. The Trust may, however, use photographs, videos, names, testimonials, or recordings of volunteers for its official website, social media platforms, awareness campaigns, CSR reports, annual reports, fundraising initiatives, newsletters, brochures, and other promotional or educational purposes unless the volunteer has submitted a written objection in advance.</p>
 
-        <div className="row">
-          <div>Date: <span className="line">{declarationDate || ''}</span></div>
-          <div>Place: <span className="line">{place || ''}</span></div>
-          <div>Sign: <span className="line"></span></div>
-        </div>
+        <div className="sec">11. Child &amp; Beneficiary Protection</div>
+        <p>Every volunteer is responsible for ensuring the safety, dignity, and well-being of all beneficiaries associated with the Trust. Volunteers shall treat every child, beneficiary, and community member with respect and shall refrain from any form of abuse, harassment, discrimination, intimidation, exploitation, or inappropriate behavior. The privacy and confidentiality of beneficiaries must always be protected, and any safeguarding concern, misconduct, or suspected abuse must be reported immediately to the appropriate authority within the Trust.</p>
 
-        <div className="title">JOINING HR RULE COPY</div>
+        <div className="sec">12. Leave Policy</div>
+        <p>Volunteers are expected to inform their reporting authority well in advance whenever leave is required. Emergency leave shall be communicated immediately through appropriate means of communication. Repeated absenteeism, unauthorized leave, or continuous absence without proper information may adversely affect the volunteer's association with the Trust and may result in discontinuation of volunteer engagement.</p>
 
-        <div className="sec">1. Volunteer Engagement</div>
-        <p>Welcome to Being Sevak Charitable Trust. We sincerely appreciate your decision to volunteer with our organization. Every volunteer plays a vital role in serving society with honesty, compassion, professionalism, integrity, and dedication. This handbook outlines the policies, responsibilities, expectations, and code of conduct applicable to all volunteers associated with the Trust. Volunteers are engaged based on the requirements of the Trust and their individual skills, qualifications, and suitability for specific projects or activities. Every volunteer shall work under the supervision and guidance of the respective Team Leader, Head of Department (HOD), Project Coordinator, or any authorized representative of the Trust. The Trust reserves the right to assign, transfer, or modify the volunteer's department, project, work location, or responsibilities whenever required in the interest of organizational operations.</p>
+        <div className="sec">13. Restricted Areas</div>
+        <p>Certain areas within the Trust premises are restricted to authorized personnel only. Volunteers shall not enter management cabins, the Accounts Department, Human Resources Department, server rooms, storage areas, or any other restricted location without obtaining prior permission from the concerned authority. Unauthorized access to restricted areas may lead to disciplinary action.</p>
 
-        <div className="sec">2. Volunteer Orientation Period</div>
-        <p>Every newly engaged volunteer shall undergo an orientation and training period during which the Trust will evaluate the volunteer's attendance, punctuality, discipline, communication skills, teamwork, work ethics, behavior, and overall performance. This orientation period is intended to familiarize volunteers with the Trust's mission, policies, and operational procedures. The Trust reserves the right to discontinue the volunteer's association at any time during or after the orientation period if the volunteer's conduct, performance, or suitability is found to be unsatisfactory or inconsistent with the values and expectations of the organization.</p>
+        <div className="sec">14. Dress Code</div>
+        <p>Volunteers are expected to maintain a clean, neat, and professional appearance at all times while representing the Trust. Formal attire shall be worn from Monday to Friday, while smart casual attire may be permitted on Saturdays unless otherwise instructed. Volunteers are expected to present themselves appropriately in a manner consistent with the values and professional image of the Trust.</p>
 
-        <div className="sec">3. Volunteer Timings</div>
-        <p>The standard volunteer working hours shall ordinarily be from 10:00 AM to 7:00 PM or 9:30 AM to 6:30 PM, inclusive of the prescribed break time, unless otherwise communicated by the Trust. Volunteers are expected to report to their assigned workplace punctually and remain available during their scheduled hours. Attendance shall be recorded through the designated attendance management system or any manual process authorized by the Trust. Regular late reporting, early departures, or irregular attendance may be reviewed by the management and may affect the continuation of volunteer engagement.</p>
+        <div className="sec">15. Volunteer Code of Conduct</div>
+        <p>Every volunteer shall perform assigned responsibilities honestly, ethically, and responsibly while respecting fellow volunteers, employees, beneficiaries, donors, visitors, and members of the public. Volunteers are expected to protect Trust property, maintain punctuality, preserve confidentiality, comply with all organizational policies and procedures, and conduct themselves with integrity, professionalism, and accountability throughout their period of association with the Trust.</p>
 
-        <div className="sec">4. Lunch Break</div>
-        <p>Volunteers shall be entitled to a lunch break of 30 minutes, generally scheduled between 1:30 PM and 2:00 PM, unless modified due to operational requirements. Volunteers are expected to resume their duties promptly upon completion of the lunch break and ensure that the break does not interfere with the smooth functioning of organizational activities.</p>
+        <div className="sec">16. Grievance Policy</div>
+        <p>Any volunteer experiencing concerns, disputes, or grievances relating to workplace conduct, operations, or interpersonal issues should first report the matter to the concerned Team Leader. If the matter remains unresolved, the volunteer may escalate the issue to the Human Resources Department or the Trustee for appropriate review and resolution. The Trust is committed to addressing genuine grievances fairly, impartially, and confidentially.</p>
 
-        <div className="sec">5. Attendance Policy</div>
-        <p>Every volunteer is expected to maintain regular attendance, report to duty on time, and record attendance through the prescribed system every working day. In the event that a volunteer is unable to attend due to unavoidable circumstances, the concerned Team Leader or reporting authority must be informed at the earliest possible opportunity. Continuous absence without prior information or valid justification may be treated as abandonment of volunteer responsibilities and may result in discontinuation of the volunteer's engagement with the Trust.</p>
+        <div className="sec">17. Volunteer Withdrawal</div>
+        <p>A volunteer who wishes to discontinue their association with the Trust should communicate their decision in writing to the appropriate authority and complete the proper handover of all assigned responsibilities, documents, equipment, identification cards, and other Trust assets before their final day of association.</p>
 
-        <div className="sec">6. Office Discipline</div>
-        <p>Volunteers are expected to maintain the highest standards of discipline, professionalism, and ethical conduct throughout their association with the Trust. Every volunteer shall treat beneficiaries, visitors, colleagues, and members of the public with dignity, courtesy, and respect. Volunteers are required to follow the lawful instructions of their reporting authorities, maintain cleanliness within the workplace, and adhere to the prescribed dress code. Activities such as personal shopping, personal grooming during working hours, excessive or unnecessary mobile phone usage, playing games, or engaging in activities unrelated to the Trust's work are strictly discouraged and may invite disciplinary action if found to interfere with organizational responsibilities.</p>
+        <div className="sec">18. Discontinuation of Volunteer Engagement</div>
+        <p>The Trust reserves the absolute right to discontinue the engagement of any volunteer at its discretion in cases involving misconduct, indiscipline, poor performance, repeated absenteeism, misuse of Trust property, breach of confidentiality, fraud, harassment, violation of organizational policies, or any conduct considered detrimental to the interests, reputation, or objectives of the Trust.</p>
 
-        <div className="sec">7. Mobile Phone Policy</div>
-        <p className="t3-mobile">The use of personal mobile phones during volunteer working hours shall be limited to emergencies or designated break periods. Volunteers are encouraged to remain focused on their assigned duties while on the premises of the Trust. Family members and personal contacts should communicate with volunteers during working hours only in cases of genuine emergency to avoid unnecessary interruptions to organizational activities.</p>
-
-        <div className="sec">8. Trust Assets Policy</div>
-        <p>All assets, equipment, documents, electronic devices, identification cards, communication tools, and other property belonging to the Trust are provided solely for official purposes. Volunteers shall exercise due care while using such resources and shall not use them for personal or unauthorized activities. Any loss, theft, damage, or misuse resulting from negligence or misconduct may result in appropriate administrative action. Upon completion or termination of the volunteer engagement, all Trust property must be returned immediately in good condition.</p>
-
-        <div className="sec">9. Confidentiality</div>
-        <p>Volunteers shall maintain strict confidentiality regarding all information obtained during their association with the Trust. Confidential information includes, but is not limited to, donor details, beneficiary records, financial information, internal reports, project documentation, login credentials, CRM data, operational strategies, and any other non-public information belonging to the Trust. Volunteers shall not disclose, copy, share, or use confidential information for personal benefit or disclose it to any third party without prior written authorization from the Trust.</p>
+        <div className="sec">19. Volunteer Appreciation Certificate</div>
+        <p>The Trust may issue a Volunteer Appreciation Certificate or Volunteer Service Certificate to volunteers who have successfully completed their period of service with satisfactory performance and conduct, subject to the applicable policies and approval of the Trust management.</p>
 
         <div className="footer">
           Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
