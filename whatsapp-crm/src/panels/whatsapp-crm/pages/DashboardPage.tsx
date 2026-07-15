@@ -168,9 +168,7 @@ export function DashboardPage() {
                   <div className="space-y-1">
                     <div className="text-lg font-bold">{stats.metaPhone.display_phone_number}</div>
                     <div className="flex items-center gap-2">
-                      {stats.metaPhone.quality_rating && (
-                        <span className={`h-2.5 w-2.5 rounded-full ${stats.metaPhone.quality_rating === 'GREEN' ? 'bg-green-500' : stats.metaPhone.quality_rating === 'YELLOW' ? 'bg-yellow-500' : 'bg-red-500'}`} />
-                      )}
+
                       <span className="text-xs text-muted-foreground">{stats.metaPhone.verified_name || ''}</span>
                     </div>
                     {stats.metaPhone.verified_name && <p className="text-xs text-muted-foreground">{stats.metaPhone.verified_name}</p>}
