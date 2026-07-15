@@ -82,7 +82,18 @@ export default function Template6() {
 
           <p><span className="b">F.</span> All provisions apply only to the extent they do not violate applicable law. The Volunteer warrants that no conflicting obligation exists.</p>
 
-          <p>Signing below signifies that the Volunteer agrees to the terms and conditions stated above.</p>
+          <p style={{marginTop: 14, paddingTop: 10}}><span className="b" >Declaration :</span></p>
+          <div style={{display: 'flex', alignItems: 'flex-start', gap: 8}}>
+            <input type="checkbox" style={{marginTop: 3, width: 14, height: 14, accentColor: '#7f2d2d', flexShrink: 0}} />
+            <p style={{margin: 0}}>I hereby declare that the above statement made in my application is true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</p>
+          </div>
+
+          <div className="row" style={{marginTop: 12, paddingTop: 8, display: 'flex', alignItems: 'center', gap: 20}}>
+            <span>Date: <span className="line small"></span>/<span className="line small"></span>/<span className="line small"></span></span>
+            <span>Place: <span className="line med"></span></span>
+          </div>
+
+          <p style={{marginTop: 14}}>Signing below signifies that the Volunteer agrees to the terms and conditions stated above.</p>
 
           <div className="sigwrap">
             <div className="sig">
