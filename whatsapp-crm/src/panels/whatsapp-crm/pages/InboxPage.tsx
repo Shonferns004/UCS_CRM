@@ -197,7 +197,7 @@ export function InboxPage() {
       return data as Message[];
     },
     enabled: !!conversationId,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   useEffect(() => {
