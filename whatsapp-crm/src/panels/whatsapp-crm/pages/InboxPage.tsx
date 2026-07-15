@@ -149,10 +149,21 @@ export function InboxPage() {
   const { data: conversations, isLoading: loadingConvs } = useQuery({
     queryKey: ['conversations'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('*, contact:contacts(*)')
-        .order('last_message_at', { ascending: false, nullsFirst: false });
+      let query = supabase.from('conversations').select('*, contact:contacts(*)');
+
+      if (user?.role === 'agent') {
+        const { data: assign } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', user.id);
+        if (assign && assign.length > 0) {
+          const ids = assign.map((a: any) => a.account_id);
+          const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id').in('id', ids);
+          if (accounts && accounts.length > 0) {
+            const phoneNumberIds = accounts.map((a: any) => a.phone_number_id);
+            query = query.in('phone_number_id', phoneNumberIds);
+          }
+        }
+      }
+
+      const { data, error } = await query.order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
       const seen = new Map<string, any>();
       for (const c of data || []) {
