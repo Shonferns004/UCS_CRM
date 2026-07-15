@@ -148,23 +148,9 @@ export function InboxPage() {
   };
 
   const handleDeleteForEveryone = async (msgId: string) => {
-    const { data: msg } = await supabase.from('messages').select('wa_message_id, conversation_id').eq('id', msgId).maybeSingle();
-    if (msg?.wa_message_id) {
-      const { data: conv } = await supabase.from('conversations').select('phone_number_id, project').eq('id', msg.conversation_id).maybeSingle();
-      const { data: accounts } = await supabase
-        .from('whatsapp_accounts')
-        .select('phone_number_id, access_token')
-        .eq('project', conv?.project || '')
-        .limit(1);
-      if (accounts?.[0]) {
-        fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages/${msg.wa_message_id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${accounts[0].access_token}` },
-        }).catch(() => {});
-      }
-    }
     await supabase.rpc('delete_message', { p_id: msgId });
     queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+    toast.info('Deleted from your chat. Meta does not support recalling messages on recipients\' devices.');
   };
 
   const handleContextMenu = (e: React.MouseEvent, msgId: string) => {
