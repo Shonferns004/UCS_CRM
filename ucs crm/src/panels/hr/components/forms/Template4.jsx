@@ -35,6 +35,16 @@ export default function Template5({ personal }) {
         <div className="section">Holiday &amp; Leave Policy (Clubbing Rule)</div>
         <p>Volunteer attendance will be considered for the entire month while determining monthly volunteer support. If a volunteer is absent immediately before or after a Sunday, weekly off, or declared public holiday, the intervening day(s) will also be counted as part of the absence. If a volunteer remains absent for more than 6 days in a calendar month, all Sundays, weekly offs, and public holidays during that month will also be considered. Exceptions may be reviewed by the management for genuine reasons.</p>
 
+        <div className="section">OFFICE TIME</div>
+        <p>Office time is 10.00 am to 7.00 pm OR 9.30 am to 6.30 pm [including break time]; attendance is counted through the attendance system OR manually. Lunch break is 30 minutes, between 1.30 and 2.00 PM. Half day: reporting time is 2.00 pm and leaving time is 3.00 pm; no lunch break is applicable on a half day, and arriving late on a half day will be marked absent. No reimbursement is given for late sitting. A cumulative grace-period of 180 minutes per month is allowed for late entry / early exit, as follows:</p>
+        <table>
+          <tr><th>Late / Early Exit Duration Per Month</th><th>Deduction in Salary</th></tr>
+          <tr><td>Up to 180 minutes</td><td>No deduction in salary</td></tr>
+          <tr><td>181 – 240 minutes</td><td>Half day deduction in salary</td></tr>
+          <tr><td>241 – 480 minutes</td><td>1 day deduction in salary</td></tr>
+          <tr><td>More than 480 minutes</td><td>Salary counted as per attendance policy decided by the Trust</td></tr>
+        </table>
+
         <div className="section">Exit Formation &amp; Separation Policy</div>
         <p>A resigning volunteer must complete the separation clearance process and hand over all assigned duties. Full &amp; Final settlement is processed in the next salary cycle. A volunteer becomes eligible for an Experience Letter after completing one year.</p>
 
