@@ -114,11 +114,11 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
 }
 
 function MessageStatusIcon({ status }: { status: string }) {
-  if (status === 'sent') return <Check className="h-3.5 w-3.5 text-muted-foreground" />;
-  if (status === 'delivered') return <CheckCheck className="h-3.5 w-3.5 text-muted-foreground" />;
-  if (status === 'read') return <CheckCheck className="h-3.5 w-3.5 text-blue-500" />;
-  if (status === 'failed') return <XCircle className="h-3.5 w-3.5 text-destructive" />;
-  if (status === 'queued') return <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />;
+  if (status === 'sent') return <Check className="h-4 w-4 text-[#8696a0]" />;
+  if (status === 'delivered') return <CheckCheck className="h-4 w-4 text-[#8696a0]" />;
+  if (status === 'read') return <CheckCheck className="h-4 w-4 text-[#53bdeb]" />;
+  if (status === 'failed') return <XCircle className="h-4 w-4 text-[#ef5350]" />;
+  if (status === 'queued') return <Loader2 className="h-4 w-4 animate-spin text-[#8696a0]" />;
   return null;
 }
 
