@@ -91,11 +91,8 @@ export async function sendWhatsAppMessage(
     if (accounts.length === 0) {
       const { data: fallback } = await supabase
         .from('whatsapp_accounts')
-        .select('phone_number_id, access_token')
-        .order('is_default', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (fallback) accounts.push(fallback);
+        .select('phone_number_id, access_token');
+      if (fallback) accounts.push(...fallback);
     }
 
     for (const acct of accounts) {
