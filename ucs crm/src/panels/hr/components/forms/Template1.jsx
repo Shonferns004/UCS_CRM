@@ -56,7 +56,7 @@ export default function Template1({ personal, education }) {
             <td><strong>Aadhaar Card No :</strong> {personal.aadhaarNumber || ''}</td>
             <td></td>
           </tr>
-          <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS</td></tr>
+          <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS(Highest Education Only)</td></tr>
         </table>
         <table className="edu">
           <tr>
