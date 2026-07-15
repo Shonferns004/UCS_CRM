@@ -2,164 +2,8 @@ import { useState, useEffect } from 'react'
 import { useUcs } from '../../../store'
 import { supabase } from '../../../config/supabase'
 import { api } from '../../../api/auth'
-import { fmt, STATUS_META, StatBox } from '../components/froShared'
-
-function FroDeepDetailModal({ fro, onClose }) {
-  if (!fro) return null
-  const workerName = fro.workers?.name || 'Unknown'
-  const meta = STATUS_META[fro.status] || STATUS_META.offline
-  const totalActive = (fro.today_talk_seconds || 0) + (fro.today_idle_seconds || 0)
-  const productivity = totalActive > 0 ? Math.round(((fro.today_talk_seconds || 0) / totalActive) * 100) : null
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 10000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.3)',
-    }} onClick={onClose}>
-      <div className="card" style={{
-        width: 420, padding: '24px 28px',
-        background: '#fff', borderRadius: 12,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-      }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: '50%', background: meta.bg, color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>
-              {workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-            </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{workerName}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fro.workers?.login_id || ''}</div>
-            </div>
-          </div>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, cursor: 'pointer', color: '#94a3b8' }} onClick={onClose}>close</span>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-          <div style={{ padding: '10px 12px', borderRadius: 6, background: meta.bg, border: `1px solid ${meta.border}`, textAlign: 'center', gridColumn: '1 / -1' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: meta.color }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
-              {meta.label}
-            </span>
-          </div>
-
-          {fro.status === 'on_call' && (
-            <div style={{ padding: '10px 12px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', gridColumn: '1 / -1' }}>
-              <div style={{ fontSize: 10, color: '#991b1b', fontWeight: 600, marginBottom: 4 }}>📞 Current Call</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                  {fro.call_started_at ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000)) : '00:00'}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {fro.status === 'break' && (
-            <div style={{ padding: '10px 12px', borderRadius: 6, background: fro.today_break_seconds > 3600 ? '#fef2f2' : '#fefce8', border: `1px solid ${fro.today_break_seconds > 3600 ? '#fecaca' : '#fde68a'}`, gridColumn: '1 / -1' }}>
-              <div style={{ fontSize: 10, color: '#92400e', fontWeight: 600, marginBottom: 4 }}>☕ On Break</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: fro.today_break_seconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>
-                  {fro.break_started_at ? fmt(Math.floor((Date.now() - new Date(fro.break_started_at).getTime()) / 1000)) : '00:00'}
-                </span>
-                <span style={{ fontSize: 11, color: '#92400e' }}>today: {fmt(fro.today_break_seconds || 0)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#091426', marginBottom: 8 }}>📊 Today's Performance</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <StatBox label="Calls" value={fro.today_calls || 0} icon="📞" />
-          <StatBox label="Talk Time" value={fmt(fro.today_talk_seconds || 0)} icon="⏱️" />
-          <StatBox label="Skipped" value={fro.today_skipped || 0} icon="⏳" />
-          <StatBox label="Idle Time" value={fmt(fro.today_idle_seconds || 0)} icon="🕊️" />
-          {fro.today_break_seconds > 0 && <StatBox label="Break" value={fmt(fro.today_break_seconds || 0)} icon="☕" />}
-          {productivity !== null && <StatBox label="Productivity" value={`${productivity}%`} icon="📊" />}
-        </div>
-
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#091426', margin: '12px 0 8px' }}>👤 Worker Info</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <StatBox label="Login ID" value={fro.workers?.login_id || '—'} icon="🔑" />
-          <StatBox label="FRO ID" value={fro.worker_id || '—'} icon="🆔" />
-          <StatBox label="Assigned NGO" value={fro.workers?.ngo_name || '—'} icon="🏢" />
-          <StatBox label="Last Active" value={fro.updated_at ? new Date(fro.updated_at).toLocaleTimeString('en-IN') : '—'} icon="⏰" />
-        </div>
-
-        <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 14, textAlign: 'center' }}>
-          Auto-refreshes every 30s
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FroDetailModal({ fro, onClose, onShowDeep }) {
-  if (!fro) return null
-  const meta = STATUS_META[fro.status] || STATUS_META.offline
-  const workerName = fro.workers?.name || 'Unknown'
-  const totalActive = (fro.today_talk_seconds || 0) + (fro.today_idle_seconds || 0)
-  const productivity = totalActive > 0 ? Math.round(((fro.today_talk_seconds || 0) / totalActive) * 100) : null
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.4)',
-    }} onClick={onClose}>
-      <div className="card" style={{
-        width: 340, padding: '20px 24px',
-        background: '#fff', borderRadius: 12,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
-      }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={onShowDeep}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: meta.bg, color: meta.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
-              {workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-            </div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#8b5cf6' }}>{workerName} <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>→</span></div>
-              <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{fro.workers?.login_id || ''}</div>
-            </div>
-          </div>
-          <span className="material-symbols-outlined" style={{ fontSize: 20, cursor: 'pointer', color: '#94a3b8' }} onClick={onClose}>close</span>
-        </div>
-
-        <div style={{ padding: '10px 12px', borderRadius: 6, background: meta.bg, border: `1px solid ${meta.border}`, marginBottom: 12, textAlign: 'center' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: meta.color }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
-            {meta.label}
-          </span>
-        </div>
-
-        {fro.status === 'on_call' && (
-          <div style={{ padding: '8px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#dc2626' }}>call</span>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fro.current_donor_name}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                {fro.call_started_at ? fmt(Math.floor((Date.now() - new Date(fro.call_started_at).getTime()) / 1000)) : '00:00'}
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <StatBox label="Today Calls" value={fro.today_calls || 0} icon="📞" />
-          <StatBox label="Talk Time" value={fmt(fro.today_talk_seconds || 0)} icon="⏱️" />
-          {fro.today_skipped > 0 && <StatBox label="Skipped" value={fro.today_skipped} icon="⏳" />}
-          <StatBox label="Idle Time" value={fmt(fro.today_idle_seconds || 0)} icon="🕊️" />
-          {fro.today_break_seconds > 0 && <StatBox label="Break" value={fmt(fro.today_break_seconds || 0)} icon="☕" />}
-          {productivity !== null && <StatBox label="Productivity" value={`${productivity}%`} icon="📊" />}
-        </div>
-
-        <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 12, textAlign: 'center' }}>
-          Last seen: {fro.updated_at ? new Date(fro.updated_at).toLocaleTimeString('en-IN') : '—'}
-        </div>
-      </div>
-    </div>
-  )
-}
+import { fmt, STATUS_META } from '../components/froShared'
+import { FroDetailModal, FroDeepDetailModal } from '../components/FroModals'
 
 export default function LiveFroStatus() {
   const { user } = useUcs()
@@ -233,10 +77,10 @@ export default function LiveFroStatus() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
           {statuses.map(fs => {
             const meta = STATUS_META[fs.status] || STATUS_META.offline
-            const workerName = fs.workers?.name || 'Unknown'
+            const workerName = fs.worker?.name || 'Unknown'
             const initials = workerName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-            const totalActive = (fs.today_talk_seconds || 0) + (fs.today_idle_seconds || 0)
-            const productivity = totalActive > 0 ? Math.round(((fs.today_talk_seconds || 0) / totalActive) * 100) : null
+            const totalActive = (fs.performance?.today_talk_seconds || 0) + (fs.performance?.today_idle_seconds || 0)
+            const productivity = totalActive > 0 ? Math.round(((fs.performance?.today_talk_seconds || 0) / totalActive) * 100) : null
             return (
               <div key={fs.id} className="card" style={{
                 marginBottom: 0, padding: '14px 16px',
@@ -248,7 +92,7 @@ export default function LiveFroStatus() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, cursor: 'pointer', color: '#8b5cf6' }} onClick={() => setSelectedFro(fs)}>{workerName}</div>
-                    <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{fs.workers?.login_id || ''}</div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{fs.worker?.login_id || ''}</div>
                   </div>
                   {statusDot(fs.status)}
                 </div>
@@ -259,38 +103,38 @@ export default function LiveFroStatus() {
                       <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#dc2626' }}>call</span>
                       <span style={{ fontSize: 11, fontWeight: 600, color: '#991b1b', flex: 1 }}>{fs.current_donor_name}</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
-                        {fs.call_started_at ? fmt(Math.floor((Date.now() - new Date(fs.call_started_at).getTime()) / 1000)) : '00:00'}
+                        {fs.computed?.call_duration_seconds != null ? fmt(fs.computed.call_duration_seconds) : (fs.call_started_at ? fmt(Math.floor((Date.now() - new Date(fs.call_started_at).getTime()) / 1000)) : '00:00')}
                       </span>
                     </div>
                   </div>
                 )}
 
                 {fs.status === 'break' && (
-                  <div style={{ padding: '8px 10px', borderRadius: 6, background: fs.today_break_seconds > 3600 ? '#fef2f2' : '#fefce8', border: `1px solid ${fs.today_break_seconds > 3600 ? '#fecaca' : '#fde68a'}`, marginBottom: 8 }}>
+                  <div style={{ padding: '8px 10px', borderRadius: 6, background: (fs.performance?.today_break_seconds || 0) > 3600 ? '#fef2f2' : '#fefce8', border: `1px solid ${(fs.performance?.today_break_seconds || 0) > 3600 ? '#fecaca' : '#fde68a'}`, marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 14, color: fs.today_break_seconds > 3600 ? '#dc2626' : '#d97706' }}>free_breakfast</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: fs.today_break_seconds > 3600 ? '#991b1b' : '#92400e', flex: 1 }}>
-                        On Break{fs.today_break_seconds > 3600 ? ' 🔴' : ''}
+                      <span className="material-symbols-outlined" style={{ fontSize: 14, color: (fs.performance?.today_break_seconds || 0) > 3600 ? '#dc2626' : '#d97706' }}>free_breakfast</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: (fs.performance?.today_break_seconds || 0) > 3600 ? '#991b1b' : '#92400e', flex: 1 }}>
+                        On Break{(fs.performance?.today_break_seconds || 0) > 3600 ? ' 🔴' : ''}
                       </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: fs.today_break_seconds > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>
-                        {fs.break_started_at ? fmt(Math.floor((Date.now() - new Date(fs.break_started_at).getTime()) / 1000)) : '00:00'}
+                      <span style={{ fontSize: 12, fontWeight: 700, color: (fs.performance?.today_break_seconds || 0) > 3600 ? '#dc2626' : '#d97706', fontVariantNumeric: 'tabular-nums' }}>
+                        {fs.computed?.break_duration_seconds != null ? fmt(fs.computed.break_duration_seconds) : (fs.break_started_at ? fmt(Math.floor((Date.now() - new Date(fs.break_started_at).getTime()) / 1000)) : '00:00')}
                       </span>
                     </div>
                   </div>
                 )}
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 10, color: 'var(--ink-soft)' }}>
-                  <span>📞 <strong style={{ color: 'var(--ink)' }}>{fs.today_calls || 0}</strong></span>
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>Talk: <strong style={{ color: 'var(--ink)' }}>{fmt(fs.today_talk_seconds || 0)}</strong></span>
-                  {fs.today_skipped > 0 && (
+                  <span> <strong style={{ color: 'var(--ink)' }}>{fs.performance?.today_calls || 0}</strong></span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>Talk: <strong style={{ color: 'var(--ink)' }}>{fmt(fs.performance?.today_talk_seconds || 0)}</strong></span>
+                  {(fs.performance?.today_skipped || 0) > 0 && (
                     <>
-                      <span>⏳ <strong style={{ color: '#d97706' }}>{fs.today_skipped}</strong></span>
-                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>Idle: <strong style={{ color: '#d97706' }}>{fmt(fs.today_idle_seconds || 0)}</strong></span>
+                      <span> <strong style={{ color: '#d97706' }}>{fs.performance?.today_skipped}</strong></span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>Idle: <strong style={{ color: '#d97706' }}>{fmt(fs.performance?.today_idle_seconds || 0)}</strong></span>
                     </>
                   )}
-                  {fs.today_break_seconds > 0 && (
-                    <><span style={{ fontSize: 12 }}>☕</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>Break: <strong style={{ color: fs.today_break_seconds > 3600 ? '#dc2626' : '#d97706' }}>{fmt(fs.today_break_seconds || 0)}</strong>{fs.today_break_seconds > 3600 && ' 🔴'}</span></>
+                  {(fs.performance?.today_break_seconds || 0) > 0 && (
+                    <><span style={{ fontSize: 12 }}></span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>Break: <strong style={{ color: (fs.performance?.today_break_seconds || 0) > 3600 ? '#dc2626' : '#d97706' }}>{fmt(fs.performance?.today_break_seconds || 0)}</strong>{(fs.performance?.today_break_seconds || 0) > 3600 && ' 🔴'}</span></>
                   )}
                   {productivity !== null && (
                     <span style={{ color: productivity < 50 ? '#dc2626' : '#16a34a', fontWeight: 600 }}>
