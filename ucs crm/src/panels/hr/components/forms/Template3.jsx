@@ -16,6 +16,12 @@ export default function Template4({ personal }) {
         <div className="red"></div>
         <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
 
+        <div className="sec">8. Trust Assets Policy</div>
+        <p>All assets, equipment, documents, electronic devices, identification cards, communication tools, and other property belonging to the Trust are provided solely for official purposes. Volunteers shall exercise due care while using such resources and shall not use them for personal or unauthorized activities. Any loss, theft, damage, or misuse resulting from negligence or misconduct may result in appropriate administrative action. Upon completion or termination of the volunteer engagement, all Trust property must be returned immediately in good condition.</p>
+
+        <div className="sec">9. Confidentiality</div>
+        <p>Volunteers shall maintain strict confidentiality regarding all information obtained during their association with the Trust. Confidential information includes, but is not limited to, donor details, beneficiary records, financial information, internal reports, project documentation, login credentials, CRM data, operational strategies, and any other non-public information belonging to the Trust. Volunteers shall not disclose, copy, share, or use confidential information for personal benefit or disclose it to any third party without prior written authorization from the Trust.</p>
+
         <div className="sec">10. Social Media Policy</div>
         <p>Volunteers shall not publish, post, upload, or distribute any information, photographs, videos, documents, or confidential material relating to the Trust through personal social media platforms or any public forum without obtaining prior approval from the authorized representatives of the Trust. The Trust may, however, use photographs, videos, names, testimonials, or recordings of volunteers for its official website, social media platforms, awareness campaigns, CSR reports, annual reports, fundraising initiatives, newsletters, brochures, and other promotional or educational purposes unless the volunteer has submitted a written objection in advance.</p>
 

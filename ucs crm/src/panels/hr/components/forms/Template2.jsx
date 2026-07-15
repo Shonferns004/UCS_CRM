@@ -40,12 +40,6 @@ export default function Template2() {
         <div className="sec">7. Mobile Phone Policy</div>
         <p>The use of personal mobile phones during volunteer working hours shall be limited to emergencies or designated break periods. Volunteers are encouraged to remain focused on their assigned duties while on the premises of the Trust. Family members and personal contacts should communicate with volunteers during working hours only in cases of genuine emergency to avoid unnecessary interruptions to organizational activities.</p>
 
-        <div className="sec">8. Trust Assets Policy</div>
-        <p>All assets, equipment, documents, electronic devices, identification cards, communication tools, and other property belonging to the Trust are provided solely for official purposes. Volunteers shall exercise due care while using such resources and shall not use them for personal or unauthorized activities. Any loss, theft, damage, or misuse resulting from negligence or misconduct may result in appropriate administrative action. Upon completion or termination of the volunteer engagement, all Trust property must be returned immediately in good condition.</p>
-
-        <div className="sec">9. Confidentiality</div>
-        <p>Volunteers shall maintain strict confidentiality regarding all information obtained during their association with the Trust. Confidential information includes, but is not limited to, donor details, beneficiary records, financial information, internal reports, project documentation, login credentials, CRM data, operational strategies, and any other non-public information belonging to the Trust. Volunteers shall not disclose, copy, share, or use confidential information for personal benefit or disclose it to any third party without prior written authorization from the Trust.</p>
-
         <div className="footer">
           Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
           Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
