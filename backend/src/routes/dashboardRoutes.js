@@ -3,7 +3,6 @@ import { Router } from 'express';
 import {
   getSuperAdminDashboard,
   getSuperAdminAlerts,
-  getFroLiveStatus,
   getHrDashboard,
   getAdminDashboard,
   getAccountsDashboard,
@@ -42,7 +41,6 @@ router.get('/recruiter', authenticateRole('recruiter'), getRecruiterDashboard);
 router.get('/leads', authenticateRole('leads'), getLeadsDashboard);
 router.get('/telecaller', froTelecaller, getTelecallerDashboard);
 router.get('/team-lead', authenticateRole('team_lead'), getTeamLeadDashboard);
-router.get('/fro-live', authenticateRole('super_admin'), getFroLiveStatus);
 router.get('/fro-worker/:workerId', authenticateRole('super_admin'), getFroWorkerDashboard);
 
 export default router;

@@ -1591,7 +1591,7 @@ export const getLiveStatuses = async (req, res) => {
   try {
     let query = supabase
       .from('fro_live_status')
-      .select('*, workers!inner(id, name, login_id, ngo_id)')
+      .select('*, workers!inner(id, name, login_id, ngo_id, is_active, department)')
       .order('updated_at', { ascending: false });
 
     const { ngo_id: filterNgoId, fro_id: filterFroId } = req.query;
@@ -1604,10 +1604,127 @@ export const getLiveStatuses = async (req, res) => {
       query = query.eq('workers.ngo_id', req.user.ngo_id);
     }
 
-    const { data, error } = await query;
+    const { data: liveStatuses, error } = await query;
     if (error) throw error;
+    if (!liveStatuses || liveStatuses.length === 0) return res.json([]);
 
-    return res.json(data || []);
+    const workerIds = liveStatuses.map(ls => ls.worker_id);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(Date.now() + istOffset);
+    const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0)).toISOString();
+    const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999)).toISOString();
+
+    const [ngoData, attendanceData, collectionData, assignmentData] = await Promise.all([
+      supabase
+        .from('worker_ngo_allocations')
+        .select('worker_id, ngos(name)')
+        .in('worker_id', workerIds),
+      supabase
+        .from('attendance')
+        .select('worker_id, status')
+        .eq('date', todayStr)
+        .in('worker_id', workerIds),
+      supabase
+        .from('fro_donor_logs')
+        .select('amount_collected, fro_assignments!inner(fro_worker_id), action, disposition_detail, accounts_status, created_at, verified_at')
+        .in('fro_assignments.fro_worker_id', workerIds)
+        .or(
+          `and(action.eq.donation,created_at.gte.${todayStart},created_at.lte.${todayEnd}),` +
+          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart},verified_at.lte.${todayEnd})`
+        ),
+      supabase
+        .from('fro_assignments')
+        .select('fro_worker_id, status')
+        .in('fro_worker_id', workerIds),
+    ]);
+
+    const ngoMap = {};
+    (ngoData.data || []).forEach(a => {
+      if (a.ngos?.name) ngoMap[a.worker_id] = a.ngos.name;
+    });
+
+    const punchedInSet = new Set();
+    (attendanceData.data || []).forEach(a => {
+      if (a.status === 'present' || a.status === 'late') punchedInSet.add(a.worker_id);
+    });
+
+    const collectionMap = {};
+    (collectionData.data || []).forEach(log => {
+      const wid = log.fro_assignments?.fro_worker_id;
+      if (wid) collectionMap[wid] = (collectionMap[wid] || 0) + parseFloat(log.amount_collected || 0);
+    });
+
+    const statsMap = {};
+    (assignmentData.data || []).forEach(a => {
+      if (!statsMap[a.fro_worker_id]) {
+        statsMap[a.fro_worker_id] = { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
+      }
+      const s = statsMap[a.fro_worker_id];
+      s.total++;
+      const status = (a.status || '').toLowerCase();
+      if (['contacted', 'donation_collected', 'follow_up', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'visit_donate', 'promise_to_pay'].includes(status)) {
+        s.contacted++;
+      }
+      if (status === 'donation_collected' || status === 'lead_done') {
+        s.donation_collected++;
+      }
+      if (status === 'follow_up') {
+        s.follow_up++;
+      }
+    });
+
+    const result = liveStatuses.map(ls => {
+      const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
+      const dataUsed = stats.contacted + stats.donation_collected + stats.follow_up;
+      const totalActive = (ls.today_talk_seconds || 0) + (ls.today_idle_seconds || 0);
+      const productivity = totalActive > 0 ? Math.round(((ls.today_talk_seconds || 0) / totalActive) * 100) : null;
+
+      return {
+        id: ls.id,
+        worker_id: ls.worker_id,
+        status: ls.status,
+        current_donor_name: ls.current_donor_name,
+        current_donor_id: ls.current_donor_id,
+        call_started_at: ls.call_started_at,
+        break_started_at: ls.break_started_at,
+        on_break: ls.on_break,
+        break_type: ls.break_type,
+        worker: {
+          name: ls.workers?.name || 'Unknown',
+          login_id: ls.workers?.login_id || '',
+          ngo_id: ls.workers?.ngo_id,
+          ngo_name: ngoMap[ls.worker_id] || '',
+          is_active: ls.workers?.is_active !== false,
+          is_punched_in: punchedInSet.has(ls.worker_id),
+          department: ls.workers?.department || '',
+        },
+        performance: {
+          today_calls: ls.today_calls || 0,
+          today_talk_seconds: ls.today_talk_seconds || 0,
+          today_skipped: ls.today_skipped || 0,
+          today_idle_seconds: ls.today_idle_seconds || 0,
+          today_break_seconds: ls.today_break_seconds || 0,
+          today_collection: collectionMap[ls.worker_id] || 0,
+          total_data: stats.total,
+          data_used: dataUsed,
+          data_unused: stats.total - dataUsed,
+          data_usage_pct: stats.total > 0 ? Math.round((dataUsed / stats.total) * 100) : 0,
+          productivity_pct: productivity,
+        },
+        computed: {
+          call_duration_seconds: ls.status === 'on_call' && ls.call_started_at
+            ? Math.floor((Date.now() - new Date(ls.call_started_at).getTime()) / 1000) : null,
+          break_duration_seconds: ls.status === 'break' && ls.break_started_at
+            ? Math.floor((Date.now() - new Date(ls.break_started_at).getTime()) / 1000) : null,
+          is_long_break: (ls.today_break_seconds || 0) > 3600,
+          last_seen: ls.updated_at,
+        },
+        updated_at: ls.updated_at,
+      };
+    });
+
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
