@@ -69,10 +69,19 @@ function AccountCard({
   onDelete: () => void;
   onTestSend: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [showToken, setShowToken] = useState(false);
 
   const statusVariant = live?.status === 'verified' ? 'success' : live?.status === 'pending' ? 'warning' : 'error';
   const qualityVariant = live?.quality_rating === 'GREEN' ? 'success' : live?.quality_rating === 'YELLOW' ? 'warning' : 'error';
+
+  const toggleStatus = async (field: 'is_active' | 'is_default') => {
+    if (field === 'is_default' && !account.is_default) {
+      await supabase.from('whatsapp_accounts').update({ is_default: false }).neq('id', account.id);
+    }
+    const { error } = await supabase.from('whatsapp_accounts').update({ [field]: !account[field] }).eq('id', account.id);
+    if (!error) queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
+  };
 
   return (
     <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
@@ -86,8 +95,19 @@ function AccountCard({
             <p className="text-xs text-muted-foreground">{account.project.toUpperCase()}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+            <span>Active</span>
+            <div className={`relative h-5 w-9 rounded-full transition-colors ${account.is_active ? 'bg-green-500' : 'bg-gray-300'}`} onClick={() => toggleStatus('is_active')}>
+              <div className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${account.is_active ? 'translate-x-4' : ''}`} />
+            </div>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+            <span>Default</span>
+            <div className={`relative h-5 w-9 rounded-full transition-colors ${account.is_default ? 'bg-blue-500' : 'bg-gray-300'}`} onClick={() => toggleStatus('is_default')}>
+              <div className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${account.is_default ? 'translate-x-4' : ''}`} />
+            </div>
+          </label>
         </div>
       </div>
 
