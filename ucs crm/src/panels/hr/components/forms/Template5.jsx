@@ -62,10 +62,6 @@ export default function Template6() {
           <span className="line"></span>
           </div>
 
-          <div className="blue">DATA RULES &amp; GUIDELINES</div>
-
-          <p><span className="b">Data Ownership &amp; Usage:</span> Data assigned to a volunteer remains strictly under that volunteer&apos;s responsibility. If the volunteer is absent, the coordinator may temporarily reassign the data to another volunteer, who may use it for calling and lead generation with one-day follow-up authority; leads generated in this period are credited to the acting volunteer. Working on another volunteer&apos;s data without authorization is not allowed. <span className="b">Follow-Ups During Absence:</span> a maximum of 3 follow-ups by another volunteer is allowed on the assigned data. <span className="b">Lead Clash Policy:</span> a conflicting lead is assigned to the volunteer who originally owns the data; the Coordination Team has final authority to decide such cases. <span className="b">Queries &amp; Issues:</span> contact the Operational Coordinator.</p>
-
           <div className="blue">VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
           <p>This agreement is made between Being Sevak Charitable Trust and the Volunteer on <span className="line med"></span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
