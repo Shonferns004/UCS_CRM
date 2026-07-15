@@ -294,9 +294,9 @@ export function InboxPage() {
   const avatarLetter = (name?: string) => (name?.[0] || '?').toUpperCase();
 
   return (<>
-    <div className={`flex w-full ${isAgent ? 'h-screen' : 'h-full'}`}>
+    <div className={`flex w-full overflow-hidden ${isAgent ? 'h-screen' : 'h-full'}`}>
       {/* Conversation List */}
-      <div className="w-80 max-md:w-16 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
+      <div className="w-80 max-md:w-16 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col overflow-hidden">
         <div className="bg-[#f0f2f5] px-4 py-3.5 flex items-center justify-between">
           <span className="text-base font-semibold text-[#111b21]">Chats</span>
           <div className="flex gap-4">
@@ -316,7 +316,7 @@ export function InboxPage() {
             />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
           {loadingConvs ? (
             Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex animate-pulse items-center gap-3 px-4 py-3">
@@ -368,7 +368,7 @@ export function InboxPage() {
                 <p className="text-[11.5px] text-[#667781]">{selectedConversation.contact?.phone}</p>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-2 py-2" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4d4d4\' fill-opacity=\'0.20\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
+            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4d4d4\' fill-opacity=\'0.20\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
               {loadingMsgs ? (
                 <div className="space-y-4">
                   {Array.from({ length: 4 }).map((_, i) => (
