@@ -18,6 +18,7 @@ import { MessageComposer } from '../components/chat/MessageComposer';
 import { sendWhatsAppMessage } from '../lib/whatsapp';
 import { QuickReplyBar } from '../components/chat/QuickReplyBar';
 import { MediaPreview, MediaFromMeta } from '../components/chat/MediaPreview';
+import { MessageContextMenu } from '../components/chat/MessageContextMenu';
 
 const AVATAR_COLORS = ['#00a884','#5f9ea0','#d4a574','#8b7e74','#c97b84','#6fa8dc','#93c47d','#e69138'];
 function avatarColor(name?: string) {
@@ -138,12 +139,17 @@ export function InboxPage() {
   const [creatingConv, setCreatingConv] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewMime, setPreviewMime] = useState<string | undefined>();
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; messageId: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const handleDeleteMsg = async (msgId: string) => {
-    if (!confirm('Delete this message?')) return;
     const { error } = await supabase.rpc('delete_message', { p_id: msgId });
     if (!error) { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, msgId: string) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, messageId: msgId });
   };
 
   const { data: conversations, isLoading: loadingConvs } = useQuery({
@@ -465,7 +471,7 @@ export function InboxPage() {
               ) : (
                 <div className="space-y-1">
                   {messages?.map((message) => (
-                    <div key={message.id} className={`group flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                    <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`} onContextMenu={(e) => handleContextMenu(e, message.id)}>
                       <div className={`relative max-w-[60%] px-3 py-2 text-[14.2px] shadow-sm leading-[19px] ${
                         message.direction === 'outbound'
                           ? 'bg-[#d9fdd3] rounded-lg rounded-br-sm'
@@ -484,7 +490,6 @@ export function InboxPage() {
                         <div className="mt-1 flex items-center justify-end gap-1">
                           <span className="text-[10.5px] text-[#667781]">{format(new Date(message.created_at), 'HH:mm')}</span>
                           {message.direction === 'outbound' && <MessageStatusIcon status={message.status} />}
-                          <button onClick={() => handleDeleteMsg(message.id)} className="hidden group-hover:inline text-[10px] text-red-400 hover:text-red-600 ml-1">delete</button>
                         </div>
                       </div>
                     </div>
@@ -514,6 +519,16 @@ export function InboxPage() {
         )}
       </div>
     </div>
+
+    {ctxMenu && (
+      <MessageContextMenu
+        x={ctxMenu.x}
+        y={ctxMenu.y}
+        messageId={ctxMenu.messageId}
+        onDelete={handleDeleteMsg}
+        onClose={() => setCtxMenu(null)}
+      />
+    )}
 
     {previewUrl && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { setPreviewUrl(null); setPreviewMime(undefined); }}>
