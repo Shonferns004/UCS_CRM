@@ -92,6 +92,25 @@ export default function Template1({ personal, education }) {
             <tr key={`empty-${i}`}><td></td><td></td><td></td><td></td><td></td><td></td></tr>
           ))}
         </table>
+        <table>
+          <tr><td colSpan="6" className="section">VOLUNTEER DETAILS (LAST THREE ORGANISATIONS)</td></tr>
+          <tr>
+            <th width="8%">Sr.No</th>
+            <th>Organization</th>
+            <th>Designation</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Annual CTC</th>
+          </tr>
+          <tr>
+            <td>1</td>
+            <td style={{height:40}}></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </table>
         <div className="footer">
           Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
           Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com | Website: www.beingsevak.org
