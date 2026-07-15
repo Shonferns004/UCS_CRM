@@ -308,7 +308,6 @@ export function InboxPage() {
         contact_id: contactId,
         phone_number_id: pn.phone_number_id,
         status: 'open',
-        source: 'manual',
         last_message_at: new Date().toISOString(),
       }).select('*, contact:contacts(*)').single();
       if (convError) throw convError;
