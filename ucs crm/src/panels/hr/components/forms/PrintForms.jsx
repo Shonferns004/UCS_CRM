@@ -29,7 +29,7 @@ export default function PrintForms({ data, onClose }) {
         @page { size: A4; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
         .print-page { page-break-after: always; }
-        .t3 { height: 297mm; overflow: hidden; }
+        .t3 { min-height: 297mm; height: auto !important; }
         .t4 { min-height: 297mm; height: auto !important; }
         .t5 { overflow: visible !important; height: auto !important; }
         img { max-width: 100%; }
