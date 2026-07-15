@@ -142,9 +142,29 @@ export function InboxPage() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; messageId: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const handleDeleteMsg = async (msgId: string) => {
+  const handleDeleteForMe = async (msgId: string) => {
     const { error } = await supabase.rpc('delete_message', { p_id: msgId });
-    if (!error) { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); }
+    if (!error) queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+  };
+
+  const handleDeleteForEveryone = async (msgId: string) => {
+    const { data: msg } = await supabase.from('messages').select('wa_message_id, conversation_id').eq('id', msgId).maybeSingle();
+    if (msg?.wa_message_id) {
+      const { data: conv } = await supabase.from('conversations').select('phone_number_id, project').eq('id', msg.conversation_id).maybeSingle();
+      const { data: accounts } = await supabase
+        .from('whatsapp_accounts')
+        .select('phone_number_id, access_token')
+        .eq('project', conv?.project || '')
+        .limit(1);
+      if (accounts?.[0]) {
+        fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages/${msg.wa_message_id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accounts[0].access_token}` },
+        }).catch(() => {});
+      }
+    }
+    await supabase.rpc('delete_message', { p_id: msgId });
+    queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
   };
 
   const handleContextMenu = (e: React.MouseEvent, msgId: string) => {
@@ -525,7 +545,8 @@ export function InboxPage() {
         x={ctxMenu.x}
         y={ctxMenu.y}
         messageId={ctxMenu.messageId}
-        onDelete={handleDeleteMsg}
+        onDeleteForMe={handleDeleteForMe}
+        onDeleteForEveryone={handleDeleteForEveryone}
         onClose={() => setCtxMenu(null)}
       />
     )}
