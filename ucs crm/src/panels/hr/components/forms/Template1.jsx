@@ -12,8 +12,8 @@ export default function Template1({ personal, education }) {
         .t1 .section{background:#d8d8d8;font-weight:bold;font-size:20px}
         .t1 .label{font-weight:bold;width:25%;white-space:nowrap}
         .t1 .photo{width:180px;text-align:center;vertical-align:middle;font-weight:bold;font-size:26px;min-height:200px;height:200px;box-sizing:border-box}
-        .t1 .blank{height:45px}
-        .t1 .address{height:80px}
+        .t1 .blank{height:30px}
+        .t1 .address{height:50px}
         .t1 .edu th{text-align:center}
         .t1 .edu td{height:55px}
         .t1 .footer{border-top:2px solid #7b2020;margin-top:6px;padding-top:4px;text-align:center;font-size:9pt;line-height:1.4}
@@ -38,9 +38,11 @@ export default function Template1({ personal, education }) {
             <td style={{fontWeight:600}}>{personal.address || ''}</td>
           </tr>
           <tr><td colSpan="2" className="address"></td></tr>
-          <tr><td colSpan="2"></td></tr>
-          <tr><td colSpan="3" className="label">Permanent Address :</td></tr>
-          <tr><td colSpan="3" className="address" style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td></tr>
+          <tr>
+            <td className="label">Permanent Address :</td>
+            <td style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td>
+          </tr>
+          <tr><td colSpan="2" className="address"></td></tr>
           <tr>
             <td><strong>Mobile 1 :</strong> {personal.altPhone || ''}</td>
             <td><strong>Mobile 2:</strong> {personal.phone || ''}</td>
