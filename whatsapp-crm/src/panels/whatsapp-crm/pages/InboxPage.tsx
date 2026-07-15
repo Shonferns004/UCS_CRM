@@ -356,7 +356,15 @@ export function InboxPage() {
     }
   };
 
-  const selectedConversation = conversations?.find((c) => c.id === conversationId);
+  const { data: currentConv } = useQuery({
+    queryKey: ['current-conversation', conversationId],
+    queryFn: async () => {
+      if (!conversationId) return null;
+      const { data } = await supabase.from('conversations').select('*, contact:contacts(*)').eq('id', conversationId).maybeSingle();
+      return data || null;
+    },
+    enabled: !!conversationId,
+  });
 
   const isAgent = user?.role === 'agent';
   const WA_GREEN = '#00a884';
@@ -434,13 +442,13 @@ export function InboxPage() {
 
       {/* Chat Area */}
       <div className="flex flex-1 flex-col bg-[#efeae2]">
-        {selectedConversation ? (
+        {currentConv || conversationId ? (
           <>
             <div className="bg-[#f0f2f5] px-4 py-2 flex items-center gap-3 border-l border-gray-200">
-              <WAAvatar waId={selectedConversation.contact?.phone_normalized} name={selectedConversation.contact?.wa_profile_name} size="sm" />
+              <WAAvatar waId={currentConv?.contact?.phone_normalized} name={currentConv?.contact?.wa_profile_name} size="sm" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14.5px] font-medium text-[#111b21]">{selectedConversation.contact?.wa_profile_name || selectedConversation.contact?.phone}</p>
-                <p className="text-[11.5px] text-[#667781]">{selectedConversation.contact?.phone}</p>
+                <p className="truncate text-[14.5px] font-medium text-[#111b21]">{currentConv?.contact?.wa_profile_name || currentConv?.contact?.phone || 'Chat'}</p>
+                <p className="text-[11.5px] text-[#667781]">{currentConv?.contact?.phone || ''}</p>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4d4d4\' fill-opacity=\'0.20\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
@@ -490,8 +498,12 @@ export function InboxPage() {
                 </div>
               )}
             </div>
-            <QuickReplyBar conversationId={selectedConversation.id} onSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
-            <MessageComposer conversationId={selectedConversation.id} tenantId={selectedConversation.tenant_id} contactId={selectedConversation.contact_id} userId={user?.id || ''} onMessageSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
+            {conversationId && (
+              <QuickReplyBar conversationId={conversationId} onSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
+            )}
+            {conversationId && (
+              <MessageComposer conversationId={conversationId} tenantId={currentConv?.tenant_id} contactId={currentConv?.contact_id} userId={user?.id || ''} onMessageSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
+            )}
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[#667781] bg-[#f0f2f5]">
