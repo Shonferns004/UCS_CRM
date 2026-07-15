@@ -37,10 +37,10 @@ export default function Template1({ personal, education }) {
             <td className="label">Correspondence Address :</td>
             <td style={{fontWeight:600}}>{personal.address || ''}</td>
           </tr>
-          <tr><td colSpan="2" className="address"></td></tr>
-          <tr><td colSpan="2"></td></tr>
-          <tr><td colSpan="3" className="label">Permanent Address :</td></tr>
-          <tr><td colSpan="3" className="address" style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td></tr>
+          <tr><td colSpan="1" className="address"></td></tr>
+          <tr><td colSpan="1"></td></tr>
+          <tr><td colSpan="1" className="label">Permanent Address :</td></tr>
+          <tr><td colSpan="1" className="address" style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td></tr>
           <tr>
             <td><strong>Telephone :</strong> {personal.altPhone || ''}</td>
             <td><strong>Mobile :</strong> {personal.phone || ''}</td>
