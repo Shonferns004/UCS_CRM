@@ -37,13 +37,13 @@ export default function Template1({ personal, education }) {
             <td className="label">Correspondence Address :</td>
             <td style={{fontWeight:600}}>{personal.address || ''}</td>
           </tr>
-          <tr><td colSpan="1" className="address"></td></tr>
-          <tr><td colSpan="1"></td></tr>
-          <tr><td colSpan="1" className="label">Permanent Address :</td></tr>
-          <tr><td colSpan="1" className="address" style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td></tr>
+          <tr><td colSpan="2" className="address"></td></tr>
+          <tr><td colSpan="2"></td></tr>
+          <tr><td colSpan="3" className="label">Permanent Address :</td></tr>
+          <tr><td colSpan="3" className="address" style={{fontWeight:600}}>{personal.permanentAddress || personal.address || ''}</td></tr>
           <tr>
-            <td><strong>Telephone :</strong> {personal.altPhone || ''}</td>
-            <td><strong>Mobile :</strong> {personal.phone || ''}</td>
+            <td><strong>Mobile 1 :</strong> {personal.altPhone || ''}</td>
+            <td><strong>Mobile 2:</strong> {personal.phone || ''}</td>
             <td><strong>Email ID :</strong> {personal.email || ''}</td>
           </tr>
           <tr>
@@ -55,12 +55,6 @@ export default function Template1({ personal, education }) {
             <td><strong>PAN Card No :</strong> {personal.panNumber || ''}</td>
             <td><strong>Aadhaar Card No :</strong> {personal.aadhaarNumber || ''}</td>
             <td></td>
-          </tr>
-          <tr><td colSpan="3"><strong>Emergency Contact Details</strong></td></tr>
-          <tr>
-            <td><strong>Name :</strong> {personal.emergencyName || ''}</td>
-            <td><strong>Relation :</strong> {personal.emergencyRelation || ''}</td>
-            <td><strong>Contact No :</strong> {personal.emergencyPhone || ''}</td>
           </tr>
           <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS</td></tr>
         </table>
