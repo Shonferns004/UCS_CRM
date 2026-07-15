@@ -4,8 +4,9 @@ export default function Template1({ personal, education }) {
       <style>{`
         .t1 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
         .t1{width:210mm;min-height:297mm;margin:auto;background:#fff;border:8px double #000;padding:18px;page-break-after:always;display:flex;flex-direction:column}
-        .t1 h1{text-align:center;font-size:42px;font-family:Georgia,serif;margin-bottom:5px}
-        .t1 .subtitle{text-align:center;font-size:14px;margin-bottom:12px}
+        .t1 h1{text-align:center;font-size:36px;font-family:Georgia,serif;margin-bottom:0}
+        .t1 .subtitle{text-align:center;font-size:11px;margin-bottom:4px}
+        .t1 .top-line{border-top:3px solid #7d1e1e;margin:4px 0}
         .t1 .form-title{text-align:center;font-size:26px;font-weight:bold;text-decoration:underline;margin-bottom:20px}
         .t1 table{width:100%;border-collapse:collapse}
         .t1 td,.t1 th{border:1px solid #666;padding:10px;vertical-align:top}
@@ -20,8 +21,11 @@ export default function Template1({ personal, education }) {
         .t1 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:4px;text-align:center;font-size:9pt;line-height:1.4}
       `}</style>
       <div className="t1">
-        <h1>Being Sevak Charitable Trust</h1>
-        <div className="subtitle">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        <div className="header">
+          <h1>Being Sevak Charitable Trust</h1>
+          <div className="top-line"></div>
+          <div className="subtitle">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+        </div>
         <div className="form-title">VOLUNTEER JOINING FORM</div>
         <table>
           <tr><td colSpan="3" className="section">PERSONAL DETAILS</td></tr>
@@ -59,7 +63,7 @@ export default function Template1({ personal, education }) {
             <td><strong>Aadhaar Card No :</strong> {personal.aadhaarNumber || ''}</td>
             <td></td>
           </tr>
-          <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS (high education only)</td></tr>
+          <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS (higher education)</td></tr>
         </table>
         <table className="edu">
           <tr>
