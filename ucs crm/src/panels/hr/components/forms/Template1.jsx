@@ -3,7 +3,7 @@ export default function Template1({ personal, education }) {
     <div className="print-page">
       <style>{`
         .t1 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
-        .t1{width:210mm;min-height:297mm;margin:auto;background:#fff;border:8px double #000;padding:18px;page-break-after:always}
+        .t1{width:210mm;min-height:297mm;margin:auto;background:#fff;border:8px double #000;padding:18px;page-break-after:always;display:flex;flex-direction:column}
         .t1 h1{text-align:center;font-size:42px;font-family:Georgia,serif;margin-bottom:5px}
         .t1 .subtitle{text-align:center;font-size:14px;margin-bottom:12px}
         .t1 .form-title{text-align:center;font-size:26px;font-weight:bold;text-decoration:underline;margin-bottom:20px}
@@ -16,7 +16,8 @@ export default function Template1({ personal, education }) {
         .t1 .address{height:50px}
         .t1 .edu th{text-align:center}
         .t1 .edu td{height:55px}
-        .t1 .footer{border-top:2px solid #7b2020;margin-top:6px;padding-top:4px;text-align:center;font-size:9pt;line-height:1.4}
+        .t1 .edu{border-bottom:1px solid #666}
+        .t1 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:4px;text-align:center;font-size:9pt;line-height:1.4}
       `}</style>
       <div className="t1">
         <h1>Being Sevak Charitable Trust</h1>
