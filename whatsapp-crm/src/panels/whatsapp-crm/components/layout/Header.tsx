@@ -76,15 +76,6 @@ export function Header() {
       <div className="flex items-center gap-3">
         {phoneNumber ? (
           <>
-            <span
-              className={`h-2 w-2 rounded-full ${
-                config?.variant === 'success'
-                  ? 'bg-green-500'
-                  : config?.variant === 'warning'
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
-              }`}
-            />
             <span className="text-sm text-muted-foreground">
               {phoneNumber.display_phone_number}
             </span>
