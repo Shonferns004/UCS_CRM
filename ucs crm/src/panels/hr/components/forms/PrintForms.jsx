@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import Template1 from './Template1'
-import Template2 from './Template2'
 import Template3 from './Template3'
 import Template4 from './Template4'
 import Template5 from './Template5'
@@ -70,13 +69,6 @@ export default function PrintForms({ data, onClose }) {
       </div>
       <div ref={ref}>
         <Template1 personal={data.personal} education={data.education} />
-        <Template2
-          organizations={data.organizations}
-          family={data.family}
-          references={data.references}
-          declarationDate={data.declarationDate}
-          place={data.place}
-        />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
         <Template4 personal={data.personal} />
         <Template5 personal={data.personal} />
