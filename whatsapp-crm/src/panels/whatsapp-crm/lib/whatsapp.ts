@@ -26,7 +26,7 @@ async function getAccount(phoneNumberId?: string | null, userId?: string) {
   }
   let query = supabase.from('whatsapp_accounts').select('phone_number_id, access_token');
   if (phoneNumberId) query = query.eq('phone_number_id', phoneNumberId);
-  else query = query.limit(1);
+  else query = query.order('is_default', { ascending: false });
   const { data } = await query.limit(1);
   return data?.[0] || null;
 }
@@ -106,10 +106,13 @@ export async function sendWhatsAppMessage(
     }
 
     if (accounts.length === 0) {
-      const account = conv?.phone_number_id
-        ? (await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('phone_number_id', conv.phone_number_id).maybeSingle()).data
-        : (await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').limit(1).maybeSingle()).data;
-      if (account) accounts.push(account);
+      const { data: fallback } = await supabase
+        .from('whatsapp_accounts')
+        .select('phone_number_id, access_token')
+        .order('is_default', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (fallback) accounts.push(fallback);
     }
 
     for (const acct of accounts) {
