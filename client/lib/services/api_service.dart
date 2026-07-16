@@ -206,17 +206,20 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng) async {
+  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? dailyCode}) async {
+    final body = dailyCode != null
+        ? {'daily_code': dailyCode, 'latitude': lat, 'longitude': lng}
+        : {'code': code, 'latitude': lat, 'longitude': lng};
     final res = await _post(
       Uri.parse('$baseUrl/attendance/punch-in'),
       headers: await _headers(),
-      body: jsonEncode({'code': code, 'latitude': lat, 'longitude': lng}),
+      body: jsonEncode(body),
     );
-    final body = jsonDecode(res.body);
+    final resp = jsonDecode(res.body);
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception(body['message'] ?? 'Punch in failed');
+      throw Exception(resp['message'] ?? 'Punch in failed');
     }
-    return body;
+    return resp;
   }
 
   static Future<Map<String, dynamic>> punchOut(double lat, double lng) async {
@@ -228,6 +231,16 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception(body['message'] ?? 'Punch out failed');
     return body;
+  }
+
+  static Future<List<Map<String, dynamic>>> getTodayCodes() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/qr/today-codes'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception('Failed to get today codes');
+    return body is List ? body.cast<Map<String, dynamic>>() : [];
   }
 
   static String _todayCacheKey() {

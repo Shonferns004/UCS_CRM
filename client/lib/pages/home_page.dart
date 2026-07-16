@@ -276,9 +276,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     try {
       final data = await ApiService.punchIn(
-        result['code'],
-        result['lat'],
-        result['lng'],
+        result['code'] ?? '',
+        (result['lat'] as num).toDouble(),
+        (result['lng'] as num).toDouble(),
+        dailyCode: result['dailyCode'] as String?,
       );
       final lm = (data['lateMinutes'] ?? 0) as int;
       setState(() {
