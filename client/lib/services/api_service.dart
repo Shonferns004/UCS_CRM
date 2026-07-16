@@ -206,10 +206,10 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? dailyCode}) async {
+  static Future<Map<String, dynamic>> punchIn(String code, double lat, double lng, {String? dailyCode, String? punchMethod}) async {
     final body = dailyCode != null
-        ? {'daily_code': dailyCode, 'latitude': lat, 'longitude': lng}
-        : {'code': code, 'latitude': lat, 'longitude': lng};
+        ? {'daily_code': dailyCode, 'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod}
+        : {'code': code, 'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod};
     final res = await _post(
       Uri.parse('$baseUrl/attendance/punch-in'),
       headers: await _headers(),
@@ -222,11 +222,11 @@ class ApiService {
     return resp;
   }
 
-  static Future<Map<String, dynamic>> punchOut(double lat, double lng) async {
+  static Future<Map<String, dynamic>> punchOut(double lat, double lng, {String? punchMethod}) async {
     final res = await _post(
       Uri.parse('$baseUrl/attendance/punch-out'),
       headers: await _headers(),
-      body: jsonEncode({'latitude': lat, 'longitude': lng}),
+      body: jsonEncode({'latitude': lat, 'longitude': lng, if (punchMethod != null) 'punch_method': punchMethod}),
     );
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception(body['message'] ?? 'Punch out failed');

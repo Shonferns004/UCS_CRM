@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
-import '../services/supabase_service.dart';
+import '../services/realtime_service.dart';
 import '../main.dart';
 import '../widgets/mini_calendar.dart';
 import '../widgets/progress_circle.dart';
@@ -38,7 +38,6 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _selectedDateKey;
   final Map<int, Map<String, int>> _monthlyStats = {};
   int _calYear = 0, _calMonth = 0;
-  String? _workerId;
   Map<String, List<String>> _calendarDates = {};
 
   @override
@@ -60,15 +59,12 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void dispose() {
     _scrollController.dispose();
-    if (_workerId != null) {
-      SupabaseService.unsubscribeFromHistory();
-    }
+    RealtimeService.instance.removeListener(_onRealtimeChange);
     super.dispose();
   }
 
   Future<void> _loadData() async {
     _worker = await ApiService.getWorkerData();
-    _workerId = _worker?['id']?.toString();
     final n = DateTime.now();
     if (_calYear == 0) { _calYear = n.year; _calMonth = n.month; }
 
@@ -86,7 +82,6 @@ class _ProfilePageState extends State<ProfilePage> {
       final profile = await ApiService.getMyProfile();
       _worker = profile;
       await ApiService.saveWorkerData(profile);
-      _workerId = profile['id']?.toString();
     } catch (_) {}
 
     await _refreshHistoryFromNetwork();
@@ -94,17 +89,23 @@ class _ProfilePageState extends State<ProfilePage> {
     _fetchLoans();
     _fetchTickets();
 
-    // Subscribe to realtime updates
-    if (_workerId != null && _workerId!.isNotEmpty) {
-      SupabaseService.subscribeToHistory(
-        workerId: _workerId!,
-        onHistoryChange: _onRealtimeChange,
-      );
-    }
+    // Listen to realtime updates
+    RealtimeService.instance.addListener(_onRealtimeChange);
   }
 
   void _onRealtimeChange() {
-    _refreshHistoryFromNetwork();
+    final event = RealtimeService.instance.lastEvent;
+    if (event == null) return;
+    switch (event) {
+      case RealtimeEvent.attendance:
+        _refreshHistoryFromNetwork();
+      case RealtimeEvent.loans:
+        _fetchLoans();
+      case RealtimeEvent.corrections:
+        _fetchTickets();
+      default:
+        break;
+    }
   }
 
   Future<void> _fetchLoans() async {

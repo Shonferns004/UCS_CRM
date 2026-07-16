@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 import '../main.dart';
 
 class LeavePage extends StatefulWidget {
@@ -30,6 +31,12 @@ class _LeavePageState extends State<LeavePage> {
   String? _proofMime;
   String? _proofFileName;
 
+  void _onRealtimeChange() {
+    if (RealtimeService.instance.lastEvent == RealtimeEvent.leaves) {
+      _fetchLeaves();
+    }
+  }
+
   final Map<String, String> _typeLabels = {
     'full_day': 'Full Day',
     'half_day': 'Half Day',
@@ -41,10 +48,12 @@ class _LeavePageState extends State<LeavePage> {
   void initState() {
     super.initState();
     _fetchLeaves();
+    RealtimeService.instance.addListener(_onRealtimeChange);
   }
 
   @override
   void dispose() {
+    RealtimeService.instance.removeListener(_onRealtimeChange);
     _leaveDateCtrl.dispose();
     _startDateCtrl.dispose();
     _endDateCtrl.dispose();
