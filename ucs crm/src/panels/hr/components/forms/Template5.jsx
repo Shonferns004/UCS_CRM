@@ -27,41 +27,6 @@ export default function Template6() {
           <h1>Being Sevak Charitable Trust</h1>
           <div className="red"></div>
           <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
-
-          <p><span className="b">4. Withdrawal of Consent:</span> I may withdraw this consent by written request; withdrawal applies only to future publications where reasonably practicable and does not affect materials already published or archived.</p>
-
-          <p><span className="b">5. Declaration:</span> I am signing voluntarily without pressure or coercion, have read and understood this form, and agree to all its terms. It is governed by the laws of India, with exclusive jurisdiction of the competent courts at Mumbai, Maharashtra.</p>
-
-          <div className="row">Full Name: <span className="line med"></span>
-          &nbsp;&nbsp; Mobile: <span className="line"></span>
-          &nbsp;&nbsp; Email: <span className="line med"></span></div>
-
-          <div className="row">Residential Address:
-          <span className="line long" style={{minWidth: 540}}></span></div>
-
-          <div className="row">
-          Signature of Volunteer:
-          <span className="line"></span>
-          &nbsp; Date:
-          <span className="line small"></span>/<span className="line small"></span>/<span className="line small"></span>
-          &nbsp; Place:
-          <span className="line"></span>
-          </div>
-
-          <div className="row"><span className="b">For Minors (below 18 years):</span>
-          I, <span className="line"></span>, parent/legal guardian of the above volunteer, consent on the minor&apos;s behalf.
-          Signature: <span className="line"></span>
-          Relationship: <span className="line small"></span>
-          </div>
-
-          <div className="row">
-          <span className="b">For Being Sevak Charitable Trust (Authorized Signatory)</span>
-          &nbsp;—&nbsp; Name:
-          <span className="line"></span>
-          Designation:
-          <span className="line"></span>
-          </div>
-
           <div className="blue" style={{marginTop: 20}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
           <p>This agreement is made between Being Sevak Charitable Trust and the Volunteer on <span className="line med"></span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>

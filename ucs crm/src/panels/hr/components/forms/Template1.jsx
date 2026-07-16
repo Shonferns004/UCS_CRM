@@ -3,7 +3,7 @@ export default function Template1({ personal, education }) {
     <div className="print-page">
       <style>{`
         .t1 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
-        .t1{width:210mm;height:297mm;margin:auto;background:#fff;border:8px double #000;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column}
+        .t1{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column}
         .t1 h1{text-align:center;font-size:34px;font-family:Georgia,serif;margin-bottom:0}
         .t1 .subtitle{text-align:center;font-size:10px;margin-bottom:2px}
         .t1 .top-line{border-top:3px solid #7d1e1e;margin:3px 0}
