@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
-import { Loader2, Check, CheckCheck, XCircle, MessageSquare, Search, Plus, X, Send, User, LogOut, Mail, Shield, Clock } from 'lucide-react';
+import { Loader2, Check, CheckCheck, MessageSquare, Search, Plus, X, Send, User, LogOut, Mail, Shield, Clock } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { format } from 'date-fns';
@@ -119,7 +119,7 @@ function MessageStatusIcon({ status }: { status: string }) {
   if (status === 'sent') return <Check className="h-4 w-4 text-[#54656f]" />;
   if (status === 'delivered') return <CheckCheck className="h-4 w-4 text-[#54656f]" />;
   if (status === 'read') return <CheckCheck className="h-4 w-4 text-[#53bdeb]" />;
-  if (status === 'failed') return <XCircle className="h-4 w-4 text-[#ef5350]" />;
+  if (status === 'failed') return <Check className="h-4 w-4 text-[#8696a0]" />;
   return null;
 }
 
