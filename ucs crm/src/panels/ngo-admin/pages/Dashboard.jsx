@@ -546,35 +546,46 @@ export default function Dashboard() {
     stationInfoMap[st.station] = st;
   }
 
-  const total_donors = Number(data.total_donors) || 0;
-  const assigned_donors = Number(data.assigned_donors) || 0;
-  const active_fros = Number(data.active_fros) || 0;
-  const month_collection = Number(data.month_collection) || 0;
-  const today_collection = Number(data.today_collection) || 0;
-  const daily_target = Number(data.daily_target) || 0;
-  const verified_month_amount = Number(data.verified_month_amount) || 0;
-  const verified_month_count = Number(data.verified_month_count) || 0;
-  const unverified_month_amount = Number(data.unverified_month_amount) || 0;
-  const unverified_month_count = Number(data.unverified_month_count) || 0;
-  const verified_today_amount = Number(data.verified_today_amount) || 0;
-  const verified_today_count = Number(data.verified_today_count) || 0;
-  const unverified_today_amount = Number(data.unverified_today_amount) || 0;
-  const unverified_today_count = Number(data.unverified_today_count) || 0;
-  const total_workers = Number(data.total_workers) || 0;
-  const workers_present = Number(data.workers_present) || 0;
-  const workers_absent = Number(data.workers_absent) || 0;
-  const attendance_pct = Number(data.attendance_pct) || 0;
-  const data_used = Number(data.data_used) || 0;
-  const data_unused = Number(data.data_unused) || 0;
-  const active_donors = Number(data.active_donors) || 0;
-  const inactive_donors = Number(data.inactive_donors) || 0;
-  const reactivated_today = Number(data.reactivated_today) || 0;
-  const reactivated_monthly = Number(data.reactivated_monthly) || 0;
-  const total_fro_workers = Number(data.total_fro_workers) || 0;
-  const assigned_fro_count = Number(data.assigned_fro_count) || 0;
+  const s = data.summary || {};
+  const d = s.donors || {};
+  const c = s.collection || {};
+  const cm = c.month || {};
+  const ct = c.today || {};
+  const r = s.reactivations || {};
+  const w = data.workers || {};
+  const f = w.fro || {};
+  const att = w.attendance || {};
+  const a = data.assignments || {};
+
+  const total_donors = Number(d.total) || 0;
+  const assigned_donors = Number(d.assigned) || 0;
+  const active_fros = Number(f.active) || 0;
+  const month_collection = Number(cm.total) || 0;
+  const today_collection = Number(ct.total) || 0;
+  const daily_target = Number(c.daily_target) || 0;
+  const verified_month_amount = Number(cm.verified?.amount) || 0;
+  const verified_month_count = Number(cm.verified?.count) || 0;
+  const unverified_month_amount = Number(cm.unverified?.amount) || 0;
+  const unverified_month_count = Number(cm.unverified?.count) || 0;
+  const verified_today_amount = Number(ct.verified?.amount) || 0;
+  const verified_today_count = Number(ct.verified?.count) || 0;
+  const unverified_today_amount = Number(ct.unverified?.amount) || 0;
+  const unverified_today_count = Number(ct.unverified?.count) || 0;
+  const total_workers = Number(f.active) || 0;
+  const workers_present = Number(att.present) || 0;
+  const workers_absent = Number(att.absent) || 0;
+  const attendance_pct = Number(att.pct) || 0;
+  const data_used = Number(a.data_connected) || 0;
+  const data_unused = Number(a.data_unconnected) || 0;
+  const active_donors = Number(d.active) || 0;
+  const inactive_donors = Number(d.inactive) || 0;
+  const reactivated_today = Number(r.today) || 0;
+  const reactivated_monthly = Number(r.month) || 0;
+  const total_fro_workers = Number(f.total) || 0;
+  const assigned_fro_count = Number(f.with_assignments) || 0;
   const stations_per_ngo = data.stations_per_ngo || {};
   const unassigned = Math.max(0, total_donors - assigned_donors);
-  const assignPct = total_donors > 0 ? Math.round((assigned_donors / total_donors) * 100) : 0;
+  const assignPct = Number(d.assigned_pct) || 0;
 
   const pieData = DISPOSITION_GROUPS.map(g => ({
     name: g.label,

@@ -625,35 +625,63 @@ export const getDashboard = async (req, res) => {
       .maybeSingle();
     if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
+    const totalDonorCount = totalDonors.length;
+    const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersAbsent);
+
     return res.json({
-      total_donors: totalDonors.length,
-      assigned_donors: assignedCount,
-      collected_donors: collectedDonations.length,
-      active_fros: activeFroCount,
-      total_fro_workers: froWorkers.length,
-      assigned_fro_count: assignedFroCount,
+      ngos: origNgoNames,
+      period: {
+        month: now.toISOString().slice(0, 7),
+        today: todayStr,
+      },
+      summary: {
+        donors: {
+          total: totalDonorCount,
+          assigned: assignedCount,
+          assigned_pct: totalDonorCount > 0 ? Math.round((assignedCount / totalDonorCount) * 100) : 0,
+          collected: collectedDonations.length,
+          active: activeDonors,
+          inactive: inactiveDonors,
+        },
+        collection: {
+          month: {
+            total: monthCollection,
+            verified: { amount: verifiedMonthAmount, count: verifiedMonthCount },
+            unverified: { amount: unverifiedMonthAmount, count: unverifiedMonthCount },
+          },
+          today: {
+            total: todayCollection,
+            verified: { amount: verifiedTodayAmount, count: verifiedTodayCount },
+            unverified: { amount: unverifiedTodayAmount, count: unverifiedTodayCount },
+          },
+          daily_target,
+        },
+        reactivations: {
+          today: reactivatedToday,
+          month: reactivatedMonthly,
+        },
+      },
+      workers: {
+        fro: {
+          total: froWorkers.length,
+          active: activeFroCount,
+          with_assignments: assignedFroCount,
+          assignment_coverage_pct: activeFroCount > 0 ? Math.round((assignedFroCount / activeFroCount) * 100) : 0,
+        },
+        attendance: {
+          present: workersPresent,
+          absent: workersAbsent,
+          no_mark: noMarkCount,
+          pct: attendancePct,
+        },
+      },
+      assignments: {
+        total: assignedCount,
+        data_connected: dataUsed,
+        data_unconnected: dataUnused,
+        connect_rate_pct: assignedCount > 0 ? Math.round((dataUsed / assignedCount) * 100) : 0,
+      },
       stations_per_ngo: stationsPerNgo,
-      month_collection: monthCollection,
-      today_collection: todayCollection,
-      daily_target,
-      total_workers: activeFroCount,
-      workers_present: workersPresent,
-      workers_absent: workersAbsent,
-      attendance_pct: attendancePct,
-      data_used: dataUsed,
-      data_unused: dataUnused,
-      active_donors: activeDonors,
-      inactive_donors: inactiveDonors,
-      verified_month_amount: verifiedMonthAmount,
-      verified_month_count: verifiedMonthCount,
-      unverified_month_amount: unverifiedMonthAmount,
-      unverified_month_count: unverifiedMonthCount,
-      verified_today_amount: verifiedTodayAmount,
-      verified_today_count: verifiedTodayCount,
-      unverified_today_amount: unverifiedTodayAmount,
-      unverified_today_count: unverifiedTodayCount,
-      reactivated_today: reactivatedToday,
-      reactivated_monthly: reactivatedMonthly,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
