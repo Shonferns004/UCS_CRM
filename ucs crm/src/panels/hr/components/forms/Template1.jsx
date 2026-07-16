@@ -12,7 +12,7 @@ export default function Template1({ personal, education, photo_url }) {
         .t1 td,.t1 th{border:1px solid #666;padding:12px 8px;vertical-align:top}
         .t1 .section{background:#d8d8d8;font-weight:bold;font-size:18px}
         .t1 .label{font-weight:bold;width:25%;white-space:nowrap}
-        .t1 .photo{width:100px;text-align:center;vertical-align:middle;font-weight:bold;font-size:24px;min-height:220px;height:220px;box-sizing:border-box}
+        .t1 .photo{width:100px;text-align:center;vertical-align:middle;font-weight:bold;font-size:27px;min-height:220px;height:220px;box-sizing:border-box}
         .t1 .blank{height:24px}
         .t1 .address{height:40px}
         .t1 .edu th{text-align:center}
