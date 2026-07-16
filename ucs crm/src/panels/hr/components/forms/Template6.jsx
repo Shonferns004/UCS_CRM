@@ -44,13 +44,13 @@ export default function Template6() {
         }
         .t6 p {
           margin: 8px 0;
-          font-size: 11pt;
+          font-size: 13pt;
           line-height: 1.4;
           text-align: justify;
         }
         .t6 .agreement {
           margin: 12px 0;
-          font-size: 11pt;
+          font-size: 13pt;
           font-weight: bold;
         }
         .t6 .two-column {
@@ -59,13 +59,14 @@ export default function Template6() {
           gap: 20px;
           margin: 10px 0;
         }
-        .t6 .two-column ol {
+        .t6 .two-column ul {
           margin: 0;
-          padding-left: 18px;
+          padding-left: 30px;
+          list-style-type: disc;
         }
         .t6 .two-column li {
           margin-bottom: 8px;
-          font-size: 11pt;
+          font-size: 13pt;
           line-height: 1.4;
         }
         .t6 .section {
@@ -79,12 +80,13 @@ export default function Template6() {
           display: flex;
           align-items: center;
           margin: 8px 0;
-          font-size: 11pt;
+          font-size: 13pt;
         }
         .t6 .label {
           font-weight: bold;
-          min-width: 180px;
+          min-width: 200px;
           padding-right: 8px;
+          font-size: 13pt;
         }
         .t6 .line {
           flex: 1;
@@ -132,15 +134,15 @@ export default function Template6() {
         <div className="agreement">I understand and agree that:</div>
 
         <div className="two-column">
-          <ol>
+          <ul>
             <li>My participation is voluntary, and I have no objection to the Trust using the above materials.</li>
             <li>I will not claim any royalty, payment, or compensation for such use.</li>
             <li>The Trust may edit or modify the materials without misrepresenting my identity or participation.</li>
-          </ol>
-          <ol start="4">
+          </ul>
+          <ul>
             <li>All photographs, videos, and recordings created by or for the Trust shall remain the property of the Trust.</li>
             <li>I may withdraw my consent by giving written notice. Such withdrawal will apply only to future use, wherever reasonably practicable, and will not affect materials already published or distributed.</li>
-          </ol>
+          </ul>
         </div>
 
         <p>

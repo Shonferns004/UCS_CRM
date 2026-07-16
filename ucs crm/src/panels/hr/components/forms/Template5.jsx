@@ -5,13 +5,13 @@ export default function Template6() {
         .t6 *{box-sizing:border-box}
         .t6{width:210mm;height:297mm;margin:auto;background:#fff;border:8px double #000;position:relative;padding:10px 18px 12px 18px;overflow:hidden;font-family:"Times New Roman",serif;display:flex;flex-direction:column}
         .t6 .inner{border:1px solid #222;padding:6px 16px 10px 16px;flex:1;display:flex;flex-direction:column}
-        .t6 h1{margin:0;text-align:center;font-size:28px;font-weight:700}
-        .t6 .sub{text-align:center;font-size:11px;margin-top:4px}
-        .t6 .red{height:3px;background:#7f2d2d;margin:5px 8px 4px}
-        .t6 p{margin:2px 0;font-size:12px;line-height:1.3;text-align:justify}
-        .t6 .b{font-weight:bold}
-        .t6 .blue{font-size:20px;color:#29446f;text-align:center;font-weight:bold;margin:10px 0 6px}
-        .t6 .row{font-size:12px;margin:1.5px 0}
+.t6 h1{margin:0;text-align:center;font-size:34px;font-weight:700}
+.t6 .sub{text-align:center;font-size:15px;margin-top:4px}
+.t6 .red{height:3px;background:#7f2d2d;margin:5px 8px 4px}
+.t6 p{margin:2px 0;font-size:16px;line-height:1.3;text-align:justify}
+.t6 .b{font-weight:bold}
+.t6 .blue{font-size:26px;color:#29446f;text-align:center;font-weight:bold;margin:10px 0 6px}
+.t6 .row{font-size:16px;margin:1.5px 0}
         .t6 .line{display:inline-block;border-bottom:1px solid #000;min-width:120px;height:15px;vertical-align:bottom}
         .t6 .long{min-width:230px}
         .t6 .med{min-width:180px}
@@ -19,8 +19,8 @@ export default function Template6() {
         .t6 .sigwrap{display:flex;justify-content:space-between;margin-top:20px}
         .t6 .sig{width:260px}
         .t6 .sig .l{border-bottom:1px solid #000;height:22px}
-        .t6 .sig div:last-child{text-align:left;font-size:11px;margin-top:3px}
-        .t6 .footer{margin-top:auto;border-top:2px solid #8b3434;padding-top:4px;text-align:center;font-size:10px;color:#333}
+.t6 .sig div:last-child{text-align:left;font-size:15px;margin-top:3px}
+.t6 .footer{margin-top:auto;border-top:2px solid #8b3434;padding-top:4px;text-align:center;font-size:14px;color:#333}
       `}</style>
       <div className="t6">
         <div className="inner">
