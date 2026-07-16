@@ -9,6 +9,7 @@ import {
   getMonthlyAttendance,
 } from '../models/attendanceModel.js';
 import { getQRByCode } from '../models/qrModel.js';
+import { getDailyCodeByCode } from '../models/dailyCodeModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave, getApprovedLeaves } from '../models/leaveModel.js';
 import { getAllAttendance } from '../models/attendanceModel.js';
@@ -100,12 +101,22 @@ async function isHalfDayByEarlyPunchOut(punchOutTime, workerId) {
 
 export const punchIn = async (req, res) => {
   try {
-    const { code, latitude, longitude } = req.body;
-    if (!code || latitude === undefined || longitude === undefined) {
-      return res.status(400).json({ message: 'QR code, latitude, and longitude are required' });
+    const { code, daily_code, latitude, longitude } = req.body;
+    if ((!code && !daily_code) || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ message: 'QR code (or daily code), latitude, and longitude are required' });
     }
 
-    const qr = await getQRByCode(code);
+    let qr;
+    if (daily_code) {
+      const today = new Date().toISOString().slice(0, 10);
+      const dailyRecord = await getDailyCodeByCode(daily_code, today);
+      if (!dailyRecord) {
+        return res.status(404).json({ message: 'Invalid daily code' });
+      }
+      qr = dailyRecord.qr_codes;
+    } else {
+      qr = await getQRByCode(code);
+    }
     if (!qr) {
       return res.status(404).json({ message: 'Invalid QR code' });
     }

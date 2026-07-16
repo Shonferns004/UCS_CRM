@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { createQRCode, getAllQRCodes, getQRByCode, deleteQRCode } from '../models/qrModel.js';
+import { getDailyCodesForDate, getDailyCodeByCode } from '../models/dailyCodeModel.js';
 import { haversineDistance } from '../utils/geo.js';
 
 export const generateQR = async (req, res) => {
@@ -60,6 +61,21 @@ export const validateQRAndLocation = async (req, res) => {
       });
     }
     return res.json({ message: 'Location verified', distance: Math.round(distance), qr });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getTodayCodes = async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const codes = await getDailyCodesForDate(today);
+    const result = codes.map(c => ({
+      qr_code_id: c.qr_code_id,
+      label: c.qr_codes?.label || 'Unknown',
+      daily_code: c.daily_code,
+    }));
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

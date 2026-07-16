@@ -38,8 +38,6 @@ async function createDbUser(authUser: any): Promise<User | null> {
   }
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
@@ -49,29 +47,31 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: email, password }),
+      const { data: agentData, error: agentErr } = await supabase.rpc('verify_agent', {
+        p_email: email,
+        p_password: password,
       });
-      const loginData = await res.json();
-      if (!res.ok) throw new Error(loginData.message || 'Invalid credentials');
-      if (loginData.token) localStorage.setItem('ucs_token', loginData.token);
-      if (loginData.user) {
-        localStorage.setItem('ucs_user', JSON.stringify(loginData.user));
-        const mappedUser: User = {
-          id: loginData.user.id,
-          tenant_id: loginData.user.tenant_id || loginData.user.id,
-          email: loginData.user.email,
-          first_name: loginData.user.first_name || loginData.user.name?.split(' ')[0] || '',
-          last_name: loginData.user.last_name || loginData.user.name?.split(' ').slice(1).join(' ') || '',
-          role: (['admin', 'agent', 'viewer'].includes(loginData.user.role) ? loginData.user.role : 'agent') as User['role'],
-          status: 'active',
-          created_at: loginData.user.created_at || new Date().toISOString(),
-        };
-        set({ user: mappedUser, isAuthenticated: true, isLoading: false });
-        loadMetaCredentials();
+
+      if (agentErr || !agentData) {
+        throw new Error('Invalid credentials');
       }
+
+      const userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
+      const mappedUser: User = {
+        id: userData.id,
+        tenant_id: userData.tenant_id || userData.id,
+        email: userData.email,
+        first_name: userData.name?.split(' ')[0] || '',
+        last_name: userData.name?.split(' ').slice(1).join(' ') || '',
+        role: (['admin', 'agent', 'viewer'].includes(userData.role) ? userData.role : 'agent') as User['role'],
+        status: userData.is_active !== false ? 'active' : 'inactive',
+        created_at: userData.created_at || new Date().toISOString(),
+      };
+
+      localStorage.setItem('ucs_token', 'rpc_' + userData.id);
+      localStorage.setItem('ucs_user', JSON.stringify(mappedUser));
+      set({ user: mappedUser, isAuthenticated: true, isLoading: false });
+      loadMetaCredentials();
       return;
     }
 
@@ -126,14 +126,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   fetchUser: async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        set({ user: null, isAuthenticated: false, isLoading: false });
-        return;
-      }
-
       const storedRaw = localStorage.getItem('ucs_user');
-      if (storedRaw) {
+      const token = localStorage.getItem('ucs_token');
+
+      if (storedRaw && token?.startsWith('rpc_')) {
         try {
           const parsed = JSON.parse(storedRaw) as User;
           set({ user: parsed, isAuthenticated: true, isLoading: false });
@@ -142,7 +138,35 @@ export const useAuthStore = create<AuthState>((set) => ({
         } catch {}
       }
 
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        if (storedRaw) {
+          try {
+            const parsed = JSON.parse(storedRaw) as User;
+            set({ user: parsed, isAuthenticated: true, isLoading: false });
+            loadMetaCredentials();
+            return;
+          } catch {}
+        }
+        set({ user: null, isAuthenticated: false, isLoading: false });
+        return;
+      }
+
       const dbUser = await fetchDbUser(session.user.id);
+
+      if (storedRaw && dbUser) {
+        try {
+          const parsed = JSON.parse(storedRaw) as User;
+          const dbRole = (['admin', 'agent', 'viewer'].includes(dbUser.role) ? dbUser.role : 'agent') as User['role'];
+          if (parsed.role === dbRole && parsed.id === dbUser.id) {
+            set({ user: parsed, isAuthenticated: true, isLoading: false });
+            loadMetaCredentials();
+            return;
+          }
+        } catch {}
+      }
+
       if (dbUser) {
         const mappedUser: User = {
           id: dbUser.id,
@@ -157,6 +181,15 @@ export const useAuthStore = create<AuthState>((set) => ({
         localStorage.setItem('ucs_user', JSON.stringify(mappedUser));
         set({ user: mappedUser, isAuthenticated: true, isLoading: false });
         return;
+      }
+
+      if (storedRaw) {
+        try {
+          const parsed = JSON.parse(storedRaw) as User;
+          set({ user: parsed, isAuthenticated: true, isLoading: false });
+          loadMetaCredentials();
+          return;
+        } catch {}
       }
 
       set({ user: null, isAuthenticated: false, isLoading: false });

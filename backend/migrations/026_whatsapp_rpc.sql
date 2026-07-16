@@ -31,8 +31,8 @@ AS $$
 DECLARE
   result json;
 BEGIN
-  INSERT INTO public.users (id, email, name, role, is_active)
-  VALUES (p_id, p_email, p_name, 'agent', true)
+  INSERT INTO public.users (id, email, name, password_hash, role, is_active)
+  VALUES (p_id, p_email, p_name, '', 'agent', true)
   ON CONFLICT (id) DO UPDATE SET email = p_email, name = p_name
   RETURNING row_to_json(users) INTO result;
   RETURN result;
@@ -87,3 +87,13 @@ GRANT EXECUTE ON FUNCTION create_whatsapp_user(uuid, text, text) TO anon;
 GRANT EXECUTE ON FUNCTION promote_to_admin(uuid) TO anon;
 GRANT EXECUTE ON FUNCTION search_whatsapp_users(text) TO anon;
 GRANT EXECUTE ON FUNCTION list_whatsapp_users() TO anon;
+
+-- Step 4: Grant SELECT on tables the frontend needs (anon key needs these for dashboard/inbox)
+GRANT SELECT ON whatsapp_phone_numbers TO anon;
+GRANT SELECT ON conversations TO anon;
+GRANT SELECT ON contacts TO anon;
+GRANT SELECT ON messages TO anon;
+GRANT SELECT ON quick_replies TO anon;
+GRANT SELECT ON media_library TO anon;
+GRANT SELECT ON api_keys TO anon;
+GRANT SELECT ON tenants TO anon;

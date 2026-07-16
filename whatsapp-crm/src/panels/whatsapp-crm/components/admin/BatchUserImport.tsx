@@ -27,6 +27,7 @@ export function BatchUserImport() {
   const [manualMode, setManualMode] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualEmail, setManualEmail] = useState('');
+  const [customPassword, setCustomPassword] = useState('');
 
   const { data: searchResults } = useQuery({
     queryKey: ['user-search', search],
@@ -44,11 +45,9 @@ export function BatchUserImport() {
     queryKey: ['whatsapp-phone-numbers-assign'],
     queryFn: async () => {
       const { data } = await supabase
-        .from('whatsapp_phone_numbers')
-        .select('id, display_phone_number, label')
-        .eq('tenant_id', user?.tenant_id)
-        .eq('is_active', true);
-      return data || [];
+        .from('whatsapp_accounts')
+        .select('id, phone_number_id, name');
+      return (data || []).map((a: any) => ({ ...a, display_phone_number: a.phone_number_id, label: a.name }));
     },
     enabled: !!user?.tenant_id,
   });
@@ -85,20 +84,32 @@ export function BatchUserImport() {
     setError(null);
     setResult(null);
 
-    const tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
-    const API_BASE = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+    const tempPassword = customPassword || Math.random().toString(36).slice(-8) + 'A1!';
 
     try {
-      const res = await fetch(`${API_BASE}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, password: tempPassword }),
+      const { data, error } = await supabase.rpc('create_agent', {
+        p_email: payload.email,
+        p_password: tempPassword,
+        p_name: payload.first_name + ' ' + payload.last_name,
+        p_role: role,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || data.error || 'Registration failed');
+      if (error || !data) {
+        setError(error?.message || 'Failed to create agent');
       } else {
+        const userData = typeof data === 'string' ? JSON.parse(data) : data;
+        if (userData?.id) {
+          let ids = selectedNumbers.map((id: string) => parseInt(id) || id);
+          if (ids.length === 0) {
+            const { data: def } = await supabase.from('whatsapp_accounts').select('id').eq('is_default', true).limit(1).maybeSingle();
+            if (def) ids = [def.id];
+          }
+          if (ids.length > 0) {
+            await supabase.from('agent_phone_assignments').insert(
+              ids.map((accountId: number | string) => ({ user_id: userData.id, account_id: accountId }))
+            );
+          }
+        }
         setResult({ success: true, email: payload.email, password: tempPassword });
         setSelected(null);
         setManualName('');
@@ -232,6 +243,10 @@ export function BatchUserImport() {
                 <Label className="text-xs">Email</Label>
                 <Input value={manualEmail} onChange={(e) => setManualEmail(e.target.value)} placeholder="john@example.com" />
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Password (leave blank to auto-generate)</Label>
+                <Input type="text" value={customPassword} onChange={(e) => setCustomPassword(e.target.value)} placeholder="Auto-generated if empty" />
+              </div>
             </div>
             <RoleAndNumbersSection />
             <Button className="w-full" onClick={handleImport} disabled={importing || !manualName || !manualEmail}>
@@ -256,6 +271,16 @@ export function BatchUserImport() {
               <Button variant="ghost" size="icon" onClick={handleClear}>
                 <X className="h-4 w-4" />
               </Button>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Password (leave blank to auto-generate)</Label>
+              <Input
+                type="text"
+                value={customPassword}
+                onChange={(e) => setCustomPassword(e.target.value)}
+                placeholder="Auto-generated if empty"
+              />
             </div>
 
             <RoleAndNumbersSection />

@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { X, FileText, Download } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, FileText, Download, Loader2 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 
 interface MediaPreviewProps {
@@ -20,7 +21,7 @@ export function MediaPreview({ url, mimeType, caption, className }: MediaPreview
     <div className={cn('overflow-hidden rounded-lg', className)}>
       {isImage ? (
         <a href={url} target="_blank" rel="noopener noreferrer">
-          <img src={url} alt={caption || 'Image'} className="max-w-full cursor-pointer rounded-lg object-cover" />
+          <img src={url} alt={caption || 'Image'} className="max-w-full max-h-60 cursor-pointer rounded-lg object-cover" />
         </a>
       ) : isVideo ? (
         <video controls className="max-w-full rounded-lg">
@@ -82,27 +83,61 @@ interface MediaUploadPreviewProps {
 export function MediaUploadPreview({ file, onRemove }: MediaUploadPreviewProps) {
   const [preview, setPreview] = useState<string | null>(null);
 
-  useState(() => {
+  useEffect(() => {
     if (file.type.startsWith('image/')) {
       const url = URL.createObjectURL(file);
       setPreview(url);
       return () => URL.revokeObjectURL(url);
     }
-  });
+  }, [file]);
 
   return (
-    <div className="relative mb-2 inline-block rounded-lg border p-2">
+    <div className="relative mb-1 inline-block rounded-xl border bg-white p-1.5 shadow-sm">
       {preview ? (
-        <img src={preview} alt="Preview" className="max-h-32 rounded object-contain" />
+        <img src={preview} alt="Preview" className="max-h-40 rounded-lg object-contain" />
       ) : (
-        <div className="flex items-center gap-2 p-2">
-          <FileText className="h-6 w-6 text-muted-foreground" />
+        <div className="flex items-center gap-2 px-2 py-3">
+          <FileText className="h-5 w-5 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">{file.name}</span>
         </div>
       )}
-      <button onClick={onRemove} className="absolute -right-2 -top-2 rounded-full bg-destructive p-0.5 text-destructive-foreground">
+      <button onClick={onRemove} className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-700 text-white hover:bg-gray-900 shadow">
         <X className="h-3 w-3" />
       </button>
     </div>
   );
+}
+
+export function MediaFromMeta({ mediaId, mimeType }: { mediaId: string; mimeType?: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: accounts } = await supabase
+        .from('whatsapp_accounts')
+        .select('access_token')
+        .eq('is_active', true)
+        .limit(1);
+      if (!accounts?.[0] || cancelled) { setLoading(false); return; }
+      const token = accounts[0].access_token;
+      try {
+        const infoRes = await fetch(`https://graph.facebook.com/v23.0/${mediaId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const info = await infoRes.json();
+        if (cancelled || !info.url) { setLoading(false); return; }
+        const dlRes = await fetch(info.url, { headers: { Authorization: `Bearer ${token}` } });
+        if (cancelled || !dlRes.ok) { setLoading(false); return; }
+        const blob = await dlRes.blob();
+        if (!cancelled) setBlobUrl(URL.createObjectURL(blob));
+      } catch {} finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [mediaId]);
+
+  if (loading) return <Loader2 className="mt-1 h-4 w-4 animate-spin text-muted-foreground" />;
+  if (!blobUrl) return null;
+  return <MediaPreview url={blobUrl} mimeType={mimeType} />;
 }

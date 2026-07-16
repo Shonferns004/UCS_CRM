@@ -51,6 +51,12 @@ import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 
 dotenv.config();
 
+const _log = console.log;
+if (process.env.LOG_LEVEL !== 'debug') {
+  console.log = () => {};
+  console.warn = () => {};
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -171,6 +177,17 @@ if (fs.existsSync(accountsDist)) {
       }
     });
 
+    app.post('/api/cron/generate-daily-codes', async (req, res) => {
+      try {
+        const { generateDailyCodes } = await import('./services/dailyCodeService.js');
+        const result = await generateDailyCodes();
+        res.json(result);
+      } catch (error) {
+        console.error('Daily codes cron error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+      }
+    });
+
     app.post('/api/cron/razorpay-sync', async (req, res) => {
       try {
         const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
@@ -218,7 +235,7 @@ async function checkLeavesTable() {
 
 if (!process.env.VERCEL) {
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    _log(`Server running on port ${PORT}`);
     checkLeavesTable();
     import('./services/notificationScheduler.js');
   });

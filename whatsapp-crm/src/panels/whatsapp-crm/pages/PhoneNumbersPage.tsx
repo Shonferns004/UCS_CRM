@@ -69,10 +69,19 @@ function AccountCard({
   onDelete: () => void;
   onTestSend: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [showToken, setShowToken] = useState(false);
 
   const statusVariant = live?.status === 'verified' ? 'success' : live?.status === 'pending' ? 'warning' : 'error';
   const qualityVariant = live?.quality_rating === 'GREEN' ? 'success' : live?.quality_rating === 'YELLOW' ? 'warning' : 'error';
+
+  const toggleStatus = async (field: 'is_active' | 'is_default') => {
+    if (field === 'is_default' && !account.is_default) {
+      await supabase.from('whatsapp_accounts').update({ is_default: false }).neq('id', account.id);
+    }
+    const { error } = await supabase.from('whatsapp_accounts').update({ [field]: !account[field] }).eq('id', account.id);
+    if (!error) queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
+  };
 
   return (
     <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
@@ -86,13 +95,19 @@ function AccountCard({
             <p className="text-xs text-muted-foreground">{account.project.toUpperCase()}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {account.is_default && <Badge variant="success">Default</Badge>}
-          {account.is_active ? (
-            <Badge variant="success">Active</Badge>
-          ) : (
-            <Badge variant="error">Inactive</Badge>
-          )}
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+            <span>Active</span>
+            <div className={`relative h-5 w-9 rounded-full transition-colors ${account.is_active ? 'bg-green-500' : 'bg-gray-300'}`} onClick={() => toggleStatus('is_active')}>
+              <div className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${account.is_active ? 'translate-x-4' : ''}`} />
+            </div>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+            <span>Default</span>
+            <div className={`relative h-5 w-9 rounded-full transition-colors ${account.is_default ? 'bg-blue-500' : 'bg-gray-300'}`} onClick={() => toggleStatus('is_default')}>
+              <div className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${account.is_default ? 'translate-x-4' : ''}`} />
+            </div>
+          </label>
         </div>
       </div>
 
@@ -250,7 +265,7 @@ export function PhoneNumbersPage() {
     setLoadingLiveMap((prev) => ({ ...prev, [account.id]: true }));
     try {
       const res = await fetch(
-        `https://graph.facebook.com/v23.0/${account.phone_number_id}?fields=verified_name,display_phone_number,quality_rating,status,throughput.level&access_token=${account.access_token}`
+        `https://graph.facebook.com/v23.0/${account.phone_number_id}?fields=verified_name,display_phone_number,quality_rating,status,throughput{level}&access_token=${account.access_token}`
       );
       const result = await res.json();
       if (!res.ok) throw new Error(result.error?.message || 'Failed to fetch');
@@ -295,8 +310,8 @@ export function PhoneNumbersPage() {
   };
 
   const handleAdd = async () => {
-    if (!form.name || !form.project || !form.phone_number_id || !form.access_token || !form.waba_id) {
-      toast.error('Name, project, phone number ID, WABA ID, and access token are required');
+    if (!form.name || !form.project || !form.phone_number_id || !form.access_token) {
+      toast.error('Name, project, phone number ID, and access token are required');
       return;
     }
     try {
@@ -437,7 +452,7 @@ export function PhoneNumbersPage() {
           <Input value={form.phone_number_id} onChange={(e) => setForm({ ...form, phone_number_id: e.target.value })} placeholder="1136059359599752" className="font-mono text-sm" />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">WABA ID *</Label>
+          <Label className="text-xs">WABA ID (optional)</Label>
           <Input value={form.waba_id} onChange={(e) => setForm({ ...form, waba_id: e.target.value })} placeholder="1577122394424280" className="font-mono text-sm" />
         </div>
       </div>
@@ -453,16 +468,7 @@ export function PhoneNumbersPage() {
         />
       </div>
 
-      <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="rounded" />
-          Active
-        </label>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" checked={form.is_default} onChange={(e) => setForm({ ...form, is_default: e.target.checked })} className="rounded" />
-          Default Account
-        </label>
-      </div>
+      <div className="text-xs text-muted-foreground">All added numbers are active and usable automatically.</div>
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={() => { setShowAdd(false); setEditingAccount(null); resetForm(); }}>Cancel</Button>

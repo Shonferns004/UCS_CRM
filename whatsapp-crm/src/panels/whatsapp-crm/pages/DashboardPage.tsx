@@ -55,11 +55,11 @@ export function DashboardPage() {
         supabase.from('conversations').select('*', { count: 'exact', head: true }),
         supabase.from('contacts').select('*', { count: 'exact', head: true }),
         supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-        supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('status', 'closed').gte('closed_at', today),
+        supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('status', 'closed'),
         supabase.from('messages').select('*', { count: 'exact', head: true }).gte('created_at', today),
         Promise.all(CATEGORIES.map((cat) => supabase.from('messages').select('*', { count: 'exact', head: true }).eq('message_category', cat).gte('created_at', today))),
         Promise.all(CATEGORIES.map((cat) => supabase.from('messages').select('*', { count: 'exact', head: true }).eq('message_category', cat).gte('created_at', monthStart))),
-        supabase.from('whatsapp_phone_numbers').select('*').order('is_primary', { ascending: false }).limit(5),
+        supabase.from('whatsapp_accounts').select('*').order('is_default', { ascending: false }).limit(5),
       ]);
 
       const todayCounts: Record<string, number> = {};
@@ -69,7 +69,7 @@ export function DashboardPage() {
       let totalCost = 0;
       CATEGORIES.forEach((cat) => { totalCost += calculateCost(monthCounts[cat], CATEGORY_CONFIG[cat].rate); });
 
-      const phones = (dbPhones.data || []) as any[];
+      const phones = ((dbPhones.data || []) as any[]).map((p: any) => ({ ...p, is_primary: p.is_default, display_phone_number: p.phone_number_id }));
       const primaryPhone = phones.find((p: any) => p.is_primary) || phones[0];
 
       const [wabaRes, phoneRes, analyticsRes] = await Promise.all([
@@ -168,9 +168,7 @@ export function DashboardPage() {
                   <div className="space-y-1">
                     <div className="text-lg font-bold">{stats.metaPhone.display_phone_number}</div>
                     <div className="flex items-center gap-2">
-                      {stats.metaPhone.quality_rating && (
-                        <span className={`h-2.5 w-2.5 rounded-full ${stats.metaPhone.quality_rating === 'GREEN' ? 'bg-green-500' : stats.metaPhone.quality_rating === 'YELLOW' ? 'bg-yellow-500' : 'bg-red-500'}`} />
-                      )}
+
                       <span className="text-xs text-muted-foreground">{stats.metaPhone.verified_name || ''}</span>
                     </div>
                     {stats.metaPhone.verified_name && <p className="text-xs text-muted-foreground">{stats.metaPhone.verified_name}</p>}
