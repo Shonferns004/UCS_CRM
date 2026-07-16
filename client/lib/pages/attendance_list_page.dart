@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 import '../main.dart';
 import '../widgets/skeleton_loader.dart';
 
@@ -23,6 +24,19 @@ class _AttendanceListPageState extends State<AttendanceListPage> {
   void initState() {
     super.initState();
     _load();
+    RealtimeService.instance.addListener(_onRealtimeChange);
+  }
+
+  @override
+  void dispose() {
+    RealtimeService.instance.removeListener(_onRealtimeChange);
+    super.dispose();
+  }
+
+  void _onRealtimeChange() {
+    if (RealtimeService.instance.lastEvent == RealtimeEvent.attendance) {
+      _load();
+    }
   }
 
   List<dynamic> get _filteredRecords {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 
 class CorrectionTicketPage extends StatefulWidget {
   final ScrollController? scrollController;
@@ -27,12 +28,20 @@ class _CorrectionTicketPageState extends State<CorrectionTicketPage> {
   void initState() {
     super.initState();
     _loadHistory();
+    RealtimeService.instance.addListener(_onRealtimeChange);
   }
 
   @override
   void dispose() {
+    RealtimeService.instance.removeListener(_onRealtimeChange);
     _reasonController.dispose();
     super.dispose();
+  }
+
+  void _onRealtimeChange() {
+    if (RealtimeService.instance.lastEvent == RealtimeEvent.attendance) {
+      _loadHistory();
+    }
   }
 
   Future<void> _loadHistory() async {

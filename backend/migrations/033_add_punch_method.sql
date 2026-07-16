@@ -1,0 +1,1 @@
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS punch_method VARCHAR(20);

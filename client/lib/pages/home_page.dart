@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 import '../widgets/skeleton_loader.dart';
 import '../main.dart';
 
@@ -94,6 +95,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     final worker = await ApiService.getWorkerData();
     _workerName = worker?['name'] ?? '';
     _workerId = worker?['id']?.toString() ?? '';
+
+    if (_workerId.isNotEmpty) {
+      RealtimeService.instance.init(_workerId);
+    }
+    RealtimeService.instance.removeListener(_onRealtimeChange);
+    RealtimeService.instance.addListener(_onRealtimeChange);
 
     // Load cached data instantly
     final cachedStatus = await ApiService.getCachedTodayStatus();
@@ -280,6 +287,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         (result['lat'] as num).toDouble(),
         (result['lng'] as num).toDouble(),
         dailyCode: result['dailyCode'] as String?,
+        punchMethod: result['punch_method'] as String?,
       );
       final lm = (data['lateMinutes'] ?? 0) as int;
       setState(() {
@@ -330,12 +338,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
-      MaterialPageRoute(builder: (_) => const ScannerPage()),
+      MaterialPageRoute(builder: (_) => ScannerPage(delaySeconds: 60)),
     );
     if (result == null || !mounted) return;
 
     try {
-      await ApiService.punchOut(result['lat'], result['lng']);
+      await ApiService.punchOut(
+        (result['lat'] as num).toDouble(),
+        (result['lng'] as num).toDouble(),
+        punchMethod: result['punch_method'] as String?,
+      );
       setState(() {
         _isPunchedOut = true;
         _punchOutTime = DateTime.now();
@@ -360,6 +372,18 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           ),
         );
       }
+    }
+  }
+
+  void _onRealtimeChange() {
+    final event = RealtimeService.instance.lastEvent;
+    if (event == null) return;
+    switch (event) {
+      case RealtimeEvent.attendance:
+      case RealtimeEvent.notifications:
+        _fetchStatus();
+      default:
+        break;
     }
   }
 
