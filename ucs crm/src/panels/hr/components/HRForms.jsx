@@ -166,10 +166,10 @@ export default function HRForms() {
         emergencyName: data.emergency_contact_name || '',
         emergencyRelation: data.emergency_contact_relation || '',
         emergencyPhone: data.emergency_contact_phone || '',
-        corrAddress: data.correspondence_address || '',
-        corrCity: data.correspondence_city || '',
-        corrState: data.correspondence_state || '',
-        corrPincode: data.correspondence_pincode || '',
+        corrAddress: data.correspondence?.address || '',
+        corrCity: data.correspondence?.city || '',
+        corrState: data.correspondence?.state || '',
+        corrPincode: data.correspondence?.pincode || '',
       });
       setBank({
         bankName: data.bank_name || '',
@@ -192,9 +192,7 @@ export default function HRForms() {
           degree: e.degree || '',
           institution: e.institution || '',
           university: e.university || '',
-          year: e.year_of_passing?.toString() || e.year?.toString() || '',
-          fromYear: e.from_year?.toString() || '',
-          toYear: e.to_year?.toString() || '',
+          year: (e.year_of_passing || e.year)?.toString() || '',
           percentage: e.percentage?.toString() || '',
         })));
       } else {

@@ -29,11 +29,11 @@ export default function PrintForms({ data, onClose }) {
         @page { size: A4; margin: 0; }
         body { margin: 0; padding: 0; background: #fff; }
         .print-page { page-break-after: always; }
-        .t2 { height: 297mm !important; overflow: hidden !important; }
-        .t4 { height: 297mm !important; overflow: hidden !important; }
-        .t5 { height: 297mm !important; overflow: hidden !important; }
-        .t6 { height: 297mm !important; overflow: hidden !important; }
-        img { max-width: 100%; }
+        .t1 { margin-top: 40px !important; }
+        .t2 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
+        .t4 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
+        .t5 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
+        .t6 { height: 297mm !important; overflow: hidden !important; margin-top: 40px !important; }
         @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
       </style>
       </head>
@@ -69,7 +69,7 @@ export default function PrintForms({ data, onClose }) {
         </div>
       </div>
       <div ref={ref}>
-        <Template1 personal={data.personal} education={data.education} photo_url={data.photo_url || ''} />
+        <Template1 personal={data.personal} education={data.education} family={data.family || []} photo_url={data.photo_url || ''} />
         <Template2 />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
         <Template4 personal={data.personal} />

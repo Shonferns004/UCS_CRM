@@ -12,7 +12,7 @@ import {
   getAllocationsByWorker,
   setAllocations,
 } from '../models/workerNgoAllocationModel.js';
-import { saveWorkerEducation, getFullWorkerProfile } from '../models/onboardingModel.js';
+import { updateWorkerPersonalDetails, getFullWorkerProfile } from '../models/onboardingModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 
 const generateLoginId = async (name) => {
@@ -176,7 +176,6 @@ export const getWorkers = async (req, res) => {
       dob: w.dob,
       phone: w.phone,
       department: w.department,
-      shift: w.shift,
       address: w.address,
       city: w.city,
       state: w.state,
@@ -223,7 +222,6 @@ export const getWorker = async (req, res) => {
       phone: p.phone,
       alternate_phone: p.alternate_phone,
       department: p.department,
-      shift: p.shift,
       address: p.address,
       city: p.city,
       state: p.state,
@@ -253,10 +251,7 @@ export const getWorker = async (req, res) => {
       declaration_date: p.declaration_date,
       declaration_place: p.declaration_place,
       previous_organizations: p.previous_organizations,
-      correspondence_address: p.correspondence_address,
-      correspondence_city: p.correspondence_city,
-      correspondence_state: p.correspondence_state,
-      correspondence_pincode: p.correspondence_pincode,
+      correspondence: p.correspondence || {},
       education: p.education || [],
       family: p.family || [],
       references: p.references || [],
@@ -273,14 +268,14 @@ export const editWorker = async (req, res) => {
   try {
     const {
       name, email, gender, dob, phone, alternate_phone,
-      department, shift, address, city, state, pincode,
+      department, address, city, state, pincode,
       permanent_address, father_husband_name, marital_status,
       pan_number, aadhar_number, is_active, ngo_id,
       emergency_contact_name, emergency_contact_relation, emergency_contact_phone,
       account_holder_name, bank_name, ifsc_code, account_number, created_at,
       shift_start_time, shift_end_time,
       photo_url,
-      correspondence_address, correspondence_city, correspondence_state, correspondence_pincode,
+      correspondence,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -290,7 +285,6 @@ export const editWorker = async (req, res) => {
     if (phone !== undefined) updates.phone = phone;
     if (alternate_phone !== undefined) updates.alternate_phone = alternate_phone;
     if (department !== undefined) updates.department = department;
-    if (shift !== undefined) updates.shift = shift;
     if (address !== undefined) updates.address = address;
     if (city !== undefined) updates.city = city;
     if (state !== undefined) updates.state = state;
@@ -313,10 +307,7 @@ export const editWorker = async (req, res) => {
     if (shift_start_time !== undefined) updates.shift_start_time = shift_start_time;
     if (shift_end_time !== undefined) updates.shift_end_time = shift_end_time;
     if (photo_url !== undefined) updates.photo_url = photo_url;
-    if (correspondence_address !== undefined) updates.correspondence_address = correspondence_address;
-    if (correspondence_city !== undefined) updates.correspondence_city = correspondence_city;
-    if (correspondence_state !== undefined) updates.correspondence_state = correspondence_state;
-    if (correspondence_pincode !== undefined) updates.correspondence_pincode = correspondence_pincode;
+    if (correspondence !== undefined) updates.correspondence = correspondence;
     const worker = await updateWorker(req.params.id, updates);
     return res.json({ message: 'Worker updated successfully', worker });
   } catch (error) {
@@ -415,8 +406,8 @@ export const updateMyEducation = async (req, res) => {
     if (!education || !Array.isArray(education)) {
       return res.status(400).json({ message: 'Education list is required' });
     }
-    const result = await saveWorkerEducation(req.user.id, education);
-    return res.json({ message: 'Education updated', education: result });
+    await updateWorkerPersonalDetails(req.user.id, { education_details: education });
+    return res.json({ message: 'Education updated', education });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

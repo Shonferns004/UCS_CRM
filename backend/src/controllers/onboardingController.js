@@ -1,8 +1,5 @@
 import supabase from '../config/supabase.js';
 import {
-  saveWorkerEducation,
-  saveWorkerFamily,
-  saveWorkerReferences,
   updateWorkerPersonalDetails,
   markOnboardingComplete,
   getOnboardingStatus,
@@ -42,30 +39,24 @@ export const submitOnboarding = async (req, res) => {
       previous_organizations,
     } = req.body;
 
-    // 1. Save personal details
+    // 1. Save personal details + education + family + references as JSONB
     if (personal_details) {
       if (previous_organizations) {
         personal_details.previous_organizations = previous_organizations;
       }
+      if (education) {
+        personal_details.education_details = education;
+      }
+      if (family) {
+        personal_details.family_details = family;
+      }
+      if (references) {
+        personal_details.reference_details = references;
+      }
       await updateWorkerPersonalDetails(workerId, personal_details);
     }
 
-    // 2. Save education
-    if (education) {
-      await saveWorkerEducation(workerId, education);
-    }
-
-    // 3. Save family
-    if (family) {
-      await saveWorkerFamily(workerId, family);
-    }
-
-    // 4. Save references
-    if (references) {
-      await saveWorkerReferences(workerId, references);
-    }
-
-    // 5. Mark onboarding as complete
+    // 2. Mark onboarding as complete
     await markOnboardingComplete(workerId);
 
     return res.json({

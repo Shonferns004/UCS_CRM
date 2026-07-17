@@ -152,12 +152,15 @@ class _OnboardingPageState extends State<OnboardingPage> with SingleTickerProvid
       if (worker['city'] != null) _cityCtrl.text = worker['city'];
       if (worker['state'] != null) _stateCtrl.text = worker['state'];
       if (worker['pincode'] != null) _pincodeCtrl.text = worker['pincode'];
-      if (worker['correspondence_address'] != null && worker['correspondence_address'].toString().isNotEmpty) {
-        _hasCorrespondenceAddress = true;
-        _corrAddressCtrl.text = worker['correspondence_address'];
-        if (worker['correspondence_city'] != null) _corrCityCtrl.text = worker['correspondence_city'];
-        if (worker['correspondence_state'] != null) _corrStateCtrl.text = worker['correspondence_state'];
-        if (worker['correspondence_pincode'] != null) _corrPincodeCtrl.text = worker['correspondence_pincode'];
+      if (worker['correspondence'] != null && worker['correspondence'] is Map) {
+        final corr = worker['correspondence'];
+        if (corr['address'] != null && corr['address'].toString().isNotEmpty) {
+          _hasCorrespondenceAddress = true;
+          _corrAddressCtrl.text = corr['address'];
+          if (corr['city'] != null) _corrCityCtrl.text = corr['city'];
+          if (corr['state'] != null) _corrStateCtrl.text = corr['state'];
+          if (corr['pincode'] != null) _corrPincodeCtrl.text = corr['pincode'];
+        }
       }
       if (worker['photo_url'] != null) _uploadedPhotoUrl = worker['photo_url'];
       if (worker['dob'] != null) _dob = DateTime.tryParse(worker['dob'].toString());
@@ -297,10 +300,12 @@ class _OnboardingPageState extends State<OnboardingPage> with SingleTickerProvid
           'city': _cityCtrl.text.trim(),
           'state': _stateCtrl.text.trim(),
           'pincode': _pincodeCtrl.text.trim(),
-          'correspondence_address': _hasCorrespondenceAddress ? _corrAddressCtrl.text.trim() : null,
-          'correspondence_city': _hasCorrespondenceAddress ? _corrCityCtrl.text.trim() : null,
-          'correspondence_state': _hasCorrespondenceAddress ? _corrStateCtrl.text.trim() : null,
-          'correspondence_pincode': _hasCorrespondenceAddress ? _corrPincodeCtrl.text.trim() : null,
+          'correspondence': _hasCorrespondenceAddress ? {
+            'address': _corrAddressCtrl.text.trim(),
+            'city': _corrCityCtrl.text.trim(),
+            'state': _corrStateCtrl.text.trim(),
+            'pincode': _corrPincodeCtrl.text.trim(),
+          } : null,
           'photo_url': _uploadedPhotoUrl,
           'bank_name': _bankNameCtrl.text.trim(),
           'account_holder_name': _accountHolderCtrl.text.trim(),

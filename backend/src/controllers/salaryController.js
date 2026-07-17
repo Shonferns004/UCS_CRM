@@ -535,7 +535,6 @@ export const getMySalaryBreakdown = async (req, res) => {
       monthlyAchievement,
       monthlyTargetMet,
       isNewJoiner,
-      shift: worker.shift,
       createdAt: worker.created_at,
       records: (records || []).map(safeRecord),
       allocations,
