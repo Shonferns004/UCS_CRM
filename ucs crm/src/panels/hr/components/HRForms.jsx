@@ -288,7 +288,7 @@ export default function HRForms() {
                   onError={() => setWorkerPhotoErr(true)} />
               )}
               <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
                 {showDropdown && filteredWorkers.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
                     {filteredWorkers.map(w => (
@@ -373,7 +373,7 @@ export default function HRForms() {
           <>
             <div className="card-head"><h3>Educational Qualifications</h3>
               <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
                 {showDropdown && filteredWorkers.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
                     {filteredWorkers.map(w => (
@@ -409,7 +409,7 @@ export default function HRForms() {
           <>
             <div className="card-head"><h3>Previous Organizations</h3>
               <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
                 {showDropdown && filteredWorkers.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
                     {filteredWorkers.map(w => (
@@ -445,7 +445,7 @@ export default function HRForms() {
           <>
             <div className="card-head"><h3>Family Details</h3>
               <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
                 {showDropdown && filteredWorkers.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
                     {filteredWorkers.map(w => (
@@ -481,7 +481,7 @@ export default function HRForms() {
           <>
             <div className="card-head"><h3>Professional References</h3>
               <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
                 {showDropdown && filteredWorkers.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
                     {filteredWorkers.map(w => (
@@ -517,7 +517,7 @@ export default function HRForms() {
           <>
             <div className="card-head"><h3>Bank Account Details</h3>
               <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
+                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
                 {showDropdown && filteredWorkers.length > 0 && (
                   <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
                     {filteredWorkers.map(w => (

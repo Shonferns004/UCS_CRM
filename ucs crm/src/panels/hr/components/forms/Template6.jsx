@@ -1,4 +1,4 @@
-export default function Template6() {
+export default function Template6({ personal, place }) {
   return (
     <div className="print-page">
       <style>{`
@@ -124,7 +124,7 @@ export default function Template6() {
         </div>
 
         <p>
-          I, ________________________, voluntarily authorize Being Sevak Charitable Trust ("the Trust") 
+          I, {personal?.fullName || '________________________'}, voluntarily authorize Being Sevak Charitable Trust ("the Trust") 
           to capture and use my photographs, videos, audio recordings, name, image, voice, and 
           testimonials for lawful purposes related to the Trust's charitable activities, including 
           awareness campaigns, fundraising, reports, publications, training, social media, website, 
@@ -153,7 +153,7 @@ export default function Template6() {
 
         <div className="field">
           <span className="label">Volunteer Name:</span>
-          <span className="line"></span>
+          <span className="line">{personal?.fullName || ''}</span>
         </div>
 
         <div className="field">
@@ -173,7 +173,7 @@ export default function Template6() {
 
         <div className="field">
           <span className="label">Place:</span>
-          <span className="line"></span>
+          <span className="line">{place || ''}</span>
         </div>
 
         <div className="section">FOR VOLUNTEERS BELOW 18 YEARS</div>

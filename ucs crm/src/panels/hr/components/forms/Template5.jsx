@@ -1,4 +1,4 @@
-export default function Template6() {
+export default function Template6({ personal, place }) {
   return (
     <div className="print-page">
       <style>{`
@@ -29,7 +29,7 @@ export default function Template6() {
           <div className="sub">Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
           <div className="blue" style={{marginTop: 20}}>VOLUNTEER CONFIDENTIALITY / NON-DISCLOSURE AGREEMENT</div>
 
-          <p>This agreement is made between Being Sevak Charitable Trust and the Volunteer on <span className="line med"></span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
+          <p>This agreement is made between Being Sevak Charitable Trust and the Volunteer on <span className="line med">{personal?.fullName || ''}</span>. While volunteering with the Trust, the Volunteer may receive Confidential Information concerning matters affecting or relating to the Trust. The Volunteer agrees as follows:</p>
 
           <p><span className="b">A.</span> Confidential Information and Proprietary Data are the Trust's exclusive property. The Volunteer shall keep them confidential, take reasonable steps to protect them, and not disclose or use them for personal benefit or the benefit of others during or after association with the Trust.</p>
 
@@ -51,7 +51,7 @@ export default function Template6() {
 
           <div className="row" style={{marginTop: 12, paddingTop: 8, display: 'flex', alignItems: 'center', gap: 20}}>
             <span>Date: <span className="line small"></span>/<span className="line small"></span>/<span className="line small"></span></span>
-            <span>Place: <span className="line med"></span></span>
+            <span>Place: <span className="line med">{place || 'Kandivali'}</span></span>
           </div>
 
           <p style={{marginTop: 14}}>Signing below signifies that the Volunteer agrees to the terms and conditions stated above.</p>

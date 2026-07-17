@@ -41,11 +41,11 @@ export default function Template1({ personal, education, family, organizations, 
           </tr>
           <tr>
             <td className="label" style={{height:65}}>Correspondence Address :</td>
-            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{(personal.address || '').match(/.{1,25}/g)?.join('\n') || ''}</td>
+            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{(personal.address || '').match(/.{1,35}/g)?.join('\n') || ''}</td>
           </tr>
           <tr>
             <td className="label" style={{height:65}}>Permanent Address :</td>
-            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{(personal.permanentAddress || personal.address || '').match(/.{1,25}/g)?.join('\n') || ''}</td>
+            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{(personal.permanentAddress || personal.address || '').match(/.{1,35}/g)?.join('\n') || ''}</td>
           </tr>
           <tr>
             <td><strong>Mobile 1 :</strong> {personal.altPhone || ''}</td>
