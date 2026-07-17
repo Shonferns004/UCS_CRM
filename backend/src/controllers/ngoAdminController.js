@@ -1448,7 +1448,8 @@ export const getNewData = async (req, res) => {
       .in('ngo', ngoNames)
       .not('mobile_number', 'is', null)
       .or('status.eq.pending,status.is.null')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(1000000);
 
     if (iErr) throw iErr;
 
