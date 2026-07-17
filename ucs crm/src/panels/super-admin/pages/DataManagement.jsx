@@ -3,6 +3,22 @@ import { api } from '../api/auth'
 
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
+function ProgressModal({ current, total, label }) {
+  const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+  return (
+    <div className="sa-modal-overlay" style={{display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div className="sa-modal" style={{maxWidth:460,textAlign:'center'}}>
+        <h3 style={{marginBottom:12}}>Importing Data...</h3>
+        <div style={{fontSize:13,color:'var(--ink-soft)',marginBottom:16}}>{label}</div>
+        <div style={{width:'100%',height:10,background:'#e5e7eb',borderRadius:5,overflow:'hidden',marginBottom:8}}>
+          <div style={{width:`${pct}%`,height:'100%',background:'#10b981',borderRadius:5,transition:'width .3s ease'}} />
+        </div>
+        <div style={{fontSize:12,color:'var(--ink-soft)'}}>{current} / {total} chunks</div>
+      </div>
+    </div>
+  );
+}
+
 function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample, showTestSheet, ngos, selectedNgoIds, onNgoChange }) {
   const [date, setDate] = useState(todayStr)
   const [dataSourceId, setDataSourceId] = useState('')
@@ -12,6 +28,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
   const [sheets, setSheets] = useState([])
   const [selectedSheets, setSelectedSheets] = useState({})
   const [inspecting, setInspecting] = useState(false)
+  const [progress, setProgress] = useState(null)
 
   const inspectFile = async (f) => {
     if (!f) return
@@ -39,17 +56,110 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
 
   const handleImport = async () => {
     if (!file || !date || !dataSourceId) return
+    if (endpoint === '/data-import/upload-old') {
+      // Old data: use existing file upload flow
+      setImporting(true); onError(''); setResult(null)
+      try {
+        const fd = new FormData()
+        fd.append('file', file); fd.append('date', date); fd.append('data_source_id', dataSourceId)
+        const selected = Object.entries(selectedSheets).filter(([, v]) => v).map(([k]) => k)
+        if (selected.length > 0 && selected.length < sheets.length) selected.forEach(s => fd.append('sheets', s))
+        const res = await api(endpoint, { method: 'POST', body: fd })
+        setResult(res)
+        if (onBatchUpdate) onBatchUpdate()
+      } catch (e) { onError(e.message) } finally { setImporting(false) }
+      return
+    }
+
+    // New data: parse client-side, chunk, upload with progress
     setImporting(true); onError(''); setResult(null)
     try {
-      const fd = new FormData()
-      fd.append('file', file); fd.append('date', date); fd.append('data_source_id', dataSourceId)
-      const selected = Object.entries(selectedSheets).filter(([, v]) => v).map(([k]) => k)
-      if (selected.length > 0 && selected.length < sheets.length) selected.forEach(s => fd.append('sheets', s))
-      if (selectedNgoIds) selectedNgoIds.forEach(id => fd.append('ngo_ids', id))
-      const res = await api(endpoint, { method: 'POST', body: fd })
-      setResult(res)
-      if (onBatchUpdate) onBatchUpdate()
-    } catch (e) { onError(e.message) } finally { setImporting(false) }
+      const XLSX = window.XLSX;
+      if (!XLSX) { onError('XLSX library not loaded. Please refresh.'); setImporting(false); return }
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          const sheetNames = Object.entries(selectedSheets).filter(([, v]) => v).map(([k]) => k);
+          const sheetsToRead = sheetNames.length > 0 ? sheetNames : wb.SheetNames;
+
+          let allRows = [];
+          for (const sn of sheetsToRead) {
+            const ws = wb.Sheets[sn];
+            if (!ws) continue;
+            const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+            for (const row of json) {
+              const norm = {};
+              for (const [k, v] of Object.entries(row)) {
+                const key = k.toString().toLowerCase().replace(/[\s_\-./]+/g, '').trim();
+                norm[key] = v;
+              }
+              const name = norm.name || norm.fullname || norm['fullname'] || norm.donorname || norm['donorname'] || '';
+              const mobile = norm.mobilenumber || norm['mobilenumber'] || norm.mobile || norm.phone || norm.mobileno || norm['mobileno'] || '';
+              const category = norm.category || norm.datacategory || norm['datacategory'] || norm.data || '';
+              const rawAmt = (norm.amount || norm.dummyamount || '0').toString().replace(/,/g, '');
+              const amount = parseFloat(rawAmt) || 0;
+              if (name && mobile) {
+                allRows.push({ name: String(name).trim(), mobile_number: String(mobile).trim(), category: String(category).trim(), amount });
+              }
+            }
+          }
+
+          // Dedup by mobile
+          const seen = new Set();
+          const deduped = allRows.filter(r => {
+            if (seen.has(r.mobile_number)) return false;
+            seen.add(r.mobile_number);
+            return true;
+          });
+
+          if (deduped.length === 0) { onError('No valid rows found in file'); setImporting(false); return }
+
+          const CHUNK_SIZE = 500;
+          const chunks = [];
+          for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
+            chunks.push(deduped.slice(i, i + CHUNK_SIZE));
+          }
+
+          setProgress({ current: 0, total: chunks.length, label: `Parsing complete. Uploading ${deduped.length} donors in ${chunks.length} chunks...` });
+
+          let totalInserted = 0;
+          let batchId = null;
+          const ngoCounts = {};
+
+          for (let i = 0; i < chunks.length; i++) {
+            setProgress({ current: i + 1, total: chunks.length, label: `Uploading chunk ${i + 1}/${chunks.length} (${(i + 1) * CHUNK_SIZE} / ${deduped.length} donors)` });
+
+            const body = { rows: chunks[i], ngo_ids: selectedNgoIds, data_source_id: dataSourceId, import_date: date, chunk_index: i, total_chunks: chunks.length };
+            if (batchId) body.batch_id = batchId;
+            const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
+            totalInserted += res.inserted;
+            if (res.batch_id) batchId = res.batch_id;
+            if (res.ngo_counts) {
+              for (const [n, c] of Object.entries(res.ngo_counts)) {
+                ngoCounts[n] = (ngoCounts[n] || 0) + c;
+              }
+            }
+          }
+
+          setProgress(null);
+          setResult({
+            message: `Data imported for ${selectedNgoIds?.length || 3} NGO(s) successfully`,
+            batch_id: batchId,
+            total_in_file: allRows.length,
+            duplicates_removed: allRows.length - deduped.length,
+            cross_batch_duplicates: 0,
+            imported: totalInserted,
+            ngo_counts: ngoCounts,
+            ngos_used: selectedNgoIds?.length || 3,
+          });
+          if (onBatchUpdate) onBatchUpdate();
+        } catch (e) { onError(e.message); setProgress(null); setImporting(false) }
+      };
+      reader.onerror = () => { onError('Failed to read file'); setImporting(false) };
+      reader.readAsArrayBuffer(file);
+    } catch (e) { onError(e.message); setImporting(false) }
   }
 
   const downloadSample = async () => {
@@ -112,6 +222,8 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
           </div>
         </div>
       </div>
+      {progress && <ProgressModal current={progress.current} total={progress.total} label={progress.label} />}
+
       {result && endpoint !== '/data-import/upload-old' && (
         <div className="sa-card">
           <h3 className="sa-card-title" style={{color:'#10b981'}}>Import Complete</h3>

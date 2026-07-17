@@ -116,7 +116,18 @@ export const uploadImport = async (req, res) => {
       }
     }
 
-    const inserted = await insertNewDataBatch(dbRows);
+    // Insert in batches of 500 to avoid statement timeout
+    const BATCH_SIZE = 500;
+    let totalInserted = 0;
+    for (let i = 0; i < dbRows.length; i += BATCH_SIZE) {
+      const batch = dbRows.slice(i, i + BATCH_SIZE);
+      const { data, error: insErr } = await supabase
+        .from('new_data')
+        .insert(batch)
+        .select();
+      if (insErr) throw insErr;
+      totalInserted += (data || []).length;
+    }
 
     // Build per-NGO stats
     const ngoCounts = {};
@@ -133,11 +144,84 @@ export const uploadImport = async (req, res) => {
       total_in_file: extracted.length,
       duplicates_removed: duplicatesRemoved,
       cross_batch_duplicates: crossBatchDups,
-      imported: inserted.length,
+      imported: totalInserted,
       distribution: distribution.join('; '),
       ngo_counts: ngoCounts,
       ngos_used: ngoNames.length,
       per_ngo_count: trulyNew.length,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const uploadChunk = async (req, res) => {
+  try {
+    const { rows, ngo_ids, data_source_id, import_date, chunk_index, total_chunks } = req.body;
+    if (!rows || rows.length === 0 || !data_source_id || !import_date) {
+      return res.status(400).json({ message: 'rows, data_source_id, and import_date are required' });
+    }
+
+    // Get selected NGOs
+    const { data: allNgos } = await supabase.from('ngos').select('id, name').eq('is_active', true);
+    let selectedNgos = allNgos || [];
+    if (ngo_ids && ngo_ids.length > 0) {
+      selectedNgos = (allNgos || []).filter(n => ngo_ids.includes(n.id));
+    }
+
+    const importBatchId = req.body.batch_id || uuidv4();
+    const ngoNames = selectedNgos.length > 0 ? selectedNgos.map(n => n.name) : ['Default'];
+
+    const dbRows = [];
+    for (const r of rows) {
+      for (const ngo of ngoNames) {
+        dbRows.push({
+          data_source_id,
+          import_date,
+          import_batch_id: importBatchId,
+          mobile_number: r.mobile_number,
+          name: r.name || null,
+          category: r.category || '',
+          amount: parseFloat(r.amount) || 0,
+          ngo,
+        });
+      }
+    }
+
+    // Dedup within chunk
+    const seen = new Set();
+    const deduped = dbRows.filter(r => {
+      const key = `${r.mobile_number}_${r.ngo}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Insert in batches of 500
+    const BATCH_SIZE = 500;
+    let inserted = 0;
+    for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
+      const batch = deduped.slice(i, i + BATCH_SIZE);
+      const { data, error: insErr } = await supabase
+        .from('new_data')
+        .insert(batch)
+        .select();
+      if (insErr) throw insErr;
+      inserted += (data || []).length;
+    }
+
+    const ngoCounts = {};
+    for (const row of deduped) {
+      ngoCounts[row.ngo] = (ngoCounts[row.ngo] || 0) + 1;
+    }
+
+    return res.json({
+      inserted,
+      batch_id: importBatchId,
+      chunk_index,
+      total_chunks,
+      ngo_counts: ngoCounts,
+      done: chunk_index === total_chunks - 1,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
