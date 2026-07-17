@@ -1463,13 +1463,17 @@ export const getNewData = async (req, res) => {
       const mobiles = [...new Set(entries.map(e => e.mobile_number))];
 
       // Safety check: also exclude if donor_profile already exists (backward compat)
-      const { data: existingProfiles, error: pErr } = await supabase
-        .from('donor_profiles')
-        .select('mobile_number')
-        .in('mobile_number', mobiles);
-
-      if (pErr) throw pErr;
-      const existingMobiles = new Set(existingProfiles.map(p => p.mobile_number));
+      // Batch into groups of 500 to avoid Cloudflare 414 URI too large
+      const existingMobiles = new Set();
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
+        const batch = mobiles.slice(i, i + BATCH_SIZE);
+        const { data: profiles } = await supabase
+          .from('donor_profiles')
+          .select('mobile_number')
+          .in('mobile_number', batch);
+        (profiles || []).forEach(p => existingMobiles.add(p.mobile_number));
+      }
       unassigned = entries.filter(e => !existingMobiles.has(e.mobile_number));
     }
 
@@ -1497,15 +1501,7 @@ export const getNewData = async (req, res) => {
       }));
     }
 
-    return res.json({
-      unassigned,
-      ngo_data: ngoData,
-      _debug: {
-        ngoNames,
-        imported_rows_raw: importedRows?.length || 0,
-        unassigned_count: unassigned.length,
-      },
-    });
+    return res.json({ unassigned, ngo_data: ngoData });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
