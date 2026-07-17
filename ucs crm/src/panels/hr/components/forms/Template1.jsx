@@ -1,4 +1,4 @@
-export default function Template1({ personal, education, family, photo_url }) {
+export default function Template1({ personal, education, family, organizations, photo_url }) {
   return (
     <div className="print-page">
       <style>{`
@@ -101,14 +101,16 @@ export default function Template1({ personal, education, family, photo_url }) {
             <th width="14%">To</th>
             <th>Duration</th>
           </tr>
-          <tr>
-            <td style={{textAlign:'center'}}>1</td>
-            <td style={{height:40}}></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-          </tr>
+          {(organizations && organizations.length > 0 ? organizations.slice(0, 3) : [...Array(1)]).map((o, i) => (
+            <tr key={i}>
+              <td style={{textAlign:'center'}}>{i + 1}</td>
+              <td style={{height:40}}>{o?.name || ''}</td>
+              <td>{o?.role || ''}</td>
+              <td style={{textAlign:'center'}}>{(o?.fromYear || '').toString()}</td>
+              <td style={{textAlign:'center'}}>{(o?.toYear || '').toString()}</td>
+              <td></td>
+            </tr>
+          ))}
           </tbody>
         </table>
         <table>
