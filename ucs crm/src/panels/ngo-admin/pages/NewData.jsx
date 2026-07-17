@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../api/auth'
 import { api } from '../../../api/auth'
 
-function StationSelectModal({ stations, onClose, onDistribute }) {
+function StationSelectModal({ stations, onClose, onDistribute, ngoId }) {
   const [selected, setSelected] = useState(() => new Set(stations.map(s => s.station)))
   const [loading, setLoading] = useState(false)
 
@@ -25,7 +25,9 @@ function StationSelectModal({ stations, onClose, onDistribute }) {
     if (selected.size === 0) return
     setLoading(true)
     try {
-      const res = await apiPost('/ngo-admin/new-data/distribute', { stations: Array.from(selected) })
+      const body = { stations: Array.from(selected) }
+      if (ngoId && ngoId !== 'all') body.ngo_id = ngoId
+      const res = await apiPost('/ngo-admin/new-data/distribute', body)
       onDistribute(res)
     } catch (err) {
       alert(err.message)
@@ -190,6 +192,12 @@ function OldDataTab() {
   )
 }
 
+const NGO_COLORS = {
+  bsct: '#2563eb',
+  aflf: '#16a34a',
+  mann: '#ec4899',
+};
+
 export default function NewData() {
   const [tab, setTab] = useState('new')
   const [donors, setDonors] = useState([])
@@ -228,7 +236,9 @@ export default function NewData() {
     setDistributing(true)
     setResult(null)
     try {
-      const res = await apiPost('/ngo-admin/new-data/distribute', {})
+      const body = {}
+      if (selectedNgoId !== 'all') body.ngo_id = selectedNgoId
+      const res = await apiPost('/ngo-admin/new-data/distribute', body)
       setResult(res)
       load()
     } catch (err) {
@@ -290,6 +300,7 @@ export default function NewData() {
                     <tr>
                       <th>Name</th>
                       <th>Mobile</th>
+                      <th>NGO</th>
                       <th>Category</th>
                       <th>Amount</th>
                       <th>Imported</th>
@@ -300,6 +311,16 @@ export default function NewData() {
                       <tr key={d.id || d.mobile_number || i}>
                         <td><strong>{d.name || '\u2014'}</strong></td>
                         <td><code>{d.mobile_number}</code></td>
+                        <td>
+                          {d.ngo ? (
+                            <span style={{
+                              display:'inline-block', padding:'2px 8px', borderRadius:4, fontSize:11, fontWeight:600,
+                              color:'#fff', background: NGO_COLORS[d.ngo.toLowerCase()] || '#6b7280'
+                            }}>
+                              {d.ngo}
+                            </span>
+                          ) : '\u2014'}
+                        </td>
                         <td><span className="pill">{d.category || '\u2014'}</span></td>
                         <td>{'\u20B9'}{Number(d.amount || 0).toLocaleString()}</td>
                         <td className="muted">{d.created_at ? new Date(d.created_at).toLocaleDateString() : '\u2014'}</td>
@@ -316,6 +337,7 @@ export default function NewData() {
               stations={stations}
               onClose={() => setShowStationSelect(false)}
               onDistribute={(res) => { setShowStationSelect(false); setResult(res); load() }}
+              ngoId={selectedNgoId}
             />
           )}
         </>

@@ -1448,7 +1448,8 @@ export const getNewData = async (req, res) => {
       .in('ngo', ngoNames)
       .not('mobile_number', 'is', null)
       .or('status.eq.pending,status.is.null')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(1000000);
 
     if (iErr) throw iErr;
 
@@ -1479,7 +1480,8 @@ export const getNewData = async (req, res) => {
       .from('donor_profiles')
       .select('id, name, mobile_number, category, amount, first_imported_at, ngo')
       .in('ngo', ngoNames)
-      .order('first_imported_at', { ascending: false });
+      .order('first_imported_at', { ascending: false })
+      .limit(1000000);
 
     if (npErr) throw npErr;
 
@@ -1507,12 +1509,16 @@ export const getNewData = async (req, res) => {
 
 export const distributeNewData = async (req, res) => {
   try {
-    const { stations: selectedStations } = req.body;
-    const access = await getUserNgoAccess(req.user.id);
-    const ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    const { stations: selectedStations, ngo_id: filterNgoId } = req.body;
+    let access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    // Filter to specific NGO if provided
+    if (filterNgoId) {
+      ngoEntries = ngoEntries.filter(e => e.ngoId === filterNgoId);
     }
     if (ngoEntries.length === 0) {
       return res.json({ message: 'No NGO assigned to your account', count: 0 });
