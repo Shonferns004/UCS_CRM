@@ -1427,7 +1427,10 @@ export const getNewData = async (req, res) => {
       if (ngo) { ngoNames = [ngo.name]; ngoIds = [req.user.ngo_id]; }
     }
 
-    const { ngo_id: filterNgoId } = req.query;
+    const { ngo_id: filterNgoId, page: pageStr, per_page: perPageStr } = req.query;
+    const pageNum = Math.max(1, parseInt(pageStr) || 1);
+    const perPage = Math.min(5000, Math.max(10, parseInt(perPageStr) || 500));
+
     if (filterNgoId && filterNgoId !== 'all') {
       const idx = ngoIds.indexOf(filterNgoId);
       if (idx !== -1) {
@@ -1438,7 +1441,7 @@ export const getNewData = async (req, res) => {
     }
 
     if (ngoNames.length === 0) {
-      return res.json({ unassigned: [], ngo_data: [] });
+      return res.json({ unassigned: [], ngo_data: [], total: 0, page: pageNum, per_page: perPage });
     }
 
     // 1. new_data for admin's NGOs that are still pending conversion
@@ -1502,7 +1505,11 @@ export const getNewData = async (req, res) => {
       }));
     }
 
-    return res.json({ unassigned, ngo_data: ngoData });
+    const total = unassigned.length;
+    const start = (pageNum - 1) * perPage;
+    const pagedUnassigned = unassigned.slice(start, start + perPage);
+
+    return res.json({ unassigned: pagedUnassigned, ngo_data: ngoData, total, page: pageNum, per_page: perPage });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
