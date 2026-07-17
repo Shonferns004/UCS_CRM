@@ -1,3 +1,5 @@
+const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
+
 export default function Template1({ personal, education, family, organizations, photo_url }) {
   return (
     <div className="print-page">
@@ -32,20 +34,20 @@ export default function Template1({ personal, education, family, organizations, 
           <tr><td colSpan="3" className="section">PERSONAL DETAILS</td></tr>
           <tr>
             <td className="label">Name :</td>
-            <td style={{fontWeight:600}}>{personal.fullName || ''}</td>
+            <td style={{fontWeight:600}}>{titleCase(personal.fullName)}</td>
             <td rowSpan="4" className="photo">{photo_url ? <img src={photo_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', margin:'auto' }} /> : 'PHOTOGRAPH'}</td>
           </tr>
           <tr>
             <td className="label">Father's / Husband Name :</td>
-            <td style={{fontWeight:600}}>{personal.fatherHusband || ''}</td>
+            <td style={{fontWeight:600}}>{titleCase(personal.fatherHusband)}</td>
           </tr>
           <tr>
             <td className="label" style={{height:65}}>Correspondence Address :</td>
-            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{(personal.address || '').match(/.{1,35}/g)?.join('\n') || ''}</td>
+            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{titleCase((personal.address || '').match(/.{1,35}/g)?.join('\n') || '')}</td>
           </tr>
           <tr>
             <td className="label" style={{height:65}}>Permanent Address :</td>
-            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{(personal.permanentAddress || personal.address || '').match(/.{1,35}/g)?.join('\n') || ''}</td>
+            <td style={{fontWeight:600, height:65, whiteSpace:'pre-wrap'}}>{titleCase((personal.permanentAddress || personal.address || '').match(/.{1,35}/g)?.join('\n') || '')}</td>
           </tr>
           <tr>
             <td><strong>Mobile 1 :</strong> {personal.altPhone || ''}</td>
@@ -54,8 +56,8 @@ export default function Template1({ personal, education, family, organizations, 
           </tr>
           <tr>
             <td><strong>Date of Birth :</strong> {personal.dob || ''}</td>
-            <td><strong>Marital Status :</strong> {personal.maritalStatus || ''}</td>
-            <td><strong>Gender :</strong> {personal.gender || ''}</td>
+            <td><strong>Marital Status :</strong> {titleCase(personal.maritalStatus)}</td>
+            <td><strong>Gender :</strong> {titleCase(personal.gender)}</td>
           </tr>
           <tr>
             <td><strong>PAN Card No :</strong> {personal.panNumber || ''}</td>
@@ -78,8 +80,8 @@ export default function Template1({ personal, education, family, organizations, 
           ) : (
             education.slice(0, 1).map((e, i) => (
               <tr key={i}>
-                <td>{e.degree || ''}</td>
-                <td>{e.institution || ''}</td>
+                <td>{titleCase(e.degree)}</td>
+                <td>{titleCase(e.institution)}</td>
                 <td colSpan="2">{(e.year_of_passing || e.year || '').toString()}</td>
                 <td>{e.percentage || ''}</td>
               </tr>
@@ -92,23 +94,21 @@ export default function Template1({ personal, education, family, organizations, 
         </table>
         <table>
           <tbody>
-          <tr><td colSpan="6" className="section">VOLUNTEER DETAILS (PREVIOUS ORGANISATIONS / AFFILIATIONS)</td></tr>
+          <tr><td colSpan="5" className="section">VOLUNTEER DETAILS (PREVIOUS ORGANISATIONS / AFFILIATIONS)</td></tr>
           <tr>
             <th width="8%">Sr.No</th>
             <th>Organisation / Trust</th>
             <th>Role / Designation</th>
             <th width="14%">From</th>
             <th width="14%">To</th>
-            <th>Duration</th>
           </tr>
           {(organizations && organizations.length > 0 ? organizations.slice(0, 3) : [...Array(1)]).map((o, i) => (
             <tr key={i}>
               <td style={{textAlign:'center'}}>{i + 1}</td>
-              <td style={{height:40}}>{o?.name || ''}</td>
-              <td>{o?.role || ''}</td>
+              <td style={{height:40}}>{titleCase(o?.name)}</td>
+              <td>{titleCase(o?.role)}</td>
               <td style={{textAlign:'center'}}>{(o?.fromYear || '').toString()}</td>
               <td style={{textAlign:'center'}}>{(o?.toYear || '').toString()}</td>
-              <td></td>
             </tr>
           ))}
           </tbody>
@@ -122,9 +122,9 @@ export default function Template1({ personal, education, family, organizations, 
             return (
               <tr key={i}>
                 <td style={{textAlign:'center'}}>{i + 1}</td>
-                <td style={{height:35, textAlign:'center'}}>{f ? (f.name || '-') : '-'}</td>
-                <td style={{textAlign:'center'}}>{f ? (f.relationship || '-') : '-'}</td>
-                <td style={{textAlign:'center'}}>{f ? (f.occupation || '-') : '-'}</td>
+                <td style={{height:35, textAlign:'center'}}>{f ? titleCase(f.name) || '-' : '-'}</td>
+                <td style={{textAlign:'center'}}>{f ? titleCase(f.relationship) || '-' : '-'}</td>
+                <td style={{textAlign:'center'}}>{f ? titleCase(f.occupation) || '-' : '-'}</td>
                 <td style={{textAlign:'center'}}>{f ? (f.phone || '-') : '-'}</td>
               </tr>
             );
