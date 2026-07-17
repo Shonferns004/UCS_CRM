@@ -1030,7 +1030,7 @@ export const getStations = async (req, res) => {
 
     let targetNgoIds;
     if (ngo_id) {
-      targetNgoIds = [parseInt(ngo_id)];
+      targetNgoIds = [ngo_id];
     } else {
       const access = await getUserNgoAccess(req.user.id);
       targetNgoIds = access.map(a => a.ngo_id).filter(Boolean);
@@ -1067,8 +1067,8 @@ export const getStations = async (req, res) => {
 
     const ngoIdToName = {};
     if (ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', parseInt(ngo_id)).single();
-      if (ngo) ngoIdToName[parseInt(ngo_id)] = ngo.name;
+      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', ngo_id).single();
+      if (ngo) ngoIdToName[ngo_id] = ngo.name;
     } else {
       const access = await getUserNgoAccess(req.user.id);
       for (const a of access) {

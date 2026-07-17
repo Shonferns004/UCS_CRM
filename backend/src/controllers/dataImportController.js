@@ -61,7 +61,7 @@ export const uploadImport = async (req, res) => {
     // Filter NGOs by selected ngo_ids if provided
     let selectedNgos = allNgos;
     if (ngo_ids) {
-      const ids = Array.isArray(ngo_ids) ? ngo_ids.map(Number) : ngo_ids.split(',').map(s => Number(s.trim()));
+      const ids = Array.isArray(ngo_ids) ? ngo_ids : ngo_ids.split(',').map(s => s.trim());
       selectedNgos = allNgos.filter(n => ids.includes(n.id));
     }
 
