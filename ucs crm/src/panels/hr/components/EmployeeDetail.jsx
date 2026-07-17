@@ -162,7 +162,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       alternate_phone: data.alternate_phone || '',
       department: data.department || '',
       ngo_id: data.ngo_id || '',
-      shift: data.shift || '',
       address: data.address || '',
       city: data.city || '',
       state: data.state || '',
@@ -181,6 +180,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       bank_name: data.bank_name || '',
       ifsc_code: data.ifsc_code || '',
       account_number: data.account_number || '',
+      correspondence_address: data.correspondence?.address || '',
+      correspondence_city: data.correspondence?.city || '',
+      correspondence_state: data.correspondence?.state || '',
+      correspondence_pincode: data.correspondence?.pincode || '',
     });
     setEditNgoAllocations(allocations.map(a => a.ngo_id));
     setEditing(true);
@@ -196,6 +199,16 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       if (!payload.dob) payload.dob = null;
       if (!payload.created_at) delete payload.created_at;
       else payload.created_at = payload.created_at + 'T00:00:00.000Z';
+      payload.correspondence = {
+        address: payload.correspondence_address || '',
+        city: payload.correspondence_city || '',
+        state: payload.correspondence_state || '',
+        pincode: payload.correspondence_pincode || '',
+      };
+      delete payload.correspondence_address;
+      delete payload.correspondence_city;
+      delete payload.correspondence_state;
+      delete payload.correspondence_pincode;
       await updateWorker(worker.id, payload);
       if (form.department === 'NGO Admin' && editNgoAllocations.length > 0) {
         try {
@@ -587,7 +600,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         options={[{value:'',label:'NA'}, ...ngos.map(n => ({value:n.id, label:n.name}))]} />
                     </div>
                   ) : <Field label="NGO" value={ngoName} />}
-                  {editing ? <EditField label="Shift" value={form.shift} onChange={setField('shift')} /> : <Field label="Shift" value={data.shift} />}
                   {editing ? <div className="detail-field"><span className="detail-label">Joining Date</span><DatePicker value={form.created_at} onChange={setField('created_at')} /></div> : <Field label="Joining Date" value={data.created_at ? new Date(data.created_at).toLocaleDateString() : '—'} />}
                   {editing ? <EditField label="Gender" value={form.gender} onChange={setField('gender')} /> : <Field label="Gender" value={data.gender} />}
                   {editing ? <div className="detail-field"><span className="detail-label">Date of Birth</span><DatePicker value={form.dob} onChange={setField('dob')} /></div> : <Field label="Date of Birth" value={data.dob} />}
@@ -602,6 +614,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   {editing ? <EditField label="City" value={form.city} onChange={setField('city')} /> : <Field label="City" value={data.city} />}
                   {editing ? <EditField label="State" value={form.state} onChange={setField('state')} /> : <Field label="State" value={data.state} />}
                   {editing ? <EditField label="Pincode" value={form.pincode} onChange={setField('pincode')} /> : <Field label="Pincode" value={data.pincode} />}
+                  {editing ? <EditField label="Correspondence Address" value={form.correspondence_address} onChange={setField('correspondence_address')} /> : <Field label="Correspondence Address" value={data.correspondence?.address} />}
+                  {editing ? <EditField label="Corr. City" value={form.correspondence_city} onChange={setField('correspondence_city')} /> : <Field label="Corr. City" value={data.correspondence?.city} />}
+                  {editing ? <EditField label="Corr. State" value={form.correspondence_state} onChange={setField('correspondence_state')} /> : <Field label="Corr. State" value={data.correspondence?.state} />}
+                  {editing ? <EditField label="Corr. Pincode" value={form.correspondence_pincode} onChange={setField('correspondence_pincode')} /> : <Field label="Corr. Pincode" value={data.correspondence?.pincode} />}
                   {editing && (
                     <div className="detail-field">
                       <span className="detail-label">Active</span>

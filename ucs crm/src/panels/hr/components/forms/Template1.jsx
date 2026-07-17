@@ -1,4 +1,4 @@
-export default function Template1({ personal, education, photo_url }) {
+export default function Template1({ personal, education, family, photo_url }) {
   return (
     <div className="print-page">
       <style>{`
@@ -28,11 +28,12 @@ export default function Template1({ personal, education, photo_url }) {
         </div>
         <div className="form-title">VOLUNTEER JOINING FORM</div>
         <table>
+          <tbody>
           <tr><td colSpan="3" className="section">PERSONAL DETAILS</td></tr>
           <tr>
             <td className="label">Name :</td>
             <td style={{fontWeight:600}}>{personal.fullName || ''}</td>
-            <td rowSpan="4" className="photo">{photo_url ? <img src={photo_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', margin:'auto' }} /> : 'PHOTOGRAPH'}</td>
+            <td rowSpan="4" className="photo" style={{padding:0}}>{photo_url ? <img src={photo_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} /> : 'PHOTOGRAPH'}</td>
           </tr>
           <tr>
             <td className="label">Father's / Husband Name :</td>
@@ -62,8 +63,10 @@ export default function Template1({ personal, education, photo_url }) {
             <td></td>
           </tr>
           <tr><td colSpan="3" className="section">EDUCATIONAL DETAILS (higher education)</td></tr>
+          </tbody>
         </table>
         <table className="edu">
+          <tbody>
           <tr>
             <th>Degree</th>
             <th>University / Institute</th>
@@ -78,8 +81,7 @@ export default function Template1({ personal, education, photo_url }) {
               <tr key={i}>
                 <td>{e.degree || ''}</td>
                 <td>{e.institution || ''}</td>
-                <td>{e.year || ''}</td>
-                <td></td>
+                <td colSpan="2">{(e.year_of_passing || e.year || '').toString()}</td>
                 <td>{e.percentage || ''}</td>
               </tr>
             ))
@@ -87,8 +89,10 @@ export default function Template1({ personal, education, photo_url }) {
           {education.length > 0 && education.length < 1 && [...Array(1 - education.length)].map((_, i) => (
             <tr key={`empty-${i}`}><td></td><td></td><td></td><td></td><td></td></tr>
           ))}
+          </tbody>
         </table>
         <table>
+          <tbody>
           <tr><td colSpan="6" className="section">VOLUNTEER DETAILS (PREVIOUS ORGANISATIONS / AFFILIATIONS)</td></tr>
           <tr>
             <th width="8%">Sr.No</th>
@@ -106,11 +110,13 @@ export default function Template1({ personal, education, photo_url }) {
             <td></td>
             <td></td>
           </tr>
+          </tbody>
         </table>
         <table>
+          <tbody>
           <tr><td colSpan="5" className="section">FAMILY DETAILS / PERSONAL REFERENCE</td></tr>
           <tr><th width="8%">S.No</th><th>Name</th><th>Relation</th><th>Occupation</th><th>Mobile No</th></tr>
-          {[...Array(3)].map((_, i) => (
+          {(family && family.length > 0 ? family.slice(0, 3) : [...Array(3)]).map((f, i) => (
             <tr key={i}>
               <td style={{textAlign:'center'}}>{i + 1}</td>
               <td style={{height:35}}></td>
@@ -119,6 +125,7 @@ export default function Template1({ personal, education, photo_url }) {
               <td></td>
             </tr>
           ))}
+          </tbody>
         </table>
         <div className="footer">
           Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
