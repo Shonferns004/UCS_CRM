@@ -1467,16 +1467,21 @@ export const getNewData = async (req, res) => {
       const mobiles = [...new Set(entries.map(e => e.mobile_number))];
 
       // Safety check: also exclude if donor_profile already exists (backward compat)
-      // Batch into groups of 500 to avoid Cloudflare 414 URI too large
+      // Batch into groups of 500 to avoid Cloudflare 414 URI too large, run in parallel
       const existingMobiles = new Set();
       const BATCH_SIZE = 500;
+      const batchQueries = [];
       for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
         const batch = mobiles.slice(i, i + BATCH_SIZE);
-        const { data: profiles } = await supabase
-          .from('donor_profiles')
-          .select('mobile_number')
-          .in('mobile_number', batch);
-        (profiles || []).forEach(p => existingMobiles.add(p.mobile_number));
+        batchQueries.push(
+          supabase.from('donor_profiles').select('mobile_number').in('mobile_number', batch)
+        );
+      }
+      const batchResults = await Promise.allSettled(batchQueries);
+      for (const r of batchResults) {
+        if (r.status === 'fulfilled' && r.value.data) {
+          r.value.data.forEach(p => existingMobiles.add(p.mobile_number));
+        }
       }
       unassigned = entries.filter(e => !existingMobiles.has(e.mobile_number));
     }
@@ -1562,16 +1567,21 @@ export const distributeNewData = async (req, res) => {
         }
         const mobiles = Object.keys(latest);
 
-        // Batch existing profile check to avoid 414
+        // Batch existing profile check to avoid 414, run in parallel
         const existingMap = {};
         const BATCH = 500;
+        const batchQueries = [];
         for (let i = 0; i < mobiles.length; i += BATCH) {
           const batch = mobiles.slice(i, i + BATCH);
-          const { data: profiles } = await supabase
-            .from('donor_profiles')
-            .select('id, mobile_number')
-            .in('mobile_number', batch);
-          for (const p of profiles || []) existingMap[p.mobile_number] = p.id;
+          batchQueries.push(
+            supabase.from('donor_profiles').select('id, mobile_number').in('mobile_number', batch)
+          );
+        }
+        const batchResults = await Promise.allSettled(batchQueries);
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled' && r.value.data) {
+            for (const p of r.value.data) existingMap[p.mobile_number] = p.id;
+          }
         }
 
         const toInsert = [];
@@ -1641,13 +1651,18 @@ export const distributeNewData = async (req, res) => {
       let existingProfileIds = [];
       if (allMobiles.length > 0) {
         const BATCH = 500;
+        const batchQueries = [];
         for (let i = 0; i < allMobiles.length; i += BATCH) {
           const batch = allMobiles.slice(i, i + BATCH);
-          const { data: profiles } = await supabase
-            .from('donor_profiles')
-            .select('id')
-            .in('mobile_number', batch);
-          if (profiles) existingProfileIds.push(...profiles.map(p => p.id));
+          batchQueries.push(
+            supabase.from('donor_profiles').select('id').in('mobile_number', batch)
+          );
+        }
+        const batchResults = await Promise.allSettled(batchQueries);
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled' && r.value.data) {
+            existingProfileIds.push(...r.value.data.map(p => p.id));
+          }
         }
       }
       const allIds = [...new Set([...newProfileIds, ...existingProfileIds])];
