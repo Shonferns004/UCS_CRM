@@ -609,15 +609,11 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   {editing ? <EditField label="Marital Status" value={form.marital_status} onChange={setField('marital_status')} /> : <Field label="Marital Status" value={data.marital_status} />}
                   {editing ? <EditField label="PAN Number" value={form.pan_number} onChange={setField('pan_number')} /> : <Field label="PAN Number" value={data.pan_number} />}
                   {editing ? <EditField label="Aadhar Number" value={form.aadhar_number} onChange={setField('aadhar_number')} /> : <Field label="Aadhar Number" value={data.aadhar_number} />}
-                  {editing ? <EditField label="Address" value={form.address} onChange={setField('address')} /> : <Field label="Address" value={data.address} />}
-                  {editing ? <EditField label="Permanent Address" value={form.permanent_address} onChange={setField('permanent_address')} /> : <Field label="Permanent Address" value={data.permanent_address} />}
+                  {editing ? <EditField label="Permanent Address" value={form.address} onChange={setField('address')} /> : <Field label="Permanent Address" value={data.address} />}
+                  {editing ? <EditField label="Correspondence Address" value={form.correspondence_address} onChange={setField('correspondence_address')} /> : <Field label="Correspondence Address" value={data.correspondence?.address || '203, Lifescape Aqunino annex chs, A.V. Nagvekar marg, old Prabhadevi opp tata press'} />}
                   {editing ? <EditField label="City" value={form.city} onChange={setField('city')} /> : <Field label="City" value={data.city} />}
                   {editing ? <EditField label="State" value={form.state} onChange={setField('state')} /> : <Field label="State" value={data.state} />}
                   {editing ? <EditField label="Pincode" value={form.pincode} onChange={setField('pincode')} /> : <Field label="Pincode" value={data.pincode} />}
-                  {editing ? <EditField label="Correspondence Address" value={form.correspondence_address} onChange={setField('correspondence_address')} /> : <Field label="Correspondence Address" value={data.correspondence?.address} />}
-                  {editing ? <EditField label="Corr. City" value={form.correspondence_city} onChange={setField('correspondence_city')} /> : <Field label="Corr. City" value={data.correspondence?.city} />}
-                  {editing ? <EditField label="Corr. State" value={form.correspondence_state} onChange={setField('correspondence_state')} /> : <Field label="Corr. State" value={data.correspondence?.state} />}
-                  {editing ? <EditField label="Corr. Pincode" value={form.correspondence_pincode} onChange={setField('correspondence_pincode')} /> : <Field label="Corr. Pincode" value={data.correspondence?.pincode} />}
                   {editing && (
                     <div className="detail-field">
                       <span className="detail-label">Active</span>
@@ -637,15 +633,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   {editing ? <EditField label="Bank Name" value={form.bank_name} onChange={setField('bank_name')} /> : <Field label="Bank Name" value={data.bank_name} />}
                   {editing ? <EditField label="IFSC Code" value={form.ifsc_code} onChange={setField('ifsc_code')} /> : <Field label="IFSC Code" value={data.ifsc_code} />}
                   {editing ? <EditField label="Account Number" value={form.account_number} onChange={setField('account_number')} /> : <Field label="Account Number" value={data.account_number} />}
-                </div>
-              </div>
-
-              <div className="card" style={{ marginBottom:16 }}>
-                <div className="card-head"><h3>Emergency Contact</h3></div>
-                <div className="detail-grid">
-                  {editing ? <EditField label="Name" value={form.emergency_contact_name} onChange={setField('emergency_contact_name')} /> : <Field label="Name" value={data.emergency_contact_name} />}
-                  {editing ? <EditField label="Relation" value={form.emergency_contact_relation} onChange={setField('emergency_contact_relation')} /> : <Field label="Relation" value={data.emergency_contact_relation} />}
-                  {editing ? <EditField label="Phone" value={form.emergency_contact_phone} onChange={setField('emergency_contact_phone')} /> : <Field label="Phone" value={data.emergency_contact_phone} />}
                 </div>
               </div>
 
