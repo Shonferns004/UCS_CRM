@@ -51,7 +51,7 @@ function allFormsHTML(w) {
   const eRow = edu.length ? edu.slice(0, 1).map(e => `<tr><td>${tc(e.degree)}</td><td>${tc(e.institution)}</td><td colspan="2">${e.year_of_passing || e.year || ''}</td><td>${e.percentage || ''}</td></tr>`).join('') : '<tr><td></td><td></td><td colspan="2"></td><td></td></tr>';
   const oRows = (orgs.length ? orgs.slice(0, 3) : [{}, {}, {}]).map((o, i) => `<tr><td style="text-align:center">${i + 1}</td><td style="height:40px">${tc(o.name || o.organization_name)}</td><td>${tc(o.role || o.designation)}</td><td style="text-align:center">${o.from_year || o.fromYear || ''}</td><td style="text-align:center">${o.to_year || o.toYear || ''}</td></tr>`).join('');
   const fRows = [0, 1, 2].map(i => { const f = fam[i] || {}; return `<tr><td style="text-align:center">${i + 1}</td><td style="height:35px;text-align:center">${f.name ? tc(f.name) : '-'}</td><td style="text-align:center">${f.relationship ? tc(f.relationship) : '-'}</td><td style="text-align:center">${f.occupation ? tc(f.occupation) : '-'}</td><td style="text-align:center">${f.phone || '-'}</td></tr>`; }).join('');
-  const d = dd ? new Date(dd).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+  const d = dd ? new Date(dd).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${tc(w.name)} - All Forms</title>
 <style>
 @media print{body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4;margin:0}}
@@ -365,9 +365,8 @@ export default function Workers({ onSelect, onOffboard }) {
 
   const handleBulkPrint = async () => {
     try {
-      const details = await Promise.all((workers || []).map(w =>
-        api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)
-      ));
+      const details = Object.values(workerDetails);
+      if (details.length === 0) { alert('No worker data loaded'); return; }
       const verified = details.filter(d => d && isComplete(d));
       if (verified.length === 0) { alert('No verified workers to print'); return; }
       const zip = new JSZip();
