@@ -16,10 +16,10 @@ export default function Template6({ personal, declarationDate, place }) {
         .t6 .long{min-width:230px}
         .t6 .med{min-width:180px}
         .t6 .small{min-width:80px}
-        .t6 .sigwrap{display:flex;justify-content:space-between;margin-top:20px}
-        .t6 .sig{width:260px}
+        .t6 .sigwrap{display:flex;justify-content:space-between;align-items:flex-start;margin-top:20px}
+        .t6 .sig{width:45%}
         .t6 .sig .l{border-bottom:1px solid #000;height:22px}
-.t6 .sig div:last-child{text-align:left;font-size:15px;margin-top:3px}
+.t6 .sig div:last-child{text-align:left;font-size:13px;margin-top:3px}
 .t6 .footer{margin-top:auto;border-top:2px solid #8b3434;padding-top:4px;text-align:center;font-size:14px;color:#333}
       `}</style>
       <div className="t6">
@@ -51,7 +51,7 @@ export default function Template6({ personal, declarationDate, place }) {
 
           <div className="row" style={{marginTop: 12, paddingTop: 8, display: 'flex', alignItems: 'center', gap: 20}}>
             <span>Date: {declarationDate ? new Date(declarationDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : <><span className="line small"></span>/<span className="line small"></span>/<span className="line small"></span></>}</span>
-            <span>Place: <span className="line med">{place || 'Mumbai'}</span></span>
+            <span>Place: {place || 'Mumbai'}</span>
           </div>
 
           <div className="sigwrap">
