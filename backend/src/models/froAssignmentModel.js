@@ -244,7 +244,9 @@ export const getStationDispositionStats = async (ngoId, from, to) => {
 
   const stationMap = {};
   const seen = new Set();
-  for (const a of data || []) {
+  const limit = 500000;
+  for (let i = 0; i < (data || []).length && i < limit; i++) {
+    const a = data[i];
     if (seen.has(a.donor_id)) continue;
     seen.add(a.donor_id);
     const station = a.station || 'Unassigned';

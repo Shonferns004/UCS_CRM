@@ -1,5 +1,5 @@
 import supabase from '../config/supabase.js';
-import { getDonorByMobile, getDonorProfilesByImportNgo } from '../models/donorProfileModel.js';
+import { getDonorByMobile } from '../models/donorProfileModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
@@ -455,13 +455,24 @@ export const getDashboard = async (req, res) => {
     const seen = new Set();
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
-    let totalDonors = [];
+    let totalDonorCount = 0;
     if (ngoNames.length > 0) {
-      totalDonors = await getDonorProfilesByImportNgo(ngoNames, 100000);
+      const { data: mobiles, error: mErr } = await supabase
+        .from('new_data')
+        .select('mobile_number')
+        .in('ngo', ngoNames)
+        .not('mobile_number', 'is', null);
+      if (mErr) throw mErr;
+      totalDonorCount = new Set((mobiles || []).map(r => r.mobile_number)).size;
     }
 
-    const allAssignments = (await Promise.all(ngoIds.map(ngoId => findAssignmentsByNgo(ngoId)))).flat();
-    const collectedDonations = allAssignments.filter(a => a.status === 'donation_collected');
+    const { data: allAssignments, error: aErr } = await supabase
+      .from('fro_assignments')
+      .select('donor_id, status, fro_worker_id, assigned_at')
+      .in('ngo_id', ngoIds)
+      .order('assigned_at', { ascending: false });
+    if (aErr) throw aErr;
+    const collectedDonations = (allAssignments || []).filter(a => a.status === 'donation_collected');
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -635,7 +646,6 @@ export const getDashboard = async (req, res) => {
       .maybeSingle();
     if (workerRec) daily_target = Number(workerRec.daily_collection_target) || 0;
 
-    const totalDonorCount = totalDonors.length;
     const noMarkCount = Math.max(0, activeFroCount - workersPresent - workersAbsent);
 
     return res.json({
@@ -823,10 +833,13 @@ export const getFroPerformance = async (req, res) => {
       for (const l of live || []) liveStatusMap[l.fro_worker_id] = l.today_talk_seconds || 0;
     }
 
-    const allAssignments = (await Promise.all(ngoIds.map(ngoId => findAssignmentsByNgo(ngoId)))).flat();
+    const { data: faRows } = await supabase
+      .from('fro_assignments')
+      .select('status, fro_worker_id')
+      .in('ngo_id', ngoIds);
     const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request']);
     const workerAssignments = {};
-    for (const a of allAssignments) {
+    for (const a of faRows || []) {
       if (a.status === 'reassigned') continue;
       if (!workerAssignments[a.fro_worker_id]) workerAssignments[a.fro_worker_id] = { connected: 0, total: 0 };
       workerAssignments[a.fro_worker_id].total++;
