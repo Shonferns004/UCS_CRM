@@ -93,6 +93,7 @@ export default function MyDonors() {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [searchingAll, setSearchingAll] = useState(false);
+  const [returnToDonor, setReturnToDonor] = useState(null);
   const searchRef = useRef(null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
@@ -277,19 +278,29 @@ export default function MyDonors() {
       await addDonorLog(donor.id, logData);
       if (selected) endCall();
       const newDonors = await getMyDonors(filterStatus);
-      const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
       setDonors(newDonors);
       setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
-      if (stillExists) {
-        const newIdx = newDonors.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
-        if (newIdx < newDonors.length - 1) {
-          setIndex(newIdx + 1);
+      if (returnToDonor) {
+        const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
+        if (returnIdx >= 0) {
+          setIndex(returnIdx);
         } else {
-          setIndex(0);
+          setIndex(Math.min(returnToDonor.idx, Math.max(0, newDonors.length - 1)));
         }
+        setReturnToDonor(null);
       } else {
-        if (index >= newDonors.length) {
-          setIndex(0);
+        const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
+        if (stillExists) {
+          const newIdx = newDonors.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
+          if (newIdx < newDonors.length - 1) {
+            setIndex(newIdx + 1);
+          } else {
+            setIndex(0);
+          }
+        } else {
+          if (index >= newDonors.length) {
+            setIndex(0);
+          }
         }
       }
     } catch (err) {
@@ -318,6 +329,7 @@ export default function MyDonors() {
     const donorId = r?.id || r?.donor_id;
     const actualIdx = donors.findIndex(d => d.id === donorId);
     if (actualIdx >= 0) {
+      setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
       setIndex(actualIdx);
     } else {
       setMessage({ type: 'error', text: 'Donor not in current list. Try navigating to the correct view.' });
@@ -359,6 +371,11 @@ export default function MyDonors() {
 
   const handleButtonClick = () => {
     if (selected) { handleSave(); return; }
+    if (returnToDonor) {
+      setIndex(returnToDonor.idx);
+      setReturnToDonor(null);
+      return;
+    }
     if (index < donors.length - 1) { setIndex(i => i + 1); return; }
     setMessage({ type: 'error', text: 'No more donors' });
   };
@@ -787,7 +804,11 @@ export default function MyDonors() {
 
     <div className="detail-action-outer">
       <button className="btn-next" disabled={index === 0} onClick={() => { endDonorView(isOnCall && activeCall?.donorId === donor.id); setIndex(i => i - 1) }} style={{ background: 'transparent', color: 'var(--sage)', border: '1px solid var(--line)' }}>← Prev</button>
-      <span className="counter">{index + 1} of {donors.length}</span>
+      {returnToDonor ? (
+        <span className="counter" style={{ color: 'var(--sage)', fontWeight: 600 }}>Searched donor — NEXT to return</span>
+      ) : (
+        <span className="counter">{index + 1} of {donors.length}</span>
+      )}
       {isOnCall && activeCall?.donorId === donor.id ? (
         <button onClick={endCall}
           style={{ padding: '7px 14px', border: '1px solid #dc2626', borderRadius: 8, background: '#fef2f2', color: '#dc2626', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
