@@ -1,40 +1,40 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
-import { Loader2, Check, CheckCheck, MessageSquare, Search, Plus, X, Send, User, LogOut, Mail, Shield, Clock } from 'lucide-react';
+import { Loader2, Check, CheckCheck, MessageSquare, X, Send, User, LogOut, Mail, Shield, Clock } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import { format } from 'date-fns';
-import { cn } from '../lib/utils';
+import { format, isToday, isYesterday, differenceInMinutes } from 'date-fns';
 import { toast } from 'sonner';
 import type { Message, WhatsAppPhoneNumber } from 'shared';
-import { ConversationLabels, LabelFilter } from '../components/chat/ConversationLabels';
 import { MessageSearchModal } from '../components/chat/MessageSearch';
 import { MessageComposer } from '../components/chat/MessageComposer';
 import { sendWhatsAppMessage } from '../lib/whatsapp';
 import { QuickReplyBar } from '../components/chat/QuickReplyBar';
-import { MediaPreview, MediaFromMeta } from '../components/chat/MediaPreview';
+import { TemplateBar } from '../components/chat/TemplateBar';
+import { MediaFromMeta } from '../components/chat/MediaPreview';
 import { MessageContextMenu } from '../components/chat/MessageContextMenu';
 
 const AVATAR_COLORS = ['#00a884','#5f9ea0','#d4a574','#8b7e74','#c97b84','#6fa8dc','#93c47d','#e69138'];
-function avatarColor(name?: string) {
+function hashColor(name?: string) {
   let hash = 0;
   for (let i = 0; i < (name || '').length; i++) hash = (name || '').charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
-function avatarLetter(name?: string) { return (name?.[0] || '?').toUpperCase(); }
+
+const GROUP_THRESHOLD = 5;
 
 function WAAvatar({ name, size = 'md' }: { waId?: string; name?: string; size?: 'sm' | 'md' }) {
   const px = size === 'sm' ? 'h-8 w-8' : 'h-12 w-12';
+  const letter = (name?.[0] || '?').toUpperCase();
+  const bg = hashColor(name || '');
+  const fontSize = size === 'sm' ? 'text-sm' : 'text-lg';
   return (
-    <div className={`${px} shrink-0 flex items-center justify-center rounded-full bg-[#dfe5e7]`}>
-      <svg viewBox="0 0 40 40" width={size === 'sm' ? '20' : '28'} height={size === 'sm' ? '20' : '28'} fill="#54656f">
-        <path d="M20 20c4.42 0 8-3.58 8-8s-3.58-8-8-8-8 3.58-8 8 3.58 8 8 8zm0 4c-5.33 0-16 2.67-16 8v4h32v-4c0-5.33-10.67-8-16-8z"/>
-      </svg>
+    <div className={`${px} shrink-0 flex items-center justify-center rounded-full ${fontSize} font-bold text-white`} style={{ backgroundColor: bg }}>
+      {letter}
     </div>
   );
 }
@@ -115,12 +115,92 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
 }
 
 function MessageStatusIcon({ status }: { status: string }) {
-  if (status === 'queued') return <Clock className="h-4 w-4 text-[#667781]" />;
-  if (status === 'sent') return <Check className="h-4 w-4 text-[#54656f]" />;
-  if (status === 'delivered') return <CheckCheck className="h-4 w-4 text-[#54656f]" />;
-  if (status === 'read') return <CheckCheck className="h-4 w-4 text-[#53bdeb]" />;
-  if (status === 'failed') return <Check className="h-4 w-4 text-[#8696a0]" />;
+  if (status === 'queued') return <Clock className="h-3.5 w-3.5 text-[#8696a0]" />;
+  if (status === 'sent') return <Check className="h-3.5 w-3.5 text-[#8696a0]" />;
+  if (status === 'delivered') return <CheckCheck className="h-3.5 w-3.5 text-[#8696a0]" />;
+  if (status === 'read') return <CheckCheck className="h-3.5 w-3.5 text-[#53bdeb]" />;
+  if (status === 'failed') return <Check className="h-3.5 w-3.5 text-[#ef5350]" />;
   return null;
+}
+
+function DateSeparator({ date }: { date: Date }) {
+  let label: string;
+  if (isToday(date)) label = 'Today';
+  else if (isYesterday(date)) label = 'Yesterday';
+  else label = format(date, 'd MMMM yyyy');
+  return (
+    <div className="flex items-center justify-center my-3">
+      <div className="rounded-full bg-[#e1f3fb] px-3 py-1 text-[11.5px] text-[#54656f] shadow-sm font-medium">{label}</div>
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  isGroupStart,
+  isGroupEnd,
+  isAlone,
+  showAvatar,
+  onContextMenu,
+  onMediaClick,
+}: {
+  message: Message;
+  isGroupStart: boolean;
+  isGroupEnd: boolean;
+  isAlone: boolean;
+  showAvatar: boolean;
+  onContextMenu: (e: React.MouseEvent, msgId: string) => void;
+  onMediaClick: (url: string, mime?: string) => void;
+}) {
+  const isOutbound = message.direction === 'outbound';
+  const time = format(new Date(message.created_at), 'HH:mm');
+
+  let topRounded = 'rounded-t-lg';
+  let bottomRounded = 'rounded-b-lg';
+  if (isOutbound) {
+    if (isAlone) { topRounded = 'rounded-lg'; bottomRounded = 'rounded-br-sm'; }
+    else if (isGroupStart) { topRounded = 'rounded-lg'; bottomRounded = 'rounded-br-sm'; }
+    else if (isGroupEnd) { topRounded = 'rounded-tr-lg'; bottomRounded = 'rounded-b-lg rounded-br-sm'; }
+    else { topRounded = 'rounded-tr-lg'; bottomRounded = 'rounded-br-sm'; }
+  } else {
+    if (isAlone) { topRounded = 'rounded-lg'; bottomRounded = 'rounded-bl-sm'; }
+    else if (isGroupStart) { topRounded = 'rounded-lg'; bottomRounded = 'rounded-bl-sm'; }
+    else if (isGroupEnd) { topRounded = 'rounded-tl-lg'; bottomRounded = 'rounded-b-lg rounded-bl-sm'; }
+    else { topRounded = 'rounded-tl-lg'; bottomRounded = 'rounded-bl-sm'; }
+  }
+
+  return (
+    <div className={`flex ${isOutbound ? 'justify-end' : 'justify-start'} ${!isGroupEnd && !isAlone ? 'mb-0.5' : 'mb-1'}`}>
+      {!isOutbound && (
+        <div className={`w-9 shrink-0 flex items-end ${showAvatar ? '' : 'invisible'}`}>
+          {showAvatar && <WAAvatar size="sm" />}
+        </div>
+      )}
+      <div
+        onContextMenu={(e) => onContextMenu(e, message.id)}
+        className={`relative max-w-[65%] px-3 py-1.5 text-[14.2px] shadow-sm leading-[19.5px] ${topRounded} ${bottomRounded} ${
+          isOutbound ? 'bg-[#d9fdd3]' : 'bg-white'
+        }`}
+      >
+        {message.body_text && (
+          <p className="whitespace-pre-wrap break-words text-[#111b21]">{message.body_text}</p>
+        )}
+        {message.media_url ? (
+          <div className={`relative ${message.body_text ? 'mt-1' : ''}`}>
+            <img src={message.media_url} alt="" className="max-w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => onMediaClick(message.media_url!, message.media_mime_type)} />
+          </div>
+        ) : message.media_id ? (
+          <div className={`relative ${message.body_text ? 'mt-1' : ''} cursor-pointer`} onClick={() => onMediaClick(message.media_id!, message.media_mime_type)}>
+            <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
+          </div>
+        ) : null}
+        <div className="flex items-center justify-end gap-1 -mb-0.5">
+          <span className="text-[10.5px] text-[#8696a0]">{time}</span>
+          {isOutbound && <MessageStatusIcon status={message.status} />}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function InboxPage() {
@@ -159,13 +239,17 @@ export function InboxPage() {
 
       if (user?.role === 'agent') {
         const { data: assign } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', user.id);
+        let projects: string[] = [];
         if (assign && assign.length > 0) {
           const ids = assign.map((a: any) => a.account_id);
           const { data: accts } = await supabase.from('whatsapp_accounts').select('project').in('id', ids);
-          if (accts && accts.length > 0) {
-            const projects = accts.map((a: any) => a.project).filter(Boolean);
-            if (projects.length > 0) query = query.in('project', projects);
-          }
+          if (accts) projects = accts.map((a: any) => a.project).filter(Boolean);
+        }
+        if (projects.length > 0) {
+          query = query.in('project', projects);
+          query = query.or(`assigned_agent_id.eq.${user.id},assigned_agent_id.is.null`);
+        } else {
+          query = query.eq('assigned_agent_id', user.id);
         }
       }
 
@@ -340,6 +424,7 @@ export function InboxPage() {
         contact_id: contactId,
         status: 'open',
         project: project,
+        assigned_agent_id: user?.id,
         last_message_at: new Date().toISOString(),
       }).select('*, contact:contacts(*)').single();
       if (convError) throw convError;
@@ -426,20 +511,23 @@ export function InboxPage() {
               key={conversation.id}
               onClick={() => navigate(`/inbox/${conversation.id}`)}
               className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#f0f2f5] ${
-                conversation.id === conversationId ? 'bg-[#f0f2f5]' : ''
+                conversation.id === conversationId ? 'bg-[#e8f4f8]' : ''
               }`}
             >
-              <WAAvatar waId={conversation.contact?.phone_normalized} name={conversation.contact?.wa_profile_name} size="md" />
-              <div className="min-w-0 flex-1" style={{ borderBottom: '1px solid #e9edef', paddingBottom: '12px', marginBottom: '-4px' }}>
+              <div className="relative">
+                <WAAvatar waId={conversation.contact?.phone_normalized} name={conversation.contact?.wa_profile_name || conversation.contact?.phone} size="md" />
+                <div className={`absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${conversation.status === 'open' ? 'bg-[#00a884]' : 'bg-gray-400'}`} />
+              </div>
+              <div className="min-w-0 flex-1 border-b border-[#e9edef] pb-3 -mb-[5px]">
                 <div className="flex items-center justify-between">
-                  <span className="truncate text-sm font-medium text-[#111b21]">
+                  <span className="truncate text-[15px] font-normal text-[#111b21]">
                     {conversation.contact?.wa_profile_name || conversation.contact?.phone}
                   </span>
-                  <span className="shrink-0 text-[11px] text-[#667781]">
+                  <span className="shrink-0 text-[11px] text-[#667781] ml-2">
                     {conversation.last_message_at ? format(new Date(conversation.last_message_at), 'HH:mm') : ''}
                   </span>
                 </div>
-                <p className="truncate text-[12.5px] text-[#667781]">{conversation.contact?.phone}</p>
+                <p className="truncate text-[13px] text-[#667781] mt-0.5">{conversation.contact?.phone}</p>
               </div>
             </button>
           ))}
@@ -450,59 +538,97 @@ export function InboxPage() {
       <div className="flex flex-1 flex-col bg-[#efeae2]">
         {currentConv || conversationId ? (
           <>
-            <div className="bg-[#f0f2f5] px-4 py-2 flex items-center gap-3 border-l border-gray-200">
-              <WAAvatar waId={currentConv?.contact?.phone_normalized} name={currentConv?.contact?.wa_profile_name} size="sm" />
+            <div className="bg-[#f0f2f5] px-4 py-2.5 flex items-center gap-3 border-l border-gray-200 shadow-sm z-10">
+              <WAAvatar waId={currentConv?.contact?.phone_normalized} name={currentConv?.contact?.wa_profile_name || currentConv?.contact?.phone} size="sm" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14.5px] font-medium text-[#111b21]">{currentConv?.contact?.wa_profile_name || currentConv?.contact?.phone || 'Chat'}</p>
-                <p className="text-[11.5px] text-[#667781]">{currentConv?.contact?.phone || ''}</p>
+                <p className="truncate text-[15px] font-medium text-[#111b21]">{currentConv?.contact?.wa_profile_name || currentConv?.contact?.phone || 'Chat'}</p>
+                <p className="text-[12px] text-[#667781]">{currentConv?.contact?.phone || ''}</p>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4d4d4\' fill-opacity=\'0.20\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
+            <div className="flex-1 overflow-y-auto px-2 py-2" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d4d4d4\' fill-opacity=\'0.20\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
               {loadingMsgs ? (
                 <div className="space-y-4">
                   {Array.from({ length: 4 }).map((_, i) => (
                     <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-                      <div className={`animate-pulse rounded-lg p-3 ${i % 2 === 0 ? 'bg-white' : 'bg-[#dcf8c6]'}`}>
+                      <div className={`animate-pulse rounded-lg p-3 ${i % 2 === 0 ? 'bg-white' : 'bg-[#d9fdd3]'}`}>
                         <div className={`h-4 rounded ${i % 2 === 0 ? 'w-48' : 'w-32'} bg-gray-200`} />
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="space-y-1">
-                  {messages?.map((message) => (
-                    <div key={message.id} className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                      <div onContextMenu={(e) => handleContextMenu(e, message.id)} className={`relative max-w-[60%] px-3 py-2 text-[14.2px] shadow-sm leading-[19px] ${
-                        message.direction === 'outbound'
-                          ? 'bg-[#d9fdd3] rounded-lg rounded-br-sm'
-                          : 'bg-white rounded-lg rounded-bl-sm'
-                      }`}>
-                        <p className="whitespace-pre-wrap break-words text-[#111b21]">{message.body_text}</p>
-                        {message.media_url ? (
-                          <div className="relative mt-1">
-                            <img src={message.media_url} alt="" className="max-w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => { setPreviewUrl(message.media_url); setPreviewMime(message.media_mime_type); }} />
-                          </div>
-                        ) : message.media_id ? (
-                          <div className="relative mt-1 cursor-pointer" onClick={() => { setPreviewUrl(message.media_id); setPreviewMime(message.media_mime_type); }}>
-                            <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type} />
-                          </div>
-                        ) : null}
-                        <div className="mt-1 flex items-center justify-end gap-1">
-                          <span className="text-[10.5px] text-[#667781]">{format(new Date(message.created_at), 'HH:mm')}</span>
-                          {message.direction === 'outbound' && <MessageStatusIcon status={message.status} />}
-                        </div>
+              ) : messages && messages.length > 0 ? (
+                <div className="space-y-0">
+                  {(() => {
+                    const groups: { msgs: typeof messages; date: Date }[] = [];
+                    let lastDate: string | null = null;
+                    let lastSender: string | null = null;
+                    let lastTime: Date | null = null;
+                    let currentGroup: typeof messages = [];
+
+                    for (const msg of messages) {
+                      const d = new Date(msg.created_at);
+                      const dateKey = format(d, 'yyyy-MM-dd');
+                      const senderKey = msg.direction + (msg.user_id || '');
+                      const needsNewGroup = dateKey !== lastDate || senderKey !== lastSender || (lastTime && differenceInMinutes(d, lastTime) > GROUP_THRESHOLD);
+
+                      if (needsNewGroup && currentGroup.length > 0) {
+                        groups.push({ msgs: currentGroup, date: new Date(currentGroup[0].created_at) });
+                        if (dateKey !== lastDate) groups.push({ msgs: [], date: d });
+                        currentGroup = [msg];
+                      } else {
+                        currentGroup.push(msg);
+                      }
+
+                      lastDate = dateKey;
+                      lastSender = senderKey;
+                      lastTime = d;
+                    }
+                    if (currentGroup.length > 0) {
+                      groups.push({ msgs: currentGroup, date: new Date(currentGroup[0].created_at) });
+                    }
+
+                    return groups.map((group, gi) => (
+                      <div key={`g-${gi}`}>
+                        {group.msgs.length === 0 ? (
+                          <DateSeparator date={group.date} />
+                        ) : (
+                          group.msgs.map((msg, mi) => {
+                            const isFirst = mi === 0;
+                            const isLast = mi === group.msgs.length - 1;
+                            const isAlone = group.msgs.length === 1;
+                            const showAvatar = !msg.direction || msg.direction === 'inbound' ? isLast || isAlone : false;
+                            return (
+                              <MessageBubble
+                                key={msg.id}
+                                message={msg}
+                                isGroupStart={isFirst}
+                                isGroupEnd={isLast}
+                                isAlone={isAlone}
+                                showAvatar={showAvatar}
+                                onContextMenu={handleContextMenu}
+                                onMediaClick={(url, mime) => { setPreviewUrl(url); setPreviewMime(mime); }}
+                              />
+                            );
+                          })
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    ));
+                  })()}
                   <div ref={messagesEndRef} />
                 </div>
-              )}
-              {(!messages || messages.length === 0) && !loadingMsgs && (
-                <div className="flex h-full items-center justify-center text-[#667781]">
-                  <p className="text-sm">No messages yet</p>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <div className="text-center">
+                    <MessageSquare className="h-10 w-10 mx-auto text-[#d4d4d4]" />
+                    <p className="text-sm text-[#8696a0] mt-2">No messages yet</p>
+                    <p className="text-xs text-[#b0b8c0] mt-0.5">Send a message to start the conversation</p>
+                  </div>
                 </div>
               )}
             </div>
+            {conversationId && (
+              <TemplateBar conversationId={conversationId} project={(currentConv as any)?.project} onSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
+            )}
             {conversationId && (
               <QuickReplyBar conversationId={conversationId} onSent={() => { queryClient.invalidateQueries({ queryKey: ['messages', conversationId] }); queryClient.invalidateQueries({ queryKey: ['conversations'] }); }} />
             )}

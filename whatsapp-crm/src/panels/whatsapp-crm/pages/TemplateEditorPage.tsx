@@ -2,16 +2,15 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { loadMetaCredentials, getCachedToken, getCachedWabaId } from '../lib/metaCredentials';
 import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
-import { Save, FileImage, FileVideo, FileText, Upload, PlusCircle, XCircle, ArrowLeft, MessageSquare, ShoppingBag, ClipboardList, Truck, CreditCard, PhoneCall, KeyRound, CheckCircle2 } from 'lucide-react';
+import { Save, FileImage, FileVideo, FileText, Upload, PlusCircle, XCircle, ArrowLeft, MessageSquare, ShoppingBag, ClipboardList, Truck, CreditCard, PhoneCall, KeyRound, CheckCircle2, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 import type { WhatsAppTemplate } from 'shared';
 
-const WHATSAPP_API = 'https://graph.facebook.com/v19.0';
+const WHATSAPP_API = 'https://graph.facebook.com/v23.0';
 const LANGUAGES = [
   { label: 'Afrikaans', value: 'af' },
   { label: 'Albanian', value: 'sq' },
@@ -97,18 +96,6 @@ const TEMPLATE_TYPES: { id: string; label: string; icon: any; desc: string; cats
 
 const STEPS = ['Set up template', 'Edit template', 'Submit for review'];
 
-function getAccessToken(): string {
-  let token = getCachedToken();
-  if (!token) { token = prompt('Enter your WhatsApp Access Token:') || ''; if (token) localStorage.setItem('wa_access_token', token); }
-  return token;
-}
-
-function getWabaId(): string {
-  let wabaId = getCachedWabaId();
-  if (!wabaId) { wabaId = prompt('Enter your WABA ID:') || ''; if (wabaId) localStorage.setItem('waba_id', wabaId); }
-  return wabaId;
-}
-
 function extractVariables(text: string): string[] {
   const matches = text.match(/\{\{(.*?)\}\}/g);
   if (!matches) return [];
@@ -150,6 +137,16 @@ export function TemplateEditorPage() {
   const [footerText, setFooterText] = useState('');
   const [buttons, setButtons] = useState<TemplateButton[]>([]);
   const [saving, setSaving] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+
+  const { data: accounts } = useQuery({
+    queryKey: ['whatsapp-accounts'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('whatsapp_accounts').select('id, name, project, waba_id, access_token, phone_number_id').order('name');
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
   useEffect(() => {
     if (!template) return;
@@ -174,9 +171,17 @@ export function TemplateEditorPage() {
         phone_number: b.phone_number,
       })) || []
     );
-  }, [template]);
+    if (accounts && accounts.length > 0 && template.project) {
+      const match = accounts.find((a: any) => a.project === template.project);
+      if (match) setSelectedAccountId(match.id);
+    }
+  }, [template, accounts]);
 
-  useEffect(() => { loadMetaCredentials(); }, []);
+  useEffect(() => {
+    if (accounts && accounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [accounts]);
 
   const variables = extractVariables(bodyText);
   const [variableSamples, setVariableSamples] = useState<Record<string, string>>({});
@@ -197,11 +202,37 @@ export function TemplateEditorPage() {
 
   const handleSave = async () => {
     if (!bodyText) { toast.error('Body text is required'); return; }
+    if (!selectedAccountId) { toast.error('Select a WhatsApp account'); return; }
+
+    const account = accounts?.find((a: any) => a.id === selectedAccountId);
+    if (!account) { toast.error('Account not found'); return; }
+    if (!account.waba_id || !account.access_token) { toast.error('Selected account has no WABA ID or access token'); return; }
+
     setSaving(true);
 
-    const accessToken = getAccessToken();
-    const wabaId = getWabaId();
-    if (!accessToken || !wabaId) { setSaving(false); return; }
+    let resolvedCategory = category;
+    let resolvedMetaTemplateId = template?.meta_template_id;
+    let skipMetaUpdate = false;
+
+    if (!isEdit && !resolvedMetaTemplateId) {
+      try {
+        const checkRes = await fetch(`${WHATSAPP_API}/${account.waba_id}/message_templates?name=${encodeURIComponent(name)}`, {
+          headers: { Authorization: `Bearer ${account.access_token}` },
+        });
+        const checkData = await checkRes.json();
+        if (checkData.data?.[0]) {
+          const existing = checkData.data[0];
+          resolvedMetaTemplateId = existing.id;
+          resolvedCategory = existing.category;
+          if (existing.status !== 'REJECTED') {
+            skipMetaUpdate = true;
+            toast.info(`Template "${name}" already exists in Meta (${existing.status}). Saved to CRM.`);
+          } else {
+            toast.info(`Template "${name}" was rejected. Re-submitting.`);
+          }
+        }
+      } catch {}
+    }
 
     const components: any[] = [];
     if (headerType === 'TEXT' && headerText) components.push({ type: 'HEADER', format: 'TEXT', text: headerText });
@@ -224,20 +255,43 @@ export function TemplateEditorPage() {
     }
 
     try {
-      const metaTemplateId = template?.meta_template_id;
-      const url = metaTemplateId ? `${WHATSAPP_API}/${metaTemplateId}` : `${WHATSAPP_API}/${wabaId}/message_templates`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(metaTemplateId ? {} : { name, language, category }),
-          components,
-          ...(templateType === 'CATALOG' ? { sub_category: 'CATALOG' } : {}),
-        }),
-      });
-      const result = await resp.json();
-      if (!resp.ok) throw new Error(JSON.stringify(result.error));
-      toast.success(metaTemplateId ? 'Template updated' : 'Template created');
+      let newMetaTemplateId = resolvedMetaTemplateId;
+      let metaStatus = 'PENDING';
+
+      if (!skipMetaUpdate) {
+        const metaTemplateId = resolvedMetaTemplateId;
+        const url = metaTemplateId ? `${WHATSAPP_API}/${metaTemplateId}` : `${WHATSAPP_API}/${account.waba_id}/message_templates`;
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${account.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(metaTemplateId ? {} : { name, language, category: resolvedCategory }),
+            components,
+            ...(templateType === 'CATALOG' ? { sub_category: 'CATALOG' } : {}),
+          }),
+        });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(JSON.stringify(result.error));
+        newMetaTemplateId = result.id || metaTemplateId;
+        metaStatus = (result.status || 'PENDING').toLowerCase();
+      } else {
+        metaStatus = 'approved';
+      }
+
+      const { error: dbError } = await supabase.from('whatsapp_templates').upsert({
+        id: isEdit ? Number(id) : undefined,
+        ngo_id: '2661d802-69c3-4634-aae9-7bbea7a87f0d',
+        name,
+        language,
+        category: resolvedCategory || category || 'UTILITY',
+        status: metaStatus,
+        project: account.project,
+        meta_template_id: newMetaTemplateId,
+        components,
+      }, { onConflict: 'id' });
+      if (dbError) console.error('DB save error:', dbError);
+
+      toast.success(skipMetaUpdate ? 'Template synced to CRM' : (template?.meta_template_id ? 'Template updated' : 'Template created'));
       queryClient.invalidateQueries({ queryKey: ['whatsapp-templates'] });
       navigate('/templates');
     } catch (err: any) {
@@ -405,6 +459,15 @@ export function TemplateEditorPage() {
                       {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
                     </select>
                   </div>
+                  <div className="w-48 shrink-0 space-y-1.5">
+                    <Label className="text-xs font-medium">WhatsApp Account</Label>
+                    <select value={selectedAccountId ?? ''} onChange={(e) => setSelectedAccountId(Number(e.target.value))}
+                      className="flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs">
+                      {accounts?.map((acct: any) => (
+                        <option key={acct.id} value={acct.id}>{acct.name} ({acct.project.toUpperCase()})</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -537,6 +600,27 @@ export function TemplateEditorPage() {
                   <div className="border-t pt-3">
                     <span className="text-muted-foreground text-xs">Buttons</span>
                     <p className="text-sm">{buttons.length === 0 ? 'None' : buttons.map((b) => b.text || `[${b.type}]`).join(', ')}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 border-t pt-4">
+                  <Label className="text-xs font-medium">Create on WhatsApp Account</Label>
+                  <div className="flex gap-2">
+                    {accounts?.map((acct: any) => (
+                      <button
+                        key={acct.id}
+                        onClick={() => setSelectedAccountId(acct.id)}
+                        className={`flex-1 rounded-lg border p-3 text-left transition-colors ${
+                          selectedAccountId === acct.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-accent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Smartphone className={`h-4 w-4 ${selectedAccountId === acct.id ? 'text-primary' : 'text-muted-foreground'}`} />
+                          <span className="text-sm font-medium">{acct.name}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono uppercase">{acct.project}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
 

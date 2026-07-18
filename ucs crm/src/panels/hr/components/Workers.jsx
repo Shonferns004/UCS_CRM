@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useHR } from '../store';
-import { Who, Dropdown } from './ui';
-import { Plus, Trash } from '../icons';
+import { Who, Avatar, Dropdown } from './ui';
+import { Plus, Trash, Check } from '../icons';
 import { api } from '../../../api/auth';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
@@ -13,14 +13,35 @@ function save(v) {
   try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch {}
 }
 
+function isComplete(w) {
+  const val = (v) => v && typeof v === 'string' && v.trim() !== '';
+  return (
+    val(w.email) && val(w.phone) && val(w.dob) && val(w.gender) &&
+    (val(w.address) || val(w.permanent_address)) &&
+    val(w.city) && val(w.state) &&
+    val(w.father_husband_name) && val(w.marital_status) &&
+    val(w.pan_number) && val(w.aadhar_number) &&
+    val(w.emergency_contact_name) && val(w.emergency_contact_phone) &&
+    val(w.account_holder_name) && val(w.bank_name) && val(w.ifsc_code) && val(w.account_number) &&
+    val(w.photo_url)
+  );
+}
+
 function WhoWithPhoto({ name, role, photo_url }) {
   const [photoErr, setPhotoErr] = useState(false);
+  const hasPhoto = photo_url && !photoErr;
   return (
     <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-      {photo_url && !photoErr ? (
+      {hasPhoto ? (
         <img src={photo_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} onError={() => setPhotoErr(true)} />
       ) : null}
-      <Who name={name} role={role} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {!hasPhoto ? <Avatar name={name} /> : null}
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#111' }}>{name}</div>
+          <div style={{ fontSize: 12, color: '#666' }}>{role}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -194,6 +215,70 @@ export default function Workers({ onSelect, onOffboard }) {
     if (onOffboard) onOffboard(worker);
   };
 
+  const handleExportAll = async () => {
+    try {
+      const workers = await api('/workers/export', { _prefix: 'ucs' });
+      if (!workers || workers.length === 0) { alert('No workers to export'); return; }
+      const rows = workers.map(w => ({
+        id: w.id,
+        name: w.name,
+        email: w.email,
+        login_id: w.login_id,
+        department: w.department,
+        gender: w.gender,
+        dob: w.dob,
+        phone: w.phone,
+        alternate_phone: w.alternate_phone,
+        address: w.address,
+        city: w.city,
+        state: w.state,
+        pincode: w.pincode,
+        permanent_address: w.permanent_address,
+        father_husband_name: w.father_husband_name,
+        marital_status: w.marital_status,
+        pan_number: w.pan_number,
+        aadhar_number: w.aadhar_number,
+        emergency_contact_name: w.emergency_contact_name,
+        emergency_contact_relation: w.emergency_contact_relation,
+        emergency_contact_phone: w.emergency_contact_phone,
+        account_holder_name: w.account_holder_name,
+        bank_name: w.bank_name,
+        ifsc_code: w.ifsc_code,
+        account_number: w.account_number,
+        correspondence_address: w.correspondence?.address || '',
+        correspondence_city: w.correspondence?.city || '',
+        correspondence_state: w.correspondence?.state || '',
+        correspondence_pincode: w.correspondence?.pincode || '',
+        photo_url: w.photo_url,
+        aadhar_front_url: w.aadhar_front_url,
+        aadhar_back_url: w.aadhar_back_url,
+        pan_card_url: w.pan_card_url,
+        bank_proof_url: w.bank_proof_url,
+        light_bill_url: w.light_bill_url,
+        declaration_date: w.declaration_date,
+        declaration_place: w.declaration_place,
+        shift_start_time: w.shift_start_time,
+        shift_end_time: w.shift_end_time,
+        is_active: w.is_active,
+        onboarding_completed: w.onboarding_completed,
+        created_at: w.created_at,
+        education: JSON.stringify(w.education || []),
+        family: JSON.stringify(w.family || []),
+        references: JSON.stringify(w.references || []),
+        previous_organizations: JSON.stringify(w.previous_organizations || []),
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Workers');
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `workers-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
   const handlePayExport = async () => {
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -287,6 +372,7 @@ export default function Workers({ onSelect, onOffboard }) {
           <div className="search-input-wrap">
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
+            <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
             <span className="sub">{filtered.length} total</span>
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
               options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:r}))]} />
@@ -307,7 +393,12 @@ export default function Workers({ onSelect, onOffboard }) {
               return (
                 <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
                   style={{ cursor:'pointer' }}>
-                  <td><WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} /></td>
+                  <td>
+                    <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                      <WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} />
+                      {isComplete(w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
+                    </div>
+                  </td>
                   <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
                   <td>
                     {sw?.current_salary ? (
