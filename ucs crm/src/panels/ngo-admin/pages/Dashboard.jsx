@@ -571,7 +571,7 @@ export default function Dashboard() {
   const verified_today_count = Number(ct.verified?.count) || 0;
   const unverified_today_amount = Number(ct.unverified?.amount) || 0;
   const unverified_today_count = Number(ct.unverified?.count) || 0;
-  const total_workers = Number(f.active) || 0;
+  const total_workers = Number(f.total) || 0;
   const workers_present = Number(att.present) || 0;
   const workers_absent = Number(att.absent) || 0;
   const attendance_pct = Number(att.pct) || 0;

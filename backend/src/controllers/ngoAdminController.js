@@ -472,7 +472,7 @@ export const getDashboard = async (req, res) => {
       .in('ngo_id', ngoIds)
       .order('assigned_at', { ascending: false });
     if (aErr) throw aErr;
-    const collectedDonations = (allAssignments || []).filter(a => a.status === 'donation_collected');
+    const collectedDonorCount = new Set((allAssignments || []).filter(a => a.status === 'donation_collected').map(a => a.donor_id)).size;
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -659,7 +659,7 @@ export const getDashboard = async (req, res) => {
           total: totalDonorCount,
           assigned: assignedCount,
           assigned_pct: totalDonorCount > 0 ? Math.round((assignedCount / totalDonorCount) * 100) : 0,
-          collected: collectedDonations.length,
+          collected: collectedDonorCount,
           active: activeDonors,
           inactive: inactiveDonors,
         },
