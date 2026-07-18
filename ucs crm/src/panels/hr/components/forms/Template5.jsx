@@ -1,4 +1,4 @@
-export default function Template6({ personal, place }) {
+export default function Template6({ personal, declarationDate, place }) {
   return (
     <div className="print-page">
       <style>{`
@@ -50,8 +50,8 @@ export default function Template6({ personal, place }) {
           </div>
 
           <div className="row" style={{marginTop: 12, paddingTop: 8, display: 'flex', alignItems: 'center', gap: 20}}>
-            <span>Date: <span className="line small"></span>/<span className="line small"></span>/<span className="line small"></span></span>
-            <span>Place: <span className="line med">{place || 'Kandivali'}</span></span>
+            <span>Date: {declarationDate ? new Date(declarationDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : <><span className="line small"></span>/<span className="line small"></span>/<span className="line small"></span></>}</span>
+            <span>Place: <span className="line med">{place || 'Mumbai'}</span></span>
           </div>
 
           <p style={{marginTop: 14}}>Signing below signifies that the Volunteer agrees to the terms and conditions stated above.</p>

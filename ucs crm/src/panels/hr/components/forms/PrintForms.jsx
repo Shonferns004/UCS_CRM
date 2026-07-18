@@ -73,8 +73,8 @@ export default function PrintForms({ data, onClose }) {
         <Template2 />
         <Template3 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
         <Template4 personal={data.personal} />
-        <Template5 personal={data.personal} place={data.place} />
-        <Template6 personal={data.personal} place={data.place} />
+        <Template5 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
+        <Template6 personal={data.personal} declarationDate={data.declarationDate} place={data.place} />
       </div>
     </div>
   )

@@ -503,6 +503,7 @@ export const getDashboard = async (req, res) => {
       'contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled',
       'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated',
       'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
+      'not_interested_now', 'callback',
     ]);
     const donorInfo = new Map();
     for (const a of allAssignments) {
@@ -837,7 +838,7 @@ export const getFroPerformance = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds);
-    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request']);
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
     const workerAssignments = {};
     for (const a of faRows || []) {
       if (a.status === 'reassigned') continue;
