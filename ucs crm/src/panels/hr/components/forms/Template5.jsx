@@ -54,8 +54,6 @@ export default function Template6({ personal, declarationDate, place }) {
             <span>Place: <span className="line med">{place || 'Mumbai'}</span></span>
           </div>
 
-          <p style={{marginTop: 14}}>Signing below signifies that the Volunteer agrees to the terms and conditions stated above.</p>
-
           <div className="sigwrap">
             <div className="sig">
               <div className="l"></div>
