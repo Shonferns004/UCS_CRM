@@ -94,6 +94,7 @@ export default function MyDonors() {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [searchingAll, setSearchingAll] = useState(false);
   const [returnToDonor, setReturnToDonor] = useState(null);
+  const [showAllLogs, setShowAllLogs] = useState(false);
   const searchRef = useRef(null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
@@ -148,7 +149,7 @@ export default function MyDonors() {
         ));
       }).catch(err => console.error('markDonorSeen error:', err));
     }
-    getDonorDetail(donor.id, donor.ngo_id).then(setDetail).catch(err => console.error('getDonorDetail error:', err)).finally(() => setDetailLoading(false));
+    getDonorDetail(donor.id, donor.ngo_id).then(d => { setDetail(d); setShowAllLogs(false); }).catch(err => console.error('getDonorDetail error:', err)).finally(() => setDetailLoading(false));
   }, [donor?.id, donor?.ngo_id]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
@@ -767,7 +768,7 @@ export default function MyDonors() {
                 <div className="empty-timeline">No activity yet.</div>
               ) : (
                 <div className="detail-timeline-list">
-                  {logs.slice(0, 12).map(log => {
+                  {logs.slice(0, showAllLogs ? logs.length : 12).map(log => {
                     const isDisp = log.action === 'disposition';
                     const cat = log.disposition_category;
                     const icon = timelineIcon(log);
@@ -793,7 +794,14 @@ export default function MyDonors() {
                       </div>
                     );
                   })}
-                  {logs.length > 12 && <div className="empty-timeline" style={{ padding: '8px 0' }}>+{logs.length - 12} more</div>}
+                  {logs.length > 12 && (
+                    <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                      <button onClick={() => setShowAllLogs(s => !s)}
+                        style={{ padding: '5px 14px', border: '1px solid var(--line)', borderRadius: 6, background: 'transparent', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', color: 'var(--sage)' }}>
+                        {showAllLogs ? `Show Less` : `View All ${logs.length} Logs`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
