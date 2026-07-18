@@ -123,12 +123,12 @@ export const getDashboard = async (req, res) => {
     const stationNames = await getMyStationNames(workerId);
     let totalDonors = 0;
     if (stationNames.length > 0) {
-      const { count } = await supabase
+      const { data: donorIds } = await supabase
         .from('fro_assignments')
-        .select('id', { count: 'exact', head: true })
+        .select('donor_id')
         .in('station', stationNames)
         .not('status', 'eq', 'reassigned');
-      totalDonors = count || 0;
+      totalDonors = new Set((donorIds || []).map(a => a.donor_id)).size;
     }
 
     const stats = await getDashboardStats(workerId);
@@ -184,7 +184,7 @@ export const getDashboard = async (req, res) => {
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
           supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
           supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'),
-          supabase.from('fro_assignments').select('status').in('station', stationNames).not('status', 'eq', 'reassigned'),
+          supabase.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'),
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done'),
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)').gte('created_at', fyStart.toISOString()),
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
@@ -193,9 +193,18 @@ export const getDashboard = async (req, res) => {
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
     const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request']);
-    let dataUsed = 0, dataUnused = 0;
+    const donorInfo = new Map();
     for (const a of assignmentsRes.data || []) {
-      if (connectedStatuses.has(a.status)) dataUsed++;
+      if (!donorInfo.has(a.donor_id)) {
+        donorInfo.set(a.donor_id, { connected: false });
+      }
+      if (a.status !== 'reassigned' && connectedStatuses.has(a.status)) {
+        donorInfo.get(a.donor_id).connected = true;
+      }
+    }
+    let dataUsed = 0, dataUnused = 0;
+    for (const [, d] of donorInfo) {
+      if (d.connected) dataUsed++;
       else dataUnused++;
     }
 
@@ -290,12 +299,9 @@ export const getDashboard = async (req, res) => {
 
     const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
     let activeDonors = 0, inactiveDonors = 0;
-    for (const a of assignmentsRes.data || []) {
-      if (activeDonorIds.has(a.donor_id)) {
-        activeDonors++;
-      } else {
-        inactiveDonors++;
-      }
+    for (const [donorId] of donorInfo) {
+      if (activeDonorIds.has(donorId)) activeDonors++;
+      else inactiveDonors++;
     }
 
     const { data: myAtt } = await supabase
