@@ -1,4 +1,4 @@
-export default function Template6({ personal, place }) {
+export default function Template6({ personal, declarationDate, place }) {
   return (
     <div className="print-page">
       <style>{`
@@ -168,12 +168,12 @@ export default function Template6({ personal, place }) {
 
         <div className="field">
           <span className="label">Date:</span>
-          <span className="line"></span>
+          <span className="line">{declarationDate ? new Date(declarationDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</span>
         </div>
 
         <div className="field">
           <span className="label">Place:</span>
-          <span className="line">{place || ''}</span>
+          <span className="line">{place || 'Mumbai'}</span>
         </div>
 
         <div className="section">FOR VOLUNTEERS BELOW 18 YEARS</div>
@@ -189,7 +189,7 @@ export default function Template6({ personal, place }) {
 
         <div className="field">
           <span className="label">Date:</span>
-          <span className="line"></span>
+          <span className="line">{declarationDate ? new Date(declarationDate).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</span>
         </div>
 
         <div className="section">FOR BEING SEVAK CHARITABLE TRUST</div>
