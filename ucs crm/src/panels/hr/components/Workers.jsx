@@ -21,7 +21,6 @@ function isComplete(w) {
     val(w.city) && val(w.state) &&
     val(w.father_husband_name) && val(w.marital_status) &&
     val(w.pan_number) && val(w.aadhar_number) &&
-    val(w.emergency_contact_name) && val(w.emergency_contact_phone) &&
     val(w.account_holder_name) && val(w.bank_name) && val(w.ifsc_code) && val(w.account_number) &&
     val(w.photo_url)
   );
@@ -217,56 +216,76 @@ export default function Workers({ onSelect, onOffboard }) {
 
   const handleExportAll = async () => {
     try {
-      const workers = await api('/workers/export', { _prefix: 'ucs' });
-      if (!workers || workers.length === 0) { alert('No workers to export'); return; }
-      const rows = workers.map(w => ({
-        id: w.id,
-        name: w.name,
-        email: w.email,
-        login_id: w.login_id,
-        department: w.department,
-        gender: w.gender,
-        dob: w.dob,
-        phone: w.phone,
-        alternate_phone: w.alternate_phone,
-        address: w.address,
-        city: w.city,
-        state: w.state,
-        pincode: w.pincode,
-        permanent_address: w.permanent_address,
-        father_husband_name: w.father_husband_name,
-        marital_status: w.marital_status,
-        pan_number: w.pan_number,
-        aadhar_number: w.aadhar_number,
-        emergency_contact_name: w.emergency_contact_name,
-        emergency_contact_relation: w.emergency_contact_relation,
-        emergency_contact_phone: w.emergency_contact_phone,
-        account_holder_name: w.account_holder_name,
-        bank_name: w.bank_name,
-        ifsc_code: w.ifsc_code,
-        account_number: w.account_number,
-        correspondence_address: w.correspondence?.address || '',
-        correspondence_city: w.correspondence?.city || '',
-        correspondence_state: w.correspondence?.state || '',
-        correspondence_pincode: w.correspondence?.pincode || '',
-        photo_url: w.photo_url,
-        aadhar_front_url: w.aadhar_front_url,
-        aadhar_back_url: w.aadhar_back_url,
-        pan_card_url: w.pan_card_url,
-        bank_proof_url: w.bank_proof_url,
-        light_bill_url: w.light_bill_url,
-        declaration_date: w.declaration_date,
-        declaration_place: w.declaration_place,
-        shift_start_time: w.shift_start_time,
-        shift_end_time: w.shift_end_time,
-        is_active: w.is_active,
-        onboarding_completed: w.onboarding_completed,
-        created_at: w.created_at,
-        education: JSON.stringify(w.education || []),
-        family: JSON.stringify(w.family || []),
-        references: JSON.stringify(w.references || []),
-        previous_organizations: JSON.stringify(w.previous_organizations || []),
-      }));
+      const list = await api('/workers', { _prefix: 'ucs' });
+      if (!list || list.length === 0) { alert('No workers to export'); return; }
+      const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)));
+      const data = full.filter(Boolean);
+
+      const eduFields = ['degree', 'institution', 'university', 'year_of_passing', 'percentage', 'from_year', 'to_year', 'specialization'];
+      const famFields = ['name', 'relationship', 'occupation', 'phone', 'dob'];
+      const orgFields = ['name', 'role', 'from_year', 'to_year', 'salary'];
+
+      const eduNorm = (e) => ({ degree: e.degree, institution: e.institution, university: e.university, year_of_passing: e.year_of_passing || e.year, percentage: e.percentage, from_year: e.from_year || e.fromYear, to_year: e.to_year || e.toYear, specialization: e.specialization });
+      const famNorm = (f) => ({ name: f.name, relationship: f.relationship, occupation: f.occupation, phone: f.phone, dob: f.dob });
+      const orgNorm = (o) => ({ name: o.name || o.organization_name, role: o.role || o.designation, from_year: o.from_year || o.fromYear, to_year: o.to_year || o.toYear, salary: o.salary });
+
+      const maxEdu = Math.max(...data.map(w => (w.education || w.education_details || []).length));
+      const maxFam = Math.max(...data.map(w => (w.family || w.family_details || []).length));
+      const maxOrg = Math.max(...data.map(w => (w.previous_organizations || []).length));
+
+      const rows = data.map(w => {
+        const edu = (w.education || w.education_details || []).map(eduNorm);
+        const fam = (w.family || w.family_details || []).map(famNorm);
+        const org = (w.previous_organizations || []).map(orgNorm);
+
+        const corrParts = [
+          w.correspondence?.address || w.address,
+          w.correspondence?.city || w.city,
+          w.correspondence?.state || w.state,
+          w.correspondence?.pincode || w.pincode,
+        ].filter(Boolean);
+
+        const row = {
+          name: w.name,
+          email: w.email,
+          login_id: w.login_id,
+          department: w.department,
+          gender: w.gender,
+          dob: w.dob,
+          phone: w.phone,
+          alternate_phone: w.alternate_phone,
+          address: w.address,
+          city: w.city,
+          state: w.state,
+          pincode: w.pincode,
+          father_husband_name: w.father_husband_name,
+          marital_status: w.marital_status,
+          pan_number: w.pan_number,
+          aadhar_number: w.aadhar_number,
+          account_holder_name: w.account_holder_name,
+          bank_name: w.bank_name,
+          ifsc_code: w.ifsc_code,
+          account_number: w.account_number,
+          correspondence: corrParts.join(', '),
+          salary: w.salary,
+        };
+
+        for (let i = 0; i < maxEdu; i++) {
+          const e = edu[i] || {};
+          for (const field of eduFields) row[`education_${i + 1}_${field}`] = e[field] || '';
+        }
+        for (let i = 0; i < maxFam; i++) {
+          const f = fam[i] || {};
+          for (const field of famFields) row[`family_${i + 1}_${field}`] = f[field] || '';
+        }
+        for (let i = 0; i < maxOrg; i++) {
+          const o = org[i] || {};
+          for (const field of orgFields) row[`previous_org_${i + 1}_${field}`] = o[field] || '';
+        }
+
+        return row;
+      });
+
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Workers');

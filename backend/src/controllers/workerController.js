@@ -167,94 +167,60 @@ export const getWorkers = async (req, res) => {
       getActiveSalaryByWorker(w.id).then(s => ({ id: w.id, salary: s ? parseFloat(s.salary) : null }))
     ));
     const salaryMap = Object.fromEntries(salaries.map(s => [s.id, s.salary]));
-    const safeWorkers = workers.map((w) => ({
-      id: w.id,
-      name: w.name,
-      email: w.email,
-      login_id: w.login_id,
-      gender: w.gender,
-      dob: w.dob,
-      phone: w.phone,
-      alternate_phone: w.alternate_phone,
-      department: w.department,
-      address: w.address,
-      city: w.city,
-      state: w.state,
-      pincode: w.pincode,
-      permanent_address: w.permanent_address,
-      photo_url: w.photo_url,
-      is_active: w.is_active,
-      ngo_id: w.ngo_id,
-      created_at: w.created_at,
-      salary: salaryMap[w.id],
-      father_husband_name: w.father_husband_name,
-      marital_status: w.marital_status,
-      pan_number: w.pan_number,
-      aadhar_number: w.aadhar_number,
-      emergency_contact_name: w.emergency_contact_name,
-      emergency_contact_phone: w.emergency_contact_phone,
-      account_holder_name: w.account_holder_name,
-      bank_name: w.bank_name,
-      ifsc_code: w.ifsc_code,
-      account_number: w.account_number,
-    }));
+    const full = req.query.full === 'true';
+    const safeWorkers = workers.map((w) => {
+      const base = {
+        id: w.id,
+        name: w.name,
+        email: w.email,
+        login_id: w.login_id,
+        gender: w.gender,
+        dob: w.dob,
+        phone: w.phone,
+        alternate_phone: w.alternate_phone,
+        department: w.department,
+        address: w.address,
+        city: w.city,
+        state: w.state,
+        pincode: w.pincode,
+        permanent_address: w.permanent_address,
+        photo_url: w.photo_url,
+        is_active: w.is_active,
+        ngo_id: w.ngo_id,
+        created_at: w.created_at,
+        salary: salaryMap[w.id],
+        father_husband_name: w.father_husband_name,
+        marital_status: w.marital_status,
+        pan_number: w.pan_number,
+        aadhar_number: w.aadhar_number,
+        account_holder_name: w.account_holder_name,
+        bank_name: w.bank_name,
+        ifsc_code: w.ifsc_code,
+        account_number: w.account_number,
+      };
+      if (full) {
+        return {
+          ...base,
+          aadhar_front_url: w.aadhar_front_url,
+          aadhar_back_url: w.aadhar_back_url,
+          pan_card_url: w.pan_card_url,
+          bank_proof_url: w.bank_proof_url,
+          light_bill_url: w.light_bill_url,
+          declaration_date: w.declaration_date,
+          declaration_place: w.declaration_place,
+          previous_organizations: w.previous_organizations || [],
+          correspondence: w.correspondence || {},
+          education: w.education_details || [],
+          family: w.family_details || [],
+          references: w.reference_details || [],
+          shift_start_time: w.shift_start_time,
+          shift_end_time: w.shift_end_time,
+          onboarding_completed: w.onboarding_completed,
+        };
+      }
+      return base;
+    });
     return res.json(safeWorkers);
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
-
-export const exportWorkers = async (req, res) => {
-  try {
-    const ngoId = req.user.role === 'hr' ? null : (req.user.ngo_id || req.query.ngo_id);
-    const workers = await getAllWorkers(ngoId);
-    const data = workers.map((w) => ({
-      id: w.id,
-      name: w.name,
-      email: w.email,
-      login_id: w.login_id,
-      gender: w.gender,
-      dob: w.dob,
-      phone: w.phone,
-      alternate_phone: w.alternate_phone,
-      department: w.department,
-      address: w.address,
-      city: w.city,
-      state: w.state,
-      pincode: w.pincode,
-      permanent_address: w.permanent_address,
-      photo_url: w.photo_url,
-      is_active: w.is_active,
-      ngo_id: w.ngo_id,
-      created_at: w.created_at,
-      father_husband_name: w.father_husband_name,
-      marital_status: w.marital_status,
-      pan_number: w.pan_number,
-      aadhar_number: w.aadhar_number,
-      aadhar_front_url: w.aadhar_front_url,
-      aadhar_back_url: w.aadhar_back_url,
-      pan_card_url: w.pan_card_url,
-      bank_proof_url: w.bank_proof_url,
-      light_bill_url: w.light_bill_url,
-      account_holder_name: w.account_holder_name,
-      bank_name: w.bank_name,
-      ifsc_code: w.ifsc_code,
-      account_number: w.account_number,
-      emergency_contact_name: w.emergency_contact_name,
-      emergency_contact_relation: w.emergency_contact_relation,
-      emergency_contact_phone: w.emergency_contact_phone,
-      declaration_date: w.declaration_date,
-      declaration_place: w.declaration_place,
-      previous_organizations: w.previous_organizations || [],
-      correspondence: w.correspondence || {},
-      education: w.education_details || [],
-      family: w.family_details || [],
-      references: w.reference_details || [],
-      shift_start_time: w.shift_start_time,
-      shift_end_time: w.shift_end_time,
-      onboarding_completed: w.onboarding_completed,
-    }));
-    return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -313,9 +279,6 @@ export const getWorker = async (req, res) => {
       bank_name: p.bank_name,
       ifsc_code: p.ifsc_code,
       account_number: p.account_number,
-      emergency_contact_name: p.emergency_contact_name,
-      emergency_contact_relation: p.emergency_contact_relation,
-      emergency_contact_phone: p.emergency_contact_phone,
       declaration_date: p.declaration_date,
       declaration_place: p.declaration_place,
       previous_organizations: p.previous_organizations,
@@ -339,7 +302,6 @@ export const editWorker = async (req, res) => {
       department, address, city, state, pincode,
       permanent_address, father_husband_name, marital_status,
       pan_number, aadhar_number, is_active, ngo_id,
-      emergency_contact_name, emergency_contact_relation, emergency_contact_phone,
       account_holder_name, bank_name, ifsc_code, account_number, created_at,
       shift_start_time, shift_end_time,
       photo_url,
@@ -364,9 +326,6 @@ export const editWorker = async (req, res) => {
     if (aadhar_number !== undefined) updates.aadhar_number = aadhar_number;
     if (is_active !== undefined) updates.is_active = is_active;
     if (ngo_id !== undefined) updates.ngo_id = ngo_id || null;
-    if (emergency_contact_name !== undefined) updates.emergency_contact_name = emergency_contact_name;
-    if (emergency_contact_relation !== undefined) updates.emergency_contact_relation = emergency_contact_relation;
-    if (emergency_contact_phone !== undefined) updates.emergency_contact_phone = emergency_contact_phone;
     if (account_holder_name !== undefined) updates.account_holder_name = account_holder_name;
     if (bank_name !== undefined) updates.bank_name = bank_name;
     if (ifsc_code !== undefined) updates.ifsc_code = ifsc_code;
@@ -449,8 +408,6 @@ export const updateMyProfile = async (req, res) => {
       'name', 'email', 'phone', 'alternate_phone', 'address', 'permanent_address',
       'city', 'state', 'pincode', 'gender', 'dob',
       'father_husband_name', 'marital_status', 'pan_number', 'aadhar_number',
-      'emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_phone',
-      'emergency_contact_name2', 'emergency_contact_relation2', 'emergency_contact_phone2',
       'account_holder_name', 'bank_name', 'ifsc_code', 'account_number',
       'photo_url',
     ];

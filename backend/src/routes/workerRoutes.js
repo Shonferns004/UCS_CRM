@@ -13,7 +13,6 @@ import {
   updateMyEducation,
   getWorkerAllocations,
   setWorkerAllocations,
-  exportWorkers,
 } from '../controllers/workerController.js';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
@@ -25,7 +24,6 @@ router.post('/', adminOrHrOrHo, addWorker);
 router.post('/bulk', adminOrHrOrHo, bulkAddWorkers);
 router.put('/bulk', adminOrHrOrHo, bulkEditWorkers);
 router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkers);
-router.get('/export', adminOrHrOrHo, exportWorkers);
 router.get('/birthdays', adminOrHrOrHo, getBirthdays);
 router.get('/me', authenticate, getMyProfile);
 router.put('/me', authenticate, updateMyProfile);

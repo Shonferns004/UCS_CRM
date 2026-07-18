@@ -83,9 +83,6 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
   if (details.aadhar_number !== undefined) updates.aadhar_number = details.aadhar_number;
   if (details.bank_name !== undefined) updates.bank_name = details.bank_name;
   if (details.correspondence !== undefined) updates.correspondence = details.correspondence;
-  if (details.emergency_contact_name !== undefined) updates.emergency_contact_name = details.emergency_contact_name;
-  if (details.emergency_contact_relation !== undefined) updates.emergency_contact_relation = details.emergency_contact_relation;
-  if (details.emergency_contact_phone !== undefined) updates.emergency_contact_phone = details.emergency_contact_phone;
   if (details.previous_organizations !== undefined) updates.previous_organizations = details.previous_organizations;
   if (details.education_details !== undefined) updates.education_details = details.education_details;
   if (details.family_details !== undefined) updates.family_details = details.family_details;

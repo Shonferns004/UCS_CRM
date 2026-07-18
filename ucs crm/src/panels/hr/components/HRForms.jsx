@@ -163,9 +163,6 @@ export default function HRForms() {
         panNumber: data.pan_number || '',
         aadhaarNumber: data.aadhar_number || '',
         permanentAddress: data.permanent_address || '',
-        emergencyName: data.emergency_contact_name || '',
-        emergencyRelation: data.emergency_contact_relation || '',
-        emergencyPhone: data.emergency_contact_phone || '',
         corrAddress: data.correspondence?.address || '',
         corrCity: data.correspondence?.city || '',
         corrState: data.correspondence?.state || '',
@@ -229,7 +226,6 @@ export default function HRForms() {
     gender: 'Male', dob: '', maritalStatus: 'Single',
     address: '', city: '', state: '', pincode: '',
     panNumber: '', aadhaarNumber: '', permanentAddress: '',
-    emergencyName: '', emergencyRelation: '', emergencyPhone: '',
     corrAddress: '', corrCity: '', corrState: '', corrPincode: '',
   });
 
@@ -359,14 +355,7 @@ export default function HRForms() {
               <Field label="Pincode" value={personal.corrPincode || ''} onChange={e => handlePersonalChange('corrPincode', e.target.value)} placeholder="6-digit pincode" />
             </div>
 
-            <div className="card-head"><h3>Emergency Contact</h3></div>
-            <div className="card-pad">
-              <Field label="Contact Person Name" value={personal.emergencyName} onChange={e => handlePersonalChange('emergencyName', e.target.value)} placeholder="Full name" />
-              <div className="form-row">
-                <Field label="Relationship" value={personal.emergencyRelation} onChange={e => handlePersonalChange('emergencyRelation', e.target.value)} placeholder="e.g., Spouse, Parent" />
-                <Field label="Phone" value={personal.emergencyPhone} onChange={e => handlePersonalChange('emergencyPhone', e.target.value)} placeholder="Contact number" />
-              </div>
-            </div>
+
           </>
         );
 
@@ -638,11 +627,6 @@ export default function HRForms() {
               <Field label="State" value={personal.corrState} readOnly />
             </div>
             <Field label="Pincode" value={personal.corrPincode} readOnly />
-            <Field label="Emergency Contact Person" value={personal.emergencyName} readOnly />
-            <div className="form-row">
-              <Field label="Emergency Relationship" value={personal.emergencyRelation} readOnly />
-              <Field label="Emergency Phone" value={personal.emergencyPhone} readOnly />
-            </div>
 
             <h3 style={{ marginTop: 24, marginBottom: 16 }}>Education</h3>
             {education.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p> : education.map((e, i) => (
