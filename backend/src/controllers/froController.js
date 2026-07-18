@@ -192,7 +192,7 @@ export const getDashboard = async (req, res) => {
         ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
-    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request']);
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
     const donorInfo = new Map();
     for (const a of assignmentsRes.data || []) {
       if (!donorInfo.has(a.donor_id)) {
