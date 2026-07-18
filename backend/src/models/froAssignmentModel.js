@@ -232,17 +232,21 @@ export const getDonorsByStationAndStatus = async (ngoId, station, status) => {
 export const getStationDispositionStats = async (ngoId, from, to) => {
   let query = supabase
     .from('fro_assignments')
-    .select('status, station, assigned_at')
+    .select('donor_id, status, station, assigned_at')
     .eq('ngo_id', ngoId)
     .not('station', 'is', null)
-    .not('status', 'eq', 'reassigned');
+    .not('status', 'eq', 'reassigned')
+    .order('assigned_at', { ascending: false });
   if (from) query = query.gte('assigned_at', from);
   if (to) query = query.lte('assigned_at', to);
   const { data, error } = await query;
   if (error) throw error;
 
   const stationMap = {};
+  const seen = new Set();
   for (const a of data || []) {
+    if (seen.has(a.donor_id)) continue;
+    seen.add(a.donor_id);
     const station = a.station || 'Unassigned';
     if (!stationMap[station]) stationMap[station] = {};
     stationMap[station][a.status] = (stationMap[station][a.status] || 0) + 1;

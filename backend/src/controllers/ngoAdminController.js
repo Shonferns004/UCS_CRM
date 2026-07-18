@@ -1052,20 +1052,24 @@ export const getStations = async (req, res) => {
     // Get all station assignments (including unassigned)
     const assignments = await getStationAssignmentsByNgo(targetNgoIds, true);
 
-    // Get donor counts per station from fro_assignments
+    // Get donor counts per station from fro_assignments (deduplicated by donor_id)
     const { data: faData, error: faErr } = await supabase
       .from('fro_assignments')
-      .select('station, ngo_id, fro_worker_id')
+      .select('donor_id, station, ngo_id, fro_worker_id, assigned_at')
       .in('ngo_id', targetNgoIds)
       .not('station', 'is', null)
-      .not('status', 'eq', 'reassigned');
+      .not('status', 'eq', 'reassigned')
+      .order('assigned_at', { ascending: false });
 
     if (faErr) throw faErr;
 
     // Build total donor count per station (across all NGOs) and per-FRO count
     const totalDonorCount = {};
     const froDonorCount = {};
+    const seen = new Set();
     for (const d of faData || []) {
+      if (seen.has(d.donor_id)) continue;
+      seen.add(d.donor_id);
       const s = d.station.trim();
       totalDonorCount[s] = (totalDonorCount[s] || 0) + 1;
       if (d.fro_worker_id) {
