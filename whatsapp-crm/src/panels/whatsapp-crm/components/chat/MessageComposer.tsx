@@ -35,6 +35,8 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         message_category: 'service',
       });
 
+      await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
+
       sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, selectedFile, userId);
 
       setText('');

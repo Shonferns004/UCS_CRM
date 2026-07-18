@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useHR } from '../store';
-import { Who, Dropdown } from './ui';
-import { Plus, Trash } from '../icons';
+import { Who, Avatar, Dropdown } from './ui';
+import { Plus, Trash, Check } from '../icons';
 import { api } from '../../../api/auth';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
@@ -13,14 +13,34 @@ function save(v) {
   try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch {}
 }
 
+function isComplete(w) {
+  const val = (v) => v && typeof v === 'string' && v.trim() !== '';
+  return (
+    val(w.email) && val(w.phone) && val(w.dob) && val(w.gender) &&
+    (val(w.address) || val(w.permanent_address)) &&
+    val(w.city) && val(w.state) &&
+    val(w.father_husband_name) && val(w.marital_status) &&
+    val(w.pan_number) && val(w.aadhar_number) &&
+    val(w.account_holder_name) && val(w.bank_name) && val(w.ifsc_code) && val(w.account_number) &&
+    val(w.photo_url)
+  );
+}
+
 function WhoWithPhoto({ name, role, photo_url }) {
   const [photoErr, setPhotoErr] = useState(false);
+  const hasPhoto = photo_url && !photoErr;
   return (
     <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-      {photo_url && !photoErr ? (
+      {hasPhoto ? (
         <img src={photo_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} onError={() => setPhotoErr(true)} />
       ) : null}
-      <Who name={name} role={role} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {!hasPhoto ? <Avatar name={name} /> : null}
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#111' }}>{name}</div>
+          <div style={{ fontSize: 12, color: '#666' }}>{role}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -194,6 +214,90 @@ export default function Workers({ onSelect, onOffboard }) {
     if (onOffboard) onOffboard(worker);
   };
 
+  const handleExportAll = async () => {
+    try {
+      const list = await api('/workers', { _prefix: 'ucs' });
+      if (!list || list.length === 0) { alert('No workers to export'); return; }
+      const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)));
+      const data = full.filter(Boolean);
+
+      const eduFields = ['degree', 'institution', 'university', 'year_of_passing', 'percentage', 'from_year', 'to_year', 'specialization'];
+      const famFields = ['name', 'relationship', 'occupation', 'phone', 'dob'];
+      const orgFields = ['name', 'role', 'from_year', 'to_year', 'salary'];
+
+      const eduNorm = (e) => ({ degree: e.degree, institution: e.institution, university: e.university, year_of_passing: e.year_of_passing || e.year, percentage: e.percentage, from_year: e.from_year || e.fromYear, to_year: e.to_year || e.toYear, specialization: e.specialization });
+      const famNorm = (f) => ({ name: f.name, relationship: f.relationship, occupation: f.occupation, phone: f.phone, dob: f.dob });
+      const orgNorm = (o) => ({ name: o.name || o.organization_name, role: o.role || o.designation, from_year: o.from_year || o.fromYear, to_year: o.to_year || o.toYear, salary: o.salary });
+
+      const maxEdu = Math.max(...data.map(w => (w.education || w.education_details || []).length));
+      const maxFam = Math.max(...data.map(w => (w.family || w.family_details || []).length));
+      const maxOrg = Math.max(...data.map(w => (w.previous_organizations || []).length));
+
+      const rows = data.map(w => {
+        const edu = (w.education || w.education_details || []).map(eduNorm);
+        const fam = (w.family || w.family_details || []).map(famNorm);
+        const org = (w.previous_organizations || []).map(orgNorm);
+
+        const corrParts = [
+          w.correspondence?.address || w.address,
+          w.correspondence?.city || w.city,
+          w.correspondence?.state || w.state,
+          w.correspondence?.pincode || w.pincode,
+        ].filter(Boolean);
+
+        const row = {
+          name: w.name,
+          email: w.email,
+          login_id: w.login_id,
+          department: w.department,
+          gender: w.gender,
+          dob: w.dob,
+          phone: w.phone,
+          alternate_phone: w.alternate_phone,
+          address: w.address,
+          city: w.city,
+          state: w.state,
+          pincode: w.pincode,
+          father_husband_name: w.father_husband_name,
+          marital_status: w.marital_status,
+          pan_number: w.pan_number,
+          aadhar_number: w.aadhar_number,
+          account_holder_name: w.account_holder_name,
+          bank_name: w.bank_name,
+          ifsc_code: w.ifsc_code,
+          account_number: w.account_number,
+          correspondence: corrParts.join(', '),
+          salary: w.salary,
+        };
+
+        for (let i = 0; i < maxEdu; i++) {
+          const e = edu[i] || {};
+          for (const field of eduFields) row[`education_${i + 1}_${field}`] = e[field] || '';
+        }
+        for (let i = 0; i < maxFam; i++) {
+          const f = fam[i] || {};
+          for (const field of famFields) row[`family_${i + 1}_${field}`] = f[field] || '';
+        }
+        for (let i = 0; i < maxOrg; i++) {
+          const o = org[i] || {};
+          for (const field of orgFields) row[`previous_org_${i + 1}_${field}`] = o[field] || '';
+        }
+
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Workers');
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `workers-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
   const handlePayExport = async () => {
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -287,6 +391,7 @@ export default function Workers({ onSelect, onOffboard }) {
           <div className="search-input-wrap">
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
+            <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
             <span className="sub">{filtered.length} total</span>
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
               options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:r}))]} />
@@ -307,7 +412,12 @@ export default function Workers({ onSelect, onOffboard }) {
               return (
                 <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
                   style={{ cursor:'pointer' }}>
-                  <td><WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} /></td>
+                  <td>
+                    <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                      <WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} />
+                      {isComplete(w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
+                    </div>
+                  </td>
                   <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
                   <td>
                     {sw?.current_salary ? (

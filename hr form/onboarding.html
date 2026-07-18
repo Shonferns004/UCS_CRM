@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>UCS - Onboarding</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font-family:system-ui,-apple-system,sans-serif;background:#fff;min-height:100vh;color:#1e293b}
+input,select,button{font-family:inherit;font-size:inherit}
+input:focus,select:focus{outline:none!important;border-color:#3b82f6!important;box-shadow:0 0 0 3px rgba(59,130,246,0.1)!important}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fadeIn .3s ease both}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:8px;color:#fff;font-size:13px;font-weight:600;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.15)}
+.toast-success{background:#10b981}
+.toast-error{background:#ef4444}
+@media(min-width:1024px){
+  .field-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
+  .field-grid .full{grid-column:1/-1}
+  .field-grid .half{grid-column:span 2}
+  .wizard-wide{max-width:960px;padding-top:12px!important}
+  .step-card{padding:16px 20px!important}
+  .step-card .mb-4{margin-bottom:8px!important}
+  .step-card .form-label{font-size:11px!important}
+  .step-card input,.step-card select{padding-top:8px!important;padding-bottom:8px!important;font-size:13px!important}
+}
+</style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<!-- LOGIN -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center p-5">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="w-14 h-14 mx-auto mb-4 rounded-2xl bg-blue-500 text-white flex items-center justify-center text-xl font-bold shadow-sm">U</div>
+      <h1 class="text-xl font-bold text-gray-900">Welcome</h1>
+      <p class="text-sm text-gray-500 mt-1">Sign in to start your onboarding</p>
+    </div>
+    <div id="login-error" class="hidden mb-4 p-3 rounded-lg bg-red-50 text-red-600 text-sm"></div>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">Login ID / Email</label>
+        <input type="text" id="login-id" placeholder="Enter your login ID or email" autocomplete="username"
+          class="w-full rounded-xl border border-gray-300 bg-white py-2.5 px-3.5 text-sm text-gray-900 placeholder-gray-400 transition-colors">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+        <input type="password" id="login-pass" placeholder="Enter your password" autocomplete="current-password"
+          class="w-full rounded-xl border border-gray-300 bg-white py-2.5 px-3.5 text-sm text-gray-900 placeholder-gray-400 transition-colors">
+      </div>
+      <button onclick="doLogin()" id="login-btn"
+        class="w-full rounded-xl bg-blue-500 text-white font-semibold text-sm py-2.5 hover:bg-blue-600 transition-colors disabled:opacity-50 min-h-[44px]">
+        <span id="login-btn-text">Sign In</span>
+        <svg id="login-btn-spinner" class="hidden w-4 h-4 animate-spin inline" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="4" stroke-linecap="round" class="opacity-75"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- WIZARD -->
+<div id="wizard-screen" class="hidden min-h-screen py-6 px-4 max-w-lg mx-auto wizard-wide">
+  <div class="mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <img id="header-photo" class="hidden w-7 h-7 rounded-full object-cover border-2 border-blue-400">
+        </div>
+        <button onclick="doLogout()" title="Logout" class="w-8 h-8 rounded-full border border-gray-200 bg-transparent cursor-pointer flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        </button>
+      </div>
+    <div class="flex items-center justify-center gap-3 mb-4" id="progress-bar"></div>
+    <h2 id="step-title" class="text-lg font-bold text-gray-900 text-center"></h2>
+    <p id="step-subtitle" class="text-sm text-gray-500 text-center mt-0.5"></p>
+  </div>
+
+  <div id="step-content"></div>
+
+  <button onclick="nextStep()" id="next-btn"
+      class="w-full rounded-xl bg-blue-500 text-white font-semibold text-sm py-2.5 hover:bg-blue-600 transition-colors disabled:opacity-50 min-h-[44px]">
+      Continue
+    </button>
+</div>
+
+<!-- Camera Modal -->
+<div id="camera-modal" class="fixed inset-0 z-[200] bg-black hidden flex-col">
+  <div class="flex items-center justify-between p-4">
+    <span class="text-white font-semibold text-sm" id="camera-modal-title">Capture</span>
+    <button onclick="closeCameraModal()" class="w-9 h-9 rounded-full bg-white/10 border-none text-white cursor-pointer flex items-center justify-center">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="flex-1 flex flex-col items-center justify-center p-4">
+    <video id="camera-stream" autoplay playsinline class="w-full max-h-[50vh] rounded-2xl object-cover"></video>
+    <img id="camera-captured-preview" class="hidden w-full max-h-[50vh] rounded-2xl object-contain">
+  </div>
+  <div class="flex gap-4 justify-center p-4" id="camera-modal-footer">
+    <button onclick="captureFrame()" class="w-16 h-16 rounded-full border-4 border-white bg-transparent cursor-pointer relative hover:scale-95 transition-transform" style="min-width:64px">
+      <span class="absolute inset-[5px] rounded-full bg-white"></span>
+    </button>
+  </div>
+</div>
+<canvas id="capture-canvas" style="display:none"></canvas>
+
+<script>
+const API_BASE='https://attendance-roan-zeta.vercel.app/api';
+let TOKEN=localStorage.getItem('ucs_token')||'';
+let USER=null;
+
+const STEPS=['Personal Details','Address','Education','Experience','Family','Profile Photo','Review & Submit'];
+const STEP_SUBS=['Tell us about yourself','Your permanent address','Your highest qualification','Previous work experience','Family members','Take a clear photo','Verify and submit'];
+let currentStep=0;
+
+const form={
+  personal:{name:'',email:'',phone:'',alternate_phone:'',dob:'',gender:'',father_husband_name:'',marital_status:'',pan_number:'',aadhar_number:''},
+  address:{address:'',city:'',state:'',pincode:'',correspondence:{address:'',city:'',state:'',pincode:''},useCorrespondence:false},
+  education:{degree:'',institution:'',university:'',from_year:'',to_year:'',year_of_passing:'',percentage:''},
+  experience:{organization_name:'',role:'',from_year:'',to_year:''},
+  family:[{name:'',relationship:'',occupation:'',phone:'',dob:''},{name:'',relationship:'',occupation:'',phone:'',dob:''},{name:'',relationship:'',occupation:'',phone:'',dob:''}],
+  bank:{bank_name:'',account_holder_name:'',ifsc_code:'',account_number:''},
+};
+
+let capturedPhoto=null;
+let capturedDocs={};
+let policies=[];
+let cameraMode=null;
+let cameraStream=null;
+let cameraCaptureData=null;
+
+function showToast(msg,type='success'){
+  const t=document.createElement('div');t.className=`toast toast-${type}`;t.textContent=msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300)},3000);
+}
+
+async function api(method,path,body){
+  const h={};if(TOKEN)h['Authorization']=`Bearer ${TOKEN}`;
+  if(body&&!(body instanceof FormData))h['Content-Type']='application/json';
+  const o={method,headers:h};
+  if(body)o.body=body instanceof FormData?body:JSON.stringify(body);
+  const r=await fetch(`${API_BASE}/${path}`,o);const d=await r.json();
+  if(!r.ok)throw new Error(d.message||'Request failed');return d;
+}
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+const SAVE_KEY='ucs_onboarding';
+function saveFormState(){
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({
+    step:currentStep,personal:form.personal,address:form.address,education:form.education,
+    experience:form.experience,family:form.family,bank:form.bank,
+    capturedPhoto:capturedPhoto,capturedDocs:capturedDocs,policies:policies
+  }))}catch(e){}
+}
+function loadFormState(){
+  try{
+    const r=JSON.parse(localStorage.getItem(SAVE_KEY));if(!r)return false;
+    if(r.personal)form.personal=r.personal;if(r.address)form.address=r.address;
+    if(r.education)form.education=r.education;if(r.experience)form.experience=r.experience;
+    if(r.family)form.family=r.family;if(r.bank)form.bank=r.bank;
+    if(r.capturedPhoto)capturedPhoto=r.capturedPhoto;if(r.capturedDocs)capturedDocs=r.capturedDocs;
+    if(r.policies)policies=r.policies;if(typeof r.step==='number')currentStep=r.step;
+    return true;
+  }catch(e){return false}
+}
+function clearFormState(){localStorage.removeItem(SAVE_KEY)}
+
+async function doLogin(){
+  const id=document.getElementById('login-id').value.trim();
+  const pw=document.getElementById('login-pass').value;
+  const err=document.getElementById('login-error');
+  const txt=document.getElementById('login-btn-text');
+  const sp=document.getElementById('login-btn-spinner');
+  if(!id||!pw){err.textContent='Please fill in all fields';err.classList.remove('hidden');return}
+  txt.textContent='Signing in...';sp.classList.remove('hidden');err.classList.add('hidden');
+  try{
+    const d=await api('POST','auth/worker/login',{identifier:id,password:pw});
+    TOKEN=d.token;USER=d.user;
+    localStorage.setItem('ucs_token',TOKEN);localStorage.setItem('ucs_worker',JSON.stringify(USER));
+    showToast('Welcome, '+(USER.name||'')+'!');
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('wizard-screen').classList.remove('hidden');
+    try{const d=await api('GET','onboarding/policies');policies=Array.isArray(d)?d:(d.policies||[])}catch{}
+    try{
+      const profile=await api('GET','workers/me');
+      if(profile){
+        ['name','email','phone','alternate_phone','dob','gender','father_husband_name','marital_status','pan_number','aadhar_number'].forEach(f=>{if(profile[f])form.personal[f]=profile[f]});
+        ['address','city','state','pincode'].forEach(f=>{if(profile[f])form.address[f]=profile[f]});
+        ['bank_name','account_holder_name','ifsc_code','account_number'].forEach(f=>{if(profile[f])form.bank[f]=profile[f]});
+        if(profile.correspondence&&typeof profile.correspondence==='object'){
+          const c=profile.correspondence;
+          if(c.address||c.city||c.state||c.pincode){form.address.useCorrespondence=true;['address','city','state','pincode'].forEach(f=>{if(c[f])form.address.correspondence[f]=c[f]})}
+        }
+        if(profile.photo_url)capturedPhoto=profile.photo_url;
+        ['aadhar_front','aadhar_back','pan_card','bank_proof','light_bill'].forEach(k=>{if(profile[k+'_url'])capturedDocs[k]=profile[k+'_url']});
+        if(profile.education_details&&profile.education_details[0]){const e=profile.education_details[0];['degree','institution','university','from_year','to_year','year_of_passing','percentage'].forEach(f=>{if(e[f])form.education[f]=e[f]})}
+        if(profile.previous_organizations&&profile.previous_organizations[0]){const e=profile.previous_organizations[0];['organization_name','role','from_year','to_year'].forEach(f=>{if(e[f])form.experience[f]=e[f]})}
+        if(profile.family_details&&profile.family_details.length){form.family=profile.family_details.map(f=>({name:f.name||'',relationship:f.relationship||'',occupation:f.occupation||'',phone:f.phone||'',dob:f.dob||''}))}
+        saveFormState();
+      }
+    }catch(e){}
+    renderStep();
+  }catch(e){err.textContent=e.message;err.classList.remove('hidden')}
+  finally{txt.textContent='Sign In';sp.classList.add('hidden')}
+}
+
+function doLogout(){
+  TOKEN='';USER=null;capturedPhoto=null;capturedDocs={};policies=[];currentStep=0;
+  localStorage.removeItem('ucs_token');localStorage.removeItem('ucs_worker');
+  form.personal={name:'',email:'',phone:'',alternate_phone:'',dob:'',gender:'',father_husband_name:'',marital_status:'',pan_number:'',aadhar_number:''};
+  form.address={address:'',city:'',state:'',pincode:'',correspondence:{address:'',city:'',state:'',pincode:''},useCorrespondence:false};
+  form.education={degree:'',institution:'',university:'',from_year:'',to_year:'',year_of_passing:'',percentage:''};
+  form.experience={organization_name:'',role:'',from_year:'',to_year:''};
+  form.family=[{name:'',relationship:'',occupation:'',phone:'',dob:''},{name:'',relationship:'',occupation:'',phone:'',dob:''},{name:'',relationship:'',occupation:'',phone:'',dob:''}];
+  form.bank={bank_name:'',account_holder_name:'',ifsc_code:'',account_number:''};
+  clearFormState();
+  document.getElementById('wizard-screen').classList.add('hidden');
+  document.getElementById('login-screen').style.display='';
+  document.getElementById('login-error').classList.add('hidden');
+  document.getElementById('login-id').value='';document.getElementById('login-pass').value='';
+  showToast('Logged out');
+}
+
+function renderProgress(){
+  document.getElementById('progress-bar').innerHTML=STEPS.map((_,i)=>`
+    <button onclick="goToStep(${i})" class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors flex-shrink-0 cursor-pointer border-none ${i<=currentStep?'bg-blue-500 text-white':'bg-gray-200 text-gray-400 hover:bg-gray-300'}">${i<currentStep?'✓':i+1}</button>
+    ${i<STEPS.length-1?`<div class="w-10 h-0.5 rounded transition-colors ${i<currentStep?'bg-blue-500':'bg-gray-200'}"></div>`:''}
+  `).join('');
+  document.getElementById('step-title').textContent=STEPS[currentStep];
+  document.getElementById('step-subtitle').textContent=STEP_SUBS[currentStep];
+  const nb=document.getElementById('next-btn');
+  nb.textContent=currentStep===STEPS.length-1?'Submit':'Continue';
+  nb.className=currentStep===STEPS.length-1?'w-full rounded-xl bg-emerald-500 text-white font-semibold text-sm py-2.5 hover:bg-emerald-600 transition-colors disabled:opacity-50 min-h-[44px]':'w-full rounded-xl bg-blue-500 text-white font-semibold text-sm py-2.5 hover:bg-blue-600 transition-colors disabled:opacity-50 min-h-[44px]';
+  const hp=document.getElementById('header-photo');if(capturedPhoto){hp.src=capturedPhoto;hp.style.display='block'}else{hp.style.display='none'}
+}
+
+function goToStep(i){if(i<=currentStep){currentStep=i;renderStep()}}
+
+function renderStep(){
+  renderProgress();
+  document.getElementById('step-content').innerHTML='<div class="anim"></div>';
+  [renderPersonal,renderAddress,renderEducation,renderExperience,renderFamily,renderPhoto,renderReview][currentStep]();
+  // Family add/remove delegation
+  const sc=document.getElementById('step-content');
+  sc.onclick=function(e){
+    const btn=e.target.closest('[data-action="remove"]');
+    if(btn){const i=parseInt(btn.dataset.idx);form.family.splice(i,1);renderStep();return}
+    if(e.target.id==='add-family-btn'){form.family.push({name:'',relationship:'',occupation:'',phone:'',dob:''});renderStep()}
+  };
+  window.scrollTo({top:0,behavior:'smooth'});
+  saveFormState();
+}
+
+function nextStep(){
+  if(currentStep===STEPS.length-1){submitAll();return}
+  if(currentStep===0){
+    if(!form.personal.name)return showToast('Full Name is required','error');
+    if(!form.personal.email)return showToast('Email is required','error');
+    if(!form.personal.phone||form.personal.phone.replace(/\D/g,'').length<10)return showToast('Valid phone required','error');
+    if(form.personal.pan_number&&!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.personal.pan_number))return showToast('Invalid PAN format (e.g. ABCDE1234F)','error');
+    if(form.personal.aadhar_number&&!/^\d{12}$/.test(form.personal.aadhar_number))return showToast('Invalid Aadhaar number (12 digits required)','error');
+  }
+  if(currentStep===4){
+    const valid=form.family.filter(f=>f.name.trim());
+    if(valid.length<3)return showToast('Please add at least 3 family members','error');
+    for(const m of form.family){
+      if(m.phone&&m.phone.replace(/\D/g,'').length<10)return showToast('Valid phone required for '+esc(m.name||'family member'),'error');
+    }
+  }
+  currentStep++;renderStep();
+}
+function prevStep(){if(currentStep>0){currentStep--;renderStep()}}
+
+function fi(l,v,k,t='text',ph='',rq=false,op={}){
+  return`<div class="mb-4"><label class="form-label block text-sm font-medium text-gray-700 mb-1.5">${l}${rq?'<span class="text-red-400 ml-0.5">*</span>':''}</label><input type="${t}" class="w-full rounded-xl border border-gray-300 bg-white py-2.5 px-3.5 text-sm text-gray-900 placeholder-gray-400 transition-colors focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" value="${esc(v)}" placeholder="${ph}"${op.max?` maxlength="${op.max}"`:''} onchange="set('${k}',this.value)" oninput="set('${k}',this.value)"/></div>`;
+}
+function fs(l,v,k,op,rq=false){
+  return`<div class="mb-4"><label class="block text-sm font-medium text-gray-700 mb-1.5">${l}${rq?'<span class="text-red-400 ml-0.5">*</span>':''}</label><select class="w-full rounded-xl border border-gray-300 bg-white py-2.5 px-3.5 text-sm text-gray-900 transition-colors" onchange="set('${k}',this.value)"><option value="">Select</option>${op.map(o=>`<option value="${o}"${v===o?' selected':''}>${o}</option>`).join('')}</select></div>`;
+}
+function set(k,v){const p=k.split('.');let o=form;for(let i=0;i<p.length-1;i++)o=p[i].match(/^\d+/)?o[+p[i]]:o[p[i]];o[p[p.length-1]]=v;saveFormState()}
+
+function card(h){return`<div class="step-card bg-white rounded-2xl border border-gray-200 p-5 mb-4 anim">${h}</div>`}
+function sec(t){return`<div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 mt-1">${t}</div>`}
+
+function renderPersonal(){
+  document.getElementById('step-content').innerHTML=card(`
+    <div class="field-grid">
+      <div class="full">${fi('Full Name',form.personal.name,'personal.name','text','Your full name',true)}</div>
+      <div class="full">${fi('Email',form.personal.email,'personal.email','email','you@example.com',true)}</div>
+      ${fi('Phone',form.personal.phone,'personal.phone','tel','Mobile number',true,{max:15})}${fi('Alt Phone',form.personal.alternate_phone,'personal.alternate_phone','tel','Optional',false,{max:15})}
+      ${fi('Date of Birth',form.personal.dob,'personal.dob','date')}${fs('Gender',form.personal.gender,'personal.gender',['Male','Female','Other'])}
+      ${fi('Father / Husband',form.personal.father_husband_name,'personal.father_husband_name','text',"Father's or husband's name")}${fs('Marital Status',form.personal.marital_status,'personal.marital_status',['Single','Married','Divorced','Widowed'])}
+      ${fi('PAN',form.personal.pan_number,'personal.pan_number','text','ABCDE1234F',false,{max:10})}${fi('Aadhaar',form.personal.aadhar_number,'personal.aadhar_number','text','12-digit Aadhaar',false,{max:12})}
+    </div>
+    ${sec('Bank Account')}
+    <div class="field-grid">
+      <div class="full">${fi('Bank Name',form.bank.bank_name,'bank.bank_name','text','e.g. State Bank of India')}</div>
+      <div class="full">${fi('Account Holder',form.bank.account_holder_name,'bank.account_holder_name','text','Name as per bank records')}</div>
+      ${fi('IFSC',form.bank.ifsc_code,'bank.ifsc_code','text','e.g. SBIN0001234')}${fi('Account No',form.bank.account_number,'bank.account_number','text','Account number')}
+    </div>
+  `);
+}
+
+function renderAddress(){
+  document.getElementById('step-content').innerHTML=card(`
+    ${sec('Permanent Address')}
+    <div class="field-grid">
+      <div class="full">${fi('Address',form.address.address,'address.address','text','Street address')}</div>
+      ${fi('City',form.address.city,'address.city','text','City')}${fi('State',form.address.state,'address.state','text','State')}
+      ${fi('Pincode',form.address.pincode,'address.pincode','text','6-digit pincode',false,{max:6})}
+    </div>
+  `)+card(`
+    <div class="flex items-center justify-between cursor-pointer py-1" onclick="form.address.useCorrespondence=!form.address.useCorrespondence;renderStep()">
+      <span class="text-sm font-medium text-gray-700">Correspondence Address?</span>
+      <div class="w-11 h-6 rounded-full ${form.address.useCorrespondence?'bg-blue-500':'bg-gray-300'} relative transition-colors pointer-events-none">
+        <div class="w-5 h-5 rounded-full bg-white shadow-sm absolute top-0.5 transition-transform ${form.address.useCorrespondence?'translate-x-[22px]':'left-0.5'}"></div>
+      </div>
+    </div>
+    ${form.address.useCorrespondence?`
+      ${sec('Correspondence Address')}
+      <div class="field-grid">
+        <div class="full">${fi('Address',form.address.correspondence.address,'address.correspondence.address','text','Street address')}</div>
+        ${fi('City',form.address.correspondence.city,'address.correspondence.city','text','City')}${fi('State',form.address.correspondence.state,'address.correspondence.state','text','State')}
+        ${fi('Pincode',form.address.correspondence.pincode,'address.correspondence.pincode','text','6-digit pincode',false,{max:6})}
+      </div>
+    `:''}
+  `);
+}
+
+function renderEducation(){
+  document.getElementById('step-content').innerHTML=card(`
+    <div class="field-grid">
+      <div class="full">${fi('Degree / Qualification',form.education.degree,'education.degree','text','e.g. 10th, BSc, MBA',true)}</div>
+      <div class="full">${fi('Institution',form.education.institution,'education.institution','text','School or college name',true)}</div>
+      ${fi('University / Board',form.education.university,'education.university','text','University')}${fi('Percentage',form.education.percentage,'education.percentage','text','85% or A+')}
+      ${fi('From Year',form.education.from_year,'education.from_year','text','2018')}${fi('To Year',form.education.to_year,'education.to_year','text','2022')}
+      ${fi('Passing Year',form.education.year_of_passing,'education.year_of_passing','text','2022')}
+    </div>
+  `);
+}
+
+function renderExperience(){
+  document.getElementById('step-content').innerHTML=card(`
+    <div class="field-grid">
+      <div class="full">${fi('Organization Name',form.experience.organization_name,'experience.organization_name','text','Company name')}</div>
+      ${fi('Role / Designation',form.experience.role,'experience.role','text','Your role')}${fi('From Year',form.experience.from_year,'experience.from_year','text','2020')}
+      ${fi('To Year',form.experience.to_year,'experience.to_year','text','2023')}
+    </div>
+  `);
+}
+
+function renderFamily(){
+  let h=card(`<div class="text-sm font-semibold text-gray-800 mb-3">Family Members</div>`);
+  form.family.forEach((item,i)=>{
+    h+=card(`<div class="flex justify-end mb-2" style="display:${form.family.length>3?'flex':'none'}"><button class="text-xs text-red-400 hover:text-red-500 bg-transparent border-none cursor-pointer" data-action="remove" data-idx="${i}">Remove</button></div>
+    <div class="field-grid">
+      <div class="full">${fi('Name',item.name,'family.'+i+'.name','text','Full name',true)}</div>
+      ${fi('Relationship',item.relationship,'family.'+i+'.relationship','text','Father, Mother, Spouse')}${fi('Occupation',item.occupation,'family.'+i+'.occupation','text','Occupation')}
+      ${fi('Phone',item.phone,'family.'+i+'.phone','tel','Phone')}
+    </div>`);
+  });
+  if(form.family.length<10)h+=`<button class="text-sm font-medium text-blue-500 hover:text-blue-600 bg-transparent border-none cursor-pointer w-full text-center py-2" id="add-family-btn">+ Add Family Member</button>`;
+  document.getElementById('step-content').innerHTML=h;
+}
+
+function renderPhoto(){
+  document.getElementById('step-content').innerHTML=card(capturedPhoto?`
+    <div class="text-center">
+      <div class="w-36 h-36 mx-auto rounded-full overflow-hidden border-2 border-blue-400 mb-4">
+        <img src="${capturedPhoto}" class="w-full h-full object-cover">
+      </div>
+      <div class="flex gap-3 justify-center">
+        <button class="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors" onclick="openCamera('photo')">Retake</button>
+        <button class="rounded-lg border border-red-200 bg-red-50 text-red-500 text-sm px-4 py-2 hover:bg-red-100 cursor-pointer transition-colors" onclick="capturedPhoto=null;renderStep()">Remove</button>
+      </div>
+    </div>
+  `:`
+    <div class="text-center py-8">
+      <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-blue-50 flex items-center justify-center">
+        <svg class="w-10 h-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/><path d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z"/></svg>
+      </div>
+      <p class="text-sm text-gray-500 mb-4">Take a clear photo for your profile</p>
+      <button class="rounded-xl bg-blue-500 text-white font-medium text-sm px-6 py-2.5 hover:bg-blue-600 cursor-pointer transition-colors inline-flex items-center gap-2" onclick="openCamera('photo')"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/><path d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z"/></svg>Open Camera</button>
+    </div>
+  `);
+}
+
+function renderReview(){
+  const row=(k,v)=>`<div class="flex justify-between items-center py-2.5 px-3 border-b border-gray-100 last:border-b-0"><span class="text-sm text-gray-500">${k}</span><span class="text-sm font-semibold text-gray-900 text-right max-w-[55%] break-words ${!v?'text-gray-400 font-normal italic':''}">${esc(v)||'Not provided'}</span></div>`;
+  const sec=(t,rows)=>`<div class="mb-5"><div class="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-2 flex items-center gap-2"><div class="w-1 h-3 rounded-full bg-blue-500"></div>${t}</div><div class="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">${rows}</div></div>`;
+
+  document.getElementById('step-content').innerHTML=`
+    <div class="bg-white rounded-2xl border border-gray-200 p-5 mb-4 anim">
+      <p class="text-sm text-gray-500 mb-5">Please verify all information before submitting</p>
+      ${sec('Personal',row('Name',form.personal.name)+row('Email',form.personal.email)+row('Phone',form.personal.phone)+row('Alt Phone',form.personal.alternate_phone)+row('DOB',form.personal.dob)+row('Gender',form.personal.gender)+row('Father/Husband',form.personal.father_husband_name)+row('Marital Status',form.personal.marital_status)+row('PAN',form.personal.pan_number)+row('Aadhaar',form.personal.aadhar_number))}
+      ${sec('Address',row('Address',form.address.address)+row('City',form.address.city)+row('State',form.address.state)+row('Pincode',form.address.pincode)+(form.address.useCorrespondence?row('Correspondence',form.address.correspondence.address+', '+form.address.correspondence.city):''))}
+      ${sec('Education',row('Highest',form.education.degree?form.education.degree+' - '+form.education.institution:null))}
+      ${sec('Experience',row('Last Org',form.experience.organization_name?form.experience.organization_name+(form.experience.role?' ('+form.experience.role+')':''):null))}
+      ${sec('Family',form.family.filter(f=>f.name).map((f,i)=>row('# '+(i+1),f.name+(f.relationship?' ('+f.relationship+')':''))).join('')||'<div class="text-sm text-gray-400 text-center py-3">None</div>')}
+      ${sec('Photo & Docs',row('Photo',capturedPhoto?'Captured':null)+row('Aadhaar Front',capturedDocs.aadhar_front?'Captured':null)+row('Aadhaar Back',capturedDocs.aadhar_back?'Captured':null)+row('PAN Card',capturedDocs.pan_card?'Captured':null)+row('Bank Proof',capturedDocs.bank_proof?'Captured':null)+row('Light Bill',capturedDocs.light_bill?'Captured':null))}
+      ${sec('Bank',row('Bank',form.bank.bank_name)+row('Holder',form.bank.account_holder_name)+row('IFSC',form.bank.ifsc_code)+row('Account No',form.bank.account_number))}
+    </div>`;
+}
+
+async function openCamera(mode){
+  cameraMode=mode;cameraCaptureData=null;
+  const modal=document.getElementById('camera-modal');
+  const video=document.getElementById('camera-stream');
+  const preview=document.getElementById('camera-captured-preview');
+  const footer=document.getElementById('camera-modal-footer');
+  document.getElementById('camera-modal-title').textContent=mode==='photo'?'Profile Photo':'Document';
+  preview.classList.add('hidden');
+  footer.innerHTML=`<button onclick="captureFrame()" class="w-16 h-16 rounded-full border-4 border-white bg-transparent cursor-pointer relative hover:scale-95 transition-transform" style="min-width:64px"><span class="absolute inset-[5px] rounded-full bg-white"></span></button>`;
+  try{
+    cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    video.srcObject=cameraStream;video.classList.remove('hidden');
+    modal.classList.remove('hidden');modal.style.display='flex';
+  }catch(e){showToast('Camera permission denied','error')}
+}
+
+function captureFrame(){
+  const video=document.getElementById('camera-stream');
+  const canvas=document.getElementById('capture-canvas');
+  const preview=document.getElementById('camera-captured-preview');
+  const footer=document.getElementById('camera-modal-footer');
+  canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0);
+  cameraCaptureData=canvas.toDataURL('image/jpeg',0.85);
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
+  video.classList.add('hidden');
+  preview.src=cameraCaptureData;preview.classList.remove('hidden');
+  footer.innerHTML=`<button onclick="confirmCapture()" class="rounded-xl bg-emerald-500 text-white font-medium text-sm px-8 py-2.5 hover:bg-emerald-600 cursor-pointer transition-colors">Use</button><button onclick="retakeCamera()" class="rounded-xl border border-white/30 text-white font-medium text-sm px-8 py-2.5 hover:bg-white/10 cursor-pointer transition-colors">Retake</button>`;
+}
+
+function confirmCapture(){
+  if(!cameraCaptureData)return;
+  if(cameraMode==='photo')capturedPhoto=cameraCaptureData;
+  else if(cameraMode.startsWith('doc_'))capturedDocs[cameraMode.replace('doc_','')]=cameraCaptureData;
+  closeCameraModal();renderStep();saveFormState();showToast('Photo captured!');
+}
+function retakeCamera(){cameraCaptureData=null;openCamera(cameraMode)}
+function closeCameraModal(){
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}
+  document.getElementById('camera-modal').classList.add('hidden');document.getElementById('camera-modal').style.display='';
+  document.getElementById('camera-stream').classList.add('hidden');document.getElementById('camera-captured-preview').classList.add('hidden');
+}
+
+async function submitAll(){
+  const nb=document.getElementById('next-btn');
+  nb.disabled=true;nb.innerHTML='<svg class="w-4 h-4 animate-spin inline" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="4" stroke-linecap="round" class="opacity-75"/></svg> Submitting...';
+  try{
+    if(capturedPhoto&&capturedPhoto.startsWith('data:')){await api('POST','onboarding/upload-photo',{photo_base64:capturedPhoto.split(',')[1],mime_type:'image/jpeg'})}
+    for(const[t,d]of Object.entries(capturedDocs)){if(d.startsWith('data:')){await api('POST','onboarding/upload-document',{document_type:t,file_base64:d.split(',')[1],mime_type:'image/jpeg'})}}
+    const pd={
+      name:form.personal.name,email:form.personal.email,phone:form.personal.phone,
+      ...(form.personal.alternate_phone&&{alternate_phone:form.personal.alternate_phone}),
+      ...(form.personal.dob&&{dob:form.personal.dob}),
+      ...(form.personal.gender&&{gender:form.personal.gender}),
+      ...(form.personal.father_husband_name&&{father_husband_name:form.personal.father_husband_name}),
+      ...(form.personal.marital_status&&{marital_status:form.personal.marital_status}),
+      ...(form.personal.pan_number&&{pan_number:form.personal.pan_number}),
+      ...(form.personal.aadhar_number&&{aadhar_number:form.personal.aadhar_number}),
+      ...(form.address.address&&{address:form.address.address}),
+      ...(form.address.city&&{city:form.address.city}),
+      ...(form.address.state&&{state:form.address.state}),
+      ...(form.address.pincode&&{pincode:form.address.pincode}),
+      ...(form.bank.bank_name&&{bank_name:form.bank.bank_name}),
+      ...(form.bank.account_holder_name&&{account_holder_name:form.bank.account_holder_name}),
+      ...(form.bank.ifsc_code&&{ifsc_code:form.bank.ifsc_code}),
+      ...(form.bank.account_number&&{account_number:form.bank.account_number}),
+    };
+    if(form.address.useCorrespondence&&form.address.correspondence.address){
+      pd.correspondence={address:form.address.correspondence.address,city:form.address.correspondence.city,state:form.address.correspondence.state,pincode:form.address.correspondence.pincode};
+    }
+    const cleanArr=a=>a.filter(x=>Object.values(x).some(v=>v));
+    const objToArr=(o)=>Object.values(o).some(v=>v)?[o]:undefined;
+    await api('POST','onboarding/submit',{
+      personal_details:pd,education:objToArr(form.education),
+      family:cleanArr(form.family).length?cleanArr(form.family):undefined,
+      previous_organizations:objToArr(form.experience),
+    });
+    showToast('Onboarding completed!');showSuccess();
+  }catch(e){showToast('Failed: '+e.message,'error')}
+  finally{nb.disabled=false;nb.textContent='Submit'}
+}
+
+function showSuccess(){
+  clearFormState();
+  document.getElementById('step-content').innerHTML=`
+    <div class="text-center py-16">
+      <div class="w-20 h-20 mx-auto mb-5 rounded-full bg-emerald-100 flex items-center justify-center">
+        <svg class="w-10 h-10 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <h2 class="text-xl font-bold text-gray-900 mb-2">All Done!</h2>
+      <p class="text-sm text-gray-500 max-w-xs mx-auto leading-relaxed">Your onboarding has been submitted. We'll review and get back to you soon.</p>
+    </div>`;
+  document.getElementById('next-btn').classList.add('hidden');
+  document.getElementById('progress-bar').innerHTML=STEPS.map((_,i)=>`<div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold bg-blue-500 text-white">✓</div>${i<STEPS.length-1?'<div class="w-10 h-0.5 rounded bg-blue-500"></div>':''}`).join('');
+  setTimeout(doLogout,3000);
+}
+
+(async function(){
+  if(TOKEN){
+    try{
+      await api('GET','onboarding/status');
+      document.getElementById('login-screen').style.display='none';
+      document.getElementById('wizard-screen').classList.remove('hidden');
+      loadFormState();
+      // Fetch profile to get photo and latest data
+      try{
+        const profile=await api('GET','workers/me');
+        if(profile){
+          if(profile.photo_url&&!capturedPhoto)capturedPhoto=profile.photo_url;
+          ['aadhar_front','aadhar_back','pan_card','bank_proof','light_bill'].forEach(k=>{if(profile[k+'_url']&&!capturedDocs[k])capturedDocs[k]=profile[k+'_url']});
+          ['name','email','phone','alternate_phone','dob','gender','father_husband_name','marital_status','pan_number','aadhar_number'].forEach(f=>{if(profile[f]&&!form.personal[f])form.personal[f]=profile[f]});
+          ['address','city','state','pincode'].forEach(f=>{if(profile[f]&&!form.address[f])form.address[f]=profile[f]});
+          ['bank_name','account_holder_name','ifsc_code','account_number'].forEach(f=>{if(profile[f]&&!form.bank[f])form.bank[f]=profile[f]});
+          if(profile.education_details&&profile.education_details[0]&&!form.education.degree){const e=profile.education_details[0];['degree','institution','university','from_year','to_year','year_of_passing','percentage'].forEach(f=>{if(e[f])form.education[f]=e[f]})}
+          if(profile.previous_organizations&&profile.previous_organizations[0]&&!form.experience.organization_name){const e=profile.previous_organizations[0];['organization_name','role','from_year','to_year'].forEach(f=>{if(e[f])form.experience[f]=e[f]})}
+          if(profile.family_details&&profile.family_details.length&&form.family.length===1&&!form.family[0].name){form.family=profile.family_details.map(f=>({name:f.name||'',relationship:f.relationship||'',occupation:f.occupation||'',phone:f.phone||'',dob:f.dob||''}))}
+          saveFormState();
+        }
+      }catch(e){}
+      renderStep();
+    }catch{TOKEN='';localStorage.removeItem('ucs_token')}
+  }
+  document.getElementById('login-pass').addEventListener('keypress',e=>{if(e.key==='Enter')doLogin()});
+  document.getElementById('login-id').addEventListener('keypress',e=>{if(e.key==='Enter')document.getElementById('login-pass').focus()});
+})();
+</script>
+</body>
+</html>
