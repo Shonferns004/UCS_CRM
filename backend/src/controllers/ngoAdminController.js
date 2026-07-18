@@ -461,7 +461,6 @@ export const getDashboard = async (req, res) => {
     }
 
     const allAssignments = (await Promise.all(ngoIds.map(ngoId => findAssignmentsByNgo(ngoId)))).flat();
-    const assignedCount = allAssignments.length;
     const collectedDonations = allAssignments.filter(a => a.status === 'donation_collected');
 
     const now = new Date();
@@ -488,16 +487,29 @@ export const getDashboard = async (req, res) => {
       monthCollection += achievedMap[w.id] != null && achievedMap[w.id] > 0 ? achievedMap[w.id] : actual;
     }
 
-    // Data used / unused (same logic as FRO dashboard)
+    // Data used / unused — per unique donor
     const connectedStatuses = new Set([
       'contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled',
       'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated',
       'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
     ]);
-    let dataUsed = 0, dataUnused = 0;
+    const donorInfo = new Map();
     for (const a of allAssignments) {
-      if (a.status === 'reassigned') continue;
-      if (connectedStatuses.has(a.status)) dataUsed++;
+      if (!donorInfo.has(a.donor_id)) {
+        donorInfo.set(a.donor_id, { hasActive: false, connected: false });
+      }
+      const d = donorInfo.get(a.donor_id);
+      if (a.status !== 'reassigned') {
+        d.hasActive = true;
+        if (connectedStatuses.has(a.status)) d.connected = true;
+      }
+    }
+
+    let assignedCount = 0, dataUsed = 0, dataUnused = 0;
+    for (const [, d] of donorInfo) {
+      if (!d.hasActive) continue;
+      assignedCount++;
+      if (d.connected) dataUsed++;
       else dataUnused++;
     }
 
@@ -515,13 +527,10 @@ export const getDashboard = async (req, res) => {
 
     const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
     let activeDonors = 0, inactiveDonors = 0;
-    for (const a of allAssignments) {
-      if (a.status === 'reassigned') continue;
-      if (activeDonorIds.has(a.donor_id)) {
-        activeDonors++;
-      } else {
-        inactiveDonors++;
-      }
+    for (const [donorId, d] of donorInfo) {
+      if (!d.hasActive) continue;
+      if (activeDonorIds.has(donorId)) activeDonors++;
+      else inactiveDonors++;
     }
 
     let todayCollection = 0;
