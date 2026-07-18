@@ -7,9 +7,9 @@ export default function Suspense() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [linking, setLinking] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState({});
+  const [searchResults, setSearchResults] = useState({});
+  const [searching, setSearching] = useState({});
   const [showDropdown, setShowDropdown] = useState(null);
   const searchRefs = useRef({});
   const searchTimer = useRef(null);
@@ -26,21 +26,22 @@ export default function Suspense() {
   useEffect(() => { load(); }, []);
 
   const handleSearch = (entryId, q) => {
-    setSearchQuery(q);
+    setSearchQuery(prev => ({ ...prev, [entryId]: q }));
     if (!q || q.trim().length < 2) {
-      setSearchResults([]);
+      setSearchResults(prev => { const n = { ...prev }; delete n[entryId]; return n; });
+      setSearching(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       setShowDropdown(null);
       return;
     }
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(async () => {
-      setSearching(true);
+      setSearching(prev => ({ ...prev, [entryId]: true }));
       setShowDropdown(entryId);
       try {
         const data = await apiGet(`/ngo-admin/suspense/search-donors?q=${encodeURIComponent(q.trim())}`);
-        setSearchResults(data || []);
-      } catch { setSearchResults([]); }
-      finally { setSearching(false); }
+        setSearchResults(prev => ({ ...prev, [entryId]: data || [] }));
+      } catch { setSearchResults(prev => ({ ...prev, [entryId]: [] })); }
+      finally { setSearching(prev => ({ ...prev, [entryId]: false })); }
     }, 300);
   };
 
@@ -49,7 +50,7 @@ export default function Suspense() {
     try {
       await apiPut(`/ngo-admin/suspense/${entryId}/link-donor`, { donor_id: donorId });
       setShowDropdown(null);
-      setSearchQuery('');
+      setSearchQuery(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       load();
     } catch (err) { alert(err.message); }
     finally { setLinking(null); }
@@ -60,6 +61,8 @@ export default function Suspense() {
     setLinking(entryId);
     try {
       await apiPut(`/ngo-admin/suspense/${entryId}/no-match`, {});
+      setShowDropdown(null);
+      setSearchQuery(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       load();
     } catch (err) { alert(err.message); }
     finally { setLinking(null); }
@@ -69,7 +72,7 @@ export default function Suspense() {
     if (!showDropdown) return;
     const handler = (e) => {
       const ref = searchRefs.current[showDropdown];
-      if (ref && !ref.contains(e.target)) { setShowDropdown(null); setSearchResults([]); setSearchQuery(''); }
+      if (ref && !ref.contains(e.target)) { setShowDropdown(null); setSearchResults(prev => { const n = { ...prev }; delete n[showDropdown]; return n; }); setSearchQuery(prev => { const n = { ...prev }; delete n[showDropdown]; return n; }); }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -110,9 +113,9 @@ export default function Suspense() {
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <input
                             type="text"
-                            value={showDropdown === e.id ? searchQuery : ''}
+                            value={searchQuery[e.id] || ''}
                             onChange={e2 => handleSearch(e.id, e2.target.value)}
-                            onFocus={() => { if (searchQuery.trim().length >= 2) setShowDropdown(e.id); }}
+                            onFocus={() => { if ((searchQuery[e.id] || '').trim().length >= 2) setShowDropdown(e.id); }}
                             placeholder="Search donor name..."
                             style={{ flex: 1, minWidth: 200, fontSize: 12, padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 4, fontFamily: 'inherit' }}
                           />
@@ -125,13 +128,13 @@ export default function Suspense() {
                           </button>
                         </div>
 
-                        {showDropdown === e.id && searchResults.length > 0 && (
+                        {showDropdown === e.id && (searchResults[e.id] || []).length > 0 && (
                           <div style={{
                             position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff',
                             border: '1px solid var(--line)', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,.1)',
                             zIndex: 100, maxHeight: 240, overflowY: 'auto', marginTop: 2,
                           }}>
-                            {searchResults.map(d => (
+                            {searchResults[e.id].map(d => (
                               <div key={d.id} onClick={() => handleLink(e.id, d.id)}
                                 style={{
                                   padding: '8px 10px', cursor: 'pointer', borderBottom: '1px solid #f0f0f0',
@@ -160,7 +163,7 @@ export default function Suspense() {
                           </div>
                         )}
 
-                        {showDropdown === e.id && searchQuery.trim().length >= 2 && searchResults.length === 0 && !searching && (
+                        {showDropdown === e.id && (searchQuery[e.id] || '').trim().length >= 2 && (searchResults[e.id] || []).length === 0 && !searching[e.id] && (
                           <div style={{
                             position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff',
                             border: '1px solid var(--line)', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,.1)',
@@ -170,7 +173,7 @@ export default function Suspense() {
                           </div>
                         )}
 
-                        {searching && showDropdown === e.id && (
+                        {searching[e.id] && showDropdown === e.id && (
                           <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Searching...</div>
                         )}
                       </div>
