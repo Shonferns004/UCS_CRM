@@ -219,6 +219,8 @@ export default function HRForms() {
       } else {
         setReferences([]);
       }
+      setDeclarationDate(data.declaration_date ? data.declaration_date.slice(0, 10) : (data.created_at ? data.created_at.slice(0, 10) : ''));
+      setPlace(data.declaration_place || 'Mumbai');
     } catch {}
   };
 
