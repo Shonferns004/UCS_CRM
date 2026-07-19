@@ -1296,11 +1296,16 @@ export const updateStationNgos = async (req, res) => {
     const validNgoId = ngo_id && allowedNgoIds.has(ngo_id) ? ngo_id : null;
 
     // Delete only this NGO's row for this station (not other NGOs)
-    const { error: delErr } = await supabase
+    let delQuery = supabase
       .from('fro_station_assignments')
       .delete()
-      .eq('station', station.trim())
-      .eq('ngo_id', validNgoId);
+      .eq('station', station.trim());
+    if (validNgoId) {
+      delQuery = delQuery.eq('ngo_id', validNgoId);
+    } else {
+      delQuery = delQuery.is('ngo_id', null);
+    }
+    const { error: delErr } = await delQuery;
     if (delErr) throw delErr;
 
     // Insert single assignment
@@ -3106,11 +3111,24 @@ const STATION_NAMES = ['ND-1','ND-2','ND-3','ND-4','ND-5','ND-6','ND-7','ND-8','
 
 export const seedStations = async (req, res) => {
   try {
-    const access = await getUserNgoAccess(req.user.id);
-    const ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
-    if (ngoEntries.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
-      if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
+    const { ngo_id } = req.body || {};
+
+    let ngoEntries;
+    if (ngo_id) {
+      const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', ngo_id).single();
+      if (!ngo) return res.status(400).json({ message: 'NGO not found' });
+      ngoEntries = [{ ngoId: ngo.id, ngoName: ngo.name }];
+    } else {
+      const access = await getUserNgoAccess(req.user.id);
+      ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+      if (ngoEntries.length === 0 && req.user.ngo_id) {
+        const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
+        if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
+      }
+    }
+
+    if (!ngoEntries || ngoEntries.length === 0) {
+      return res.status(400).json({ message: 'No NGOs found' });
     }
 
     let totalCreated = 0;
@@ -3129,6 +3147,52 @@ export const seedStations = async (req, res) => {
     }
 
     return res.json({ message: `${totalCreated} stations created`, details: results });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const cleanupOrphanedStations = async (req, res) => {
+  try {
+    const { ngo_id } = req.body || {};
+    const access = await getUserNgoAccess(req.user.id);
+    const allowedNgoIds = new Set(access.map(a => a.ngo_id).filter(Boolean));
+
+    let targetNgoIds;
+    if (ngo_id) {
+      if (!allowedNgoIds.has(ngo_id)) {
+        return res.status(403).json({ message: 'You do not have access to this NGO' });
+      }
+      targetNgoIds = [ngo_id];
+    } else {
+      targetNgoIds = [...allowedNgoIds];
+    }
+
+    const { data: orphaned, error: fetchErr } = await supabase
+      .from('fro_station_assignments')
+      .select('id, station, ngo_id')
+      .in('ngo_id', targetNgoIds)
+      .is('fro_worker_id', null);
+
+    if (fetchErr) throw fetchErr;
+
+    if (!orphaned || orphaned.length === 0) {
+      return res.json({ message: 'No orphaned stations found', deleted: 0 });
+    }
+
+    const ids = orphaned.map(r => r.id);
+    const { error: delErr } = await supabase
+      .from('fro_station_assignments')
+      .delete()
+      .in('id', ids);
+
+    if (delErr) throw delErr;
+
+    return res.json({
+      message: `${ids.length} orphaned station(s) deleted`,
+      deleted: ids.length,
+      stations: orphaned.map(r => ({ station: r.station, ngo_id: r.ngo_id })),
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
