@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getTemplates, sendTemplateMessage } from '../../api/whatsappEnhanced'
+import { getTemplates, sendTemplateMessage } from '../../api/whatsappSupabase'
 
 function TemplateParamsModal({ template, onClose, onSend }) {
   const [values, setValues] = useState({})
@@ -62,7 +62,7 @@ function TemplateParamsModal({ template, onClose, onSend }) {
   )
 }
 
-export default function TemplateBar({ conversationId, project, onSent }) {
+export default function TemplateBar({ conversationId, contactId, project, userId, onSent }) {
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -79,10 +79,10 @@ export default function TemplateBar({ conversationId, project, onSent }) {
   }, [open, project])
 
   const handleSend = async (template, params) => {
-    if (sending || !conversationId) return
+    if (sending || !conversationId || !contactId || !userId) return
     setSending(true)
     try {
-      await sendTemplateMessage(conversationId, template.name, params || [])
+      await sendTemplateMessage(conversationId, contactId, template, params || [], userId)
       onSent?.()
     } catch (err) {
       alert('Failed to send template: ' + err.message)
@@ -95,6 +95,8 @@ export default function TemplateBar({ conversationId, project, onSent }) {
     const components = template.components || []
     return components.some(c => (c.text || '').includes('{{'))
   }
+
+  if (!conversationId || !contactId || !userId) return null
 
   return (
     <>

@@ -1,16 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
+import { supabase } from '../lib/supabase'
 import {
   getConversations,
   getMessages,
-  sendMessage as sendMessageApi,
+  sendMessage as sendMsgApi,
   sendDirectMessage,
   markRead,
   getUnreadCount,
+  getQuickReplies,
+  getTemplates,
+  sendTemplateMessage,
+  searchMessages,
   uploadMedia,
-  sendMediaMessage,
-} from '../api/whatsappEnhanced'
+} from '../api/whatsappSupabase'
 import ConversationList from '../components/enhanced/ConversationList'
 import { MessageList } from '../components/enhanced/MessageBubble'
 import MessageComposer from '../components/enhanced/MessageComposer'
@@ -35,21 +39,48 @@ function LoginForm({ onLogin }) {
     setLoading(true)
     setError('')
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
-      const res = await fetch(`${baseUrl}/whatsapp/fro-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Login failed' }))
-        throw new Error(err.message)
+
+      if (authError) {
+        const { data: agentData, error: agentErr } = await supabase
+          .rpc('verify_agent', { p_email: email, p_password: password })
+
+        if (agentErr || !agentData) {
+          throw new Error(authError.message || 'Invalid credentials')
+        }
+
+        const userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData
+        onLogin({
+          id: userData.id,
+          name: userData.name || email.split('@')[0],
+          email: userData.email || email,
+          role: userData.role || 'agent',
+          tenant_id: userData.tenant_id || userData.id,
+        })
+        return
       }
-      const result = await res.json()
-      localStorage.setItem('wa_auth', JSON.stringify(result))
-      onLogin(result)
+
+      if (!data?.user) throw new Error('Login failed')
+
+      const { data: dbUser } = await supabase
+        .rpc('get_whatsapp_user', { p_id: data.user.id })
+
+      const userInfo = dbUser
+        ? (typeof dbUser === 'string' ? JSON.parse(dbUser) : dbUser)
+        : null
+
+      onLogin({
+        id: userInfo?.id || data.user.id,
+        name: userInfo?.name || userInfo?.first_name || email.split('@')[0],
+        email: userInfo?.email || email,
+        role: userInfo?.role || 'agent',
+        tenant_id: userInfo?.tenant_id || data.user.id,
+      })
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Login failed')
     } finally {
       setLoading(false)
     }
@@ -63,7 +94,7 @@ function LoginForm({ onLogin }) {
             <svg width="28" height="28" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, color: '#374151' }}>WhatsApp Login</div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Enter your credentials to access WhatsApp Chat</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Enter your WhatsApp CRM credentials</div>
         </div>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
@@ -93,7 +124,7 @@ function WhatsAppChatInner() {
   const queryClient = useQueryClient()
   const bottomRef = useRef(null)
 
-  const [waAuth, setWaAuth] = useState(() => JSON.parse(localStorage.getItem('wa_auth') || 'null'))
+  const [waUser, setWaUser] = useState(null)
   const [activeConv, setActiveConv] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewConv, setShowNewConv] = useState(false)
@@ -104,55 +135,28 @@ function WhatsAppChatInner() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [mediaFile, setMediaFile] = useState(null)
 
-  const waUserId = waAuth?.worker?.id
-
   const { data: conversations = [], isLoading: loadingConv } = useQuery({
-    queryKey: ['fro-conversations', waUserId],
-    queryFn: getConversations,
-    enabled: !!waAuth,
+    queryKey: ['wa-conversations', waUser?.id],
+    queryFn: () => getConversations(waUser.id),
+    enabled: !!waUser?.id,
     refetchInterval: 15000,
   })
 
   const { data: messages = null, isLoading: loadingMsg } = useQuery({
-    queryKey: ['fro-messages', activeConv?.id],
+    queryKey: ['wa-messages', activeConv?.id],
     queryFn: () => getMessages(activeConv.id),
     enabled: !!activeConv?.id,
     refetchInterval: 5000,
   })
 
   useEffect(() => {
-    if (!waAuth) return
-    getUnreadCount().then(d => setUnreadCount(d?.count || 0)).catch(() => {})
+    if (!waUser?.id) return
+    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
     const interval = setInterval(() => {
-      getUnreadCount().then(d => setUnreadCount(d?.count || 0)).catch(() => {})
+      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
     }, 15000)
     return () => clearInterval(interval)
-  }, [waAuth])
-
-  const searchParams = new URLSearchParams(location.search)
-  const phoneParam = searchParams.get('phone')
-
-  useEffect(() => {
-    if (!waAuth || !phoneParam || conversations.length === 0) return
-    const raw = phoneParam.replace(/[^0-9]/g, '')
-    const match = conversations.find(c => {
-      const cp = (c.contact?.phone_normalized || c.contact?.phone || '').replace(/[^0-9]/g, '')
-      return cp.includes(raw) || raw.includes(cp)
-    })
-    if (match) {
-      setActiveConv(match)
-      navigate('/fro/whatsapp-chat', { replace: true })
-    }
-  }, [waAuth, phoneParam, conversations.length, navigate])
-
-  const handleSelect = useCallback(async (conv) => {
-    setActiveConv(conv)
-    setMediaFile(null)
-    try {
-      await markRead(conv.id)
-    } catch {}
-    queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
-  }, [queryClient])
+  }, [waUser?.id])
 
   useEffect(() => {
     if (bottomRef.current) {
@@ -160,46 +164,51 @@ function WhatsAppChatInner() {
     }
   }, [messages])
 
+  const handleSelect = useCallback(async (conv) => {
+    setActiveConv(conv)
+    setMediaFile(null)
+    try { await markRead(conv.id) } catch {}
+    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+  }, [queryClient])
+
   const handleSend = useCallback(async (text) => {
     if (!activeConv) return
-    const result = await sendMessageApi(activeConv.id, text)
-    queryClient.invalidateQueries({ queryKey: ['fro-messages', activeConv.id] })
-    queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
-    return result
-  }, [activeConv, queryClient])
+    await sendMsgApi(activeConv.id, activeConv.contact_id, text, waUser?.id)
+    queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+  }, [activeConv, waUser?.id, queryClient])
 
   const handleSendMedia = useCallback(async (file) => {
-    if (!activeConv) return
-    const uploadResult = await uploadMedia(file)
-    if (uploadResult?.url) {
-      await sendMediaMessage(activeConv.id, uploadResult.url, file.name)
-      queryClient.invalidateQueries({ queryKey: ['fro-messages', activeConv.id] })
-      queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
+    if (!activeConv || !waUser) return
+    const uploadResult = await uploadMedia(waUser.id, file)
+    if (uploadResult?.file_url) {
+      await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id)
+      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
     }
-  }, [activeConv, queryClient])
+  }, [activeConv, waUser, queryClient])
 
   const handleNewConv = useCallback(async () => {
-    if (!newConvPhone.trim() || sendingNew) return
+    if (!newConvPhone.trim() || sendingNew || !waUser) return
     setSendingNew(true)
     try {
-      const result = await sendDirectMessage(newConvPhone.trim(), newConvText.trim() || 'Hello')
+      const result = await sendDirectMessage(waUser.id, newConvPhone.trim(), newConvText.trim() || 'Hello')
       setShowNewConv(false)
       setNewConvPhone('')
       setNewConvText('')
-      queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
-      if (result.conversation) {
-        handleSelect(result.conversation)
-      }
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      if (result.conversation) handleSelect(result.conversation)
     } catch (err) {
       alert('Failed: ' + err.message)
     } finally {
       setSendingNew(false)
     }
-  }, [newConvPhone, newConvText, sendingNew, queryClient, handleSelect])
+  }, [newConvPhone, newConvText, sendingNew, waUser, queryClient, handleSelect])
 
-  const handleLogout = () => {
-    localStorage.removeItem('wa_auth')
-    setWaAuth(null)
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    localStorage.removeItem('wa_user')
+    setWaUser(null)
     setActiveConv(null)
   }
 
@@ -207,12 +216,19 @@ function WhatsAppChatInner() {
     await handleSend(text)
   }
 
+  const handleTemplateSent = async () => {
+    if (activeConv) {
+      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+    }
+  }
+
   const contact = activeConv?.contact || {}
   const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation'
   const activeProject = activeConv?.project || contact.project || ''
+  const activeContactId = activeConv?.contact_id || contact.id
 
-  if (!waAuth) {
-    return <LoginForm onLogin={(result) => setWaAuth(result)} />
+  if (!waUser) {
+    return <LoginForm onLogin={(user) => { localStorage.setItem('wa_user', JSON.stringify(user)); setWaUser(user) }} />
   }
 
   return (
@@ -223,9 +239,7 @@ function WhatsAppChatInner() {
         <div style={{ padding: '12px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>
-                WhatsApp Chat
-              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>WhatsApp Chat</div>
               {unreadCount > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px' }}>
                   {unreadCount}
@@ -270,45 +284,38 @@ function WhatsAppChatInner() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {activeConv ? (
           <>
-            {/* Header */}
             <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: '50%', background: '#25D366',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0,
-              }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
                 {activeName.charAt(0).toUpperCase()}
               </div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{activeName}</div>
-                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>
-                  {activeProject ? activeProject.toUpperCase() : 'WhatsApp'}
-                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{activeProject ? activeProject.toUpperCase() : 'WhatsApp'}</div>
               </div>
             </div>
 
-            {/* Messages */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div ref={bottomRef} />
               <MessageList messages={messages} />
               <div ref={bottomRef} />
             </div>
 
-            {/* Media preview */}
             {mediaFile && (
               <div style={{ padding: '4px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' }}>
                 <MediaUploadPreview file={mediaFile} onRemove={() => setMediaFile(null)} />
               </div>
             )}
 
-            {/* Quick replies */}
             <QuickReplyBar onSend={handleQuickReply} />
 
-            {/* Templates */}
-            <TemplateBar conversationId={activeConv?.id} project={activeProject} onSent={() => {
-              queryClient.invalidateQueries({ queryKey: ['fro-messages', activeConv.id] })
-            }} />
+            <TemplateBar
+              conversationId={activeConv?.id}
+              contactId={activeContactId}
+              project={activeProject}
+              userId={waUser?.id}
+              onSent={handleTemplateSent}
+            />
 
-            {/* Composer */}
             <MessageComposer onSend={handleSend} onSendMedia={handleSendMedia} />
           </>
         ) : (
@@ -325,7 +332,6 @@ function WhatsAppChatInner() {
       </div>
     </div>
 
-    {/* New Conversation Modal */}
     {showNewConv && (
       <div className="modal-overlay" onClick={() => setShowNewConv(false)}>
         <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
@@ -355,9 +361,9 @@ function WhatsAppChatInner() {
       </div>
     )}
 
-    {/* Search Modal */}
     {showSearch && (
       <MessageSearchModal
+        userId={waUser?.id}
         onClose={() => setShowSearch(false)}
         onSelectConversation={(convId) => {
           const conv = conversations.find(c => c.id === convId)

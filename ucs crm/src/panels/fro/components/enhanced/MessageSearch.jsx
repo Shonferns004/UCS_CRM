@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { searchMessages } from '../../api/whatsappEnhanced'
+import { searchMessages } from '../../api/whatsappSupabase'
 
-export default function MessageSearchModal({ onClose, onSelectConversation }) {
+export default function MessageSearchModal({ userId, onClose, onSelectConversation }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -19,7 +19,7 @@ export default function MessageSearchModal({ onClose, onSelectConversation }) {
     }
     setLoading(true)
     try {
-      const data = await searchMessages(q.trim())
+      const data = await searchMessages(userId, q.trim())
       setResults(data || [])
     } catch {
       setResults([])
