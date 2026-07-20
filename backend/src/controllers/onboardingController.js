@@ -262,6 +262,118 @@ export const adminUploadPhoto = async (req, res) => {
   }
 };
 
+// ---- Worker: Upload digital signature ----
+
+export const uploadWorkerSignature = async (req, res) => {
+  try {
+    await ensureWorkerDocumentsBucket();
+    const workerId = req.user.id;
+    const { signature_base64, mime_type } = req.body;
+
+    if (!signature_base64) {
+      return res.status(400).json({ message: 'Signature data is required' });
+    }
+
+    const buffer = Buffer.from(signature_base64, 'base64');
+    const contentType = mime_type || 'image/png';
+    const ext = contentType.split('/')[1] || 'png';
+    const fileName = `worker_signatures/${workerId}_${Date.now()}.${ext}`;
+
+    let { data: uploadData, error: uploadError } = await supabase.storage
+      .from('worker-documents')
+      .upload(fileName, buffer, { contentType, upsert: true });
+
+    if (uploadError) {
+      if (uploadError.message?.includes('bucket')) {
+        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', { public: true });
+        if (bucketError) {
+          return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
+        }
+        const { data: retryData, error: retryError } = await supabase.storage
+          .from('worker-documents')
+          .upload(fileName, buffer, { contentType, upsert: true });
+        if (retryError) {
+          return res.status(500).json({ message: 'Upload failed: ' + retryError.message });
+        }
+        uploadData = retryData;
+      } else {
+        return res.status(500).json({ message: 'Upload failed: ' + uploadError.message });
+      }
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('worker-documents')
+      .getPublicUrl(fileName);
+
+    const signatureUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+
+    await updateWorkerPersonalDetails(workerId, { signature_url: signatureUrl });
+
+    return res.json({
+      message: 'Signature uploaded successfully',
+      signature_url: signatureUrl,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ---- Admin: Upload digital signature for a worker ----
+
+export const uploadSignature = async (req, res) => {
+  try {
+    await ensureWorkerDocumentsBucket();
+    const workerId = req.params.workerId;
+    const { signature_base64, mime_type } = req.body;
+
+    if (!signature_base64) {
+      return res.status(400).json({ message: 'Signature data is required' });
+    }
+
+    const buffer = Buffer.from(signature_base64, 'base64');
+    const contentType = mime_type || 'image/png';
+    const ext = contentType.split('/')[1] || 'png';
+    const fileName = `worker_signatures/${workerId}_${Date.now()}.${ext}`;
+
+    let { data: uploadData, error: uploadError } = await supabase.storage
+      .from('worker-documents')
+      .upload(fileName, buffer, { contentType, upsert: true });
+
+    if (uploadError) {
+      if (uploadError.message?.includes('bucket')) {
+        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', { public: true });
+        if (bucketError) {
+          return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
+        }
+        const { data: retryData, error: retryError } = await supabase.storage
+          .from('worker-documents')
+          .upload(fileName, buffer, { contentType, upsert: true });
+        if (retryError) {
+          return res.status(500).json({ message: 'Upload failed: ' + retryError.message });
+        }
+        uploadData = retryData;
+      } else {
+        return res.status(500).json({ message: 'Upload failed: ' + uploadError.message });
+      }
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('worker-documents')
+      .getPublicUrl(fileName);
+
+    const signatureUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+
+    await updateWorkerPersonalDetails(workerId, { signature_url: signatureUrl });
+
+    return res.json({
+      message: 'Signature uploaded successfully',
+      signature_url: signatureUrl,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ---- Get Company Policies (worker-facing) ----
 
 export const getPolicies = async (req, res) => {

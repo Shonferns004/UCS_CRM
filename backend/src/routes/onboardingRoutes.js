@@ -11,6 +11,8 @@ import {
   adminEditPolicy,
   adminRemovePolicy,
   adminUploadPhoto,
+  uploadSignature,
+  uploadWorkerSignature,
 } from '../controllers/onboardingController.js';
 import { authenticate, authenticateRole } from '../middleware/authMiddleware.js';
 
@@ -31,7 +33,13 @@ router.post('/admin/policies', adminAuth, adminAddPolicy);
 router.put('/admin/policies/:id', adminAuth, adminEditPolicy);
 router.delete('/admin/policies/:id', adminAuth, adminRemovePolicy);
 
+// Worker: upload digital signature
+router.post('/upload-signature', authenticate, uploadWorkerSignature);
+
 // Admin: upload photo for any worker
 router.post('/admin/upload-photo/:workerId', adminAuth, adminUploadPhoto);
+
+// Admin: upload digital signature for a worker
+router.post('/admin/upload-signature/:workerId', adminAuth, uploadSignature);
 
 export default router;

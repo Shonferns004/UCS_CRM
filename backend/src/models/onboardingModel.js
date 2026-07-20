@@ -87,6 +87,7 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
   if (details.education_details !== undefined) updates.education_details = details.education_details;
   if (details.family_details !== undefined) updates.family_details = details.family_details;
   if (details.reference_details !== undefined) updates.reference_details = details.reference_details;
+  if (details.signature_url !== undefined) updates.signature_url = details.signature_url;
 
   const { data, error } = await supabase
     .from('workers')
