@@ -1144,8 +1144,8 @@
 .panel-event-head .pill-blue, .panel-accounts .pill-blue, .panel-ngo-admin .pill-blue, .panel-fro .pill-blue { background:#dbeafe; color:#1e40af; }
 .panel-event-head .pill-gray, .panel-accounts .pill-gray, .panel-ngo-admin .pill-gray, .panel-fro .pill-gray { background:#f3f4f6; color:#374151; }
 .panel-event-head .pill-purple, .panel-accounts .pill-purple, .panel-ngo-admin .pill-purple, .panel-fro .pill-purple { background:#f3e8ff; color:#6b21a8; }
-.panel-event-head .modal-overlay, .panel-accounts .modal-overlay, .panel-ngo-admin .modal-overlay, .panel-fro .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; }
-.panel-accounts .modal, .panel-ngo-admin .modal, .panel-fro .modal { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow-md); width:100%; max-width:500px; max-height:80vh; overflow-y:auto; }
+.panel-event-head .modal-overlay, .panel-accounts .modal-overlay, .panel-ngo-admin .modal-overlay, .panel-fro .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:2000; padding:20px; }
+.panel-accounts .modal, .panel-ngo-admin .modal, .panel-fro .modal { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow-md); width:100%; max-width:500px; }
 .panel-accounts .modal-head, .panel-ngo-admin .modal-head, .panel-fro .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
 .panel-accounts .modal-head h3, .panel-ngo-admin .modal-head h3, .panel-fro .modal-head h3 { font-size:15px; font-weight:600; }
 .panel-accounts .modal-body, .panel-ngo-admin .modal-body, .panel-fro .modal-body { padding:18px; }

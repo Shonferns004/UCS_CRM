@@ -1,41 +1,59 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import ConversationList from '../components/ConversationList';
-import ChatThread from '../components/ChatThread';
-import { getConversations, getMessages, sendMessage, sendDirectMessage, markRead, getUnreadCount } from '../api/whatsappChat';
-import { api } from '../api/auth';
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  getConversations,
+  getMessages,
+  sendMessage as sendMessageApi,
+  sendDirectMessage,
+  markRead,
+  getUnreadCount,
+  uploadMedia,
+  sendMediaMessage,
+} from '../api/whatsappEnhanced'
+import ConversationList from '../components/enhanced/ConversationList'
+import { MessageList } from '../components/enhanced/MessageBubble'
+import MessageComposer from '../components/enhanced/MessageComposer'
+import QuickReplyBar from '../components/enhanced/QuickReplyBar'
+import TemplateBar from '../components/enhanced/TemplateBar'
+import MessageSearchModal from '../components/enhanced/MessageSearch'
+import { MediaUploadPreview } from '../components/enhanced/MediaPreview'
+
+const waQueryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 1000 * 30, retry: 1 } },
+})
 
 function LoginForm({ onLogin }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!email || !password) return;
-    setLoading(true);
-    setError('');
+    e.preventDefault()
+    if (!email || !password) return
+    setLoading(true)
+    setError('')
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+      const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
       const res = await fetch(`${baseUrl}/whatsapp/fro-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-      });
+      })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Login failed' }));
-        throw new Error(err.message);
+        const err = await res.json().catch(() => ({ message: 'Login failed' }))
+        throw new Error(err.message)
       }
-      const result = await res.json();
-      localStorage.setItem('wa_auth', JSON.stringify(result));
-      onLogin(result);
+      const result = await res.json()
+      localStorage.setItem('wa_auth', JSON.stringify(result))
+      onLogin(result)
     } catch (err) {
-      setError(err.message);
+      setError(err.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 180px)', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb' }}>
@@ -66,184 +84,164 @@ function LoginForm({ onLogin }) {
         </form>
       </div>
     </div>
-  );
+  )
 }
 
-export default function WhatsAppChat() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [waAuth, setWaAuth] = useState(() => JSON.parse(localStorage.getItem('wa_auth') || 'null'));
-  const [conversations, setConversations] = useState([]);
-  const [activeConv, setActiveConv] = useState(null);
-  const [messages, setMessages] = useState(null);
-  const [loadingConv, setLoadingConv] = useState(true);
-  const [loadingMsg, setLoadingMsg] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [newChatPhone, setNewChatPhone] = useState(null);
-  const [newChatText, setNewChatText] = useState('');
-  const [sendingNew, setSendingNew] = useState(false);
-  const [showNewConv, setShowNewConv] = useState(false);
-  const [newConvPhone, setNewConvPhone] = useState('');
-  const [newConvText, setNewConvText] = useState('');
+function WhatsAppChatInner() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const bottomRef = useRef(null)
 
-  const loadConversations = useCallback(async () => {
-    setLoadingConv(true);
-    try {
-      const data = await getConversations();
-      setConversations(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingConv(false);
-    }
-  }, []);
+  const [waAuth, setWaAuth] = useState(() => JSON.parse(localStorage.getItem('wa_auth') || 'null'))
+  const [activeConv, setActiveConv] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showNewConv, setShowNewConv] = useState(false)
+  const [newConvPhone, setNewConvPhone] = useState('')
+  const [newConvText, setNewConvText] = useState('')
+  const [sendingNew, setSendingNew] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [mediaFile, setMediaFile] = useState(null)
 
-  const loadUnread = useCallback(async () => {
-    try {
-      const data = await getUnreadCount();
-      setUnreadCount(data?.count || 0);
-    } catch {}
-  }, []);
+  const waUserId = waAuth?.worker?.id
+
+  const { data: conversations = [], isLoading: loadingConv } = useQuery({
+    queryKey: ['fro-conversations', waUserId],
+    queryFn: getConversations,
+    enabled: !!waAuth,
+    refetchInterval: 15000,
+  })
+
+  const { data: messages = null, isLoading: loadingMsg } = useQuery({
+    queryKey: ['fro-messages', activeConv?.id],
+    queryFn: () => getMessages(activeConv.id),
+    enabled: !!activeConv?.id,
+    refetchInterval: 5000,
+  })
 
   useEffect(() => {
-    if (!waAuth) return;
-    loadConversations();
-    loadUnread();
+    if (!waAuth) return
+    getUnreadCount().then(d => setUnreadCount(d?.count || 0)).catch(() => {})
     const interval = setInterval(() => {
-      loadConversations();
-      loadUnread();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [waAuth, loadConversations, loadUnread]);
+      getUnreadCount().then(d => setUnreadCount(d?.count || 0)).catch(() => {})
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [waAuth])
 
-  const searchParams = new URLSearchParams(location.search);
-  const phoneParam = searchParams.get('phone');
+  const searchParams = new URLSearchParams(location.search)
+  const phoneParam = searchParams.get('phone')
 
   useEffect(() => {
-    if (!waAuth || !phoneParam || conversations.length === 0) return;
-    const raw = phoneParam.replace(/[^0-9]/g, '');
+    if (!waAuth || !phoneParam || conversations.length === 0) return
+    const raw = phoneParam.replace(/[^0-9]/g, '')
     const match = conversations.find(c => {
-      const cp = (c.contact?.phone_normalized || c.contact?.phone || '').replace(/[^0-9]/g, '');
-      return cp.includes(raw) || raw.includes(cp);
-    });
+      const cp = (c.contact?.phone_normalized || c.contact?.phone || '').replace(/[^0-9]/g, '')
+      return cp.includes(raw) || raw.includes(cp)
+    })
     if (match) {
-      setNewChatPhone(null);
-      handleSelect(match);
-      navigate('/fro/whatsapp-chat', { replace: true });
-    } else {
-      setNewChatPhone(raw);
-      setActiveConv(null);
-      setMessages(null);
+      setActiveConv(match)
+      navigate('/fro/whatsapp-chat', { replace: true })
     }
-  }, [waAuth, phoneParam, conversations.length]);
+  }, [waAuth, phoneParam, conversations.length, navigate])
 
-  const handleSelect = async (conv) => {
-    setNewChatPhone(null);
-    setActiveConv(conv);
-    setLoadingMsg(true);
+  const handleSelect = useCallback(async (conv) => {
+    setActiveConv(conv)
+    setMediaFile(null)
     try {
-      const data = await getMessages(conv.id);
-      setMessages(data || []);
-      await markRead(conv.id).catch(() => {});
-      setConversations(prev =>
-        prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c)
-      );
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingMsg(false);
+      await markRead(conv.id)
+    } catch {}
+    queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
+  }, [queryClient])
+
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  };
+  }, [messages])
 
-  const handleSend = async (text) => {
-    if (!activeConv) return;
-    await sendMessage(activeConv.id, text);
-    const data = await getMessages(activeConv.id);
-    setMessages(data || []);
-  };
+  const handleSend = useCallback(async (text) => {
+    if (!activeConv) return
+    const result = await sendMessageApi(activeConv.id, text)
+    queryClient.invalidateQueries({ queryKey: ['fro-messages', activeConv.id] })
+    queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
+    return result
+  }, [activeConv, queryClient])
 
-  const handleNewChatSend = async () => {
-    if (!newChatPhone || !newChatText.trim() || sendingNew) return;
-    setSendingNew(true);
+  const handleSendMedia = useCallback(async (file) => {
+    if (!activeConv) return
+    const uploadResult = await uploadMedia(file)
+    if (uploadResult?.url) {
+      await sendMediaMessage(activeConv.id, uploadResult.url, file.name)
+      queryClient.invalidateQueries({ queryKey: ['fro-messages', activeConv.id] })
+      queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
+    }
+  }, [activeConv, queryClient])
+
+  const handleNewConv = useCallback(async () => {
+    if (!newConvPhone.trim() || sendingNew) return
+    setSendingNew(true)
     try {
-      const result = await sendDirectMessage(newChatPhone, newChatText.trim());
-      setNewChatText('');
-      await loadConversations();
+      const result = await sendDirectMessage(newConvPhone.trim(), newConvText.trim() || 'Hello')
+      setShowNewConv(false)
+      setNewConvPhone('')
+      setNewConvText('')
+      queryClient.invalidateQueries({ queryKey: ['fro-conversations'] })
       if (result.conversation) {
-        handleSelect(result.conversation);
-        navigate('/fro/whatsapp-chat', { replace: true });
+        handleSelect(result.conversation)
       }
     } catch (err) {
-      alert('Failed to send: ' + err.message);
+      alert('Failed: ' + err.message)
     } finally {
-      setSendingNew(false);
+      setSendingNew(false)
     }
-  };
-
-  const handleNewConv = async () => {
-    if (!newConvPhone.trim()) { alert('Enter a phone number'); return; }
-    setSendingNew(true);
-    try {
-      const result = await sendDirectMessage(newConvPhone.trim(), newConvText.trim() || 'Hello');
-      setShowNewConv(false);
-      setNewConvPhone('');
-      setNewConvText('');
-      await loadConversations();
-      if (result.conversation) {
-        handleSelect(result.conversation);
-        navigate('/fro/whatsapp-chat', { replace: true });
-      }
-    } catch (err) {
-      alert('Failed: ' + err.message);
-    } finally {
-      setSendingNew(false);
-    }
-  };
+  }, [newConvPhone, newConvText, sendingNew, queryClient, handleSelect])
 
   const handleLogout = () => {
-    localStorage.removeItem('wa_auth');
-    setWaAuth(null);
-    setConversations([]);
-    setActiveConv(null);
-    setMessages(null);
-  };
-
-  if (!waAuth) {
-    return <LoginForm onLogin={(result) => setWaAuth(result)} />;
+    localStorage.removeItem('wa_auth')
+    setWaAuth(null)
+    setActiveConv(null)
   }
 
-  const filteredConversations = conversations.filter(c => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    const contact = c.contact || {};
-    const name = contact.wa_profile_name || contact.phone || '';
-    return name.toLowerCase().includes(q) || (contact.phone || '').includes(q);
-  });
+  const handleQuickReply = async (text) => {
+    await handleSend(text)
+  }
 
-  const contact = activeConv?.contact || {};
-  const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation';
+  const contact = activeConv?.contact || {}
+  const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation'
+  const activeProject = activeConv?.project || contact.project || ''
+
+  if (!waAuth) {
+    return <LoginForm onLogin={(result) => setWaAuth(result)} />
+  }
 
   return (
     <>
     <div style={{ display: 'flex', height: 'calc(100vh - 180px)', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-      <div style={{ width: 300, borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+      {/* Sidebar */}
+      <div style={{ width: 300, borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '12px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>
                 WhatsApp Chat
-                {unreadCount > 0 && (
-                  <span style={{ marginLeft: 8, fontSize: 11, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px' }}>
-                    {unreadCount}
-                  </span>
-                )}
               </div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                {waAuth?.worker?.name || 'Chat'}
-              </div>
+              {unreadCount > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px' }}>
+                  {unreadCount}
+                </span>
+              )}
             </div>
-            <button onClick={handleLogout} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#dc2626', padding: '4px 8px' }}>Logout</button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => setShowSearch(true)}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: '#6b7280' }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+              <button onClick={handleLogout}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#dc2626', padding: '4px 6px' }}>
+                Logout
+              </button>
+            </div>
           </div>
           <input
             type="text"
@@ -259,52 +257,75 @@ export default function WhatsAppChat() {
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <ConversationList
-            conversations={filteredConversations}
+            conversations={conversations}
             activeId={activeConv?.id}
             onSelect={handleSelect}
             loading={loadingConv}
+            searchQuery={searchQuery}
           />
         </div>
       </div>
+
+      {/* Main chat area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {newChatPhone ? (
+        {activeConv ? (
           <>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>New Chat</div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>To: {newChatPhone}</div>
-            </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 20, background: '#f9fafb' }}>
-              <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#25D36620', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            {/* Header */}
+            <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%', background: '#25D366',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0,
+              }}>
+                {activeName.charAt(0).toUpperCase()}
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#374151', marginBottom: 4 }}>No previous conversation</div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 16, textAlign: 'center' }}>Send the first message to start chatting with this donor</div>
-              <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 400 }}>
-                <input type="text" value={newChatText} onChange={e => setNewChatText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleNewChatSend(); } }}
-                  placeholder="Type your first message..." disabled={sendingNew}
-                  style={{ flex: 1, padding: '10px 14px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 20, outline: 'none', background: '#fff' }} />
-                <button onClick={handleNewChatSend} disabled={!newChatText.trim() || sendingNew}
-                  style={{ padding: '10px 20px', fontSize: 13, fontWeight: 600, background: newChatText.trim() ? '#25D366' : '#d1d5db', color: '#fff', border: 'none', borderRadius: 20, cursor: newChatText.trim() ? 'pointer' : 'not-allowed' }}>
-                  {sendingNew ? 'Sending...' : 'Send'}
-                </button>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{activeName}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>
+                  {activeProject ? activeProject.toUpperCase() : 'WhatsApp'}
+                </div>
               </div>
             </div>
+
+            {/* Messages */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div ref={bottomRef} />
+              <MessageList messages={messages} />
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Media preview */}
+            {mediaFile && (
+              <div style={{ padding: '4px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' }}>
+                <MediaUploadPreview file={mediaFile} onRemove={() => setMediaFile(null)} />
+              </div>
+            )}
+
+            {/* Quick replies */}
+            <QuickReplyBar onSend={handleQuickReply} />
+
+            {/* Templates */}
+            <TemplateBar conversationId={activeConv?.id} project={activeProject} onSent={() => {
+              queryClient.invalidateQueries({ queryKey: ['fro-messages', activeConv.id] })
+            }} />
+
+            {/* Composer */}
+            <MessageComposer onSend={handleSend} onSendMedia={handleSendMedia} />
           </>
         ) : (
-          <>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>{activeName}</div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>
-                {activeConv ? (activeConv.project || contact.project || '').toUpperCase() : ''}
-              </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', gap: 12 }}>
+            <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#25D36620', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347"/></svg>
             </div>
-            <ChatThread messages={messages} onSend={handleSend} loading={loadingMsg} />
-          </>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>WhatsApp Chat</div>
+            <div style={{ fontSize: 12, color: '#6b7280', textAlign: 'center', maxWidth: 240, lineHeight: 1.5 }}>
+              Select a conversation from the left or start a new one
+            </div>
+          </div>
         )}
       </div>
     </div>
 
+    {/* New Conversation Modal */}
     {showNewConv && (
       <div className="modal-overlay" onClick={() => setShowNewConv(false)}>
         <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
@@ -333,6 +354,25 @@ export default function WhatsAppChat() {
         </div>
       </div>
     )}
+
+    {/* Search Modal */}
+    {showSearch && (
+      <MessageSearchModal
+        onClose={() => setShowSearch(false)}
+        onSelectConversation={(convId) => {
+          const conv = conversations.find(c => c.id === convId)
+          if (conv) handleSelect(conv)
+        }}
+      />
+    )}
   </>
-  );
+  )
+}
+
+export default function WhatsAppChat() {
+  return (
+    <QueryClientProvider client={waQueryClient}>
+      <WhatsAppChatInner />
+    </QueryClientProvider>
+  )
 }
