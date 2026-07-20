@@ -87,7 +87,7 @@ function LoginForm({ onLogin }) {
   }
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 180px)', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 180px)', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', border: '1px solid #e5e7eb' }}>
       <div style={{ width: 360, padding: 32, background: '#fff', borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,.06)' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#25D36620', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
@@ -124,7 +124,12 @@ function WhatsAppChatInner() {
   const queryClient = useQueryClient()
   const bottomRef = useRef(null)
 
-  const [waUser, setWaUser] = useState(null)
+  const [waUser, setWaUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wa_user')
+      return saved ? JSON.parse(saved) : null
+    } catch { return null }
+  })
   const [activeConv, setActiveConv] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewConv, setShowNewConv] = useState(false)
@@ -159,6 +164,20 @@ function WhatsAppChatInner() {
   }, [waUser?.id])
 
   useEffect(() => {
+    if (!waUser?.id) return
+    const params = new URLSearchParams(location.search)
+    const phone = params.get('phone')
+    if (!phone) return
+    navigate(location.pathname, { replace: true })
+    ;(async () => {
+      try {
+        const result = await sendDirectMessage(waUser.id, phone, 'Hello')
+        if (result?.conversation) handleSelect(result.conversation)
+      } catch {}
+    })()
+  }, [waUser?.id])
+
+  useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
@@ -180,11 +199,19 @@ function WhatsAppChatInner() {
 
   const handleSendMedia = useCallback(async (file) => {
     if (!activeConv || !waUser) return
-    const uploadResult = await uploadMedia(waUser.id, file)
-    if (uploadResult?.file_url) {
-      await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id)
-      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    try {
+      const uploadResult = await uploadMedia(waUser.id, file)
+      if (uploadResult?.file_url) {
+        const type = file.type?.startsWith('image/') ? 'image'
+          : file.type?.startsWith('video/') ? 'video'
+          : file.type?.startsWith('audio/') ? 'audio'
+          : 'document'
+        await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id, uploadResult.file_url, type)
+        queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      }
+    } catch (err) {
+      console.error('Media send failed:', err)
     }
   }, [activeConv, waUser, queryClient])
 
@@ -233,7 +260,7 @@ function WhatsAppChatInner() {
 
   return (
     <>
-    <div style={{ display: 'flex', height: 'calc(100vh - 180px)', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+    <div style={{ display: 'flex', height: 'calc(100vh - 180px)', border: '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
       {/* Sidebar */}
       <div style={{ width: 300, borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '12px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>

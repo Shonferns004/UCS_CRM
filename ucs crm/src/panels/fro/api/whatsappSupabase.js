@@ -84,7 +84,7 @@ export async function markRead(conversationId) {
   await supabase.from('conversations').update({ unread_count: 0 }).eq('id', conversationId)
 }
 
-export async function sendMessage(conversationId, contactId, messageText, userId) {
+export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType) {
   const { data: conv } = await supabase
     .from('conversations')
     .select('last_inbound_at')
@@ -100,6 +100,8 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   if (!contact?.phone_normalized) throw new Error('Contact phone not found')
 
   const windowOpen = isWithin24Hours(conv?.last_inbound_at)
+  const isMedia = !!mediaUrl
+  const msgType = isMedia ? (mediaType || 'image') : 'text'
 
   const { data: msg, error: msgErr } = await supabase
     .from('messages')
@@ -108,8 +110,9 @@ export async function sendMessage(conversationId, contactId, messageText, userId
       contact_id: contactId,
       user_id: userId || null,
       direction: 'outbound',
-      message_type: 'text',
-      body_text: messageText,
+      message_type: msgType,
+      body_text: isMedia ? '' : messageText,
+      media_url: mediaUrl || null,
       status: 'queued',
     })
     .select()
@@ -140,6 +143,25 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   }
 
   const payloads = []
+
+  function mediaPayload() {
+    const body = { messaging_product: 'whatsapp', to: contact.phone_normalized }
+    if (msgType === 'image') {
+      body.type = 'image'
+      body.image = { link: mediaUrl }
+    } else if (msgType === 'video') {
+      body.type = 'video'
+      body.video = { link: mediaUrl }
+    } else if (msgType === 'audio') {
+      body.type = 'audio'
+      body.audio = { link: mediaUrl }
+    } else {
+      body.type = 'document'
+      body.document = { link: mediaUrl, caption: messageText || '' }
+    }
+    return body
+  }
+
   if (!windowOpen) {
     payloads.push({
       messaging_product: 'whatsapp',
@@ -147,14 +169,14 @@ export async function sendMessage(conversationId, contactId, messageText, userId
       type: 'template',
       template: { name: 'hello_world', language: { code: 'en_US' } },
     })
-    payloads.push({
+    payloads.push(isMedia ? mediaPayload() : {
       messaging_product: 'whatsapp',
       to: contact.phone_normalized,
       type: 'text',
       text: { body: messageText },
     })
   } else {
-    payloads.push({
+    payloads.push(isMedia ? mediaPayload() : {
       messaging_product: 'whatsapp',
       to: contact.phone_normalized,
       type: 'text',
