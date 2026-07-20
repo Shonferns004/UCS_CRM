@@ -5,8 +5,6 @@ import { Plus, Trash, Check } from '../icons';
 import { api } from '../../../api/auth';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 
 function load() {
   try { return JSON.parse(sessionStorage.getItem('wrk') || '{}'); } catch { return {}; }
@@ -377,44 +375,9 @@ export default function Workers({ onSelect, onOffboard }) {
       const verified = details.filter(d => d && isComplete(d));
       if (verified.length === 0) { alert('No verified workers to print'); return; }
       const zip = new JSZip();
-      const container = document.createElement('div');
-      container.style.position = 'fixed';
-      container.style.left = '-9999px';
-      container.style.top = '0';
-      container.style.width = '210mm';
-      container.style.background = '#fff';
-      document.body.appendChild(container);
       for (const w of verified) {
-        container.innerHTML = allFormsHTML(w);
-        await new Promise(r => setTimeout(r, 100));
-        const canvas = await html2canvas(container, { scale: 2, useCORS: true, logging: false });
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const pdfW = pdf.internal.pageSize.getWidth();
-        const pdfH = pdf.internal.pageSize.getHeight();
-        const imgW = pdfW;
-        const imgH = (canvas.height * imgW) / canvas.width;
-        let y = 0;
-        let page = 0;
-        while (y < imgH) {
-          if (page > 0) pdf.addPage();
-          const srcY = (y / imgH) * canvas.height;
-          const srcH = Math.min(((pdfH / imgH) * canvas.height), canvas.height - srcY);
-          const pageCanvas = document.createElement('canvas');
-          pageCanvas.width = canvas.width;
-          pageCanvas.height = srcH;
-          const ctx = pageCanvas.getContext('2d');
-          ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-          const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95);
-          const pageImgH = (srcH * imgW) / canvas.width;
-          pdf.addImage(pageImgData, 'JPEG', 0, 0, imgW, pageImgH);
-          y += pdfH;
-          page++;
-        }
-        const safeName = w.name.replace(/[\/:*?"<>|]/g, '_');
-        const pdfBlob = pdf.output('blob');
-        zip.file(`${safeName}_forms.pdf`, pdfBlob);
+        zip.file(`${w.name.replace(/[\/:*?"<>|]/g, '_')}_forms.html`, allFormsHTML(w));
       }
-      document.body.removeChild(container);
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(zipBlob);

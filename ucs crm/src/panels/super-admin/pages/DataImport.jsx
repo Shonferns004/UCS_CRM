@@ -312,6 +312,10 @@ export default function DataImport() {
                   <div className="sa-stat-label">Imported</div>
                   <div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div>
                 </div>
+                <div className="sa-stat-card" style={{borderLeftColor:'#8b5cf6'}}>
+                  <div className="sa-stat-label">Assigned to FROs</div>
+                  <div className="sa-stat-value" style={{color:'#8b5cf6'}}>{result.assigned_donors || 0}</div>
+                </div>
                 <div className="sa-stat-card" style={{borderLeftColor:'#3b82f6'}}>
                   <div className="sa-stat-label">NGOs Replicated To</div>
                   <div className="sa-stat-value" style={{color:'#3b82f6'}}>{result.ngos_used}</div>
@@ -323,6 +327,21 @@ export default function DataImport() {
                     <span key={name} className="sa-badge" style={{background:'#eef2ff', color:'#4338ca', padding:'4px 10px', borderRadius:6, fontSize:12}}>
                       {count} → {name}
                     </span>
+                  ))}
+                </div>
+              )}
+              {result.station_breakdown && Object.keys(result.station_breakdown).length > 0 && (
+                <div style={{marginTop:12, borderTop:'1px solid var(--line)', paddingTop:12}}>
+                  <div style={{fontSize:13, fontWeight:600, marginBottom:8, color:'var(--ink)'}}>Station-wise FRO Assignment</div>
+                  {Object.entries(result.station_breakdown).map(([ngo, stations]) => (
+                    <div key={ngo} style={{marginBottom:6, fontSize:12}}>
+                      <span style={{fontWeight:600, color:'#4338ca'}}>{ngo}:</span>{' '}
+                      {Object.entries(stations).map(([st, cnt]) => (
+                        <span key={st} className="sa-badge" style={{background:'#f3e8ff', color:'#7c3aed', padding:'2px 8px', borderRadius:4, fontSize:11, marginLeft:4}}>
+                          {cnt} → {st}
+                        </span>
+                      ))}
+                    </div>
                   ))}
                 </div>
               )}
@@ -413,7 +432,30 @@ export default function DataImport() {
                   <div className="sa-stat-label">Imported to Donors</div>
                   <div className="sa-stat-value" style={{color:'#10b981'}}>{oldResult.imported}</div>
                 </div>
+                <div className="sa-stat-card" style={{borderLeftColor:'#8b5cf6'}}>
+                  <div className="sa-stat-label">Profiles Created</div>
+                  <div className="sa-stat-value" style={{color:'#8b5cf6'}}>{oldResult.profiles_created || 0}</div>
+                </div>
+                <div className="sa-stat-card" style={{borderLeftColor:'#7c3aed'}}>
+                  <div className="sa-stat-label">Assigned to FROs</div>
+                  <div className="sa-stat-value" style={{color:'#7c3aed'}}>{oldResult.assigned_donors || 0}</div>
+                </div>
               </div>
+              {oldResult.station_breakdown && Object.keys(oldResult.station_breakdown).length > 0 && (
+                <div style={{marginTop:12, borderTop:'1px solid var(--line)', paddingTop:12}}>
+                  <div style={{fontSize:13, fontWeight:600, marginBottom:8, color:'var(--ink)'}}>Station-wise FRO Assignment</div>
+                  {Object.entries(oldResult.station_breakdown).map(([ngo, stations]) => (
+                    <div key={ngo} style={{marginBottom:6, fontSize:12}}>
+                      <span style={{fontWeight:600, color:'#4338ca'}}>{ngo}:</span>{' '}
+                      {Object.entries(stations).map(([st, cnt]) => (
+                        <span key={st} className="sa-badge" style={{background:'#f3e8ff', color:'#7c3aed', padding:'2px 8px', borderRadius:4, fontSize:11, marginLeft:4}}>
+                          {cnt} → {st}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
               {oldResult.errors && oldResult.errors.length > 0 && (
                 <div style={{marginTop:12}}>
                   <p className="sa-muted">{oldResult.errors.length} rows failed</p>

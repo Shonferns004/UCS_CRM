@@ -8,6 +8,7 @@ import {
   dedupRows,
   normalizeDate,
 } from '../services/fileParser.js';
+import { autoAssignDonorsToStations } from '../services/assignmentHelpers.js';
 
 export const inspectImport = async (req, res) => {
   try {
@@ -98,7 +99,7 @@ export const uploadImport = async (req, res) => {
             birth_date: r.birth_date || null,
             data_category: r.data_category || null,
             team: r.team || null,
-            agent_name: r.agent_name || null,
+            agent_name: r.fro_name || r.agent_name || null,
             mop: r.mop || null,
             received_bank: r.received_bank || null,
             payment_id_no: r.payment_id_no || null,
@@ -136,6 +137,17 @@ export const uploadImport = async (req, res) => {
     }
     const distribution = Object.entries(ngoCounts).map(([name, count]) => `${count} → ${name}`);
 
+    // Auto-assign donors to FROs via stations (only if donor_profiles exist)
+    let assignedDonors = 0;
+    let stationBreakdown = {};
+    try {
+      const result = await autoAssignDonorsToStations(trulyNew, importBatchId, selectedNgos, req.user?.id || 'system');
+      assignedDonors = result.totalAssigned;
+      stationBreakdown = result.breakdown;
+    } catch (assignErr) {
+      console.error('Auto-assignment error (non-fatal):', assignErr.message);
+    }
+
     return res.status(201).json({
       message: selectedNgos.length < allNgos.length
         ? `Data imported for ${selectedNgos.length} NGO(s) successfully`
@@ -145,6 +157,8 @@ export const uploadImport = async (req, res) => {
       duplicates_removed: duplicatesRemoved,
       cross_batch_duplicates: crossBatchDups,
       imported: totalInserted,
+      assigned_donors: assignedDonors,
+      station_breakdown: stationBreakdown,
       distribution: distribution.join('; '),
       ngo_counts: ngoCounts,
       ngos_used: ngoNames.length,
@@ -296,7 +310,7 @@ export const uploadOldDataImport = async (req, res) => {
             birth_date: r.birth_date || null,
             data_category: r.data_category || null,
             team: r.team || null,
-            agent_name: r.agent_name || null,
+            agent_name: r.fro_name || r.agent_name || null,
             mop: r.mop || null,
             received_bank: r.received_bank || null,
             payment_id_no: r.payment_id_no || null,
@@ -365,8 +379,21 @@ export const uploadOldDataImport = async (req, res) => {
       }
     }
 
+    // Auto-assign donors to FROs via stations
+    let assignedDonors = 0;
+    let stationBreakdown = {};
+    try {
+      const result = await autoAssignDonorsToStations(trulyNew, importBatchId, ngos, req.user?.id || 'system');
+      assignedDonors = result.totalAssigned;
+      stationBreakdown = result.breakdown;
+    } catch (assignErr) {
+      console.error('Auto-assignment error (non-fatal):', assignErr.message);
+    }
+
     return res.status(201).json({
-      message: 'Old data imported successfully',
+      message: assignedDonors > 0
+        ? `Old data imported. ${assignedDonors} donors auto-assigned to FROs.`
+        : 'Old data imported successfully (no FROs available for auto-assignment)',
       type: fullSheet ? 'full' : 'quick',
       batch_id: importBatchId,
       total_in_file: extracted.length,
@@ -374,6 +401,8 @@ export const uploadOldDataImport = async (req, res) => {
       valid_rows: trulyNew.length,
       imported: inserted.length,
       profiles_created: profilesCreated,
+      assigned_donors: assignedDonors,
+      station_breakdown: stationBreakdown,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {

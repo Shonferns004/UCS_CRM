@@ -222,17 +222,25 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
       </div>
       {progress && <ProgressModal current={progress.current} total={progress.total} label={progress.label} />}
 
-      {result && endpoint !== '/data-import/upload-old' && (
+      {result && (
         <div className="sa-card">
           <h3 className="sa-card-title" style={{color:'#10b981'}}>Import Complete</h3>
           <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))'}}>
             <div className="sa-stat-card"><div className="sa-stat-label">Total in File</div><div className="sa-stat-value">{result.total_in_file}</div></div>
-            <div className="sa-stat-card" style={{borderLeftColor:'#f59e0b'}}><div className="sa-stat-label">Within-File Dups Removed</div><div className="sa-stat-value" style={{color:'#f59e0b'}}>{result.duplicates_removed}</div></div>
+            {endpoint !== '/data-import/upload-old' && (
+              <div className="sa-stat-card" style={{borderLeftColor:'#f59e0b'}}><div className="sa-stat-label">Within-File Dups Removed</div><div className="sa-stat-value" style={{color:'#f59e0b'}}>{result.duplicates_removed}</div></div>
+            )}
             <div className="sa-stat-card" style={{borderLeftColor:'#eab308'}}><div className="sa-stat-label">Cross-Batch Dups Removed</div><div className="sa-stat-value" style={{color:'#eab308'}}>{result.cross_batch_duplicates_removed}</div></div>
-            <div className="sa-stat-card" style={{borderLeftColor:'#10b981'}}><div className="sa-stat-label">Imported</div><div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div></div>
-            <div className="sa-stat-card" style={{borderLeftColor:'#3b82f6'}}><div className="sa-stat-label">NGOs Replicated To</div><div className="sa-stat-value" style={{color:'#3b82f6'}}>{result.ngos_used}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#10b981'}}><div className="sa-stat-label">{endpoint === '/data-import/upload-old' ? 'Imported to Donors' : 'Imported'}</div><div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div></div>
+            {endpoint === '/data-import/upload-old' && (
+              <div className="sa-stat-card" style={{borderLeftColor:'#8b5cf6'}}><div className="sa-stat-label">Profiles Created</div><div className="sa-stat-value" style={{color:'#8b5cf6'}}>{result.profiles_created || 0}</div></div>
+            )}
+            <div className="sa-stat-card" style={{borderLeftColor:'#7c3aed'}}><div className="sa-stat-label">Assigned to FROs</div><div className="sa-stat-value" style={{color:'#7c3aed'}}>{result.assigned_donors || 0}</div></div>
+            {endpoint !== '/data-import/upload-old' && (
+              <div className="sa-stat-card" style={{borderLeftColor:'#3b82f6'}}><div className="sa-stat-label">NGOs Replicated To</div><div className="sa-stat-value" style={{color:'#3b82f6'}}>{result.ngos_used}</div></div>
+            )}
           </div>
-          {result.ngo_counts && (
+          {result.ngo_counts && Object.keys(result.ngo_counts).length > 0 && (
             <div style={{marginTop:10, display:'flex', gap:10, flexWrap:'wrap'}}>
               {Object.entries(result.ngo_counts).map(([name, count]) => (
                 <span key={name} className="sa-badge" style={{background:'#eef2ff', color:'#4338ca', padding:'4px 10px', borderRadius:6, fontSize:12}}>
@@ -241,17 +249,24 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
               ))}
             </div>
           )}
-        </div>
-      )}
-      {result && endpoint === '/data-import/upload-old' && (
-        <div className="sa-card">
-          <h3 className="sa-card-title" style={{color:'#10b981'}}>Import Complete</h3>
-          <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))'}}>
-            <div className="sa-stat-card"><div className="sa-stat-label">Total in File</div><div className="sa-stat-value">{result.total_in_file}</div></div>
-            <div className="sa-stat-card" style={{borderLeftColor:'#eab308'}}><div className="sa-stat-label">Cross-Batch Dups Removed</div><div className="sa-stat-value" style={{color:'#eab308'}}>{result.cross_batch_duplicates_removed}</div></div>
-            <div className="sa-stat-card" style={{borderLeftColor:'#10b981'}}><div className="sa-stat-label">Imported to Donors</div><div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div></div>
-          </div>
-          {result.errors?.length > 0 && <div style={{marginTop:12}}><p className="sa-muted">{result.errors.length} rows failed</p></div>}
+          {result.station_breakdown && Object.keys(result.station_breakdown).length > 0 && (
+            <div style={{marginTop:12, borderTop:'1px solid var(--line)', paddingTop:12}}>
+              <div style={{fontSize:13, fontWeight:600, marginBottom:8, color:'var(--ink)'}}>Station-wise FRO Assignment</div>
+              {Object.entries(result.station_breakdown).map(([ngo, stations]) => (
+                <div key={ngo} style={{marginBottom:6, fontSize:12}}>
+                  <span style={{fontWeight:600, color:'#4338ca'}}>{ngo}:</span>{' '}
+                  {Object.entries(stations).map(([st, cnt]) => (
+                    <span key={st} className="sa-badge" style={{background:'#f3e8ff', color:'#7c3aed', padding:'2px 8px', borderRadius:4, fontSize:11, marginLeft:4}}>
+                      {cnt} → {st}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          {endpoint === '/data-import/upload-old' && result.errors?.length > 0 && (
+            <div style={{marginTop:12}}><p className="sa-muted">{result.errors.length} rows failed</p></div>
+          )}
         </div>
       )}
     </>

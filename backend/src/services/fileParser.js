@@ -83,6 +83,11 @@ const COLUMN_MAP = {
   whatsupandroidno: 'whatsapp_no',
   'whatsapp': 'whatsapp_no',
   'whatsappno': 'whatsapp_no',
+  froname: 'fro_name',
+  fro: 'fro_name',
+  assignee: 'fro_name',
+  assigneename: 'fro_name',
+  fro_worker: 'fro_name',
 }
 
 function buildColumnMap(headers) {
