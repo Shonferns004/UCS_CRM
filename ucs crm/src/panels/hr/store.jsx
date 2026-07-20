@@ -48,8 +48,8 @@ export const fetchWorkers = (status) => {
 export const fetchNGOs = () => apiGet('/ngos');
 export const addWorker = (body) => apiPost('/workers', body);
 export const removeWorker = (id) => apiDelete('/workers/' + id);
-export const abscondWorker = (id) => apiPut('/workers/' + id + '/abscond');
-export const offboardWorker = (id) => apiPut('/workers/' + id + '/offboard');
+export const abscondWorker = (id) => apiPut('/workers/' + id, { employment_status: 'absconded', is_active: false });
+export const offboardWorker = (id) => apiPut('/workers/' + id, { employment_status: 'offboarded', is_active: false });
 export const fetchWorkerById = (id) => apiGet('/workers/' + id);
 export const updateWorker = (id, updates) => apiPut('/workers/' + id, updates);
 export const bulkUpdateWorkers = (workers) => apiPut('/workers/bulk', { workers });

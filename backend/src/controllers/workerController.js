@@ -313,6 +313,7 @@ export const editWorker = async (req, res) => {
       shift_start_time, shift_end_time,
       photo_url,
       correspondence,
+      employment_status,
     } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -345,6 +346,10 @@ export const editWorker = async (req, res) => {
     if (shift_end_time !== undefined) updates.shift_end_time = shift_end_time;
     if (photo_url !== undefined) updates.photo_url = photo_url;
     if (correspondence !== undefined) updates.correspondence = correspondence;
+    if (employment_status !== undefined) {
+      updates.employment_status = employment_status;
+      if (employment_status !== 'active') updates.is_active = false;
+    }
     const worker = await updateWorker(req.params.id, updates);
     return res.json({ message: 'Worker updated successfully', worker });
   } catch (error) {
