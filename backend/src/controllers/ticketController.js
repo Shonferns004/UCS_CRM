@@ -40,7 +40,7 @@ export const getTicket = async (req, res) => {
     const { id } = req.params;
     const { data: ticket, error } = await supabase
       .from('support_tickets')
-      .select('*, workers!support_tickets_raised_by_fkey(name, login_id), users!support_tickets_resolved_by_fkey(name, login_id)')
+      .select('*, workers!support_tickets_raised_by_fkey(name, login_id), users!support_tickets_resolved_by_fkey(name)')
       .eq('id', id)
       .single();
     if (error) throw error;
