@@ -410,29 +410,16 @@ export async function updateLabels(conversationId, labels) {
 }
 
 export async function uploadMedia(userId, file) {
-  const fileName = `fro_${userId}_${Date.now()}_${file.name}`
-  const bucket = 'whatsapp-media'
-
-  const { error: uploadError } = await supabase.storage
-    .from(bucket)
-    .upload(fileName, file, { contentType: file.type, upsert: false })
-
-  if (uploadError) throw uploadError
-
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName)
-
-  const { data: record, error } = await supabase
-    .from('media_library')
-    .insert({
-      name: file.name,
-      file_url: urlData.publicUrl,
-      file_type: file.type,
-      file_size: file.size,
-      uploaded_by: userId,
-    })
-    .select()
-    .single()
-
-  if (error) throw error
-  return record
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch('/api/ucs/fro/whatsapp/upload-media', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${localStorage.getItem('ucs_token')}` },
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }))
+    throw new Error(err.message || 'Upload failed')
+  }
+  return res.json()
 }

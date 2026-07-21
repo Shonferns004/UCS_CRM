@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../../../api/whatsappSupabase'
+import { supabase } from '../../lib/supabase'
 
 function MessageStatusIcon({ status }) {
   if (status === 'queued' || status === 'sending') {

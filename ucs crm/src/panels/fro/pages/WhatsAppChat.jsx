@@ -21,7 +21,6 @@ import MessageComposer from '../components/enhanced/MessageComposer'
 import QuickReplyBar from '../components/enhanced/QuickReplyBar'
 import TemplateBar from '../components/enhanced/TemplateBar'
 import MessageSearchModal from '../components/enhanced/MessageSearch'
-import { MediaUploadPreview } from '../components/enhanced/MediaPreview'
 
 const waQueryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 30, retry: 1 } },
@@ -138,7 +137,6 @@ function WhatsAppChatInner() {
   const [sendingNew, setSendingNew] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
-  const [mediaFile, setMediaFile] = useState(null)
 
   const { data: conversations = [], isLoading: loadingConv } = useQuery({
     queryKey: ['wa-conversations', waUser?.id],
@@ -214,7 +212,6 @@ function WhatsAppChatInner() {
 
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
-    setMediaFile(null)
     try { await markRead(conv.id) } catch {}
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [queryClient])
@@ -228,20 +225,16 @@ function WhatsAppChatInner() {
 
   const handleSendMedia = useCallback(async (file) => {
     if (!activeConv || !waUser) return
-    try {
-      const uploadResult = await uploadMedia(waUser.id, file)
-      if (uploadResult?.file_url) {
-        const type = file.type?.startsWith('image/') ? 'image'
-          : file.type?.startsWith('video/') ? 'video'
-          : file.type?.startsWith('audio/') ? 'audio'
-          : 'document'
-        await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id, uploadResult.file_url, type)
-        queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-      }
-    } catch (err) {
-      console.error('Media send failed:', err)
-    }
+    const uploadResult = await uploadMedia(waUser.id, file)
+    const fileUrl = uploadResult?.url || uploadResult?.file_url
+    if (!fileUrl) throw new Error('Upload failed - no URL returned')
+    const type = file.type?.startsWith('image/') ? 'image'
+      : file.type?.startsWith('video/') ? 'video'
+      : file.type?.startsWith('audio/') ? 'audio'
+      : 'document'
+    await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id, fileUrl, type)
+    queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser, queryClient])
 
   const handleNewConv = useCallback(async () => {
@@ -355,12 +348,6 @@ function WhatsAppChatInner() {
               <MessageList messages={messages} />
               <div ref={bottomRef} />
             </div>
-
-            {mediaFile && (
-              <div style={{ padding: '4px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' }}>
-                <MediaUploadPreview file={mediaFile} onRemove={() => setMediaFile(null)} />
-              </div>
-            )}
 
             <QuickReplyBar onSend={handleQuickReply} />
 

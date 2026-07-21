@@ -1,17 +1,25 @@
 import { useState, useRef } from 'react'
+import { MediaUploadPreview } from './MediaPreview'
 
 export default function MessageComposer({ onSend, onSendMedia, disabled }) {
   const [text, setText] = useState('')
+  const [selectedFile, setSelectedFile] = useState(null)
   const [sending, setSending] = useState(false)
   const inputRef = useRef(null)
   const fileRef = useRef(null)
 
   const handleSend = async () => {
-    if (!text.trim() || sending || disabled) return
+    if ((!text.trim() && !selectedFile) || sending || disabled) return
     setSending(true)
     try {
-      await onSend(text.trim())
-      setText('')
+      if (selectedFile) {
+        await onSendMedia(selectedFile)
+        setSelectedFile(null)
+      }
+      if (text.trim()) {
+        await onSend(text.trim())
+        setText('')
+      }
       inputRef.current?.focus()
     } catch (err) {
       alert('Failed to send: ' + err.message)
@@ -27,28 +35,26 @@ export default function MessageComposer({ onSend, onSendMedia, disabled }) {
     }
   }
 
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0]
-    if (!file || !onSendMedia) return
+    if (!file) return
     if (file.size > 16 * 1024 * 1024) {
       alert('File too large. Max 16MB.')
       return
     }
-    setSending(true)
-    try {
-      await onSendMedia(file)
-    } catch (err) {
-      alert('Failed to send file: ' + err.message)
-    } finally {
-      setSending(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
+    setSelectedFile(file)
+    if (fileRef.current) fileRef.current.value = ''
   }
 
-  const canSend = text.trim().length > 0 && !sending && !disabled
+  const canSend = (text.trim().length > 0 || selectedFile) && !sending && !disabled
 
   return (
     <div style={{ padding: '8px 12px', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
+      {selectedFile && (
+        <div style={{ marginBottom: 6 }}>
+          <MediaUploadPreview file={selectedFile} onRemove={() => setSelectedFile(null)} />
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         {onSendMedia && (
           <>
