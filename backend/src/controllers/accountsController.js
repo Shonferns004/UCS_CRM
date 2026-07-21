@@ -629,10 +629,11 @@ export const getReceiptList = async (req, res) => {
 
 export const getPendingReceipts = async (req, res) => {
   try {
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { data: receipts, error: recError } = await supabase
       .from('receipts')
       .select('*')
-      .or('sent.is.null,sent.eq.false')
+      .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
       .order('created_at', { ascending: false });
 
     if (recError) throw recError;
