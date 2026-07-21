@@ -63,6 +63,7 @@ export default function ReceiptHistory() {
   const [dPage, setDPage] = useState(1);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [showCleanModal, setShowCleanModal] = useState(false);
   const fileRef = useRef(null);
   const perPage = 40;
 
@@ -91,11 +92,9 @@ export default function ReceiptHistory() {
   }, []);
 
   const handleCleanUp = async () => {
-    if (!confirm('Delete ALL receipts? This cannot be undone.')) return;
-    if (!confirm('Are you sure? All receipt data will be permanently removed.')) return;
+    setShowCleanModal(false);
     try {
       await apiDelete('/accounts/receipts');
-      alert('All receipts deleted.');
       load();
     } catch (err) { alert('Clean up failed: ' + err.message); }
   };
@@ -219,8 +218,8 @@ export default function ReceiptHistory() {
         <div className="card-pad">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
-            <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }} onClick={handleCleanUp} title="Delete all receipts">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete all receipts">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>
           <div
@@ -443,6 +442,29 @@ export default function ReceiptHistory() {
               </table>
               <div style={{ padding: '10px 12px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
                 Total: {currency(donorDetail.receipts.reduce((s, r) => s + Number(r.amount || 0), 0))} ({donorDetail.receipts.length} receipt{donorDetail.receipts.length !== 1 ? 's' : ''})
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showCleanModal && (
+        <>
+          <div className="modal-overlay" onClick={() => setShowCleanModal(false)} />
+          <div className="modal" style={{ maxWidth: 400, width: '90%' }}>
+            <div className="modal-header">
+              <h3>Delete all receipts?</h3>
+              <button className="btn btn-sm" onClick={() => setShowCleanModal(false)}>Cancel</button>
+            </div>
+            <div className="modal-body" style={{ padding: 20, textAlign: 'center' }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5" style={{ marginBottom: 12 }}>
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              <p style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>This will permanently delete <strong>all {receipts.length} receipts</strong>.</p>
+              <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>This action cannot be undone.</p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} style={{ padding: '6px 16px' }}>Cancel</button>
+                <button className="btn btn-sm" onClick={handleCleanUp} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 16px' }}>Delete All</button>
               </div>
             </div>
           </div>
