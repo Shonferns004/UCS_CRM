@@ -255,9 +255,9 @@ export default function ReceiptHistory() {
               {importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}
             </div>
           )}
-          <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af' }}>
+          <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Expected columns</summary>
-            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', justifyContent: 'center' }}>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donor Name</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt No</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}> Amt </span>
