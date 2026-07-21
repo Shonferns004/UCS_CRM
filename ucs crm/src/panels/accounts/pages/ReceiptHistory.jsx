@@ -55,13 +55,12 @@ export default function ReceiptHistory() {
   const [donorDetail, setDonorDetail] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
-  const [waPhone, setWaPhone] = useState('');
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dPage, setDPage] = useState(1);
+  const [savedDetail, setSavedDetail] = useState(null);
   const fileRef = useRef(null);
   const perPage = 50;
 
@@ -154,25 +153,12 @@ export default function ReceiptHistory() {
   const paginatedDonors = uniqueDonors.slice((dPage - 1) * perPage, dPage * perPage);
 
   const handlePreview = async (r) => {
+    if (donorDetail) setSavedDetail(donorDetail);
+    setDonorDetail(null);
     const templateId = getTemplateId(r.project_id);
     const Comp = TEMPLATES[templateId];
     if (!Comp) return;
-    let leadData = null;
-    setWaPhone('');
-    setWaLoading(true);
-    try {
-      const leads = await apiGet('/accounts/leads');
-      const lead = leads.find(l => String(l.log_id) === String(r.log_id));
-      leadData = lead || null;
-      const mobile = lead?.donor_mobile || '';
-      if (mobile) {
-        const raw = mobile.replace(/\D/g, '');
-        const formatted = raw.length === 10 ? '91' + raw : raw.startsWith('0') ? '91' + raw.slice(1) : raw;
-        setWaPhone(formatted);
-      }
-    } catch {}
-    finally { setWaLoading(false); }
-    setPreview({ receipt: r, templateId, Comp, donorMobile: '', lead: leadData });
+    setPreview({ receipt: r, templateId, Comp, lead: null });
   };
 
   const handleDownload = async () => {
@@ -189,8 +175,9 @@ export default function ReceiptHistory() {
 
   const handleWhatsApp = async () => {
     if (!preview) return;
-    const phone = (waPhone || '').replace(/\D/g, '');
-    if (!phone || phone.length < 10) { alert('Please enter a valid phone number'); return; }
+    const phone = (preview.receipt.donor_mobile || '').replace(/\D/g, '');
+    if (!phone || phone.length < 10) { alert('No valid mobile number for this receipt'); return; }
+    const formatted = phone.length === 10 ? '91' + phone : phone.startsWith('0') ? '91' + phone.slice(1) : phone;
     setWaLoading(true);
     setWaResult(null);
     try {
@@ -200,17 +187,23 @@ export default function ReceiptHistory() {
         const pdf = await generateReceiptPDF(el, { scale: 1, jpegQuality: 0.7 });
         pdfBase64 = pdf.output('datauristring').split(',')[1];
       }
-      const res = await apiPost(`/whatsapp/send-receipt/${preview.receipt.log_id}`, {
-        number: phone,
+      await apiPost('/whatsapp/send-direct', {
+        to: formatted,
         pdfBase64,
         receiptNo: preview.receipt.receipt_no,
         donorName: preview.receipt.donor_name,
         amount: preview.receipt.amount,
       });
-      setWaResult({ success: true, message: res.uploadError ? 'Sent (text only - PDF upload failed: ' + res.uploadError + ')' : 'Receipt PDF sent via WhatsApp!' });
+      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch {}
+      setWaResult({ success: true, message: 'Receipt sent via WhatsApp!' });
     } catch (err) {
       setWaResult({ success: false, message: 'Failed: ' + err.message });
     } finally { setWaLoading(false); }
+  };
+
+  const closePreview = () => {
+    setPreview(null);
+    if (savedDetail) { setDonorDetail(savedDetail); setSavedDetail(null); }
   };
 
   const projectOptions = useMemo(() => {
@@ -336,31 +329,36 @@ export default function ReceiptHistory() {
 
       {preview && (
         <>
-          <div className="modal-overlay" onClick={() => setPreview(null)} />
+          <div className="modal-overlay" onClick={closePreview} />
           <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto' }}>
             <div className="modal-header">
               <h3>Receipt — {preview.receipt.receipt_no}</h3>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="tel"
-                  className="field-input"
-                  placeholder="WhatsApp number (e.g. 919876543210)"
-                  value={waPhone}
-                  onChange={e => setWaPhone(e.target.value)}
-                  style={{ width: 220, fontSize: 12, padding: '6px 10px' }}
-                />
-                <button className="btn btn-primary btn-sm" onClick={handleDownload} disabled={downloading}>
-                  {downloading ? 'Downloading...' : 'Download PDF'}
-                </button>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 {waResult && (
-                  <span style={{ fontSize: 11, color: waResult.success ? '#059669' : '#dc2626', marginRight: 4 }}>
+                  <span style={{ fontSize: 11, color: waResult.success ? '#059669' : '#dc2626', marginRight: 4, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {waResult.message}
                   </span>
                 )}
-                <button className="btn btn-sm" style={{ background: '#25D366', color: '#fff' }} onClick={handleWhatsApp} disabled={waLoading}>
-                  {waLoading ? 'Sending...' : 'Send via WhatsApp'}
+                <button onClick={handleDownload} disabled={downloading} title="Download PDF"
+                  style={{ border: 'none', background: 'var(--sage)', color: '#fff', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {downloading ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  )}
                 </button>
-                <button className="btn btn-sm" onClick={() => setPreview(null)}>Close</button>
+                <button onClick={handleWhatsApp} disabled={waLoading} title="Send via WhatsApp"
+                  style={{ border: 'none', background: '#25D366', color: '#fff', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {waLoading ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347"/></svg>
+                  )}
+                </button>
+                <button onClick={closePreview} title="Close"
+                  style={{ border: 'none', background: '#ef4444', color: '#fff', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
@@ -399,7 +397,7 @@ export default function ReceiptHistory() {
                       <td style={{ padding: '8px 12px' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014'}</td>
                       <td style={{ padding: '8px 12px' }}>{r.mode || '\u2014'}</td>
                       <td style={{ padding: '8px 12px' }}>
-                        <button className="btn btn-sm btn-primary" onClick={() => { setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }} style={{ fontSize: 10, padding: '2px 8px' }}>View</button>
+                        <button className="btn btn-sm btn-primary" onClick={() => { setSavedDetail(donorDetail); setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }} style={{ fontSize: 10, padding: '2px 8px' }}>View</button>
                       </td>
                     </tr>
                   ))}
