@@ -218,6 +218,7 @@ export default function HRForms() {
       }
       setDeclarationDate(data.declaration_date ? data.declaration_date.slice(0, 10) : (data.created_at ? data.created_at.slice(0, 10) : ''));
       setPlace(data.declaration_place || 'Mumbai');
+      setSignatureUrl(data.signature_url || '');
     } catch {}
   };
 
@@ -244,6 +245,7 @@ export default function HRForms() {
   const [showPrint, setShowPrint] = useState(false);
   const [place, setPlace] = useState('');
   const [declarationDate, setDeclarationDate] = useState('');
+  const [signatureUrl, setSignatureUrl] = useState('');
 
   const handlePersonalChange = (field, value) => {
     setPersonal(prev => ({ ...prev, [field]: value }));
@@ -553,7 +555,11 @@ export default function HRForms() {
               <div className="form-row">
                 <div style={{ flex: 1 }}>
                   <label className="form-label">Sign</label>
-                  <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
+                  {signatureUrl ? (
+                    <img src={signatureUrl} alt="Digital signature" style={{ maxWidth: 300, maxHeight: 80, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }} />
+                  ) : (
+                    <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
+                  )}
                 </div>
               </div>
             </div>
@@ -719,7 +725,11 @@ export default function HRForms() {
             <div className="form-row">
               <div style={{ flex: 1 }}>
                 <label className="form-label">Sign</label>
-                <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
+                {signatureUrl ? (
+                  <img src={signatureUrl} alt="Digital signature" style={{ maxWidth: 300, maxHeight: 80, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }} />
+                ) : (
+                  <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
+                )}
               </div>
             </div>
           </div>
@@ -747,6 +757,7 @@ export default function HRForms() {
             declarationDate,
             place,
             photo_url: workerPhotoUrl,
+            signature_url: signatureUrl,
           }}
           onClose={() => setShowPrint(false)}
         />

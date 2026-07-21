@@ -111,8 +111,8 @@ const API_BASE='https://attendance-roan-zeta.vercel.app/api';
 let TOKEN=localStorage.getItem('ucs_token')||'';
 let USER=null;
 
-const STEPS=['Personal Details','Address','Education','Experience','Family','Profile Photo','Review & Submit'];
-const STEP_SUBS=['Tell us about yourself','Your permanent address','Your highest qualification','Previous work experience','Family members','Take a clear photo','Verify and submit'];
+const STEPS=['Personal Details','Address','Education','Experience','Family','Profile Photo','Digital Signature','Review & Submit'];
+const STEP_SUBS=['Tell us about yourself','Your permanent address','Your highest qualification','Previous work experience','Family members','Take a clear photo','Sign digitally','Verify and submit'];
 let currentStep=0;
 
 const form={
@@ -126,6 +126,7 @@ const form={
 
 let capturedPhoto=null;
 let capturedDocs={};
+let capturedSignature=null;
 let policies=[];
 let cameraMode=null;
 let cameraStream=null;
@@ -153,7 +154,7 @@ function saveFormState(){
   try{localStorage.setItem(SAVE_KEY,JSON.stringify({
     step:currentStep,personal:form.personal,address:form.address,education:form.education,
     experience:form.experience,family:form.family,bank:form.bank,
-    capturedPhoto:capturedPhoto,capturedDocs:capturedDocs,policies:policies
+    capturedPhoto:capturedPhoto,capturedDocs:capturedDocs,capturedSignature:capturedSignature,policies:policies
   }))}catch(e){}
 }
 function loadFormState(){
@@ -164,6 +165,7 @@ function loadFormState(){
     if(r.family)form.family=r.family;if(r.bank)form.bank=r.bank;
     if(r.capturedPhoto)capturedPhoto=r.capturedPhoto;if(r.capturedDocs)capturedDocs=r.capturedDocs;
     if(r.policies)policies=r.policies;if(typeof r.step==='number')currentStep=r.step;
+    if(r.capturedSignature)capturedSignature=r.capturedSignature;
     return true;
   }catch(e){return false}
 }
@@ -209,7 +211,7 @@ async function doLogin(){
 }
 
 function doLogout(){
-  TOKEN='';USER=null;capturedPhoto=null;capturedDocs={};policies=[];currentStep=0;
+  TOKEN='';USER=null;capturedPhoto=null;capturedDocs={};capturedSignature=null;policies=[];currentStep=0;
   localStorage.removeItem('ucs_token');localStorage.removeItem('ucs_worker');
   form.personal={name:'',email:'',phone:'',alternate_phone:'',dob:'',gender:'',father_husband_name:'',marital_status:'',pan_number:'',aadhar_number:''};
   form.address={address:'',city:'',state:'',pincode:'',correspondence:{address:'',city:'',state:'',pincode:''},useCorrespondence:false};
@@ -243,7 +245,7 @@ function goToStep(i){if(i<=currentStep){currentStep=i;renderStep()}}
 function renderStep(){
   renderProgress();
   document.getElementById('step-content').innerHTML='<div class="anim"></div>';
-  [renderPersonal,renderAddress,renderEducation,renderExperience,renderFamily,renderPhoto,renderReview][currentStep]();
+  [renderPersonal,renderAddress,renderEducation,renderExperience,renderFamily,renderPhoto,renderSignature,renderReview][currentStep]();
   // Family add/remove delegation
   const sc=document.getElementById('step-content');
   sc.onclick=function(e){
@@ -389,6 +391,59 @@ function renderPhoto(){
   `);
 }
 
+function renderSignature(){
+  const canvasId='sig-canvas';
+  document.getElementById('step-content').innerHTML=card(capturedSignature?`
+    <div class="text-center">
+      <div class="max-w-xs mx-auto mb-4">
+        <img src="${capturedSignature}" class="w-full border border-gray-300 rounded-xl" style="max-height:120px">
+      </div>
+      <p class="text-sm text-green-600 font-medium mb-4">Signature captured</p>
+      <div class="flex gap-3 justify-center">
+        <button class="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors" onclick="clearSignature()">Clear & Redraw</button>
+      </div>
+    </div>
+  `:`
+    <div>
+      <p class="text-sm text-gray-500 mb-4">Draw your signature below using your mouse or finger.</p>
+      <canvas id="${canvasId}" width="500" height="150" style="width:100%;max-width:500px;height:150px;border:2px dashed #d1d5db;border-radius:12px;cursor:crosshair;background:#fafafa;touch-action:none;display:block;margin:0 auto"></canvas>
+      <div class="flex gap-3 justify-center mt-4">
+        <button class="rounded-lg bg-blue-500 text-white font-medium text-sm px-6 py-2.5 hover:bg-blue-600 cursor-pointer transition-colors" onclick="saveSignature()">Save Signature</button>
+      </div>
+    </div>
+  `);
+  if(!capturedSignature){
+    const c=document.getElementById(canvasId);
+    if(c){
+      let drawing=false;
+      const getPos=e=>{const r=c.getBoundingClientRect();const t=e.touches?.[0];return{x:(t?t.clientX:e.clientX)-r.left,y:(t?t.clientY:e.clientY)-r.top}};
+      c.onmousedown=e=>{e.preventDefault();const p=getPos(e);const ctx=c.getContext('2d');ctx.beginPath();ctx.moveTo(p.x,p.y);drawing=true};
+      c.onmousemove=e=>{if(!drawing)return;const p=getPos(e);const ctx=c.getContext('2d');ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#000';ctx.lineTo(p.x,p.y);ctx.stroke();ctx.beginPath();ctx.moveTo(p.x,p.y)};
+      c.onmouseup=()=>{drawing=false};c.onmouseleave=()=>{drawing=false};
+      c.ontouchstart=e=>{e.preventDefault();const p=getPos(e);const ctx=c.getContext('2d');ctx.beginPath();ctx.moveTo(p.x,p.y);drawing=true};
+      c.ontouchmove=e=>{if(!drawing)return;e.preventDefault();const p=getPos(e);const ctx=c.getContext('2d');ctx.lineWidth=2;ctx.lineCap='round';ctx.strokeStyle='#000';ctx.lineTo(p.x,p.y);ctx.stroke();ctx.beginPath();ctx.moveTo(p.x,p.y)};
+      c.ontouchend=()=>{drawing=false};
+    }
+  }
+}
+
+function saveSignature(){
+  const c=document.getElementById('sig-canvas');
+  if(!c)return;
+  const ctx=c.getContext('2d');
+  const imageData=ctx.getImageData(0,0,c.width,c.height);
+  const hasContent=imageData.data.some(channel=>channel!==0);
+  if(!hasContent)return showToast('Please draw your signature first','error');
+  capturedSignature=c.toDataURL('image/png');
+  renderStep();
+  showToast('Signature saved!');
+}
+
+function clearSignature(){
+  capturedSignature=null;
+  renderStep();
+}
+
 function renderReview(){
   const row=(k,v)=>`<div class="flex justify-between items-center py-2.5 px-3 border-b border-gray-100 last:border-b-0"><span class="text-sm text-gray-500">${k}</span><span class="text-sm font-semibold text-gray-900 text-right max-w-[55%] break-words ${!v?'text-gray-400 font-normal italic':''}">${esc(v)||'Not provided'}</span></div>`;
   const sec=(t,rows)=>`<div class="mb-5"><div class="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-2 flex items-center gap-2"><div class="w-1 h-3 rounded-full bg-blue-500"></div>${t}</div><div class="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">${rows}</div></div>`;
@@ -403,6 +458,7 @@ function renderReview(){
       ${sec('Family',form.family.filter(f=>f.name).map((f,i)=>row('# '+(i+1),f.name+(f.relationship?' ('+f.relationship+')':''))).join('')||'<div class="text-sm text-gray-400 text-center py-3">None</div>')}
       ${sec('Photo & Docs',row('Photo',capturedPhoto?'Captured':null)+row('Aadhaar Front',capturedDocs.aadhar_front?'Captured':null)+row('Aadhaar Back',capturedDocs.aadhar_back?'Captured':null)+row('PAN Card',capturedDocs.pan_card?'Captured':null)+row('Bank Proof',capturedDocs.bank_proof?'Captured':null)+row('Light Bill',capturedDocs.light_bill?'Captured':null))}
       ${sec('Bank',row('Bank',form.bank.bank_name)+row('Holder',form.bank.account_holder_name)+row('IFSC',form.bank.ifsc_code)+row('Account No',form.bank.account_number))}
+      ${sec('Signature',row('Digital Signature',capturedSignature?'Signed ✔':null))}
     </div>`;
 }
 
@@ -455,6 +511,7 @@ async function submitAll(){
   try{
     if(capturedPhoto&&capturedPhoto.startsWith('data:')){await api('POST','onboarding/upload-photo',{photo_base64:capturedPhoto.split(',')[1],mime_type:'image/jpeg'})}
     for(const[t,d]of Object.entries(capturedDocs)){if(d.startsWith('data:')){await api('POST','onboarding/upload-document',{document_type:t,file_base64:d.split(',')[1],mime_type:'image/jpeg'})}}
+    if(capturedSignature&&capturedSignature.startsWith('data:')){await api('POST','onboarding/upload-signature',{signature_base64:capturedSignature.split(',')[1],mime_type:'image/png'})}
     const pd={
       name:form.personal.name,email:form.personal.email,phone:form.personal.phone,
       ...(form.personal.alternate_phone&&{alternate_phone:form.personal.alternate_phone}),

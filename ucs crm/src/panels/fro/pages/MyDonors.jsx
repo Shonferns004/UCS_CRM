@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getMyDonors, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -68,6 +69,7 @@ const WALKTHROUGH_STEPS = [
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function MyDonors() {
+  const navigate = useNavigate()
   const [donors, setDonors] = useState([]);
   const [filterStatus] = useState('');
   const [loading, setLoading] = useState(true);

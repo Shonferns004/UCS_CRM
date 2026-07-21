@@ -1,6 +1,4 @@
-import bcrypt from 'bcryptjs';
 import supabase from '../config/supabase.js';
-import { getWorkerByLoginId } from '../models/workerModel.js';
 
 export async function whatsappLogin(req, res) {
   try {
@@ -9,47 +7,55 @@ export async function whatsappLogin(req, res) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    let worker = await getWorkerByLoginId(email);
-    if (!worker) {
-      const { data } = await supabase
-        .from('workers')
-        .select('*')
-        .or(`email.eq.${email},login_id.eq.${email}`)
-        .maybeSingle();
-      worker = data;
-    }
-    if (!worker) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    let userData = null;
+    let token = null;
+
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (!authError && authData?.user) {
+      const { data: dbUser } = await supabase
+        .rpc('get_whatsapp_user', { p_id: authData.user.id });
+
+      userData = typeof dbUser === 'string' ? JSON.parse(dbUser) : dbUser;
+      token = authData.session?.access_token;
     }
 
-    if (!worker.password) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+    if (!userData) {
+      const { data: agentData, error: agentErr } = await supabase
+        .rpc('verify_agent', {
+          p_email: email,
+          p_password: password,
+        });
 
-    const isMatch = await bcrypt.compare(password, worker.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      if (agentErr || !agentData) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
+      token = 'rpc_' + userData.id;
     }
 
     const { data: assignment } = await supabase
-      .from('fro_whatsapp_assignments')
+      .from('agent_phone_assignments')
       .select('*, whatsapp_accounts!inner(id, name, project, phone_number_id)')
-      .eq('fro_worker_id', worker.id)
-      .eq('is_active', true)
+      .eq('user_id', userData.id)
       .maybeSingle();
 
-    if (!assignment) {
-      return res.status(403).json({ message: 'No WhatsApp account assigned to this user. Contact admin to assign one.' });
-    }
+    const account = assignment?.whatsapp_accounts || null;
 
     return res.json({
       success: true,
-      worker: {
-        id: worker.id,
-        name: worker.name,
-        email: worker.email,
+      token,
+      user: {
+        id: userData.id,
+        name: userData.name || userData.first_name || email.split('@')[0],
+        email: userData.email || email,
+        role: userData.role || 'agent',
       },
-      account: assignment.whatsapp_accounts,
+      account,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
