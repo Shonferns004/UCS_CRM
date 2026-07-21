@@ -3343,10 +3343,44 @@ export const uploadOldDataForStation = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) return res.status(400).json({ message: 'No sheets found in file' });
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+    const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+
+    if (rawRows.length === 0) {
+      return res.status(400).json({ message: 'No data found in file' });
+    }
+
+    // Find the actual header row (contains "Sr. No." or "Donor Name" or "Mobile")
+    let headerIdx = -1;
+    let headerRow = null;
+    const headerKeywords = ['sr.no', 'sr no', 'sr.', 'donor name', 'mobile', 'agent name'];
+    for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+      const row = rawRows[i].map(c => String(c).toLowerCase().trim());
+      if (headerKeywords.some(k => row.some(c => c.includes(k)))) {
+        headerIdx = i;
+        headerRow = rawRows[i];
+        break;
+      }
+    }
+    if (headerIdx < 0) {
+      return res.status(400).json({ message: 'Could not find header row. Ensure file has Sr. No., Donor Name, or Mobile column.' });
+    }
+
+    // Parse rows after header as objects using headerRow as keys
+    const rows = [];
+    for (let i = headerIdx + 1; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      const firstVal = String(row[0] || '').trim();
+      if (!firstVal || firstVal === '') continue; // skip empty rows
+      const obj = {};
+      for (let j = 0; j < headerRow.length; j++) {
+        const key = String(headerRow[j] || '').trim();
+        if (key) obj[key] = row[j] != null ? String(row[j]).trim() : '';
+      }
+      if (Object.keys(obj).length > 0) rows.push(obj);
+    }
 
     if (rows.length === 0) {
-      return res.status(400).json({ message: 'No data found in file' });
+      return res.status(400).json({ message: 'No data rows found after header' });
     }
 
     const access = await getUserNgoAccess(req.user.id);
@@ -3360,13 +3394,13 @@ export const uploadOldDataForStation = async (req, res) => {
     }
 
     const normalizedRows = rows.map(row => ({
-      mobile: String(row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || '').trim(),
-      name: String(row.name || row.Name || row['Donor Name'] || row.donor_name || row.donorname || '').trim(),
-      amount: parseFloat(row.amount || row.Amount || row.donation_amount || row.DonationAmount || 0) || 0,
-      city: String(row.city || row.City || row.city_name || row.CityName || '').trim(),
-      mobile_2: String(row.mobile_2 || row.Mobile_2 || row['Mobile 2'] || row['Mobile No 2'] || row['Max of Mobile no.'] || row['Max of Mobile no.2'] || '').trim(),
-      data_category: String(row.data_category || row.Data_Category || row['Data Category'] || row['Data category'] || '').trim(),
-      agent_name: String(row.agent_name || row.Agent_Name || row['Agent Name'] || row.fro_name || row.Fro_Name || '').trim(),
+      mobile: String(row.Mobile || row.mobile || row['Max of Mobile no.'] || row['Mobile No'] || row['Mobile Number'] || row['Mobile no'] || row.mobile_number || row['Max of Mobile no'] || '').trim(),
+      name: String(row['Donor Name'] || row['Donor name'] || row['donor name'] || row['donor_name'] || row.Name || row.name || '').trim(),
+      amount: parseFloat(row['Max of Amt'] || row['Max Amt'] || row.amount || row.Amount || row['Max of amt'] || 0) || 0,
+      city: String(row.City || row.city || '').trim(),
+      mobile_2: String(row['Max of Mobile no.2'] || row['Mobile 2'] || row['Mobile No 2'] || row.mobile_2 || '').trim(),
+      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || '').trim(),
+      agent_name: String(row['Agent Name'] || row['Agent name'] || row['agent name'] || row.agent_name || row.fro_name || '').trim(),
       raw_data: row,
     })).filter(r => r.mobile);
 
