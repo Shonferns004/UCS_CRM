@@ -63,8 +63,6 @@ export default function ReceiptHistory() {
   const [dPage, setDPage] = useState(1);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
-  const [dPage, setDPage] = useState(1);
-  const [savedDetail, setSavedDetail] = useState(null);
   const fileRef = useRef(null);
   const perPage = 50;
 
@@ -221,7 +219,8 @@ export default function ReceiptHistory() {
         <div className="card-pad">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
-            <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none' }} onClick={handleCleanUp}>
+            <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }} onClick={handleCleanUp}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Clean Up
             </button>
           </div>
@@ -231,7 +230,7 @@ export default function ReceiptHistory() {
             onDragLeave={() => setDragOver(false)}
             onClick={() => fileRef.current?.click()}
             style={{
-              border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '30px 20px', textAlign: 'center',
+              border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '18px 20px', textAlign: 'center',
               cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
             }}
           >
