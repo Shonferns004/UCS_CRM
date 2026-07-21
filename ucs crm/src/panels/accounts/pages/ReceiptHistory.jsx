@@ -62,6 +62,9 @@ export default function ReceiptHistory() {
   const [importResult, setImportResult] = useState(null);
   const [dPage, setDPage] = useState(1);
   const [savedDetail, setSavedDetail] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [dPage, setDPage] = useState(1);
+  const [savedDetail, setSavedDetail] = useState(null);
   const fileRef = useRef(null);
   const perPage = 50;
 
@@ -214,27 +217,45 @@ export default function ReceiptHistory() {
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16, borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round">
-              <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Import Receipts</span>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
-            <button className="btn btn-sm" style={{ background: 'var(--sage)', color: '#fff', border: 'none' }}
-              onClick={() => fileRef.current?.click()} disabled={importing}>
-              {importing ? 'Importing...' : 'Upload Excel'}
-            </button>
-            <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none', marginLeft: 8 }} onClick={handleCleanUp}>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
+            <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none' }} onClick={handleCleanUp}>
               Clean Up
             </button>
           </div>
+          <div
+            onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onClick={() => fileRef.current?.click()}
+            style={{
+              border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '30px 20px', textAlign: 'center',
+              cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
+            }}
+          >
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
+            {importing ? (
+              <div>
+                <div style={{ width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', margin: '0 auto 10px' }} />
+                <p style={{ fontSize: 13, color: '#6b7280' }}>Importing...</p>
+              </div>
+            ) : (
+              <>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 10, opacity: .6 }}>
+                  <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 2 }}>Drag & drop your Excel/CSV file here</p>
+                <p style={{ fontSize: 11, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
+              </>
+            )}
+          </div>
           {importResult && (
-            <span style={{ fontSize: 12, color: '#059669', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               {importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}
-            </span>
+            </div>
           )}
         </div>
       </div>
