@@ -833,6 +833,20 @@ export const getDayEndReport = async (req, res) => {
   }
 };
 
+function normalizeReceiptDate(val) {
+  if (!val || val === 'NA' || val === 'na' || val === '-') return null;
+  const s = String(val).trim();
+  if (/^\d+$/.test(s) && s.length <= 5) {
+    const d = new Date(1899, 11, 30 + parseInt(s, 10));
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  return null;
+}
+
 export const importReceipts = async (req, res) => {
   try {
     const { receipts } = req.body;
@@ -858,7 +872,7 @@ export const importReceipts = async (req, res) => {
           address: r.address || r['Address 1'] || r['Address-1'] || r['Address-1 '] || null,
           mode: r.mode || r['Mode of Payment (MOP)'] || r['MOP'] || null,
           purpose: r.purpose || r['Purpose'] || 'General Donation',
-          receipt_date: r.receipt_date || r['Receipt Date'] || null,
+          receipt_date: normalizeReceiptDate(r.receipt_date || r['Receipt Date']),
           generated_by: r.generated_by || req.user.id,
         };
       })
