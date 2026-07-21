@@ -41,11 +41,11 @@ export async function sendWhatsAppMessage(
   userId?: string,
 ): Promise<boolean> {
   try {
-    const { data: conv } = await supabase.from('conversations').select('last_inbound_at').eq('id', conversationId).maybeSingle();
+    const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at').eq('id', conversationId).maybeSingle();
     const { data: contact } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
     if (!contact?.phone_normalized) return false;
 
-    const windowOpen = isWithin24Hours(conv?.last_inbound_at);
+    const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at);
 
     const accounts: { phone_number_id: string; access_token: string }[] = [];
 
@@ -147,10 +147,12 @@ function buildTemplateComponents(
 
     if (type === 'header') {
       if (format === 'DOCUMENT' || format === 'IMAGE' || format === 'VIDEO') {
-        if (comp.example?.header_handle) {
+        const handle = comp.example?.header_handle;
+        const link = Array.isArray(handle) ? handle[0] : handle;
+        if (link) {
           result.push({
             type,
-            parameters: [{ type: format.toLowerCase(), [format.toLowerCase()]: { link: comp.example.header_handle } }],
+            parameters: [{ type: format.toLowerCase(), [format.toLowerCase()]: { link: String(link) } }],
           });
         }
       } else {

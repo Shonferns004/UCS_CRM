@@ -62,7 +62,7 @@ export async function markRead(conversationId) {
 export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType) {
   const { data: conv } = await supabase
     .from('conversations')
-    .select('last_inbound_at')
+    .select('last_inbound_at, last_message_at')
     .eq('id', conversationId)
     .maybeSingle()
 
@@ -74,7 +74,7 @@ export async function sendMessage(conversationId, contactId, messageText, userId
 
   if (!contact?.phone_normalized) throw new Error('Contact phone not found')
 
-  const windowOpen = isWithin24Hours(conv?.last_inbound_at)
+  const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at)
   const isMedia = !!mediaUrl
   const msgType = isMedia ? (mediaType || 'image') : 'text'
 
