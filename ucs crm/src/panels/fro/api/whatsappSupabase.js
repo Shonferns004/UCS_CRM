@@ -6,42 +6,17 @@ function isWithin24Hours(dateStr) {
 }
 
 export async function getConversations(userId) {
-  let query = supabase
+  const { data, error } = await supabase
     .from('conversations')
     .select('*, contact:contacts(*)')
-
-  const { data: assign } = await supabase
-    .from('agent_phone_assignments')
-    .select('account_id')
-    .eq('user_id', userId)
-
-  if (assign && assign.length > 0) {
-    const ids = assign.map(a => a.account_id)
-    const { data: accts } = await supabase
-      .from('whatsapp_accounts')
-      .select('project')
-      .in('id', ids)
-    if (accts) {
-      const projects = accts.map(a => a.project).filter(Boolean)
-      if (projects.length > 0) {
-        query = query.in('project', projects)
-        query = query.eq('assigned_agent_id', userId)
-      } else {
-        query = query.eq('assigned_agent_id', userId)
-      }
-    }
-  } else {
-    query = query.eq('assigned_agent_id', userId)
-  }
-
-  const { data, error } = await query
+    .eq('assigned_agent_id', userId)
     .order('last_message_at', { ascending: false, nullsFirst: false })
 
   if (error) throw error
 
   const seen = new Map()
   for (const c of data || []) {
-    const key = c.contact_id + '|' + (c.project || '')
+    const key = c.contact_id
     if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
       seen.set(key, c)
     }
