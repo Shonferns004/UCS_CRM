@@ -398,7 +398,8 @@ export const getMyDonors = async (req, res) => {
       // No default status filter — include all except 'reassigned'
     }
 
-    // Batch-based tab filtering: show only the latest batch per type
+    // Batch-based tab filtering: show only the latest batch per type.
+    // Falls back to is_new for legacy rows without batch_id/batch_type.
     if (req.query.new_only === 'true') {
       const { data: latestBatch } = await supabase
         .from('fro_assignments')
@@ -412,7 +413,8 @@ export const getMyDonors = async (req, res) => {
       if (latestBatch?.batch_id) {
         query = query.eq('batch_id', latestBatch.batch_id);
       } else {
-        return res.json([]);
+        // Legacy fallback: no batch-tracked data yet, use is_new flag
+        query = query.or('is_new.is.null,is_new.eq.true');
       }
     } else if (req.query.old_only === 'true') {
       const { data: latestBatch } = await supabase
@@ -427,7 +429,8 @@ export const getMyDonors = async (req, res) => {
       if (latestBatch?.batch_id) {
         query = query.eq('batch_id', latestBatch.batch_id);
       } else {
-        return res.json([]);
+        // Legacy fallback: no batch-tracked data yet, use is_new=false
+        query = query.eq('is_new', false);
       }
     }
 
