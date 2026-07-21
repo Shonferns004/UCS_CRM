@@ -1474,6 +1474,7 @@ export const getDonorsByStation = async (req, res) => {
       last_contacted_at: a.last_contacted_at,
       next_follow_up: a.next_follow_up,
       assigned_at: a.assigned_at,
+      raw_data: a.donor_profiles?.raw_data || null,
     }));
 
     return res.json(result);
@@ -3363,6 +3364,10 @@ export const uploadOldDataForStation = async (req, res) => {
       name: String(row.name || row.Name || row['Donor Name'] || row.donor_name || row.donorname || '').trim(),
       amount: parseFloat(row.amount || row.Amount || row.donation_amount || row.DonationAmount || 0) || 0,
       city: String(row.city || row.City || row.city_name || row.CityName || '').trim(),
+      mobile_2: String(row.mobile_2 || row.Mobile_2 || row['Mobile 2'] || row['Mobile No 2'] || row['Max of Mobile no.'] || row['Max of Mobile no.2'] || '').trim(),
+      data_category: String(row.data_category || row.Data_Category || row['Data Category'] || row['Data category'] || '').trim(),
+      agent_name: String(row.agent_name || row.Agent_Name || row['Agent Name'] || row.fro_name || row.Fro_Name || '').trim(),
+      raw_data: row,
     })).filter(r => r.mobile);
 
     let createdProfiles = 0;
@@ -3380,14 +3385,26 @@ export const uploadOldDataForStation = async (req, res) => {
       let donorId;
       if (existingProfile) {
         donorId = existingProfile.id;
-        await supabase
-          .from('donor_profiles')
-          .update({ name: row.name || undefined, city: row.city || undefined })
-          .eq('id', donorId);
+        const profileUpdates = { name: row.name || undefined, city: row.city || undefined };
+        if (row.mobile_2) profileUpdates.mobile_2 = row.mobile_2;
+        if (row.data_category) profileUpdates.data_category = row.data_category;
+        profileUpdates.raw_data = row.raw_data;
+        await supabase.from('donor_profiles').update(profileUpdates).eq('id', donorId);
       } else {
+        const profileInsert = {
+          mobile_number: row.mobile,
+          name: row.name || null,
+          amount: row.amount,
+          total_amount: row.amount,
+          donation_count: 1,
+          city: row.city || null,
+          raw_data: row.raw_data,
+        };
+        if (row.mobile_2) profileInsert.mobile_2 = row.mobile_2;
+        if (row.data_category) profileInsert.data_category = row.data_category;
         const { data: newProfile } = await supabase
           .from('donor_profiles')
-          .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null }])
+          .insert([profileInsert])
           .select('id')
           .single();
         if (newProfile) {

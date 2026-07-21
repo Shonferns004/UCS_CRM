@@ -22,6 +22,14 @@ const statusLabel = (s) => {
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '\u2014';
 const fmtAmt = (n) => n != null && n !== '' ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
+const raw = (d, ...keys) => {
+  for (const k of keys) {
+    const v = d.raw_data?.[k];
+    if (v != null && v !== '') return String(v);
+  }
+  return '\u2014';
+};
+
 export default function OldData() {
   const [donors, setDonors] = useState([]);
   const [stations, setStations] = useState([]);
@@ -96,50 +104,56 @@ export default function OldData() {
       </div>
 
       <div className="card">
-        <div className="table-wrap">
-          <table>
-            <thead>
+        <div className="table-wrap" style={{ maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
+          <table style={{ fontSize: 12 }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
               <tr>
-                <th>Sr. No.</th>
+                <th>Sr.</th>
                 <th>Station</th>
                 <th>Agent Name</th>
                 <th>Donor Name</th>
-                <th>Mobile No</th>
-                <th>Mobile No 2</th>
+                <th>Mobile</th>
+                <th>Mobile 2</th>
                 <th>Amount</th>
                 <th>Data Category</th>
                 <th>Call Date</th>
                 <th>Disposition</th>
                 <th>Call Back Date</th>
-                <th>Remark</th>
+                <th>Time To Call</th>
+                <th>Remark 1</th>
+                <th>Remark 2</th>
+                <th>Remark 3</th>
               </tr>
             </thead>
             <tbody>
               {!station ? (
-                <tr><td colSpan={12} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Select a station to view data</td></tr>
+                <tr><td colSpan={15} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Select a station to view data</td></tr>
               ) : loading ? (
-                <tr><td colSpan={12} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Loading...</td></tr>
+                <tr><td colSpan={15} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>Loading...</td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={12} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>No donors found for this station</td></tr>
+                <tr><td colSpan={15} style={{ textAlign: 'center', padding: 30, color: 'var(--ink-soft)' }}>No donors found for this station</td></tr>
               ) : paginated.map((d, i) => {
                 const isDup = duplicateMobiles.has(d.donor_mobile);
                 return (
                   <tr key={d.id || i} style={isDup ? { background: '#fef2f2' } : {}}>
-                    <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{(page - 1) * PER_PAGE + i + 1}</td>
-                    <td>{d.station || '\u2014'}</td>
-                    <td>{d.fro_name || '\u2014'}</td>
-                    <td>
-                      {d.donor_name || '\u2014'}
-                      {isDup && <span style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 8, background: '#dc2626', color: '#fff', fontWeight: 600 }}>DUP</span>}
+                    <td style={{ color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{(page - 1) * PER_PAGE + i + 1}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{d.station || '\u2014'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{d.fro_name || raw(d, 'Agent Name', 'agent_name', 'fro_name', 'Fro_Name')}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {d.donor_name || raw(d, 'Donor Name', 'donor_name', 'name', 'Name')}
+                      {isDup && <span key="dup" style={{ marginLeft: 4, fontSize: 9, padding: '1px 5px', borderRadius: 8, background: '#dc2626', color: '#fff', fontWeight: 700, verticalAlign: 'middle' }}>DUP</span>}
                     </td>
-                    <td style={{ fontSize: 12 }}>{d.donor_mobile || '\u2014'}</td>
-                    <td style={{ fontSize: 12 }}>{d.donor_mobile_2 || '\u2014'}</td>
-                    <td style={{ fontWeight: 600 }}>{fmtAmt(d.amount)}</td>
-                    <td style={{ fontSize: 11 }}>{d.data_category || '\u2014'}</td>
-                    <td style={{ fontSize: 11 }}>{fmtDate(d.last_contacted_at)}</td>
-                    <td><span className={`pill ${statusLabel(d.status) !== '\u2014' ? 'pill-blue' : ''}`} style={{ fontSize: 10 }}>{statusLabel(d.status)}</span></td>
-                    <td style={{ fontSize: 11 }}>{fmtDate(d.next_follow_up)}</td>
-                    <td style={{ fontSize: 11, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.notes || '\u2014'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{d.donor_mobile || raw(d, 'Mobile', 'mobile', 'mobile_number', 'Mobile Number', 'Mobile No')}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{d.donor_mobile_2 || raw(d, 'Max of Mobile no.2', 'Mobile 2', 'Mobile No 2', 'mobile_2')}</td>
+                    <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtAmt(d.amount) !== '\u2014' ? fmtAmt(d.amount) : raw(d, 'Max of Amt', 'Amount', 'amount', 'Amt')}</td>
+                    <td>{d.data_category || raw(d, 'Data Category', 'Data category', 'data_category')}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(d.last_contacted_at) !== '\u2014' ? fmtDate(d.last_contacted_at) : raw(d, 'Call Date', 'call_date', 'CallDate')}</td>
+                    <td><span className="pill pill-blue" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>{statusLabel(d.status)}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(d.next_follow_up) !== '\u2014' ? fmtDate(d.next_follow_up) : raw(d, 'Call Back Date', 'CallBack Date', 'call_back_date', 'Callback Date')}</td>
+                    <td>{raw(d, 'Time To Be call', 'Time To Be call', 'Time', 'call_time')}</td>
+                    <td style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.notes || raw(d, 'Remark 1', 'Remark1', 'remark_1', 'Remark')}</td>
+                    <td style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{raw(d, 'Remark 2', 'Remark2', 'remark_2')}</td>
+                    <td style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{raw(d, 'Remark 3', 'Remark3', 'remark_3')}</td>
                   </tr>
                 );
               })}
