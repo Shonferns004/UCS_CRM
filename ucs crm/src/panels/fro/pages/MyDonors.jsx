@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getMyDonors, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
+import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
@@ -114,21 +115,37 @@ export default function MyDonors() {
 
   useEffect(() => {
     setLoading(true);
-    getMyDonors(filterStatus).then(r => {
+    getMyDonors(filterStatus).then(async r => {
       setDonors(r);
       setMessage(null);
-      const saved = localStorage.getItem('mydonors_current_donor');
-      if (saved) {
-        try {
-          const { id, ngo_id, idx } = JSON.parse(saved);
-          const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
-          if (found >= 0) { setIndex(found); return; }
-          if (typeof idx === 'number') { setIndex(Math.min(idx, Math.max(0, r.length - 1))); return; }
-        } catch { }
+      let restored = false;
+      try {
+        const progress = await api('/fro/progress', { _prefix: 'ucs' });
+        if (progress?.current_donor_id) {
+          const found = r.findIndex(d => d.id === progress.current_donor_id);
+          if (found >= 0) { setIndex(found); restored = true; }
+        }
+      } catch {}
+      if (!restored) {
+        const saved = localStorage.getItem('mydonors_current_donor');
+        if (saved) {
+          try {
+            const { id, ngo_id, idx } = JSON.parse(saved);
+            const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
+            if (found >= 0) { setIndex(found); restored = true; return; }
+            if (typeof idx === 'number') { setIndex(Math.min(idx, Math.max(0, r.length - 1))); restored = true; return; }
+          } catch { }
+        }
       }
-      setIndex(0);
+      if (!restored) setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
   }, [filterStatus]);
+
+  useEffect(() => {
+    if (donors.length > 0 && index >= donors.length) {
+      setIndex(0);
+    }
+  }, [donors.length]);
 
   useEffect(() => {
     if (donors[index]) {
@@ -147,6 +164,7 @@ export default function MyDonors() {
   useEffect(() => {
     if (donor) {
       localStorage.setItem('mydonors_current_donor', JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
+      api('/fro/progress', { method: 'PUT', body: JSON.stringify({ donor_id: donor.id }), _prefix: 'ucs' }).catch(() => {});
     }
   }, [donor?.id, donor?.ngo_id, index]);
   const logs = detail?.logs || [];
@@ -292,10 +310,9 @@ export default function MyDonors() {
       }
       await addDonorLog(donor.id, logData);
       if (selected) endCall();
-      const newDonors = await getMyDonors(filterStatus);
-      setDonors(newDonors);
-      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
       if (returnToDonor) {
+        const newDonors = await getMyDonors(filterStatus);
+        setDonors(newDonors);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
           setIndex(returnIdx);
@@ -304,20 +321,13 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const stillExists = newDonors.some(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
-        if (stillExists) {
-          const newIdx = newDonors.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
-          if (newIdx < newDonors.length - 1) {
-            setIndex(newIdx + 1);
-          } else {
-            setIndex(0);
-          }
+        if (index < donors.length - 1) {
+          setIndex(index + 1);
         } else {
-          if (index >= newDonors.length) {
-            setIndex(0);
-          }
+          setIndex(0);
         }
       }
+      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally { setSaving(false); }

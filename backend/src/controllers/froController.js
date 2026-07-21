@@ -597,12 +597,12 @@ export const getMyDonors = async (req, res) => {
     filtered.sort((a, b) => {
       const groupA = a.is_new ? 0
         : (notConnectedSet.has(a.status) || a.status === 'pending') ? 1
-        : connectedSet.has(a.status) && a.status !== 'lead_done' ? 2
-        : a.status === 'lead_done' ? 3 : 4;
+        : a.status === 'lead_done' ? 2
+        : connectedSet.has(a.status) ? 3 : 4;
       const groupB = b.is_new ? 0
         : (notConnectedSet.has(b.status) || b.status === 'pending') ? 1
-        : connectedSet.has(b.status) && b.status !== 'lead_done' ? 2
-        : b.status === 'lead_done' ? 3 : 4;
+        : b.status === 'lead_done' ? 2
+        : connectedSet.has(b.status) ? 3 : 4;
       if (groupA !== groupB) return groupA - groupB;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
@@ -1614,6 +1614,45 @@ export const updateLiveStatus = async (req, res) => {
     }
 
     return res.json({ message: 'Status updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Progress Save/Restore ──────────────────────────────────────
+
+export const getMyProgress = async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('fro_live_status')
+      .select('current_donor_id')
+      .eq('worker_id', req.user.id)
+      .maybeSingle();
+    return res.json(data || {});
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const saveMyProgress = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { donor_id } = req.body;
+    const payload = {
+      current_donor_id: donor_id || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: existing } = await supabase
+      .from('fro_live_status')
+      .select('id')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    if (existing) {
+      await supabase.from('fro_live_status').update(payload).eq('worker_id', workerId);
+    } else {
+      await supabase.from('fro_live_status').insert([{ worker_id: workerId, ...payload }]);
+    }
+    return res.json({ message: 'Progress saved' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
