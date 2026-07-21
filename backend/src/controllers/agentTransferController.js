@@ -10,7 +10,7 @@ export async function transferConversation(req, res) {
 
     const { data: conversation, error } = await supabase
       .from('conversations')
-      .update({ assigned_agent_id: target_agent_id, updated_at: new Date().toISOString() })
+      .update({ assigned_agent_id: target_agent_id })
       .eq('id', conversation_id)
       .select('*, contact:contacts(*)')
       .single();
@@ -39,7 +39,7 @@ export async function claimConversation(req, res) {
 
     const { data: conversation, error } = await supabase
       .from('conversations')
-      .update({ assigned_agent_id: req.user.id, updated_at: new Date().toISOString() })
+      .update({ assigned_agent_id: req.user.id })
       .eq('id', conversation_id)
       .is('assigned_agent_id', null)
       .select('*, contact:contacts(*)')

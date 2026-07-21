@@ -9,8 +9,7 @@ DECLARE
   v_conversation conversations%ROWTYPE;
 BEGIN
   UPDATE conversations
-  SET assigned_agent_id = p_target_agent_id,
-      updated_at = NOW()
+  SET assigned_agent_id = p_target_agent_id
   WHERE id = p_conversation_id
   RETURNING * INTO v_conversation;
 
@@ -50,8 +49,7 @@ BEGIN
   END IF;
 
   UPDATE conversations
-  SET assigned_agent_id = p_agent_id,
-      updated_at = NOW()
+  SET assigned_agent_id = p_agent_id
   WHERE id = p_conversation_id
   RETURNING * INTO v_conversation;
 

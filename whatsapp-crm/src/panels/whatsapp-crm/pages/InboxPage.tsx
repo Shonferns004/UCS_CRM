@@ -382,6 +382,13 @@ export function InboxPage() {
       }, () => {
         queryClient.invalidateQueries({ queryKey: ['conversations'] });
       })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'conversations',
+      }, () => {
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user?.tenant_id, conversationId, queryClient]);
