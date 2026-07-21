@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { api } from './auth'
 
 function isWithin24Hours(dateStr) {
   if (!dateStr) return false
@@ -412,14 +413,5 @@ export async function updateLabels(conversationId, labels) {
 export async function uploadMedia(userId, file) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch('/api/ucs/fro/whatsapp/upload-media', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${localStorage.getItem('ucs_token')}` },
-    body: formData,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(err.message || 'Upload failed')
-  }
-  return res.json()
+  return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
 }
