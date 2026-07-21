@@ -229,23 +229,23 @@ export default function ReceiptHistory() {
             onDragLeave={() => setDragOver(false)}
             onClick={() => fileRef.current?.click()}
             style={{
-              border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '18px 20px', textAlign: 'center',
+              border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
               cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
             }}
           >
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
             {importing ? (
               <div>
-                <div style={{ width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', margin: '0 auto 10px' }} />
-                <p style={{ fontSize: 13, color: '#6b7280' }}>Importing...</p>
+                <div style={{ width: 20, height: 20, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', margin: '0 auto 6px' }} />
+                <p style={{ fontSize: 11, color: '#6b7280' }}>Importing...</p>
               </div>
             ) : (
               <>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 10, opacity: .6 }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
                   <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                 </svg>
-                <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 2 }}>Drag & drop your Excel/CSV file here</p>
-                <p style={{ fontSize: 11, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file here</p>
+                <p style={{ fontSize: 10, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
               </>
             )}
           </div>
