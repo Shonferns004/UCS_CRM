@@ -3408,77 +3408,107 @@ export const uploadOldDataForStation = async (req, res) => {
     let createdAssignments = 0;
     let skippedDuplicate = 0;
     const errors = [];
+    const now = new Date().toISOString();
 
+    // Batch 1: Get all existing profiles by mobile
+    const mobiles = normalizedRows.map(r => r.mobile);
+    const { data: existingProfiles } = await supabase
+      .from('donor_profiles')
+      .select('id, mobile_number')
+      .in('mobile_number', mobiles);
+    const profileMap = {};
+    for (const p of existingProfiles || []) profileMap[p.mobile_number] = p.id;
+
+    // Batch 2: Upsert profiles (update existing, insert new)
+    const toUpdate = [];
+    const toInsert = [];
     for (const row of normalizedRows) {
-      const { data: existingProfile } = await supabase
-        .from('donor_profiles')
-        .select('id')
-        .eq('mobile_number', row.mobile)
-        .maybeSingle();
-
-      let donorId;
-      if (existingProfile) {
-        donorId = existingProfile.id;
-        const profileUpdates = { name: row.name || undefined, city: row.city || undefined };
-        if (row.mobile_2) profileUpdates.mobile_2 = row.mobile_2;
-        if (row.data_category) profileUpdates.data_category = row.data_category;
-        profileUpdates.raw_data = row.raw_data;
-        await supabase.from('donor_profiles').update(profileUpdates).eq('id', donorId);
+      if (profileMap[row.mobile]) {
+        const updates = { name: row.name || undefined, city: row.city || undefined, raw_data: row.raw_data };
+        if (row.mobile_2) updates.mobile_2 = row.mobile_2;
+        if (row.data_category) updates.data_category = row.data_category;
+        toUpdate.push({ id: profileMap[row.mobile], ...updates });
       } else {
-        const profileInsert = {
-          mobile_number: row.mobile,
-          name: row.name || null,
-          amount: row.amount,
-          total_amount: row.amount,
-          donation_count: 1,
-          city: row.city || null,
-          raw_data: row.raw_data,
-        };
-        if (row.mobile_2) profileInsert.mobile_2 = row.mobile_2;
-        if (row.data_category) profileInsert.data_category = row.data_category;
-        const { data: newProfile } = await supabase
-          .from('donor_profiles')
-          .insert([profileInsert])
-          .select('id')
-          .single();
-        if (newProfile) {
-          donorId = newProfile.id;
-          createdProfiles++;
+        const insert = { mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null, raw_data: row.raw_data };
+        if (row.mobile_2) insert.mobile_2 = row.mobile_2;
+        if (row.data_category) insert.data_category = row.data_category;
+        toInsert.push(insert);
+      }
+    }
+
+    // batch update
+    for (const u of toUpdate) {
+      const { id, ...data } = u;
+      await supabase.from('donor_profiles').update(data).eq('id', id);
+    }
+    // batch insert
+    const newProfileIds = {};
+    if (toInsert.length > 0) {
+      const { data: newProfiles } = await supabase.from('donor_profiles').insert(toInsert).select('id, mobile_number');
+      for (const p of newProfiles || []) {
+        newProfileIds[p.mobile_number] = p.id;
+        profileMap[p.mobile_number] = p.id;
+        createdProfiles++;
+      }
+    }
+
+    // Build donor_id → mobile mapping
+    const donorIdToMobile = {};
+    for (const row of normalizedRows) {
+      const did = profileMap[row.mobile];
+      if (did) donorIdToMobile[did] = row.mobile;
+    }
+    const donorIds = Object.keys(donorIdToMobile).map(Number);
+
+    // Batch 3: Get existing assignments for all donor+ngo combos
+    const existingAssignmentKeys = new Set();
+    if (donorIds.length > 0) {
+      for (const { ngoId } of ngoEntries) {
+        const { data: existingAsgns } = await supabase
+          .from('fro_assignments')
+          .select('donor_id')
+          .eq('ngo_id', ngoId)
+          .in('donor_id', donorIds)
+          .not('status', 'eq', 'reassigned');
+        for (const a of existingAsgns || []) {
+          existingAssignmentKeys.add(`${a.donor_id}-${ngoId}`);
         }
       }
-      if (!donorId) continue;
+    }
 
+    // Batch 4: Get station assignments for all NGOs
+    const stationAssignMap = {};
+    for (const { ngoId } of ngoEntries) {
+      const sa = await getStationAssignmentByNgoAndStation(ngoId, station);
+      stationAssignMap[ngoId] = sa?.fro_worker_id || null;
+    }
+
+    // Batch 5: Create missing assignments
+    const assignmentsToInsert = [];
+    for (const did of donorIds) {
       for (const { ngoId, ngoName } of ngoEntries) {
-        const { data: existingAsgn } = await supabase
-          .from('fro_assignments')
-          .select('id')
-          .eq('donor_id', donorId)
-          .eq('ngo_id', ngoId)
-          .not('status', 'eq', 'reassigned')
-          .maybeSingle();
-
-        if (existingAsgn) {
+        const key = `${did}-${ngoId}`;
+        if (existingAssignmentKeys.has(key)) {
           skippedDuplicate++;
           continue;
         }
+        assignmentsToInsert.push({
+          donor_id: did,
+          fro_worker_id: stationAssignMap[ngoId],
+          ngo_id: ngoId,
+          station,
+          status: 'pending',
+          assigned_at: now,
+        });
+      }
+    }
 
-        const stationAssign = await getStationAssignmentByNgoAndStation(ngoId, station);
-
-        const { error: asgnErr } = await supabase
-          .from('fro_assignments')
-          .insert([{
-            donor_id: donorId,
-            fro_worker_id: stationAssign?.fro_worker_id || null,
-            ngo_id: ngoId,
-            station,
-            status: 'pending',
-            assigned_at: new Date().toISOString(),
-          }]);
-        if (asgnErr) {
-          errors.push(`Failed to create assignment for ${row.mobile} in ${ngoName}: ${asgnErr.message}`);
-        } else {
-          createdAssignments++;
-        }
+    if (assignmentsToInsert.length > 0) {
+      const { error: batchErr } = await supabase.from('fro_assignments').insert(assignmentsToInsert);
+      if (batchErr) {
+        errors.push(`Batch insert error: ${batchErr.message}`);
+      } else {
+        createdAssignments = assignmentsToInsert.length;
       }
     }
 
