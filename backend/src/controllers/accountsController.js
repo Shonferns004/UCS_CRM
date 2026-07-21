@@ -886,16 +886,30 @@ export const importReceipts = async (req, res) => {
       return res.status(400).json({ message: 'No valid receipts found after filtering' });
     }
 
+    const { data: existing } = await supabase
+      .from('receipts')
+      .select('receipt_no')
+      .in('receipt_no', rows.map(r => r.receipt_no).filter(Boolean));
+
+    const existingNos = new Set((existing || []).map(r => r.receipt_no));
+    const toInsert = rows.filter(r => !r.receipt_no || !existingNos.has(r.receipt_no));
+    const skipped = rows.length - toInsert.length;
+
+    if (toInsert.length === 0) {
+      return res.json({ message: `${skipped} receipts already exist, nothing new to import`, imported: 0, skipped });
+    }
+
     const { data, error } = await supabase
       .from('receipts')
-      .insert(rows)
+      .insert(toInsert)
       .select();
 
     if (error) throw error;
 
     return res.status(201).json({
-      message: `${data.length} receipts imported successfully`,
+      message: `${data.length} receipts imported${skipped > 0 ? `, ${skipped} skipped (already exist)` : ''}`,
       imported: data.length,
+      skipped,
       receipts: data,
     });
   } catch (error) {
