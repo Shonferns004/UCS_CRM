@@ -210,6 +210,59 @@ export default function Receipts() {
   const [downloadAll, setDownloadAll] = useState(false)
   const receiptRef = useRef(null)
 
+  function DonorTable() {
+    if (!donors) return Array.from({ length: 8 }).map((_, i) => (
+      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 14px', borderBottom:'1px solid #f3f4f6' }}>
+        <div className="sk" style={{ width:32, height:32, borderRadius:'50%', flexShrink:0 }} />
+        <div style={{ flex:1 }}><div className="sk" style={{ width:'50%', height:12, borderRadius:3 }} /></div>
+        <div className="sk" style={{ width:60, height:12, borderRadius:3 }} />
+        <div className="sk" style={{ width:40, height:28, borderRadius:6 }} />
+      </div>
+    ));
+    if (donors.length === 0) return <div style={{ textAlign:'center', padding:30, color:'var(--ink-soft)', fontSize:13 }}>No pending receipts.</div>;
+    return donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
+      const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
+      const initial = (d['Donor Name'] || '?')[0].toUpperCase();
+      const ngoLabel = ({ bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct';
+      const isSelected = selectedIndex === realIdx;
+      return (
+        <div key={realIdx} onClick={() => setSelectedIndex(realIdx)}
+          style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid #f3f4f6', background: isSelected ? '#f0fdf4' : 'transparent', transition:'background .1s' }}
+          onMouseOver={e => !isSelected && (e.currentTarget.style.background = '#f9fafb')}
+          onMouseOut={e => !isSelected && (e.currentTarget.style.background = 'transparent')}>
+          <div style={{ width:32, height:32, borderRadius:'50%', background:'#5B6B4E', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:12, fontWeight:700, flexShrink:0 }}>{initial}</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'#111827', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d['Donor Name']}</div>
+            <div style={{ fontSize:11, color:'#9ca3af', marginTop:1, display:'flex', gap:8, flexWrap:'wrap' }}>
+              <span style={{ fontFamily:'monospace' }}>{d['Receipt No.']}</span>
+              <span>{formatReceiptDate(d['Receipt Date'])}</span>
+              <span className="pill pill-gray" style={{ fontSize:9, padding:'1px 5px' }}>{ngoLabel}</span>
+            </div>
+          </div>
+          <div style={{ fontSize:13, fontWeight:700, color:'#059669', whiteSpace:'nowrap' }}>{formatIndianCurrency(d['Amount'])}</div>
+          <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+            <button onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }} disabled={sendingIndex === realIdx} title="Send via WhatsApp"
+              style={{ border:'none', background: sendingIndex === realIdx ? '#d1d5db' : '#25D366', color:'#fff', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              {sendingIndex === realIdx ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19.077 4.928C17.191 3.041 14.683 2 12.006 2 6.798 2 2.548 6.193 2.54 11.4c-.003 2.06.537 4.074 1.563 5.86L2.99 21.273 7.97 19.36a9.426 9.426 0 0 0 4.024.96h.004c5.2 0 9.46-4.192 9.468-9.4a9.37 9.37 0 0 0-2.389-5.993Z"/></svg>
+              )}
+            </button>
+            <button onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }} title="Preview"
+              style={{ border:'none', background:'#e5e7eb', color:'#374151', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button onClick={e => { e.stopPropagation(); setEditingPhone(editingPhone === realIdx ? null : realIdx) }} title="Edit mobile"
+              style={{ border:'none', background:'transparent', color:'#9ca3af', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+          </div>
+        </div>
+      );
+    });
+  }
+
   const [toast, setToast] = useState({ message:'', type:'', visible:false })
   const showToast = useCallback((type, msg) => setToast({ type, message:msg, visible:true }), [])
   const hideToast = useCallback(() => setToast(prev => ({ ...prev, visible:false })), [])
@@ -437,63 +490,7 @@ export default function Receipts() {
                   </button>
                 </div>
               </div>
-              <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
-                <thead>
-                  <tr>
-                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>NGO</th><th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!donors ? (
-                    Array.from({ length: 8 }).map((_, i) => (
-                      <tr key={i}>
-                        <td><div className="sk" style={{ width:20, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:'60%', height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:100, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
-                      </tr>
-                    ))
-                  ) : donors.length === 0 ? (
-                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>No pending receipts.</td></tr>
-                  ) : (
-                  donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
-                    const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
-                    return (
-                    <tr key={realIdx} style={{ background: selectedIndex === realIdx ? '#f0fdf4' : undefined, cursor:'pointer' }}
-                      onClick={() => setSelectedIndex(realIdx)}>
-                      <td>{realIdx + 1}</td>
-                      <td style={{ fontWeight:500 }}>{d['Donor Name']}</td>
-                      <td style={{ color:'#059669', fontWeight:600 }}>{formatIndianCurrency(d['Amount'])}</td>
-                      <td style={{ fontFamily:'monospace', fontSize:12 }}>{d['Receipt No.']}</td>
-                      <td style={{ fontSize:12 }}>{formatReceiptDate(d['Receipt Date'])}</td>
-                        <td style={{ fontSize:12, cursor:'pointer' }} onClick={e => { e.stopPropagation(); setEditingPhone(editingPhone === realIdx ? null : realIdx) }}>
-                        {editingPhone === realIdx ? (
-                          <input className="field-input" type="tel" value={d['Mobile No.'] || ''} autoFocus
-                            onChange={e => updatePhone(realIdx, e.target.value)}
-                            onBlur={() => setEditingPhone(null)}
-                            onKeyDown={e => { if (e.key === 'Enter') setEditingPhone(null) }}
-                            style={{ width:120, height:28, padding:'2px 6px', fontSize:12 }}
-                            onClick={e => e.stopPropagation()} />
-                        ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
-                      </td>
-                      <td style={{ fontSize:12 }}><span className="pill pill-gray">{({ bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct'}</span></td>
-                      <td style={{ display:'flex', gap:4 }}>
-                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
-                          onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
-                          disabled={sendingIndex === realIdx}>
-                          {sendingIndex === realIdx ? '...' : 'Send'}
-                        </button>
-                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }}>Preview</button>
-                      </td>
-                    </tr>
-                  )})}
-                  )}
-                </tbody>
-              </table>
+              <DonorTable />
               {donors && donors.length > PAGE_SIZE && (
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 0', borderTop:'1px solid var(--line)' }}>
                   <button className="btn btn-sm" disabled={receiptPage === 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
