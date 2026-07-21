@@ -67,37 +67,45 @@ export async function sendWhatsAppMessage(
 
     for (const acct of accounts) {
       const { phone_number_id, access_token } = acct;
-      const payloads: any[] = [];
+
+      if (!windowOpen && !mediaFile) {
+        const templatePayload = { messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } };
+        try {
+          const tRes = await fetch(`${META_API}/${phone_number_id}/messages`, {
+            method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(templatePayload),
+          });
+          const tResult = await tRes.json();
+          console.log('Meta template response:', tRes.status, JSON.stringify(tResult).slice(0, 200));
+          if (tRes.ok && tResult.messages?.[0]?.id) {
+            if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
+          }
+        } catch {}
+      }
+
+      const textPayload: any = { messaging_product: 'whatsapp', to: contact.phone_normalized };
 
       if (mediaFile) {
         mediaId = await uploadMedia(access_token, phone_number_id, mediaFile);
         if (mediaId) {
           const fileType = mediaFile.type.startsWith('image/') ? 'image' : mediaFile.type.startsWith('video/') ? 'video' : 'document';
-          const p: any = { messaging_product: 'whatsapp', to: contact.phone_normalized, type: fileType, [fileType]: { id: mediaId } };
-          if (messageText) p[fileType].caption = messageText;
-          payloads.push(p);
-        }
-      } else if (!windowOpen) {
-        payloads.push(
-          { messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } },
-          { messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'text', text: { body: messageText || '' } }
-        );
-      } else {
-        payloads.push({ messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'text', text: { body: messageText || '' } });
-      }
-
-      for (const p of payloads) {
-        let res: Response;
-        let result: any;
-        try {
-          res = await fetch(`${META_API}/${phone_number_id}/messages`, {
-            method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(p),
-          });
-          result = await res.json();
-        } catch {
+          textPayload.type = fileType;
+          textPayload[fileType] = { id: mediaId };
+          if (messageText) textPayload[fileType].caption = messageText;
+        } else {
           continue;
         }
+      } else {
+        textPayload.type = 'text';
+        textPayload.text = { body: messageText || '' };
+      }
+
+      try {
+        const res = await fetch(`${META_API}/${phone_number_id}/messages`, {
+          method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(textPayload),
+        });
+        const result = await res.json();
         console.log('Meta API response:', res.status, JSON.stringify(result).slice(0, 200));
         if (res.ok && result.messages?.[0]?.id) {
           const updates: any = { status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() };
@@ -106,7 +114,7 @@ export async function sendWhatsAppMessage(
           if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
           return true;
         }
-      }
+      } catch { continue; }
     }
 
     await supabase.from('messages').update({ status: 'failed', failure_reason: 'All accounts failed' }).eq('conversation_id', conversationId).eq('status', 'queued');
