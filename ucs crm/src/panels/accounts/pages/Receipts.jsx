@@ -444,7 +444,23 @@ export default function Receipts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
+                  {!donors ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i}>
+                        <td><div className="sk" style={{ width:20, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:'60%', height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:100, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
+                      </tr>
+                    ))
+                  ) : donors.length === 0 ? (
+                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>No pending receipts.</td></tr>
+                  ) : (
+                  donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                     const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
                     return (
                     <tr key={realIdx} style={{ background: selectedIndex === realIdx ? '#f0fdf4' : undefined, cursor:'pointer' }}
@@ -475,9 +491,10 @@ export default function Receipts() {
                       </td>
                     </tr>
                   )})}
+                  )}
                 </tbody>
               </table>
-              {donors.length > PAGE_SIZE && (
+              {donors && donors.length > PAGE_SIZE && (
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 0', borderTop:'1px solid var(--line)' }}>
                   <button className="btn btn-sm" disabled={receiptPage === 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
                   <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Page {receiptPage} of {Math.ceil(donors.length / PAGE_SIZE)} ({donors.length} records)</span>
