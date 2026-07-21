@@ -117,36 +117,16 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
     setUploading(true);
     setError('');
     setResult(null);
-    setProgress(10);
-    setProgressLabel('Uploading file...');
+    setProgressLabel('Reading file...');
+    await new Promise(r => setTimeout(r, 200));
+    setProgress(30);
+    setProgressLabel('Uploading & processing...');
     try {
       const fd = new FormData();
       fd.append('file', file);
-      setProgress(25);
-      setProgressLabel('Processing data...');
-      const token = localStorage.getItem('ucs_token');
-      const xhr = new XMLHttpRequest();
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 20) + 10;
-          setProgress(Math.min(pct, 30));
-        }
-      };
-      const res = await new Promise((resolve, reject) => {
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try { resolve(JSON.parse(xhr.responseText)); } catch { resolve(xhr.responseText); }
-          } else {
-            try { const e = JSON.parse(xhr.responseText); reject(new Error(e.message || e.error || 'Upload failed')); } catch { reject(new Error('Upload failed')); }
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.open('POST', `${import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'}/ucs/ngo-admin/stations/${encodeURIComponent(station)}/upload-old-data`);
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        setProgress(60);
-        setProgressLabel('Creating profiles & assignments...');
-        xhr.send(fd);
-      });
+      setProgress(60);
+      setProgressLabel('Creating profiles & assignments...');
+      const res = await api(`/ngo-admin/stations/${encodeURIComponent(station)}/upload-old-data`, { method: 'POST', body: fd, _prefix: 'ucs' });
       setProgress(100);
       setProgressLabel('Complete!');
       setResult(res);
