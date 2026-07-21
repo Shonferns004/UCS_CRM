@@ -120,7 +120,6 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
       fd.append('file', file);
       const res = await api(`/ngo-admin/stations/${encodeURIComponent(station)}/upload-old-data`, { method: 'POST', body: fd, _prefix: 'ucs' });
       setResult(res);
-      setTimeout(() => { if (onUploaded) onUploaded(); }, 600);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -164,13 +163,15 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
             </div>
           )}
 
-          {preview.length > 0 && !result && (
+          {preview.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 600 }}>Preview ({preview.length} rows)</span>
-                <button className="btn btn-primary btn-sm" onClick={handleUpload} disabled={uploading || !file}>
-                  {uploading ? 'Uploading...' : 'Upload & Assign'}
-                </button>
+                {!result && (
+                  <button className="btn btn-primary btn-sm" onClick={handleUpload} disabled={uploading || !file}>
+                    {uploading ? 'Uploading...' : 'Upload & Assign'}
+                  </button>
+                )}
               </div>
               <div style={{ overflowX: 'auto', maxHeight: 240, overflowY: 'auto' }}>
                 <table style={{ fontSize: 11 }}>
@@ -192,7 +193,7 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
           )}
 
           <div className="modal-actions" style={{ marginTop: 12 }}>
-            <button className="btn btn-outline" onClick={onClose}>Close</button>
+            <button className="btn btn-outline" onClick={() => { if (result && onUploaded) onUploaded(); else onClose(); }}>Close</button>
           </div>
         </div>
       </div>
