@@ -53,14 +53,19 @@ export async function sendWhatsAppMessage(
       const { data: assignments } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', userId);
       if (assignments && assignments.length > 0) {
         const ids = assignments.map((a: any) => a.account_id);
-        const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').in('id', ids);
-        if (data) accounts.push(...data);
+        const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').in('id', ids).eq('is_active', true);
+        if (data) accounts.push(...data.filter((a: any) => a.access_token));
       }
     }
 
     if (accounts.length === 0) {
-      const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token');
-      if (fallback) accounts.push(...fallback);
+      const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+      if (fallback) accounts.push(...fallback.filter((a: any) => a.access_token));
+    }
+
+    if (accounts.length === 0) {
+      console.error('No active WhatsApp accounts with valid tokens found');
+      return false;
     }
 
     let mediaId: string | null = null;
