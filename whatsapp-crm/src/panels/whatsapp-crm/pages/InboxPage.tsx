@@ -464,7 +464,18 @@ export function InboxPage() {
         }
         navigate(`/inbox/${existingConv.id}`);
         if (newConvMessage.trim()) {
-          sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id);
+          const { data: msg } = await supabase.from('messages').insert({
+            tenant_id: user?.tenant_id,
+            conversation_id: existingConv.id,
+            contact_id: contactId,
+            user_id: user?.id,
+            direction: 'outbound',
+            message_type: 'text',
+            body_text: newConvMessage.trim(),
+            status: 'queued',
+            message_category: 'service',
+          }).select('id').single();
+          if (msg) sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
         }
         setShowNewConv(false);
         setNewConvPhone('');
@@ -487,7 +498,18 @@ export function InboxPage() {
       if (convError) throw convError;
 
       if (newConvMessage.trim()) {
-        sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id);
+        const { data: msg } = await supabase.from('messages').insert({
+          tenant_id: user?.tenant_id,
+          conversation_id: conversation.id,
+          contact_id: contactId,
+          user_id: user?.id,
+          direction: 'outbound',
+          message_type: 'text',
+          body_text: newConvMessage.trim(),
+          status: 'queued',
+          message_category: 'service',
+        }).select('id').single();
+        if (msg) sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
       }
 
       setShowNewConv(false);

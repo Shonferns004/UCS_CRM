@@ -23,7 +23,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
     setSending(true);
 
     try {
-      await supabase.from('messages').insert({
+      const { data: msg, error: insertErr } = await supabase.from('messages').insert({
         tenant_id: tenantId,
         conversation_id: conversationId,
         contact_id: contactId,
@@ -33,11 +33,13 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         body_text: text.trim() || null,
         status: 'queued',
         message_category: 'service',
-      });
+      }).select('id').single();
+
+      if (insertErr) throw insertErr;
 
       await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
 
-      sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, selectedFile, userId);
+      sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, selectedFile, userId, msg?.id);
 
       setText('');
       setSelectedFile(null);

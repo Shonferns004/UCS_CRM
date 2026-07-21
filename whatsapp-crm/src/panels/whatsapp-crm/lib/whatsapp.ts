@@ -39,6 +39,7 @@ export async function sendWhatsAppMessage(
   messageText?: string,
   mediaFile?: File | null,
   userId?: string,
+  messageId?: string,
 ): Promise<boolean> {
   try {
     const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at').eq('id', conversationId).maybeSingle();
@@ -112,20 +113,20 @@ export async function sendWhatsAppMessage(
         });
         const result = await res.json();
         console.log('Meta API response:', res.status, JSON.stringify(result).slice(0, 200));
-        if (res.ok && result.messages?.[0]?.id) {
+          if (res.ok && result.messages?.[0]?.id) {
           const updates: any = { status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() };
           if (mediaId) { updates.media_id = mediaId; updates.media_mime_type = mediaFile?.type; }
-          try { await supabase.from('messages').update(updates).eq('conversation_id', conversationId).eq('status', 'queued'); } catch {}
+          try { await supabase.from('messages').update(updates).eq('id', messageId); } catch {}
           if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
           return true;
         }
       } catch { continue; }
     }
 
-    await supabase.from('messages').update({ status: 'failed', failure_reason: 'All accounts failed' }).eq('conversation_id', conversationId).eq('status', 'queued');
+    await supabase.from('messages').update({ status: 'failed', failure_reason: 'All accounts failed' }).eq('id', messageId);
     return false;
   } catch {
-    await supabase.from('messages').update({ status: 'failed', failure_reason: 'Network error' }).eq('conversation_id', conversationId).eq('status', 'queued');
+    await supabase.from('messages').update({ status: 'failed', failure_reason: 'Network error' }).eq('id', messageId);
     return false;
   }
 }

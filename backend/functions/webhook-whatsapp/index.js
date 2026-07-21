@@ -135,6 +135,8 @@
               message_type: message.type,
               body_text: bodyText,
               wa_message_id: message.id,
+              media_id: message[message.type]?.id || null,
+              media_mime_type: message[message.type]?.mime_type || null,
               status: "delivered",
               message_category: "service",
             });

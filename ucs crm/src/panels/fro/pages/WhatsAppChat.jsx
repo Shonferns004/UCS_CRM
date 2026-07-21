@@ -144,14 +144,14 @@ function WhatsAppChatInner() {
     queryKey: ['wa-conversations', waUser?.id],
     queryFn: () => getConversations(waUser.id),
     enabled: !!waUser?.id,
-    refetchInterval: 15000,
+    refetchInterval: 30000,
   })
 
   const { data: messages = null, isLoading: loadingMsg } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
     queryFn: () => getMessages(activeConv.id),
     enabled: !!activeConv?.id,
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   })
 
   useEffect(() => {
@@ -182,6 +182,35 @@ function WhatsAppChatInner() {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages])
+
+  useEffect(() => {
+    if (!activeConv?.id) return
+    const channel = supabase
+      .channel(`wa-messages:${activeConv.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConv.id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConv.id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [activeConv?.id, queryClient])
+
+  useEffect(() => {
+    if (!waUser?.id) return
+    const channel = supabase
+      .channel(`wa-conversations:${waUser.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [waUser?.id, queryClient])
 
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
