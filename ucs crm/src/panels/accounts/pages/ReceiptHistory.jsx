@@ -153,6 +153,19 @@ export default function ReceiptHistory() {
   const totalPages = Math.ceil(uniqueDonors.length / perPage) || 1;
   const paginatedDonors = uniqueDonors.slice((dPage - 1) * perPage, dPage * perPage);
 
+  const donorMap = useMemo(() => {
+    const map = {};
+    filtered.forEach(d => {
+      const mobile = (d.donor_mobile || '').replace(/\D/g, '');
+      const key = mobile || (d.donor_name || '').toLowerCase().trim();
+      if (!map[key]) map[key] = { receipts: [], count: 0, total: 0 };
+      map[key].receipts.push(d);
+      map[key].count++;
+      map[key].total += Number(d.amount || 0);
+    });
+    return map;
+  }, [filtered]);
+
   const handlePreview = async (r) => {
     if (donorDetail) setSavedDetail(donorDetail);
     setDonorDetail(null);
@@ -326,22 +339,20 @@ export default function ReceiptHistory() {
             ) : (
               paginatedDonors.map(r => {
                 const rMobile = (r.donor_mobile || '').replace(/\D/g, '');
-                const donorReceipts = rMobile
-                  ? filtered.filter(d => (d.donor_mobile || '').replace(/\D/g, '') === rMobile)
-                  : filtered.filter(d => (d.donor_name || '').toLowerCase().trim() === (r.donor_name || '').toLowerCase().trim());
-                const totalAmount = donorReceipts.reduce((s, d) => s + Number(d.amount || 0), 0);
+                const key = rMobile || (r.donor_name || '').toLowerCase().trim();
+                const info = donorMap[key] || { receipts: [], count: 0, total: 0 };
                 const initial = (r.donor_name || '?')[0].toUpperCase();
                 return (
-                  <div key={r.id} onClick={() => setDonorDetail({ name: r.donor_name, mobile: r.donor_mobile, receipts: donorReceipts })}
+                  <div key={r.id} onClick={() => setDonorDetail({ name: r.donor_name, mobile: r.donor_mobile, receipts: info.receipts })}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', transition: 'background .12s' }}
                     onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
                     onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#5B6B4E', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{initial}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.donor_name || '\u2014'}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>{donorReceipts.length} receipt{donorReceipts.length !== 1 ? 's' : ''}</div>
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>{info.count} receipt{info.count !== 1 ? 's' : ''}</div>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>{currency(totalAmount)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>{currency(info.total)}</div>
                   </div>
                 );
               })
@@ -376,7 +387,7 @@ export default function ReceiptHistory() {
                   </span>
                 )}
                 <button onClick={handleDownload} disabled={downloading} title="Download PDF"
-                  style={{ border: 'none', background: 'var(--sage)', color: '#fff', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {downloading ? (
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
                   ) : (
@@ -384,15 +395,15 @@ export default function ReceiptHistory() {
                   )}
                 </button>
                 <button onClick={handleWhatsApp} disabled={waLoading} title="Send via WhatsApp"
-                  style={{ border: 'none', background: '#25D366', color: '#fff', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {waLoading ? (
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
                   ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19.077 4.928C17.191 3.041 14.683 2 12.006 2 6.798 2 2.548 6.193 2.54 11.4c-.003 2.06.537 4.074 1.563 5.86L2.99 21.273 7.97 19.36a9.426 9.426 0 0 0 4.024.96h.004c5.2 0 9.46-4.192 9.468-9.4a9.37 9.37 0 0 0-2.389-5.993ZM17.38 14.48c-.29 1.063-1.66 1.946-2.736 2.06-.569.06-1.282.107-2.084-.228-1.213-.508-2.695-1.837-4.07-3.307-1.26-1.346-2.05-2.5-2.324-3.388-.258-.84.082-1.955.44-2.465.469-.667.985-.672 1.33-.672.152 0 .294.007.418.013.354.017.53.036.767.6.14.333.477 1.164.52 1.248.066.13.11.282.033.456-.077.174-.116.282-.232.447-.116.165-.174.276-.348.445-.116.116-.237.242-.102.476.135.233.602.994 1.292 1.607.888.79 1.636 1.036 1.87 1.152.233.116.37.097.506-.058.136-.155.586-.682.742-.916.156-.233.312-.194.527-.116.215.077 1.362.672 1.596.794.234.122.39.182.448.283.058.101.058.587-.137 1.153-.195.566-1.076 1.085-1.076 1.085Z"/></svg>
                   )}
                 </button>
                 <button onClick={closePreview} title="Close"
-                  style={{ border: 'none', background: '#ef4444', color: '#fff', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
@@ -409,39 +420,48 @@ export default function ReceiptHistory() {
       {donorDetail && (
         <>
           <div className="modal-overlay" onClick={() => setDonorDetail(null)} />
-          <div className="modal" style={{ maxWidth: 600, width: '90%', maxHeight: '80vh', overflow: 'auto' }}>
-            <div className="modal-header">
-              <h3>{donorDetail.name} {donorDetail.mobile ? `<${donorDetail.mobile}>` : ''}</h3>
-              <button className="btn btn-sm" onClick={() => setDonorDetail(null)}>Close</button>
-            </div>
-            <div className="modal-body" style={{ padding: 0 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Receipt No</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Amount</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Date</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Mode</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {donorDetail.receipts.map(r => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontWeight: 600 }}>{r.receipt_no}</td>
-                      <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--sage)' }}>{currency(r.amount)}</td>
-                      <td style={{ padding: '8px 12px' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014'}</td>
-                      <td style={{ padding: '8px 12px' }}>{r.mode || '\u2014'}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <button className="btn btn-sm btn-primary" onClick={() => { setSavedDetail(donorDetail); setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }} style={{ fontSize: 10, padding: '2px 8px' }}>View</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ padding: '10px 12px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
-                Total: {currency(donorDetail.receipts.reduce((s, r) => s + Number(r.amount || 0), 0))} ({donorDetail.receipts.length} receipt{donorDetail.receipts.length !== 1 ? 's' : ''})
+          <div className="modal" style={{ maxWidth: 500, width: '90%', maxHeight: '80vh', overflow: 'auto', borderRadius: 14, boxShadow: '0 8px 30px rgba(0,0,0,0.15)' }}>
+            <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '16px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #5B6B4E, #7A8F6A)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, fontWeight: 700, flexShrink: 0, boxShadow: '0 2px 6px rgba(91,107,78,0.25)' }}>
+                  {(donorDetail.name || '?')[0].toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>{donorDetail.name}</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>{donorDetail.mobile || ''} &middot; <strong>{donorDetail.receipts.length}</strong> receipt{donorDetail.receipts.length !== 1 ? 's' : ''}</div>
+                </div>
               </div>
+              <button onClick={() => setDonorDetail(null)} title="Close"
+                style={{ border: 'none', background: '#f3f4f6', color: '#6b7280', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .12s' }}
+                onMouseOver={e => e.currentTarget.style.background = '#e5e7eb'}
+                onMouseOut={e => e.currentTarget.style.background = '#f3f4f6'}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div style={{ padding: '6px 0', background: '#fafafa' }}>
+              {donorDetail.receipts.map((r, i) => (
+                <div key={r.id} onClick={() => { setSavedDetail(donorDetail); setDonorDetail(null); setTimeout(() => handlePreview(r), 50) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', cursor: 'pointer', borderBottom: i < donorDetail.receipts.length - 1 ? '1px solid #f0f0f0' : 'none', transition: 'background .1s' }}
+                  onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
+                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#d1d5db', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: '#374151' }}>{r.receipt_no}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
+                      {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</div>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" style={{ flexShrink: 0, opacity: .6 }}><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: '12px 18px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: '0 0 14px 14px' }}>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>Total receipts</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#059669' }}>{currency(donorDetail.receipts.reduce((s, r) => s + Number(r.amount || 0), 0))} <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>({donorDetail.receipts.length})</span></span>
             </div>
           </div>
         </>
@@ -473,8 +493,14 @@ export default function ReceiptHistory() {
       <style>{`
         .modal-overlay {
           position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
+          animation: fadeIn .15s ease;
         }
-        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border-radius: 12px; z-index: 2001; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
+        .modal {
+          position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border-radius: 12px; z-index: 2001; box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+          animation: modalIn .2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalIn { from { opacity: 0; transform: translate(-50%, -50%) scale(.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid #e5e7eb; }
         .modal-header h3 { margin: 0; font-size: 16px; }
         .modal-body { overflow: auto; max-height: calc(90vh - 70px); }
