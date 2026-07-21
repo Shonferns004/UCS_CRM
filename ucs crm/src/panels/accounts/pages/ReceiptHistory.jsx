@@ -26,7 +26,7 @@ function buildDonor(r, lead) {
     'Email ID': lead?.donor_email || r.email || '',
     'Amount': r.amount || 0,
     'Mode of Payment (MOP)': r.mode || lead?.payment_mode || '',
-    'Payment ID No.': lead?.upi_transaction_id ? `*${lead.upi_transaction_id}` : r.payment_id ? `*${r.payment_id}` : '',
+    'Payment ID No.': lead?.upi_transaction_id || r.payment_id || '',
     'Donor Bank Name': lead?.payment_from || r.bank_name || '',
     'Account Of': 'Corpus',
     'City': lead?.donor_city || '',
