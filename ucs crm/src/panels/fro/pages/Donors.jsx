@@ -273,6 +273,8 @@ export default function Donors() {
               <div className="donor-modal-info">
                 <span>&#128222; {modalDonor.donor_mobile || '—'}</span>
                 <span className="donor-modal-sep">|</span>
+                <span>&#9993; {modalDetail?.donor?.email || '—'}</span>
+                <span className="donor-modal-sep">|</span>
                 <span>&#127963; {modalDonor.donor_city || '—'}</span>
                 {modalDonor.donor_pan && <><span className="donor-modal-sep">|</span><span>PAN: {modalDonor.donor_pan}</span></>}
                 {modalDonor.donor_dob && <><span className="donor-modal-sep">|</span><span>DOB: {new Date(modalDonor.donor_dob).toLocaleDateString('en-GB')}</span></>}
@@ -319,8 +321,10 @@ export default function Donors() {
                     <tr>
                       <th>Date</th>
                       <th>Amount</th>
-                      <th>Type</th>
+                      <th>Mode</th>
+                      <th>Payment ID</th>
                       <th>Status</th>
+                      <th>Receipt</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -332,10 +336,11 @@ export default function Donors() {
                         <td style={{ fontWeight: 700, color: 'var(--sage)' }}>
                           ₹{Number(l.amount_collected || 0).toLocaleString('en-IN')}
                         </td>
-                        <td>
-                          <span className={`pill ${l.action === 'donation' ? 'pill-blue' : l.disposition_detail === 'lead_done' ? 'pill-green' : 'pill-gray'}`} style={{ fontSize: 9 }}>
-                            {l.action === 'donation' ? 'Donation' : l.disposition_detail === 'lead_done' ? 'Lead Done' : l.action || '—'}
-                          </span>
+                        <td style={{ fontSize: 11 }}>
+                          {l.payment_mode || l.mode || '—'}
+                        </td>
+                        <td style={{ fontSize: 10, fontFamily: 'monospace', color: '#6b7280' }}>
+                          {l.upi_transaction_id ? `*${l.upi_transaction_id}` : l.payment_id ? `*${l.payment_id}` : '—'}
                         </td>
                         <td>
                           {l.accounts_status === 'verified' ? (
@@ -346,6 +351,14 @@ export default function Donors() {
                             <span className="pill pill-yellow" style={{ fontSize: 9 }}>&#9203; Pending</span>
                           ) : (
                             <span className="pill pill-gray" style={{ fontSize: 9 }}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          {l.accounts_status === 'verified' && (
+                            <button className="btn btn-sm" style={{ fontSize: 9, padding: '2px 6px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                              onClick={(e) => { e.stopPropagation(); alert('Receipt preview coming soon') }}>
+                              View
+                            </button>
                           )}
                         </td>
                       </tr>

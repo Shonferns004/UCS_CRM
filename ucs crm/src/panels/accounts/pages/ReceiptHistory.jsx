@@ -311,9 +311,9 @@ export default function ReceiptHistory() {
 
       <style>{`
         .modal-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999;
+          position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
         }
-        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border-radius: 12px; z-index: 1000; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
+        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border-radius: 12px; z-index: 2001; box-shadow: 0 8px 30px rgba(0,0,0,0.2); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid #e5e7eb; }
         .modal-header h3 { margin: 0; font-size: 16px; }
         .modal-body { overflow: auto; max-height: calc(90vh - 70px); }
