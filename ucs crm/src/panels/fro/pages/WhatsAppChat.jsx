@@ -344,9 +344,7 @@ function WhatsAppChatInner() {
             </div>
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div ref={bottomRef} />
-              <MessageList messages={messages} />
-              <div ref={bottomRef} />
+              <MessageList messages={messages} messagesEndRef={bottomRef} />
             </div>
 
             <QuickReplyBar onSend={handleQuickReply} />
