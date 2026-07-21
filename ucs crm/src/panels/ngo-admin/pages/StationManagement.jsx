@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
+import * as XLSX from 'xlsx';
 
 const NGO_NAME_COLORS = {
   bsct: '#2563eb',
@@ -98,11 +99,6 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const XLSX = window.XLSX;
-        if (!XLSX) {
-          setError('XLSX library not loaded. Please refresh.');
-          return;
-        }
         const wb = XLSX.read(evt.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
