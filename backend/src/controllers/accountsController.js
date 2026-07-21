@@ -888,17 +888,27 @@ export const importReceipts = async (req, res) => {
       return res.status(400).json({ message: 'No valid receipts found after filtering' });
     }
 
-    await supabase.from('receipts').delete().neq('id', 0);
+    const { error: delErr } = await supabase.from('receipts').delete().neq('id', 0);
+    if (delErr) throw delErr;
+
+    const seen = new Set();
+    const uniqueRows = rows.filter(r => {
+      const key = r.receipt_no || `${r.donor_name}_${r.amount}_${r.receipt_date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const dupCount = rows.length - uniqueRows.length;
 
     const { data, error } = await supabase
       .from('receipts')
-      .insert(rows)
+      .insert(uniqueRows)
       .select();
 
     if (error) throw error;
 
     return res.status(201).json({
-      message: `${data.length} receipts imported successfully`,
+      message: `${data.length} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}`,
       imported: data.length,
       receipts: data,
     });
