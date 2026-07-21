@@ -3410,55 +3410,45 @@ export const uploadOldDataForStation = async (req, res) => {
     const errors = [];
     const now = new Date().toISOString();
 
-    // Batch 1: Get all existing profiles by mobile
+    // Batch 1: Get existing profiles by mobile
     const mobiles = normalizedRows.map(r => r.mobile);
     const { data: existingProfiles } = await supabase
       .from('donor_profiles')
       .select('id, mobile_number')
       .in('mobile_number', mobiles);
+    const existingMobiles = new Set((existingProfiles || []).map(p => p.mobile_number));
+
+    // Batch 2: Insert new profiles (all fields), Upsert existing profiles (safe fields only)
+    const toInsert = [];
+    const toUpdate = [];
+    for (const row of normalizedRows) {
+      if (existingMobiles.has(row.mobile)) {
+        toUpdate.push({ mobile_number: row.mobile, name: row.name || null, city: row.city || null, mobile_2: row.mobile_2 || null, data_category: row.data_category || null, raw_data: row.raw_data });
+      } else {
+        toInsert.push({ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null, mobile_2: row.mobile_2 || null, data_category: row.data_category || null, raw_data: row.raw_data });
+      }
+    }
+
+    let donorIds = [];
     const profileMap = {};
     for (const p of existingProfiles || []) profileMap[p.mobile_number] = p.id;
 
-    // Batch 2: Upsert profiles (update existing, insert new)
-    const toUpdate = [];
-    const toInsert = [];
-    for (const row of normalizedRows) {
-      if (profileMap[row.mobile]) {
-        const updates = { name: row.name || undefined, city: row.city || undefined, raw_data: row.raw_data };
-        if (row.mobile_2) updates.mobile_2 = row.mobile_2;
-        if (row.data_category) updates.data_category = row.data_category;
-        toUpdate.push({ id: profileMap[row.mobile], ...updates });
-      } else {
-        const insert = { mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null, raw_data: row.raw_data };
-        if (row.mobile_2) insert.mobile_2 = row.mobile_2;
-        if (row.data_category) insert.data_category = row.data_category;
-        toInsert.push(insert);
-      }
-    }
-
-    // batch update
-    for (const u of toUpdate) {
-      const { id, ...data } = u;
-      await supabase.from('donor_profiles').update(data).eq('id', id);
-    }
-    // batch insert
-    const newProfileIds = {};
     if (toInsert.length > 0) {
-      const { data: newProfiles } = await supabase.from('donor_profiles').insert(toInsert).select('id, mobile_number');
-      for (const p of newProfiles || []) {
-        newProfileIds[p.mobile_number] = p.id;
+      const { data: newP } = await supabase.from('donor_profiles').insert(toInsert).select('id, mobile_number');
+      for (const p of newP || []) {
         profileMap[p.mobile_number] = p.id;
+        donorIds.push(p.id);
         createdProfiles++;
       }
     }
-
-    // Build donor_id → mobile mapping
-    const donorIdToMobile = {};
-    for (const row of normalizedRows) {
-      const did = profileMap[row.mobile];
-      if (did) donorIdToMobile[did] = row.mobile;
+    if (toUpdate.length > 0) {
+      const { data: updP } = await supabase.from('donor_profiles').upsert(toUpdate, { onConflict: 'mobile_number' }).select('id, mobile_number');
+      for (const p of updP || []) {
+        if (!profileMap[p.mobile_number]) profileMap[p.mobile_number] = p.id;
+        donorIds.push(p.id);
+      }
     }
-    const donorIds = Object.keys(donorIdToMobile).map(Number);
+    donorIds = [...new Set(donorIds)];
 
     // Batch 3: Get existing assignments for all donor+ngo combos
     const existingAssignmentKeys = new Set();
@@ -3476,7 +3466,7 @@ export const uploadOldDataForStation = async (req, res) => {
       }
     }
 
-    // Batch 4: Get station assignments for all NGOs
+    // Batch 4: Get station assignments
     const stationAssignMap = {};
     for (const { ngoId } of ngoEntries) {
       const sa = await getStationAssignmentByNgoAndStation(ngoId, station);
@@ -3487,29 +3477,17 @@ export const uploadOldDataForStation = async (req, res) => {
     const assignmentsToInsert = [];
     for (const did of donorIds) {
       for (const { ngoId, ngoName } of ngoEntries) {
-        const key = `${did}-${ngoId}`;
-        if (existingAssignmentKeys.has(key)) {
+        if (existingAssignmentKeys.has(`${did}-${ngoId}`)) {
           skippedDuplicate++;
           continue;
         }
-        assignmentsToInsert.push({
-          donor_id: did,
-          fro_worker_id: stationAssignMap[ngoId],
-          ngo_id: ngoId,
-          station,
-          status: 'pending',
-          assigned_at: now,
-        });
+        assignmentsToInsert.push({ donor_id: did, fro_worker_id: stationAssignMap[ngoId], ngo_id: ngoId, station, status: 'pending', assigned_at: now });
       }
     }
-
     if (assignmentsToInsert.length > 0) {
       const { error: batchErr } = await supabase.from('fro_assignments').insert(assignmentsToInsert);
-      if (batchErr) {
-        errors.push(`Batch insert error: ${batchErr.message}`);
-      } else {
-        createdAssignments = assignmentsToInsert.length;
-      }
+      if (batchErr) errors.push(`Batch insert error: ${batchErr.message}`);
+      else createdAssignments = assignmentsToInsert.length;
     }
 
     return res.json({
