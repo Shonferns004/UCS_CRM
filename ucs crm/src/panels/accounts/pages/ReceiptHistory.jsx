@@ -16,20 +16,20 @@ function getTemplateId(projectId) {
   return DB_TO_TEMPLATE[projectId] || 'beingsevak';
 }
 
-function buildDonor(r) {
+function buildDonor(r, lead) {
   return {
     'Receipt No.': r.receipt_no || '',
     'Receipt Date': r.receipt_date || '',
     'Donor Name': r.donor_name || '',
     'Address 1': r.address || '',
     'PAN No.': r.pan_number || '',
-    'Email ID': '',
+    'Email ID': lead?.donor_email || r.email || '',
     'Amount': r.amount || 0,
-    'Mode of Payment (MOP)': r.mode || '',
-    'Payment ID No.': '',
-    'Donor Bank Name': '',
+    'Mode of Payment (MOP)': r.mode || lead?.payment_mode || '',
+    'Payment ID No.': lead?.upi_transaction_id ? `*${lead.upi_transaction_id}` : r.payment_id ? `*${r.payment_id}` : '',
+    'Donor Bank Name': lead?.payment_from || r.bank_name || '',
     'Account Of': 'Corpus',
-    'City': '',
+    'City': lead?.donor_city || '',
     'State': '',
     'Pincode': '',
   };
@@ -123,14 +123,14 @@ export default function ReceiptHistory() {
     const templateId = getTemplateId(r.project_id);
     const Comp = TEMPLATES[templateId];
     if (!Comp) return;
-    setPreview({ receipt: r, templateId, Comp, donorMobile: '' });
+    let leadData = null;
     setWaPhone('');
     setWaLoading(true);
     try {
       const leads = await apiGet('/accounts/leads');
       const lead = leads.find(l => String(l.log_id) === String(r.log_id));
+      leadData = lead || null;
       const mobile = lead?.donor_mobile || '';
-      setPreview(p => ({ ...p, donorMobile: mobile }));
       if (mobile) {
         const raw = mobile.replace(/\D/g, '');
         const formatted = raw.length === 10 ? '91' + raw : raw.startsWith('0') ? '91' + raw.slice(1) : raw;
@@ -138,6 +138,7 @@ export default function ReceiptHistory() {
       }
     } catch {}
     finally { setWaLoading(false); }
+    setPreview({ receipt: r, templateId, Comp, donorMobile: '', lead: leadData });
   };
 
   const handleDownload = async () => {
@@ -234,33 +235,27 @@ export default function ReceiptHistory() {
           <table>
             <thead>
               <tr>
-                <th>Receipt No</th>
-                <th>Donor</th>
-                <th>Amount</th>
-                <th>Date</th>
-                <th>Project</th>
+                <th>Donor Name</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
+                <tr><td colSpan={2} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                <tr><td colSpan={2} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                   {searchQuery || projectFilter ? 'No receipts match your filters.' : 'No receipts generated yet.'}
                 </td></tr>
               ) : (
                 filtered.map(r => {
                   const proj = Object.values(PROJECTS).find(p => r.project_id === p.id || DB_TO_TEMPLATE[r.project_id] === p.id);
                   return (
-                    <tr key={r.id}>
-                      <td style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>{r.receipt_no}</td>
-                      <td>{r.donor_name}</td>
-                      <td><strong style={{ color: 'var(--sage)' }}>{currency(r.amount)}</strong></td>
-                      <td style={{ fontSize: 12 }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014'}</td>
-                      <td><span className="pill pill-blue">{proj?.label || r.project_id || '\u2014'}</span></td>
-                      <td>
-                        <button className="btn btn-sm btn-primary" onClick={() => handlePreview(r)}>View</button>
+                    <tr key={r.id} onClick={() => handlePreview(r)} style={{ cursor: 'pointer' }}
+                      onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
+                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                      <td style={{ fontWeight: 600 }}>{r.donor_name || '\u2014'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.receipt_no} &middot; {currency(r.amount)} &middot; {r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}</span>
                       </td>
                     </tr>
                   );
@@ -302,7 +297,7 @@ export default function ReceiptHistory() {
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
               <div data-receipt-preview data-receipt-print>
-                {React.createElement(preview.Comp, { donor: buildDonor(preview.receipt), index: 0, project: preview.templateId })}
+                {React.createElement(preview.Comp, { donor: buildDonor(preview.receipt, preview.lead), index: 0, project: preview.templateId })}
               </div>
             </div>
           </div>

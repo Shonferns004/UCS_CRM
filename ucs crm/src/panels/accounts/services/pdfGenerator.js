@@ -247,8 +247,8 @@ export async function generateReceiptPDF(element, opts = {}) {
     await Promise.all(imgs.map(waitForImage))
     canvas = await html2canvas(clone, {
       scale,
-      useCORS: false,
-      allowTaint: false,
+      useCORS: true,
+      allowTaint: true,
       backgroundColor: '#ffffff',
       width: captureWidth,
       height: Math.ceil(clone.scrollHeight),
