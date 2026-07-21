@@ -4,12 +4,12 @@ export default function Template4({ personal }) {
       <style>{`
         .t4 *{box-sizing:border-box}
         .t4{width:210mm;height:297mm;margin:40px auto 0;background:#fff;border:8px double #000;padding:8mm 12mm;font-family:"Times New Roman",serif;overflow:hidden;display:flex;flex-direction:column}
-.t4 h1{text-align:center;margin:0 0 1px;font-size:24pt}
-.t4 .sub{text-align:center;font-size:10pt;margin:0 0 3px}
-.t4 .red{height:2px;background:#7b2020;margin:1px 0 4px}
-.t4 .sec{color:#7b2020;font-weight:bold;font-size:12pt;margin-top:5px}
-.t4 p{font-size:10pt;line-height:1.25;text-align:justify;margin:1.5px 0}
-.t4 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:10pt;line-height:1.3}
+        .t4 h1{text-align:center;margin:0 0 1px;font-size:24pt}
+        .t4 .sub{text-align:center;font-size:10pt;margin:0 0 3px}
+        .t4 .red{height:2px;background:#7b2020;margin:1px 0 4px}
+        .t4 .sec{color:#7b2020;font-weight:bold;font-size:12pt;margin-top:5px}
+        .t4 p{font-size:10pt;line-height:1.25;text-align:justify;margin:1.5px 0}
+        .t4 .footer{border-top:2px solid #7b2020;margin-top:auto;padding-top:3px;text-align:center;font-size:10pt;line-height:1.3}
       `}</style>
       <div className="t4">
         <h1>Being Sevak Charitable Trust</h1>
