@@ -232,7 +232,7 @@ function WhatsAppChatInner() {
       : file.type?.startsWith('video/') ? 'video'
       : file.type?.startsWith('audio/') ? 'audio'
       : 'document'
-    await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id, fileUrl, type)
+    await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id, fileUrl, type, file)
     queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser, queryClient])

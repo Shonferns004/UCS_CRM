@@ -60,7 +60,7 @@ export async function markRead(conversationId) {
   await supabase.from('conversations').update({ unread_count: 0 }).eq('id', conversationId)
 }
 
-export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType) {
+export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType, mediaFile) {
   const { data: conv } = await supabase
     .from('conversations')
     .select('last_inbound_at, last_message_at')
@@ -89,6 +89,7 @@ export async function sendMessage(conversationId, contactId, messageText, userId
       message_type: msgType,
       body_text: isMedia ? '' : messageText,
       media_url: mediaUrl || null,
+      media_mime_type: mediaFile?.type || null,
       status: 'queued',
     })
     .select()
@@ -118,52 +119,76 @@ export async function sendMessage(conversationId, contactId, messageText, userId
     if (data) accounts.push(...data)
   }
 
-  const payloads = []
+  async function uploadToMeta(accessToken, phoneNumberId) {
+    if (!mediaFile) return null
+    const form = new FormData()
+    form.append('messaging_product', 'whatsapp')
+    form.append('file', mediaFile, mediaFile.name)
+    form.append('type', mediaFile.type)
+    try {
+      const r = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      })
+      const d = await r.json()
+      return d.id || null
+    } catch { return null }
+  }
 
-  function mediaPayload() {
+  function mediaPayload(metaMediaId) {
     const body = { messaging_product: 'whatsapp', to: contact.phone_normalized }
-    if (msgType === 'image') {
-      body.type = 'image'
-      body.image = { link: mediaUrl }
-    } else if (msgType === 'video') {
-      body.type = 'video'
-      body.video = { link: mediaUrl }
-    } else if (msgType === 'audio') {
-      body.type = 'audio'
-      body.audio = { link: mediaUrl }
+    if (metaMediaId) {
+      if (msgType === 'image') {
+        body.type = 'image'; body.image = { id: metaMediaId }
+      } else if (msgType === 'video') {
+        body.type = 'video'; body.video = { id: metaMediaId }
+      } else if (msgType === 'audio') {
+        body.type = 'audio'; body.audio = { id: metaMediaId }
+      } else {
+        body.type = 'document'; body.document = { id: metaMediaId, caption: messageText || '' }
+      }
     } else {
-      body.type = 'document'
-      body.document = { link: mediaUrl, caption: messageText || '' }
+      if (msgType === 'image') {
+        body.type = 'image'; body.image = { link: mediaUrl }
+      } else if (msgType === 'video') {
+        body.type = 'video'; body.video = { link: mediaUrl }
+      } else if (msgType === 'audio') {
+        body.type = 'audio'; body.audio = { link: mediaUrl }
+      } else {
+        body.type = 'document'; body.document = { link: mediaUrl, caption: messageText || '' }
+      }
     }
     return body
   }
 
-  if (!windowOpen) {
-    payloads.push({
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-      type: 'template',
-      template: { name: 'hello_world', language: { code: 'en_US' } },
-    })
-    payloads.push(isMedia ? mediaPayload() : {
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-      type: 'text',
-      text: { body: messageText },
-    })
-  } else {
-    payloads.push(isMedia ? mediaPayload() : {
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-      type: 'text',
-      text: { body: messageText },
-    })
-  }
-
   const metaApi = 'https://graph.facebook.com/v23.0'
 
+  let metaMediaId = null
+  if (isMedia && mediaFile && accounts.length > 0) {
+    metaMediaId = await uploadToMeta(accounts[0].access_token, accounts[0].phone_number_id)
+  }
+
   for (const acct of accounts) {
-    for (const payload of payloads) {
+    const buildPayloads = () => {
+      const list = []
+      if (!windowOpen) {
+        list.push({
+          messaging_product: 'whatsapp',
+          to: contact.phone_normalized,
+          type: 'template',
+          template: { name: 'hello_world', language: { code: 'en_US' } },
+        })
+      }
+      list.push(isMedia ? mediaPayload(metaMediaId) : {
+        messaging_product: 'whatsapp',
+        to: contact.phone_normalized,
+        type: 'text',
+        text: { body: messageText },
+      })
+      return list
+    }
+    for (const payload of buildPayloads()) {
       try {
         const res = await fetch(`${metaApi}/${acct.phone_number_id}/messages`, {
           method: 'POST',
@@ -175,13 +200,15 @@ export async function sendMessage(conversationId, contactId, messageText, userId
         })
         const result = await res.json()
         if (res.ok && result.messages?.[0]?.id) {
+          const updates = {
+            status: 'sent',
+            wa_message_id: result.messages[0].id,
+            status_updated_at: new Date().toISOString(),
+          }
+          if (metaMediaId) updates.media_id = metaMediaId
           await supabase
             .from('messages')
-            .update({
-              status: 'sent',
-              wa_message_id: result.messages[0].id,
-              status_updated_at: new Date().toISOString(),
-            })
+            .update(updates)
             .eq('id', msg.id)
           await supabase
             .from('conversations')
