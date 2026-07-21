@@ -110,7 +110,10 @@ export default function ReceiptHistory() {
   const stats = useMemo(() => {
     const totalAmount = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
     const donorSet = new Set();
-    receipts.forEach(r => { if (r.donor_name) donorSet.add(r.donor_name.toLowerCase().trim()) });
+    receipts.forEach(r => {
+      const mobile = (r.donor_mobile || '').replace(/\D/g, '');
+      if (mobile) donorSet.add(mobile);
+    });
     const byProject = {};
     receipts.forEach(r => {
       const pid = r.project_id || 'other';
@@ -135,9 +138,10 @@ export default function ReceiptHistory() {
   const uniqueDonors = useMemo(() => {
     const seen = new Set();
     return filtered.filter(r => {
-      const key = (r.donor_name || '').toLowerCase().trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
+      const mobile = (r.donor_mobile || '').replace(/\D/g, '');
+      if (!mobile) return true;
+      if (seen.has(mobile)) return false;
+      seen.add(mobile);
       return true;
     });
   }, [filtered]);
@@ -275,10 +279,13 @@ export default function ReceiptHistory() {
                 </td></tr>
               ) : (
                 uniqueDonors.map(r => {
-                  const donorReceipts = filtered.filter(d => (d.donor_name || '').toLowerCase().trim() === (r.donor_name || '').toLowerCase().trim());
+                  const rMobile = (r.donor_mobile || '').replace(/\D/g, '');
+                  const donorReceipts = rMobile
+                    ? filtered.filter(d => (d.donor_mobile || '').replace(/\D/g, '') === rMobile)
+                    : filtered.filter(d => (d.donor_name || '').toLowerCase().trim() === (r.donor_name || '').toLowerCase().trim());
                   const totalAmount = donorReceipts.reduce((s, d) => s + Number(d.amount || 0), 0);
                   return (
-                    <tr key={r.id} onClick={() => setDonorDetail({ name: r.donor_name, receipts: donorReceipts })} style={{ cursor: 'pointer' }}
+                    <tr key={r.id} onClick={() => setDonorDetail({ name: r.donor_name, mobile: r.donor_mobile, receipts: donorReceipts })} style={{ cursor: 'pointer' }}
                       onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
                       onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                       <td style={{ fontWeight: 600 }}>{r.donor_name || '\u2014'}</td>
@@ -337,7 +344,7 @@ export default function ReceiptHistory() {
           <div className="modal-overlay" onClick={() => setDonorDetail(null)} />
           <div className="modal" style={{ maxWidth: 600, width: '90%', maxHeight: '80vh', overflow: 'auto' }}>
             <div className="modal-header">
-              <h3>{donorDetail.name}</h3>
+              <h3>{donorDetail.name} {donorDetail.mobile ? `<${donorDetail.mobile}>` : ''}</h3>
               <button className="btn btn-sm" onClick={() => setDonorDetail(null)}>Close</button>
             </div>
             <div className="modal-body" style={{ padding: 0 }}>
