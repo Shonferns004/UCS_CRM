@@ -620,7 +620,7 @@ export const getReceipt = async (req, res) => {
 
 export const getReceiptList = async (req, res) => {
   try {
-    const receipts = await listAllReceipts(200);
+    const receipts = await listAllReceipts();
     return res.json(receipts);
   } catch (error) {
     return res.status(500).json({ message: error.message });
