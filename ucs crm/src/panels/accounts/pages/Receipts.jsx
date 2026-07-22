@@ -408,12 +408,10 @@ export default function Receipts() {
     <div>
       <ExcelUpload onDataLoaded={handleDataLoaded} />
 
-      {donors && (
-        <>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-pad">
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-                <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Donor Records <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span></h3>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-pad">
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
+            <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Donor Records {donors ? <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span> : <span className="sk" style={{ display:'inline-block', width:60, height:14, borderRadius:3, verticalAlign:'middle' }} />}</h3>
                 <div style={{ display:'flex', gap:8 }}>
                   <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
                     onClick={() => {
@@ -497,7 +495,7 @@ export default function Receipts() {
                   )})}
                 </tbody>
               </table>
-              {donors.length > PAGE_SIZE && (
+              {donors && donors.length > PAGE_SIZE && (
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 0', borderTop:'1px solid var(--line)' }}>
                   <button className="btn btn-sm" disabled={receiptPage === 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
                   <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Page {receiptPage} of {Math.ceil(donors.length / PAGE_SIZE)} ({donors.length} records)</span>
@@ -507,16 +505,16 @@ export default function Receipts() {
             </div>
           </div>
 
-          <div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
+          {donors && (<div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
             {donors.length <= 100 && donors.map((d, i) => {
               const ngo = d['Project'] || 'bsct'
               const tpl = getNgoSettings(ngo)
               const Comp = tpl.comp
               return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
             })}
-          </div>
+          </div>)}
 
-          {previewIndex != null && donors[previewIndex] && (
+          {previewIndex != null && donors && donors[previewIndex] && (
             <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:1000 }}>
               <div className="modal" style={{ width:'95%', maxWidth:1060, height:'95vh', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
                 <div className="modal-header" style={{ flexShrink:0 }}>
@@ -545,8 +543,6 @@ export default function Receipts() {
               </div>
             </div>
           )}
-        </>
-      )}
 
       <ConfirmBulkModal visible={confirmBulk.visible} donorCount={confirmBulk.donorCount} projectName="" onConfirm={handleConfirmBulkSend} onCancel={() => setConfirmBulk({ visible:false, donorCount:0 })} />
       <BulkProgressModal visible={bulkState.active} total={bulkState.total} sent={bulkState.sent} failed={bulkState.failed} currentBatch={bulkState.currentBatch} totalBatches={bulkState.totalBatches} results={bulkState.results} previousBatches={bulkState.previousBatches} onCancel={() => { cancelBulkRef.current = true; setBulkState(prev => ({ ...prev, cancelled:true })) }} />
