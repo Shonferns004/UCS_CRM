@@ -555,6 +555,19 @@ export const getMyDonors = async (req, res) => {
       });
     }
 
+    // Aggregate all NGO names per donor (since dedup by donor_id loses NGO info)
+    const donorNgos = {};
+    for (const a of assignments || []) {
+      if (!donorNgos[a.donor_id]) donorNgos[a.donor_id] = [];
+      const ngoName = a.ngos?.name;
+      if (ngoName && !donorNgos[a.donor_id].includes(ngoName)) {
+        donorNgos[a.donor_id].push(ngoName);
+      }
+    }
+    for (const r of result) {
+      r.ngo_names = donorNgos[r.donor_id] || [r.ngo_name];
+    }
+
     // Attach latest accounts_status from fro_donor_logs (for verified_only view)
     if (req.query.verified_only === 'true' && result.length > 0) {
       const donorIdsForStatus = result.map(r => r.donor_id);

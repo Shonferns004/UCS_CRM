@@ -612,12 +612,15 @@ export default function MyDonors() {
               <div className="detail-name">{donor.donor_name}</div>
               <div className="fro-donor-position">#{index + 1} of {donors.length}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                {donor.is_new && (
-                  <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
-                )}
+                  {donor.is_new && (
+                    <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
+                  )}
+                  {dataTab === 'old' && (
+                    <span style={{ padding: '1px 6px', borderRadius: 4, background: '#7c3aed', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>OLD</span>
+                  )}
                 {statusPill(donor.status || 'pending')}
                 {donor.ngo_name && (
-                  <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_name}</span>
+                  <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_names?.join(', ') || donor.ngo_name}</span>
                 )}
               </div>
             </div>
