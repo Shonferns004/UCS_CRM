@@ -146,7 +146,7 @@ app.post('/api/upload', uploadApi.single('file'), async (req, res) => {
 
 app.post('/api/whatsapp/send', express.json(), async (req, res) => {
   try {
-    const { conversationId, contactId, messageText, mediaUrl, mediaMimeType, userId, phoneNumber } = req.body;
+    const { conversationId, contactId, messageText, mediaUrl, mediaMimeType, userId, phoneNumber, messageId } = req.body;
     if (!conversationId || !phoneNumber) return res.status(400).json({ message: 'Missing required fields' });
 
     const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
@@ -155,25 +155,32 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
     const mime = mediaMimeType || '';
     const msgType = mediaUrl ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text';
 
-    let safeContactId = contactId;
-    if (safeContactId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeContactId)) {
-      const { data: existing } = await supabase.from('contacts').select('id').eq('phone_normalized', phoneNumber.replace(/[^0-9]/g, '')).maybeSingle();
-      if (existing) safeContactId = existing.id;
-      else { const { data: nc } = await supabase.from('contacts').insert({ phone: phoneNumber, phone_normalized: phoneNumber.replace(/[^0-9]/g, ''), source: 'api' }).select().single(); if (nc) safeContactId = nc.id; }
+    let msg;
+    if (messageId) {
+      const { data: existing } = await supabase.from('messages').select('*').eq('id', messageId).maybeSingle();
+      msg = existing;
     }
-
-    const { data: msg, error: msgErr } = await supabase.from('messages').insert({
-      conversation_id: conversationId,
-      contact_id: safeContactId || null,
-      user_id: userId || null,
-      direction: 'outbound',
-      message_type: msgType,
-      body_text: mediaUrl ? '' : (messageText || ''),
-      media_url: mediaUrl || null,
-      media_mime_type: mediaMimeType || null,
-      status: 'queued',
-    }).select().single();
-    if (msgErr) return res.status(500).json({ message: msgErr.message });
+    if (!msg) {
+      let safeContactId = contactId;
+      if (safeContactId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeContactId)) {
+        const { data: existing } = await supabase.from('contacts').select('id').eq('phone_normalized', phoneNumber.replace(/[^0-9]/g, '')).maybeSingle();
+        if (existing) safeContactId = existing.id;
+        else { const { data: nc } = await supabase.from('contacts').insert({ phone: phoneNumber, phone_normalized: phoneNumber.replace(/[^0-9]/g, ''), source: 'api' }).select().single(); if (nc) safeContactId = nc.id; }
+      }
+      const { data: newMsg, error: msgErr } = await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        contact_id: safeContactId || null,
+        user_id: userId || null,
+        direction: 'outbound',
+        message_type: msgType,
+        body_text: mediaUrl ? '' : (messageText || ''),
+        media_url: mediaUrl || null,
+        media_mime_type: mediaMimeType || null,
+        status: 'queued',
+      }).select().single();
+      if (msgErr) return res.status(500).json({ message: msgErr.message });
+      msg = newMsg;
+    }
 
     if (mediaUrl && (mediaMimeType?.startsWith('audio/') || mime.startsWith('audio/'))) {
       const download = await fetch(mediaUrl);
