@@ -398,10 +398,40 @@ export const getMyDonors = async (req, res) => {
       // No default status filter — include all except 'reassigned'
     }
 
+    // Batch-based tab filtering: show only the latest batch per type.
+    // Falls back to is_new for legacy rows without batch_id/batch_type.
     if (req.query.new_only === 'true') {
-      query = query.eq('is_new', true);
+      const { data: latestBatch } = await supabase
+        .from('fro_assignments')
+        .select('batch_id')
+        .in('station', stationNames)
+        .eq('batch_type', 'new_data')
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestBatch?.batch_id) {
+        query = query.eq('batch_id', latestBatch.batch_id);
+      } else {
+        // Legacy fallback: no batch-tracked data yet, use is_new flag
+        query = query.or('is_new.is.null,is_new.eq.true');
+      }
     } else if (req.query.old_only === 'true') {
-      query = query.eq('is_new', false);
+      const { data: latestBatch } = await supabase
+        .from('fro_assignments')
+        .select('batch_id')
+        .in('station', stationNames)
+        .eq('batch_type', 'old_data')
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestBatch?.batch_id) {
+        query = query.eq('batch_id', latestBatch.batch_id);
+      } else {
+        // Legacy fallback: no batch-tracked data yet, use is_new=false
+        query = query.eq('is_new', false);
+      }
     }
 
     let { data: assignments } = await query;
@@ -1631,7 +1661,7 @@ export const getMyProgress = async (req, res) => {
   try {
     const { data } = await supabase
       .from('fro_live_status')
-      .select('current_donor_id')
+      .select('current_donor_id, data_tab, current_batch_id')
       .eq('worker_id', req.user.id)
       .maybeSingle();
     return res.json(data || {});
@@ -1643,9 +1673,11 @@ export const getMyProgress = async (req, res) => {
 export const saveMyProgress = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { donor_id } = req.body;
+    const { donor_id, data_tab, current_batch_id } = req.body;
     const payload = {
       current_donor_id: donor_id || null,
+      data_tab: data_tab || 'new',
+      current_batch_id: current_batch_id || null,
       updated_at: new Date().toISOString(),
     };
     const { data: existing } = await supabase

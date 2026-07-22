@@ -1393,6 +1393,52 @@
 .panel-fro .ss-remove:hover { background:rgba(0,0,0,.7); }
 .panel-fro #ss-input { display:none; }
 
+/* ── My Leads: Tab Segmented Control ── */
+.panel-fro .fro-tab-segment { display:flex; gap:0; margin-bottom:8px; border-radius:8px; overflow:hidden; border:1px solid var(--line); background:#f3f4f6; }
+.panel-fro .fro-tab-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:4px; padding:6px 10px; border:none; border-radius:0; font-size:11px; font-weight:600; font-family:inherit; cursor:pointer; background:transparent; color:var(--ink-soft); transition:all .15s; }
+.panel-fro .fro-tab-btn:hover { background:rgba(0,0,0,.04); }
+.panel-fro .fro-tab-btn.fro-tab-active-new { background:#2563eb; color:#fff; }
+.panel-fro .fro-tab-btn.fro-tab-active-old { background:#7c3aed; color:#fff; }
+.panel-fro .fro-tab-count { font-size:10px; font-weight:700; padding:1px 6px; border-radius:10px; margin-left:2px; }
+.panel-fro .fro-tab-active-new .fro-tab-count { background:rgba(255,255,255,.25); color:#fff; }
+.panel-fro .fro-tab-active-old .fro-tab-count { background:rgba(255,255,255,.25); color:#fff; }
+
+/* ── My Leads: Donor Position Badge ── */
+.panel-fro .fro-donor-position { font-size:9px; color:var(--ink-soft); font-weight:600; margin-top:2px; }
+
+/* ── My Leads: Action Bar ── */
+.panel-fro .fro-action-bar { display:flex; align-items:center; gap:10px; padding:10px 0 0; flex-shrink:0; }
+.panel-fro .fro-action-bar .btn-prev { padding:7px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:11px; font-weight:700; font-family:inherit; cursor:pointer; color:var(--ink); display:flex; align-items:center; gap:3px; transition:all .12s; }
+.panel-fro .fro-action-bar .btn-prev:hover { border-color:var(--sage); color:var(--sage); }
+.panel-fro .fro-action-bar .btn-prev:disabled { opacity:.4; cursor:not-allowed; }
+.panel-fro .fro-action-bar .btn-next { padding:7px 18px; border:none; border-radius:8px; background:var(--sage); color:#fff; font-size:11px; font-weight:700; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:3px; transition:all .12s; }
+.panel-fro .fro-action-bar .btn-next:hover { opacity:.85; }
+.panel-fro .fro-action-bar .btn-next:disabled { opacity:.4; cursor:not-allowed; }
+
+/* ── My Leads: Progress Info ── */
+.panel-fro .fro-progress-info { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; margin-right:auto; }
+.panel-fro .fro-progress-label { font-size:10px; color:var(--ink-soft); font-weight:600; }
+.panel-fro .fro-progress { width:100%; height:4px; background:#e5e7eb; border-radius:999px; overflow:hidden; }
+.panel-fro .fro-progress-fill { height:100%; background:var(--sage); border-radius:999px; transition:width .3s ease; }
+
+/* ── My Leads: Call / End Call Buttons ── */
+.panel-fro .fro-btn-call { padding:7px 14px; border:none; border-radius:8px; background:#16a34a; color:#fff; font-size:11px; font-weight:700; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:4px; white-space:nowrap; transition:all .12s; }
+.panel-fro .fro-btn-call:hover { background:#15803d; }
+.panel-fro .fro-btn-end-call { padding:7px 14px; border:1px solid #dc2626; border-radius:8px; background:#fef2f2; color:#dc2626; font-size:11px; font-weight:700; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:6px; white-space:nowrap; transition:all .12s; }
+.panel-fro .fro-btn-end-call:hover { background:#fee2e2; }
+.panel-fro .fro-pulse-dot { width:7px; height:7px; border-radius:50%; background:#dc2626; animation:fro-pulse 1s ease-in-out infinite; display:inline-block; flex-shrink:0; }
+@keyframes fro-pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.4; transform:scale(.7); } }
+
+/* ── My Leads: Empty State ── */
+.panel-fro .fro-empty-state { align-items:center; padding:48px 20px; }
+.panel-fro .fro-empty-icon { width:64px; height:64px; border-radius:50%; background:var(--sage, #5B6B4E)12; display:flex; align-items:center; justify-content:center; margin-bottom:12px; }
+.panel-fro .fro-empty-switch { margin-top:12px; padding:6px 14px; border:1px solid var(--sage); border-radius:6px; background:transparent; color:var(--sage); font-size:10px; font-weight:700; font-family:inherit; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all .12s; }
+.panel-fro .fro-empty-switch:hover { background:var(--sage); color:#fff; }
+
+/* ── My Leads: Message Auto-dismiss ── */
+.panel-fro .detail-message { animation:fro-msg-in .2s ease; }
+@keyframes fro-msg-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+
 /* Bento grid */
 .panel-fro .bento-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:10px; flex:1; align-content:start; }
 .panel-fro .bento-grid:only-child { min-height:0; }

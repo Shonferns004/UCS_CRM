@@ -1615,6 +1615,7 @@ export const distributeNewData = async (req, res) => {
 
     for (const { ngoId, ngoName } of ngoEntries) {
       try {
+      const batchId = crypto.randomUUID();
       console.log(`[${ngoName}] === Processing NGO: ${ngoName} (id=${ngoId}) ===`);
       // Step 1: Create donor_profiles from new_data
       const { data: importedRows, error: irErr } = await supabase
@@ -1779,6 +1780,8 @@ export const distributeNewData = async (req, res) => {
           station: station,
           status: 'pending',
           assigned_at: new Date().toISOString(),
+          batch_id: batchId,
+          batch_type: 'new_data',
         });
       }
 
@@ -3238,6 +3241,7 @@ export const uploadOldData = async (req, res) => {
     })).filter(r => r.mobile && r.station);
 
     const validStations = new Set(STATION_NAMES);
+    const batchId = crypto.randomUUID();
     let createdProfiles = 0;
     let createdAssignments = 0;
     let skippedDuplicate = 0;
@@ -3304,6 +3308,8 @@ export const uploadOldData = async (req, res) => {
             station: row.station,
             status: 'pending',
             assigned_at: new Date().toISOString(),
+            batch_id: batchId,
+            batch_type: 'old_data',
           }]);
         if (asgnErr) {
           errors.push(`Failed to create assignment for ${row.mobile} in ${ngoName}: ${asgnErr.message}`);
@@ -3409,6 +3415,7 @@ export const uploadOldDataForStation = async (req, res) => {
     let skippedDuplicate = 0;
     const errors = [];
     const now = new Date().toISOString();
+    const batchId = crypto.randomUUID();
 
     // Batch 1: Get existing profiles by mobile
     const mobiles = normalizedRows.map(r => r.mobile);
@@ -3481,7 +3488,7 @@ export const uploadOldDataForStation = async (req, res) => {
           skippedDuplicate++;
           continue;
         }
-        assignmentsToInsert.push({ donor_id: did, fro_worker_id: stationAssignMap[ngoId], ngo_id: ngoId, station, status: 'pending', assigned_at: now });
+        assignmentsToInsert.push({ donor_id: did, fro_worker_id: stationAssignMap[ngoId], ngo_id: ngoId, station, status: 'pending', assigned_at: now, batch_id: batchId, batch_type: 'old_data' });
       }
     }
     if (assignmentsToInsert.length > 0) {
