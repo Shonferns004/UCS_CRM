@@ -77,7 +77,8 @@ export async function sendMessage(conversationId, contactId, messageText, userId
 
   const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at)
   const isMedia = !!mediaUrl
-  const msgType = isMedia ? (mediaType || 'image') : 'text'
+  const mime = mediaType || ''
+  const msgType = isMedia ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text'
 
   const isMulti = messageText === '__MULTI__'
   let extraFiles = null

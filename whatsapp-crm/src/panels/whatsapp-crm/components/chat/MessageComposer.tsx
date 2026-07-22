@@ -26,43 +26,61 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
 
     try {
       if (selectedFiles.length > 0) {
-        const uploaded: { url: string; type: string; name: string }[] = [];
+        const msgFile = selectedFiles[0];
+        const rest = selectedFiles.slice(1);
+
+        // Upload first file to Supabase Storage for permanent record
         const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
-        for (const file of selectedFiles) {
-          const fd = new FormData();
-          fd.append('file', file);
-          try {
-            const res = await fetch(apiUrl + '/upload', { method: 'POST', body: fd });
-            if (res.ok) {
-              const data = await res.json();
-              uploaded.push({ url: data.url, type: data.type || file.type, name: data.name || file.name });
-            }
-          } catch (e) { console.error('Upload error', e); }
+        let supabaseUrl = '';
+        const fd = new FormData();
+        fd.append('file', msgFile);
+        try {
+          const res = await fetch(apiUrl + '/upload', { method: 'POST', body: fd });
+          if (res.ok) { const d = await res.json(); supabaseUrl = d.url; }
+        } catch (e) { console.error('Upload error', e); }
+
+        // Send via Meta API (creates DB record + delivers to WhatsApp)
+        const sent = await sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, msgFile, userId);
+
+        // Update the sent message with Supabase Storage URL
+        if (supabaseUrl) {
+          const { data: latest } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'outbound')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (latest) {
+            await supabase.from('messages').update({ media_url: supabaseUrl }).eq('id', latest.id);
+          }
         }
 
-        if (uploaded.length > 0) {
-          const first = uploaded[0];
-          const rest = uploaded.slice(1);
-          const msgType = first.type.startsWith('image/') ? 'image' : first.type.startsWith('video/') ? 'video' : first.type.startsWith('audio/') ? 'audio' : 'document';
-
-          await supabase.from('messages').insert({
-            tenant_id: tenantId,
-            conversation_id: conversationId,
-            contact_id: contactId,
-            user_id: userId,
-            direction: 'outbound',
-            message_type: msgType,
-            body_text: text.trim() || null,
-            media_url: first.url,
-            media_mime_type: first.type,
-            template_params: rest.length > 0 ? rest : null,
-            status: 'queued',
-            message_category: 'service',
-          });
-
-          await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
-          const msgFile = selectedFiles[0];
-          sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, msgFile, userId);
+        // Store additional files as template_params
+        if (rest.length > 0) {
+          const extraUrls: { url: string; type: string; name: string }[] = [];
+          for (const file of rest) {
+            const fdr = new FormData();
+            fdr.append('file', file);
+            try {
+              const r = await fetch(apiUrl + '/upload', { method: 'POST', body: fdr });
+              if (r.ok) { const d = await r.json(); extraUrls.push({ url: d.url, type: d.type || file.type, name: d.name || file.name }); }
+            } catch (e) { console.error('Extra upload error', e); }
+          }
+          if (extraUrls.length > 0) {
+            const { data: latest } = await supabase
+              .from('messages')
+              .select('id')
+              .eq('conversation_id', conversationId)
+              .eq('direction', 'outbound')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (latest) {
+              await supabase.from('messages').update({ template_params: extraUrls }).eq('id', latest.id);
+            }
+          }
         }
       } else if (text.trim()) {
         const { data: msg, error: insertErr } = await supabase.from('messages').insert({
