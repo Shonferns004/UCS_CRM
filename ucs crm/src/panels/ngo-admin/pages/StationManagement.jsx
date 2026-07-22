@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
 import * as XLSX from 'xlsx';
@@ -227,6 +227,73 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
   );
 }
 
+function SearchableSelect({ options, value, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) { setSearch(''); return; }
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const filtered = options.filter(w =>
+    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const selected = options.find(w => w.id === value);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', maxWidth: 200 }}>
+      <div onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 13, cursor: 'pointer', background: '#fff', minHeight: 26 }}>
+        <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.name : (placeholder || '-- Select --')}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, marginTop: 2, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search FRO..."
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent' }}
+              autoFocus />
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            <div onClick={() => { onChange(''); setOpen(false); }}
+              style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: '#9ca3af', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+              -- No FRO --
+            </div>
+            {filtered.map(w => (
+              <div key={w.id} onClick={() => { onChange(w.id); setOpen(false); }}
+                style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', gap: 6 }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+                onMouseLeave={e => e.currentTarget.style.background = w.id === value ? '#f0fdf4' : 'transparent'}>
+                <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#4338ca', flexShrink: 0 }}>
+                  {(w.name || '?')[0]}
+                </div>
+                <span style={{ flex: 1 }}>{w.name}</span>
+                {w.login_id && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{w.login_id}</span>}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>No FROs match</div>
+            )}
+          </div>
+          <div style={{ padding: '4px 8px', borderTop: '1px solid var(--line, #e5e7eb)', fontSize: 10, color: 'var(--ink-soft)', textAlign: 'right' }}>
+            {filtered.length} / {options.length}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const NGO_TABS = ['BSCT', 'AFLF', 'MANN'];
 
 export default function StationManagement() {
@@ -256,7 +323,6 @@ export default function StationManagement() {
   });
   const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [uploadStation, setUploadStation] = useState(null);
-  const [froSearch, setFroSearch] = useState('');
 
   useEffect(() => {
     if (!msg) return;
@@ -342,9 +408,6 @@ export default function StationManagement() {
 
   const activeTransfers = transfers.filter(t => !t.returned);
   const historyTransfers = transfers.filter(t => t.returned);
-  const filteredFroWorkers = froWorkers.filter(w =>
-    !froSearch || w.name?.toLowerCase().includes(froSearch.toLowerCase()) || w.login_id?.toLowerCase().includes(froSearch.toLowerCase())
-  );
 
   const handleAddStation = async () => {
     if (!newStation.trim()) return;
@@ -493,18 +556,8 @@ export default function StationManagement() {
               );
             })}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 18px', borderTop: '1px solid var(--line)' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" value={froSearch} onChange={e => setFroSearch(e.target.value)}
-              placeholder="Search FRO worker..."
-              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 12, fontFamily: 'inherit', background: 'transparent', padding: '4px 0' }} />
-            {froSearch && (
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)', cursor: 'pointer' }} onClick={() => setFroSearch('')}>✕</span>
-            )}
-            <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{filteredFroWorkers.length} / {froWorkers.length} FROs</span>
-          </div>
         </div>
-        <div className="card-pad" style={{ paddingTop: 0 }}>
+        <div className="card-pad">
           {loading ? (
             <div className="loading">Loading stations...</div>
           ) : stations.length === 0 ? (
@@ -545,16 +598,12 @@ export default function StationManagement() {
                       </span>
                     </td>
                     <td>
-                      <select
+                      <SearchableSelect
+                        options={froWorkers}
                         value={s.fro_worker_id || ''}
-                        onChange={e => handleFroChange(s.station, e.target.value)}
-                        style={{ fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', maxWidth: 200 }}
-                      >
-                        <option value="">-- No FRO --</option>
-                        {filteredFroWorkers.map(w => (
-                          <option key={w.id} value={w.id}>{w.name}</option>
-                        ))}
-                      </select>
+                        onChange={(val) => handleFroChange(s.station, val)}
+                        placeholder="-- Select FRO --"
+                      />
                     </td>
                     <td>
                       <span className="pill pill-blue">{s.donor_count}</span>
