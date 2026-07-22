@@ -267,30 +267,35 @@ app.post('/api/whatsapp/send-file', uploadApi.single('file'), async (req, res) =
     }
 
     let metaDelivered = false;
-    if (mimeType === 'audio') {
-      try {
+    try {
+      const metaFileId = await (async () => {
         const form = new FormData();
         form.append('messaging_product', 'whatsapp');
-        form.append('file', new Blob([file.buffer], { type: file.mimetype }), `audio.${ext}`);
+        form.append('file', new Blob([file.buffer], { type: file.mimetype }), `media.${ext}`);
         form.append('type', file.mimetype);
-        const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
+        const r = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
           method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
         });
-        const upData = await upRes.json();
-        if (upRes.ok && upData.id) {
-          const sendRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messaging_product: 'whatsapp', to: toPhone.replace(/[^0-9]/g, ''), type: 'audio', audio: { id: upData.id } }),
-          });
-          const sendData = await sendRes.json();
-          if (sendRes.ok && sendData.messages?.[0]?.id) {
-            await supabase.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', messageId);
-            metaDelivered = true;
-          }
+        const d = await r.json();
+        return r.ok ? d.id : null;
+      })();
+      if (metaFileId) {
+        const payload = {
+          messaging_product: 'whatsapp',
+          to: toPhone.replace(/[^0-9]/g, ''),
+          type: mimeType,
+          [mimeType]: mimeType === 'document' ? { id: metaFileId, caption: '' } : { id: metaFileId },
+        };
+        const sR = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
+          method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+        const sD = await sR.json();
+        if (sR.ok && sD.messages?.[0]?.id) {
+          await supabase.from('messages').update({ status: 'sent', wa_message_id: sD.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', messageId);
+          metaDelivered = true;
         }
-      } catch (e) { console.error('Audio send error:', e); }
-    }
+      }
+    } catch (e) { console.error('Meta send error:', e); }
 
     if (!metaDelivered) {
       await supabase.from('messages').update({ status: 'sent', status_updated_at: new Date().toISOString() }).eq('id', messageId);
