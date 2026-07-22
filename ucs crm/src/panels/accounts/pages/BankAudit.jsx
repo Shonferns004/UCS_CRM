@@ -6,7 +6,7 @@ const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 
 function Sk({h=14,w='100%'}){return <div style={{height:h,width:typeof w==='number'?w:w,borderRadius:6,background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}}/>}
-function SkStat(){return <div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',borderLeft:'3px solid #e5e7eb'}}><Sk h={20} w="60%"/><div style={{height:4}}/><Sk h={12} w="40%"/></div>}
+function SkStat(){return <div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}><div className="sk" style={{width:40,height:40,borderRadius:10,flexShrink:0}}/><div><Sk h={20} w={100}/><div style={{height:4}}/><Sk h={12} w={60}/></div></div>}
 function SkTbl({r=4,c=7}){return <div className="card"><div className="card-pad"><table className="table-wrap" style={{width:'100%',fontSize:13}}><thead><tr>{Array.from({length:c},(_,j)=><th key={j}><Sk h={12} w={j===1?160:60}/></th>)}</tr></thead><tbody>{Array.from({length:r},(_,i)=><tr key={i}>{Array.from({length:c},(_,j)=><td key={j}><Sk h={12} w={j===1?180:70}/></td>)}</tr>)}</tbody></table></div></div>}
 
 function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18px',fontSize:13,fontWeight:a?700:500,border:'none',background:a?'#fff':'transparent',cursor:'pointer',color:a?'var(--sage)':'#6b7280',borderBottom:a?'2px solid var(--sage)':'2px solid transparent',marginBottom:-2,display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',transition:'all .15s'}}>{ic}{ch}</button>}
@@ -257,15 +257,17 @@ export default function BankAudit(){
 
   return <div>
     {/* Stats */}
-    {mt==='entries'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12,marginBottom:16}}>
-      {ld?Array.from({length:4},(_,i)=><SkStat key={i}/>):sr.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',borderLeft:`3px solid ${C[i%C.length]}`,display:'flex',flexDirection:'column',gap:2}}>
-        <div style={{fontSize:20,fontWeight:800,color:C[i%C.length],lineHeight:1.2}}>{curr(su[s.name]||0)}</div>
-        <div style={{fontSize:12,color:'#6b7280',fontWeight:500}}>{s.name}</div>
+    {mt==='entries'&&<div className="stats-grid" style={{marginBottom:16}}>
+      {ld?Array.from({length:Math.max(sr.length||4,4)},(_,i)=><SkStat key={i}/>):sr.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
+        <div style={{width:40,height:40,borderRadius:10,background:C[i%C.length]+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C[i%C.length]} strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        </div>
+        <div><div style={{fontSize:20,fontWeight:700,color:C[i%C.length],lineHeight:1.2}}>{curr(su[s.name]||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>{s.name}</div></div>
       </div>)}
     </div>}
 
     {/* Tab bar */}
-    <div className="card" style={{marginBottom:16,padding:0,borderRadius:10,overflow:'hidden'}}>
+    <div style={{marginBottom:16,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',background:'#fff'}}>
       <div style={{display:'flex',background:'#f9fafb',borderBottom:'1px solid #e5e7eb'}}>
         {[
           {k:'entries',l:'Entries',ic:<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v12"/><path d="M9 9h5a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2H9"/></svg>},
