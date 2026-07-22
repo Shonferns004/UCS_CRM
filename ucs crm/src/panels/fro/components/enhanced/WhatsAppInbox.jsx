@@ -88,20 +88,28 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     for (const f of fileArr) {
       const r = await uploadMedia(waUser.id, f)
       if (r?.file_url) {
-        try {
-          await fetch(baseUrl + '/whatsapp/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              conversationId: activeConv.id,
-              contactId: activeConv.contact_id,
-              mediaUrl: r.file_url,
-              mediaMimeType: f.type,
-              userId: waUser.id,
-              phoneNumber,
-            }),
-          })
-        } catch (e) { console.error('Backend send failed', e) }
+        let sent = false
+        if (phoneNumber) {
+          try {
+            const res = await fetch(baseUrl + '/whatsapp/send', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                conversationId: activeConv.id,
+                contactId: activeConv.contact_id,
+                mediaUrl: r.file_url,
+                mediaMimeType: f.type,
+                userId: waUser.id,
+                phoneNumber,
+              }),
+            })
+            const data = await res.json()
+            if (data.success) sent = true
+          } catch (e) { console.error('Backend send error:', e) }
+        }
+        // Fallback: direct send via Supabase
+        if (!sent) {
+          await sendMsgApi(activeConv.id, activeConv.contact_id, '', waUser.id, r.file_url, f.type, f)
+        }
         await new Promise(r => setTimeout(r, 200))
       }
     }
