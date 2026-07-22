@@ -516,7 +516,7 @@ export const getMyDonors = async (req, res) => {
     for (const a of assignments || []) {
       const d = donorMap[a.donor_id];
       if (!d) continue;
-      const key = `${a.donor_id}-${a.ngo_id}`;
+      const key = `${a.donor_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const s = scheduleMap[a.id];
@@ -701,7 +701,7 @@ export const getTransferredLeads = async (req, res) => {
     for (const a of assignments || []) {
       const d = donorMap[a.donor_id];
       if (!d) continue;
-      const key = `${a.donor_id}-${a.ngo_id}`;
+      const key = `${a.donor_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const s = scheduleMap[a.id];
