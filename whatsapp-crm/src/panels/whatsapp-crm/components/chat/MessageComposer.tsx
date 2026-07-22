@@ -28,7 +28,6 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
       if (selectedFiles.length > 0) {
         const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
         for (const file of selectedFiles) {
-          // Upload to Supabase Storage for permanent record
           const fd = new FormData();
           fd.append('file', file);
           let supabaseUrl = '';
@@ -37,22 +36,25 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
             if (res.ok) { const d = await res.json(); supabaseUrl = d.url; }
           } catch (e) { console.error('Upload error', e); }
 
-          // Send via Meta API (creates DB record + delivers to WhatsApp)
-          const sent = await sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, file, userId);
+          // Insert message immediately so it shows in chat
+          const mimeType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document';
+          const { data: msg } = await supabase.from('messages').insert({
+            tenant_id: tenantId,
+            conversation_id: conversationId,
+            contact_id: contactId,
+            user_id: userId,
+            direction: 'outbound',
+            message_type: mimeType,
+            body_text: text.trim() || null,
+            media_url: supabaseUrl || null,
+            media_mime_type: file.type,
+            status: 'queued',
+            message_category: 'service',
+          }).select('id').maybeSingle();
 
-          // Update the sent message with Supabase Storage URL
-          if (supabaseUrl) {
-            const { data: latest } = await supabase
-              .from('messages')
-              .select('id')
-              .eq('conversation_id', conversationId)
-              .eq('direction', 'outbound')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (latest) {
-              await supabase.from('messages').update({ media_url: supabaseUrl }).eq('id', latest.id);
-            }
+          // Fire-and-forget Meta delivery
+          if (msg?.id) {
+            sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, file, userId, msg.id);
           }
         }
       } else if (text.trim()) {
@@ -69,7 +71,6 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         }).select('id').single();
 
         if (insertErr) throw insertErr;
-        await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
         sendWhatsAppMessage(conversationId, contactId || '', text.trim(), undefined, userId, msg?.id);
       }
 
