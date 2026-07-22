@@ -1669,7 +1669,7 @@ export const getMyProgress = async (req, res) => {
   try {
     const { data } = await supabase
       .from('fro_live_status')
-      .select('current_donor_id, data_tab, current_batch_id')
+      .select('new_donor_id, old_donor_id, data_tab, current_batch_id')
       .eq('worker_id', req.user.id)
       .maybeSingle();
     return res.json(data || {});
@@ -1681,13 +1681,16 @@ export const getMyProgress = async (req, res) => {
 export const saveMyProgress = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { donor_id, data_tab, current_batch_id } = req.body;
+    const { new_donor_id, old_donor_id, data_tab, current_batch_id } = req.body;
+    const tab = data_tab || 'new';
     const payload = {
-      current_donor_id: donor_id || null,
-      data_tab: data_tab || 'new',
+      data_tab: tab,
       current_batch_id: current_batch_id || null,
       updated_at: new Date().toISOString(),
     };
+    if (tab === 'new') payload.new_donor_id = new_donor_id || null;
+    else payload.old_donor_id = old_donor_id || null;
+
     const { data: existing } = await supabase
       .from('fro_live_status')
       .select('id')

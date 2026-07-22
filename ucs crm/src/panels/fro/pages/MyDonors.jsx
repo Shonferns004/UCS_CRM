@@ -128,8 +128,9 @@ export default function MyDonors() {
         let restored = false;
         try {
           const progress = await api('/fro/progress', { _prefix: 'ucs' });
-          if (progress?.current_donor_id) {
-            const found = r.findIndex(d => d.id === progress.current_donor_id);
+          const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
+          if (savedId) {
+            const found = r.findIndex(d => d.id === savedId);
             if (found >= 0) { setIndex(found); restored = true; }
           }
         } catch {}
@@ -201,14 +202,16 @@ export default function MyDonors() {
 
   useRealtime('fro_assignments', { event: 'INSERT', onInsert: () => debouncedReload() });
 
+  const saveProgress = useCallback((tab, donorId) => {
+    if (!donorId) return;
+    const body = { data_tab: tab };
+    if (tab === 'new') body.new_donor_id = donorId;
+    else body.old_donor_id = donorId;
+    api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch(() => {});
+  }, []);
+
   const switchTab = (tab) => {
-    if (donor) {
-      api('/fro/progress', {
-        method: 'PUT',
-        body: JSON.stringify({ donor_id: donor.id, data_tab: dataTab }),
-        _prefix: 'ucs'
-      }).catch(() => {});
-    }
+    if (donor) saveProgress(dataTab, donor.id);
     setDataTab(tab);
     setIndex(0);
     setSelected(null);
@@ -223,13 +226,7 @@ export default function MyDonors() {
 
   useEffect(() => {
     return () => {
-      if (donor) {
-        api('/fro/progress', {
-          method: 'PUT',
-          body: JSON.stringify({ donor_id: donor.id, data_tab: dataTab }),
-          _prefix: 'ucs'
-        }).catch(() => {});
-      }
+      if (donor) saveProgress(dataTab, donor.id);
     };
   }, [donor?.id, dataTab]);
   const logs = detail?.logs || [];
@@ -389,9 +386,7 @@ export default function MyDonors() {
         const nextIdx = index < donors.length - 1 ? index + 1 : 0;
         setIndex(nextIdx);
         const nextDonor = donors[nextIdx];
-        if (nextDonor) {
-          api('/fro/progress', { method: 'PUT', body: JSON.stringify({ donor_id: nextDonor.id, data_tab: dataTab }), _prefix: 'ucs' }).catch(() => {});
-        }
+        if (nextDonor) saveProgress(dataTab, nextDonor.id);
       }
       setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
     } catch (err) {
@@ -467,7 +462,7 @@ export default function MyDonors() {
       setReturnToDonor(null);
       return;
     }
-    if (index < donors.length - 1) { setIndex(i => i + 1); const nextDonor = donors[index + 1]; if (nextDonor) { api('/fro/progress', { method: 'PUT', body: JSON.stringify({ donor_id: nextDonor.id, data_tab: dataTab }), _prefix: 'ucs' }).catch(() => {}); } return; }
+    if (index < donors.length - 1) { setIndex(i => i + 1); const nextDonor = donors[index + 1]; if (nextDonor) saveProgress(dataTab, nextDonor.id); return; }
     setMessage({ type: 'error', text: 'No more donors' });
   };
 
