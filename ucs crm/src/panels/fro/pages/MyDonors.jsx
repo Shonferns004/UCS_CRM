@@ -111,8 +111,6 @@ export default function MyDonors() {
   const [showWalkthrough, setShowWalkthrough] = useState(() => !localStorage.getItem('fro_walkthrough_seen'));
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const searchRef = useRef(null);
-  const lastSavedDonorRef = useRef(null);
-  const lastProgressCallRef = useRef(0);
   const debounceReloadRef = useRef(null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
@@ -215,13 +213,6 @@ export default function MyDonors() {
   useEffect(() => {
     if (!donor) return;
     localStorage.setItem('mydonors_current_donor', JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
-    const key = `${donor.id}_${donor.ngo_id}`;
-    if (lastSavedDonorRef.current === key) return;
-    lastSavedDonorRef.current = key;
-    const now = Date.now();
-    if (now - lastProgressCallRef.current < 1000) return;
-    lastProgressCallRef.current = now;
-    api('/fro/progress', { method: 'PUT', body: JSON.stringify({ donor_id: donor.id, data_tab: dataTab }), _prefix: 'ucs' }).catch(() => {});
   }, [donor?.id, donor?.ngo_id, index]);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
