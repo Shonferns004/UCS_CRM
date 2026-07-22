@@ -46,7 +46,19 @@ export const uploadImport = async (req, res) => {
       }
     }
 
-    const { deduped, duplicatesRemoved } = dedupRows(extracted);
+    // Only keep rows with exactly 10-digit mobile numbers
+    const beforeFilter = extracted.length;
+    const validRows = extracted.filter(r => {
+      const clean = String(r.mobile_number || '').replace(/\D/g, '');
+      r.mobile_number = clean;
+      return clean.length === 10;
+    });
+    const invalidMobileCount = beforeFilter - validRows.length;
+    if (validRows.length === 0) {
+      return res.status(400).json({ message: 'No valid 10-digit mobile numbers found in file' });
+    }
+
+    const { deduped, duplicatesRemoved } = dedupRows(validRows);
 
     // Cross-batch dedup: remove mobiles already existing in any previous import
     const existingMobiles = await getAllExistingMobiles();
@@ -155,6 +167,7 @@ export const uploadImport = async (req, res) => {
         : 'Data imported and replicated to all active NGOs successfully',
       batch_id: importBatchId,
       total_in_file: extracted.length,
+      invalid_mobile_count: invalidMobileCount,
       duplicates_removed: duplicatesRemoved,
       cross_batch_duplicates: crossBatchDups,
       imported: totalInserted,
@@ -177,6 +190,18 @@ export const uploadChunk = async (req, res) => {
       return res.status(400).json({ message: 'rows, data_source_id, and import_date are required' });
     }
 
+    // Only keep rows with exactly 10-digit mobile numbers
+    const beforeFilter = rows.length;
+    const validRows = rows.filter(r => {
+      const clean = String(r.mobile_number || '').replace(/\D/g, '');
+      r.mobile_number = clean;
+      return clean.length === 10;
+    });
+    const invalidMobileCount = beforeFilter - validRows.length;
+    if (validRows.length === 0) {
+      return res.json({ inserted: 0, invalid_mobile_count: invalidMobileCount, message: 'No valid 10-digit mobile numbers in chunk' });
+    }
+
     // Get selected NGOs
     const { data: allNgos } = await supabase.from('ngos').select('id, name').eq('is_active', true);
     let selectedNgos = allNgos || [];
@@ -188,7 +213,7 @@ export const uploadChunk = async (req, res) => {
     const ngoNames = selectedNgos.length > 0 ? selectedNgos.map(n => n.name) : ['Default'];
 
     const dbRows = [];
-    for (const r of rows) {
+    for (const r of validRows) {
       for (const ngo of ngoNames) {
         dbRows.push({
           data_source_id,
@@ -232,6 +257,7 @@ export const uploadChunk = async (req, res) => {
 
     return res.json({
       inserted,
+      invalid_mobile_count: invalidMobileCount,
       batch_id: importBatchId,
       chunk_index,
       total_chunks,
@@ -267,10 +293,22 @@ export const uploadOldDataImport = async (req, res) => {
       }
     }
 
+    // Only keep rows with exactly 10-digit mobile numbers
+    const beforeFilter = extracted.length;
+    const validRows = extracted.filter(r => {
+      const clean = String(r.mobile_number || '').replace(/\D/g, '');
+      r.mobile_number = clean;
+      return clean.length === 10;
+    });
+    const invalidMobileCount = beforeFilter - validRows.length;
+    if (validRows.length === 0) {
+      return res.status(400).json({ message: 'No valid 10-digit mobile numbers found in file' });
+    }
+
     // Cross-batch dedup
     const existingMobiles = await getAllExistingMobiles();
-    const trulyNew = extracted.filter(r => !existingMobiles.has(r.mobile_number));
-    const crossBatchDups = extracted.length - trulyNew.length;
+    const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
+    const crossBatchDups = validRows.length - trulyNew.length;
 
     const { data: ngos, error: nErr } = await supabase
       .from('ngos')
@@ -398,6 +436,7 @@ export const uploadOldDataImport = async (req, res) => {
       type: fullSheet ? 'full' : 'quick',
       batch_id: importBatchId,
       total_in_file: extracted.length,
+      invalid_mobile_count: invalidMobileCount,
       cross_batch_duplicates: crossBatchDups,
       valid_rows: trulyNew.length,
       imported: inserted.length,
