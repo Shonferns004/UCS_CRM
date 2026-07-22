@@ -81,9 +81,10 @@ export async function sendMessage(conversationId, contactId, messageText, userId
 
   const isMulti = messageText === '__MULTI__'
   let extraFiles = null
-  if (isMulti && mediaUrl && mediaUrl.includes(',')) {
-    const parts = mediaUrl.split(',')
-    mediaUrl = parts[0]
+  if (isMulti && mediaUrl) {
+    const parts = mediaUrl.includes(',') ? mediaUrl.split(',') : [mediaUrl]
+    const first = parts[0].split('|||')
+    mediaUrl = first[0]
     extraFiles = parts.slice(1).map(u => {
       const [url, type, name] = u.split('|||')
       return { url, type, name }
