@@ -189,22 +189,33 @@ function MessageBubble({
           <p className="whitespace-pre-wrap break-words text-[#111b21]">{message.body_text}</p>
         )}
         {message.media_url ? (
-          <div className={`relative ${showBody ? 'mt-1' : ''}`}>
-            {message.message_type === 'image' ? (
-              <img src={message.media_url} alt="" className="max-w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => onMediaClick(message.media_url!, message.media_mime_type, message.message_type)} />
-            ) : message.message_type === 'video' ? (
-              <video src={message.media_url} controls className="max-w-full max-h-60 rounded-lg" />
-            ) : message.message_type === 'audio' ? (
-              <div className="rounded-lg bg-[#f0fdf4] border border-[#bbf7d0] p-2 min-w-[220px]">
-                <div className="text-xs font-semibold text-[#16a34a] mb-1">🎵 Audio</div>
-                <audio src={message.media_url} controls className="w-full h-10" />
-              </div>
-            ) : (
-              <a href={message.media_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-lg bg-[#f0fdf4] p-2 text-sm text-[#16a34a] font-medium">
-                <span>📄</span>
-                <span className="truncate">{message.body_text || message.media_url.split('/').pop()}</span>
-              </a>
-            )}
+          <div className={`flex flex-wrap gap-1 ${showBody ? 'mt-1' : ''}`}>
+            {[message, ...((message as any).template_params || [])].map((m: any, i: number) => {
+              const url = m.media_url || m.url;
+              const mime = m.media_mime_type || m.mimeType;
+              const mType = m.message_type || m.messageType || message.message_type;
+              const name = m.body_text || m.name || '';
+              if (!url) return null;
+              return (
+                <div key={i} className={i > 0 ? 'w-[calc(50%-2px)]' : 'w-full'}>
+                  {mType === 'image' ? (
+                    <img src={url} alt="" className="w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => onMediaClick(url, mime, mType)} />
+                  ) : mType === 'video' ? (
+                    <video src={url} controls className="w-full max-h-60 rounded-lg" />
+                  ) : mType === 'audio' ? (
+                    <div className="rounded-lg bg-[#f0fdf4] border border-[#bbf7d0] p-2 min-w-[220px]">
+                      <div className="text-xs font-semibold text-[#16a34a] mb-1">🎵 Audio</div>
+                      <audio src={url} controls className="w-full h-10" />
+                    </div>
+                  ) : (
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-lg bg-[#f0fdf4] p-2 text-sm text-[#16a34a] font-medium">
+                      <span>📄</span>
+                      <span className="truncate">{name || url.split('/').pop()}</span>
+                    </a>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : message.media_id ? (
           <div className={`relative ${showBody ? 'mt-1' : ''} cursor-pointer`} onClick={() => onMediaClick(message.media_id!, message.media_mime_type)}>

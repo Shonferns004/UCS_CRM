@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Mic } from 'lucide-react';
 import { sendWhatsAppMessage } from '../../lib/whatsapp';
 import { MediaUploadPreview } from './MediaPreview';
+import { AudioRecorder } from './AudioRecorder';
 
 interface MessageComposerProps {
   conversationId: string;
@@ -16,6 +17,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [showRecorder, setShowRecorder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = async () => {
@@ -23,31 +25,56 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
     setSending(true);
 
     try {
-      const filesToSend = selectedFiles.length > 0 ? selectedFiles : [null as unknown as File];
+      if (selectedFiles.length > 0) {
+        const uploaded: { url: string; type: string; name: string }[] = [];
+        for (const file of selectedFiles) {
+          const ext = file.type.split('/')[1]?.split(';')[0] || 'bin';
+          const fileName = `composer_${userId}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+          const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(fileName, file, { contentType: file.type, upsert: true });
+          if (uploadErr) continue;
+          const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
+          if (urlData?.publicUrl) uploaded.push({ url: urlData.publicUrl, type: file.type, name: file.name });
+        }
 
-      for (const file of filesToSend) {
-        const msgType = file ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document') : 'text';
+        if (uploaded.length > 0) {
+          const first = uploaded[0];
+          const rest = uploaded.slice(1);
+          const msgType = first.type.startsWith('image/') ? 'image' : first.type.startsWith('video/') ? 'video' : first.type.startsWith('audio/') ? 'audio' : 'document';
+
+          await supabase.from('messages').insert({
+            tenant_id: tenantId,
+            conversation_id: conversationId,
+            contact_id: contactId,
+            user_id: userId,
+            direction: 'outbound',
+            message_type: msgType,
+            body_text: text.trim() || null,
+            media_url: first.url,
+            media_mime_type: first.type,
+            template_params: rest.length > 0 ? rest : null,
+            status: 'queued',
+            message_category: 'service',
+          });
+
+          await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
+          sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, null, userId);
+        }
+      } else if (text.trim()) {
         const { data: msg, error: insertErr } = await supabase.from('messages').insert({
           tenant_id: tenantId,
           conversation_id: conversationId,
           contact_id: contactId,
           user_id: userId,
           direction: 'outbound',
-          message_type: msgType,
-          body_text: text.trim() || null,
+          message_type: 'text',
+          body_text: text.trim(),
           status: 'queued',
           message_category: 'service',
         }).select('id').single();
 
         if (insertErr) throw insertErr;
-
         await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
-
-        if (file) {
-          sendWhatsAppMessage(conversationId, contactId || '', file.name || undefined, file, userId, msg?.id);
-        } else if (text.trim()) {
-          sendWhatsAppMessage(conversationId, contactId || '', text.trim(), undefined, userId, msg?.id);
-        }
+        sendWhatsAppMessage(conversationId, contactId || '', text.trim(), undefined, userId, msg?.id);
       }
 
       setText('');
@@ -59,6 +86,18 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
       setSending(false);
     }
   };
+
+  if (showRecorder) {
+    return (
+      <AudioRecorder
+        onSend={async (file) => {
+          setSelectedFiles(prev => [...prev, file]);
+          setShowRecorder(false);
+        }}
+        onClose={() => setShowRecorder(false)}
+      />
+    );
+  }
 
   return (
     <div className="bg-[#f0f2f5] px-4 py-2">
@@ -73,6 +112,9 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" onChange={(e) => { const files = Array.from(e.target.files || []); const valid = files.filter(f => { if (f.size > 16 * 1024 * 1024) { alert(`Max 16MB: ${f.name}`); return false; } return true; }); setSelectedFiles(prev => [...prev, ...valid]); e.target.value = ''; }} className="hidden" />
         <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending} className="shrink-0">
           <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#8696a0" strokeWidth="2"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+        </button>
+        <button type="button" onClick={() => setShowRecorder(true)} disabled={sending} className="shrink-0 text-red-500">
+          <Mic className="h-5 w-5" />
         </button>
         <div className="flex-1 relative">
           <input

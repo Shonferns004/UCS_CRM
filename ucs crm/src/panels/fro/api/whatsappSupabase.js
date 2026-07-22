@@ -79,6 +79,17 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   const isMedia = !!mediaUrl
   const msgType = isMedia ? (mediaType || 'image') : 'text'
 
+  const isMulti = messageText === '__MULTI__'
+  let extraFiles = null
+  if (isMulti && mediaUrl && mediaUrl.includes(',')) {
+    const parts = mediaUrl.split(',')
+    mediaUrl = parts[0]
+    extraFiles = parts.slice(1).map(u => {
+      const [url, type, name] = u.split('|||')
+      return { url, type, name }
+    })
+  }
+
   const { data: msg, error: msgErr } = await supabase
     .from('messages')
     .insert({
@@ -87,9 +98,10 @@ export async function sendMessage(conversationId, contactId, messageText, userId
       user_id: userId || null,
       direction: 'outbound',
       message_type: msgType,
-      body_text: isMedia ? '' : messageText,
+      body_text: isMedia && !isMulti ? '' : (isMulti ? '' : messageText),
       media_url: mediaUrl || null,
       media_mime_type: mediaFile?.type || null,
+      ...(extraFiles ? { template_params: extraFiles } : {}),
       status: 'queued',
     })
     .select()

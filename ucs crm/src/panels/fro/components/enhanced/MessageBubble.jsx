@@ -173,6 +173,8 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
   const isMediaType = MEDIA_TYPES.includes(message.message_type)
   const text = isMediaType ? '' : (message.body_text || message.body || '')
   const hasMedia = !!(message.media_url || message.media_id || isMediaType)
+  const extraMedias = message.template_params?.filter?.((p, i) => i > 0) || []
+  const allMedias = message.media_url ? [{ url: message.media_url, mimeType: message.media_mime_type, messageType: message.message_type, name: message.body_text || '' }, ...extraMedias] : []
 
   const bubbleStyle = {
     maxWidth: '75%',
@@ -199,11 +201,17 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
     >
       <div style={bubbleStyle}>
         {hasMedia && (
-          message.media_url
-            ? <MediaContent url={message.media_url} mimeType={message.media_mime_type} messageType={message.message_type} name={message.body_text || ''} onPreview={setPreview} />
-            : message.media_id
-              ? <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type || typeToMime(message.message_type)} />
-              : <MediaPlaceholder messageType={message.message_type} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {allMedias.length > 0 ? allMedias.map((m, i) => (
+              <div key={i} style={{ maxWidth: i === 0 && allMedias.length === 1 ? '100%' : 'calc(50% - 2px)' }}>
+                <MediaContent url={m.url || m.media_url} mimeType={m.mimeType || m.media_mime_type} messageType={m.messageType || m.message_type} name={m.name || ''} onPreview={setPreview} />
+              </div>
+            )) : message.media_id ? (
+              <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type || typeToMime(message.message_type)} />
+            ) : (
+              <MediaPlaceholder messageType={message.message_type} />
+            )}
+          </div>
         )}
         {text && (
           <div style={{ fontSize: 13, lineHeight: 1.45, color: '#111827', whiteSpace: 'pre-wrap', padding: hasMedia ? '2px 6px 0' : 0 }}>

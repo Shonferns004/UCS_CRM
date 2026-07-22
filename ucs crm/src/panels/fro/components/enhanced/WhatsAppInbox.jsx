@@ -79,14 +79,19 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser?.id, queryClient])
 
-  const handleSendMedia = useCallback(async (file) => {
+  const handleSendMedia = useCallback(async (files) => {
     if (!activeConv || !waUser) return
-    const uploadResult = await uploadMedia(waUser.id, file)
-    if (uploadResult?.file_url) {
-      await sendMsgApi(activeConv.id, activeConv.contact_id, file.name, waUser.id)
-      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    const fileArr = Array.isArray(files) ? files : [files]
+    const uploaded = []
+    for (const f of fileArr) {
+      const r = await uploadMedia(waUser.id, f)
+      if (r?.file_url) uploaded.push({ url: r.file_url, type: f.type, file: f })
     }
+    if (uploaded.length === 0) return
+    const combinedUrls = uploaded.map(u => `${u.url}|||${u.type}|||${u.file.name}`).join(',')
+    await sendMsgApi(activeConv.id, activeConv.contact_id, '__MULTI__', waUser.id, combinedUrls, uploaded[0].type, uploaded[0].file)
+    queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser, queryClient])
 
   const handleNewConv = useCallback(async () => {
