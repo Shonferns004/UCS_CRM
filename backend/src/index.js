@@ -130,6 +130,20 @@ app.use('/api/whatsapp/agents', bulkAgentImportRoutes);
 app.use('/api/whatsapp/agents', agentTransferRoutes);
 app.use('/api/fro/whatsapp', froWhatsAppRoutes);
 
+import multer from 'multer';
+const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+app.post('/api/upload', uploadApi.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No file' });
+  const ext = (req.file.mimetype || '').split('/')[1]?.split(';')[0] || 'bin';
+  const fileName = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(fileName, req.file.buffer, {
+    contentType: req.file.mimetype, upsert: false,
+  });
+  if (uploadErr) return res.status(500).json({ message: uploadErr.message });
+  const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
+  res.json({ url: urlData?.publicUrl, name: req.file.originalname, type: req.file.mimetype });
+});
+
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
   app.get('/whatsapp*', (req, res) => {

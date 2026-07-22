@@ -27,13 +27,17 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
     try {
       if (selectedFiles.length > 0) {
         const uploaded: { url: string; type: string; name: string }[] = [];
+        const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
         for (const file of selectedFiles) {
-          const ext = file.type.split('/')[1]?.split(';')[0] || 'bin';
-          const fileName = `composer_${userId}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-          const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(fileName, file, { contentType: file.type, upsert: true });
-          if (uploadErr) continue;
-          const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
-          if (urlData?.publicUrl) uploaded.push({ url: urlData.publicUrl, type: file.type, name: file.name });
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            const res = await fetch(apiUrl + '/upload', { method: 'POST', body: fd });
+            if (res.ok) {
+              const data = await res.json();
+              uploaded.push({ url: data.url, type: data.type || file.type, name: data.name || file.name });
+            }
+          } catch (e) { console.error('Upload error', e); }
         }
 
         if (uploaded.length > 0) {

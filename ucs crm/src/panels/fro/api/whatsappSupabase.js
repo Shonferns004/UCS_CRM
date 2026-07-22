@@ -453,5 +453,11 @@ export async function updateLabels(conversationId, labels) {
 export async function uploadMedia(userId, file) {
   const formData = new FormData()
   formData.append('file', file)
+  try {
+    const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/upload', {
+      method: 'POST', body: formData,
+    })
+    if (res.ok) return res.json()
+  } catch {}
   return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
 }
