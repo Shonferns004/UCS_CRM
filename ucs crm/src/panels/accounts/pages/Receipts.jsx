@@ -208,6 +208,7 @@ export default function Receipts() {
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [downloadAll, setDownloadAll] = useState(false)
+  const [loading, setLoading] = useState(true)
   const receiptRef = useRef(null)
 
   const [toast, setToast] = useState({ message:'', type:'', visible:false })
@@ -221,10 +222,12 @@ export default function Receipts() {
   const handleDataLoaded = useCallback((data) => { setDonors(data); setSelectedIndex(null); setReceiptPage(1) }, [])
 
   const loadPending = useCallback(async () => {
+    setLoading(true)
     try {
       const data = await apiGet('/accounts/receipts/pending')
       setDonors(data)
     } catch {}
+    setLoading(false)
   }, [])
 
   useEffect(() => { loadPending() }, [loadPending])
@@ -446,7 +449,22 @@ export default function Receipts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
+                  {loading ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i}>
+                        <td><div className="sk" style={{ width:20, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:'55%', height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:90, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:50, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:70, height:24, borderRadius:4 }} /></td>
+                      </tr>
+                    ))
+                  ) : donors.length === 0 ? (
+                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>No pending receipts.</td></tr>
+                  ) : donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                     const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
                     return (
                     <tr key={realIdx} style={{ background: selectedIndex === realIdx ? '#f0fdf4' : undefined, cursor:'pointer' }}
