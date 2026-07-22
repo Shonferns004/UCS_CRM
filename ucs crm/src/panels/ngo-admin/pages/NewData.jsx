@@ -196,6 +196,8 @@ const NGO_COLORS = {
   mann: '#ec4899',
 };
 
+const NGO_TABS = ['BSCT', 'AFLF', 'MANN'];
+
 export default function NewData() {
   const [tab, setTab] = useState('new')
   const [donors, setDonors] = useState([])
@@ -204,7 +206,7 @@ export default function NewData() {
   const [result, setResult] = useState(null)
   const [showStationSelect, setShowStationSelect] = useState(false)
   const [stations, setStations] = useState([])
-  const [selectedNgoId, setSelectedNgoId] = useState('all')
+  const [selectedNgoId, setSelectedNgoId] = useState(null)
   const [accessibleNgos, setAccessibleNgos] = useState([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
@@ -213,7 +215,11 @@ export default function NewData() {
   const [distributeConfirmed, setDistributeConfirmed] = useState(false)
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(list => {
+      setAccessibleNgos(list);
+      const ngo = (list || []).find(n => NGO_TABS.includes(n.name));
+      if (ngo) setSelectedNgoId(ngo.id);
+    }).catch(() => {});
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -268,13 +274,18 @@ export default function NewData() {
   return (
     <div>
       <div className="filter-bar">
-        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
-        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
-          <option value="all">All NGOs</option>
-          {accessibleNgos.map(ngo => (
-            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
+          {NGO_TABS.map(name => {
+            const ngo = accessibleNgos.find(n => n.name === name);
+            const active = ngo && selectedNgoId === ngo.id;
+            return (
+              <button key={name} onClick={() => ngo && setSelectedNgoId(ngo.id)}
+                style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)' }}>
+                {name}
+              </button>
+            );
+          })}
+        </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
           <button onClick={() => setTab('new')} style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: tab === 'new' ? 'var(--sage)' : 'transparent', color: tab === 'new' ? '#fff' : 'var(--ink-soft)' }}>
             New Data
@@ -406,7 +417,7 @@ export default function NewData() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                       <span style={{ color: 'var(--ink-soft)' }}>NGO:</span>
-                      <strong>{accessibleNgos.find(n => n.id === selectedNgoId)?.name || 'All NGOs'}</strong>
+                      <strong>{accessibleNgos.find(n => n.id === selectedNgoId)?.name || '—'}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                       <span style={{ color: 'var(--ink-soft)' }}>Stations:</span>
