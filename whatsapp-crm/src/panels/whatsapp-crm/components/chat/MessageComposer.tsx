@@ -34,12 +34,12 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           try {
             const res = await fetch(apiUrl + '/upload', { method: 'POST', body: fd });
             if (res.ok) { const d = await res.json(); supabaseUrl = d.url; }
+            else { const errText = await res.text(); console.error('Upload 400:', errText); }
           } catch (e) { console.error('Upload error', e); }
 
           // Insert message immediately so it shows in chat
           const mimeType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document';
-          const { data: msg } = await supabase.from('messages').insert({
-            tenant_id: tenantId,
+          const insertData: Record<string, any> = {
             conversation_id: conversationId,
             contact_id: contactId,
             user_id: userId,
@@ -47,14 +47,31 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
             message_type: mimeType,
             body_text: text.trim() || null,
             media_url: supabaseUrl || null,
-            media_mime_type: file.type,
             status: 'queued',
-            message_category: 'service',
-          }).select('id').maybeSingle();
+          };
+          if (tenantId) insertData.tenant_id = tenantId;
+          if (file.type) insertData.media_mime_type = file.type;
+          const { data: msg, error: insertErr } = await supabase.from('messages').insert(insertData).select('id').maybeSingle();
+          if (insertErr) console.error('Message insert error:', insertErr);
 
-          // Fire-and-forget Meta delivery
-          if (msg?.id) {
-            sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, file, userId, msg.id);
+          // Send to Meta via backend proxy (avoids CORS issues)
+          if (msg?.id && supabaseUrl) {
+            const { data: contact } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
+            const phoneNumber = contact?.phone_normalized || '';
+            if (phoneNumber) {
+              fetch(apiUrl + '/whatsapp/send', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  messageId: msg.id,
+                  conversationId,
+                  contactId,
+                  mediaUrl: supabaseUrl,
+                  mediaMimeType: file.type,
+                  userId,
+                  phoneNumber,
+                }),
+              }).catch(() => {});
+            }
           }
         }
       } else if (text.trim()) {
