@@ -40,7 +40,6 @@ const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
 const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
-const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
 const tomorrow = new Date();
@@ -67,21 +66,6 @@ const WALKTHROUGH_STEPS = [
   { icon: 'search', title: 'Search Donors', desc: 'Search for any donor by name or mobile number using the search bar above the disposition form.', color: '#2563eb' },
   { icon: 'chat', title: 'WhatsApp Chat', desc: 'Send a WhatsApp message directly to the donor using the green chat button next to the call button.', color: '#25D366' },
 ];
-
-function localSortDonors(list) {
-  return [...list].sort((a, b) => {
-    const groupA = a.is_new ? 0
-      : (NOT_CONNECTED_IDS.has(a.status) || a.status === 'pending') ? 1
-      : CONNECTED_IDS.has(a.status) ? 2
-      : a.status === 'lead_done' ? 3 : 4;
-    const groupB = b.is_new ? 0
-      : (NOT_CONNECTED_IDS.has(b.status) || b.status === 'pending') ? 1
-      : CONNECTED_IDS.has(b.status) ? 2
-      : b.status === 'lead_done' ? 3 : 4;
-    if (groupA !== groupB) return groupA - groupB;
-    return 0;
-  });
-}
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -411,14 +395,6 @@ export default function MyDonors() {
       await addDonorLog(donor.id, logData);
       if (selected) endCall();
 
-      // Update local donor status and re-sort so processed donors move to correct group
-      const updatedList = localSortDonors(
-        donors.map(d =>
-          d.id === donor.id && d.ngo_id === donor.ngo_id ? { ...d, status: selected, is_new: false } : d
-        )
-      );
-      setDonors(updatedList);
-
       if (returnToDonor) {
         const newDonors = await getMyDonors(null, null, { newOnly: dataTab === 'new', oldOnly: dataTab === 'old' });
         setDonors(newDonors);
@@ -430,10 +406,9 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const newIdx = updatedList.findIndex(d => d.id === donor.id && d.ngo_id === donor.ngo_id);
-        const nextIdx = newIdx < updatedList.length - 1 ? newIdx + 1 : 0;
+        const nextIdx = index < donors.length - 1 ? index + 1 : 0;
         setIndex(nextIdx);
-        const nextDonor = updatedList[nextIdx];
+        const nextDonor = donors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
       setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
