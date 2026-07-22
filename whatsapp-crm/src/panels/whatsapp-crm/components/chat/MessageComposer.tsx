@@ -28,50 +28,26 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
       if (selectedFiles.length > 0) {
         const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
         for (const file of selectedFiles) {
-          const fd = new FormData();
-          fd.append('file', file);
-          let supabaseUrl = '';
-          try {
-            const res = await fetch(apiUrl + '/upload', { method: 'POST', body: fd });
-            if (res.ok) { const d = await res.json(); supabaseUrl = d.url; }
-            else { const errText = await res.text(); console.error('Upload 400:', errText); }
-          } catch (e) { console.error('Upload error', e); }
-
-          // Insert message immediately so it shows in chat
           const mimeType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document';
-          const insertData: Record<string, any> = {
+
+          const { data: msg } = await supabase.from('messages').insert({
             conversation_id: conversationId,
             contact_id: contactId,
             user_id: userId,
             direction: 'outbound',
             message_type: mimeType,
             body_text: text.trim() || null,
-            media_url: supabaseUrl || null,
             status: 'queued',
-          };
-          if (tenantId) insertData.tenant_id = tenantId;
-          if (file.type) insertData.media_mime_type = file.type;
-          const { data: msg, error: insertErr } = await supabase.from('messages').insert(insertData).select('id').maybeSingle();
-          if (insertErr) console.error('Message insert error:', insertErr);
+          }).select('id').maybeSingle();
 
-          // Send to Meta via backend proxy (avoids CORS issues)
-          if (msg?.id && supabaseUrl) {
-            const { data: contact } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
-            const phoneNumber = contact?.phone_normalized || '';
-            if (phoneNumber) {
-              fetch(apiUrl + '/whatsapp/send', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  messageId: msg.id,
-                  conversationId,
-                  contactId,
-                  mediaUrl: supabaseUrl,
-                  mediaMimeType: file.type,
-                  userId,
-                  phoneNumber,
-                }),
-              }).catch(() => {});
-            }
+          if (msg?.id) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('messageId', msg.id);
+            formData.append('conversationId', conversationId);
+            formData.append('contactId', contactId || '');
+            formData.append('userId', userId || '');
+            fetch(apiUrl + '/whatsapp/send-file', { method: 'POST', body: formData }).catch(() => {});
           }
         }
       } else if (text.trim()) {

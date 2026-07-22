@@ -228,6 +228,81 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
   }
 });
 
+app.post('/api/whatsapp/send-file', uploadApi.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file' });
+    const { messageId, conversationId, contactId, userId } = req.body;
+    if (!messageId || !conversationId) return res.status(400).json({ message: 'Missing fields' });
+
+    const file = req.file;
+    const ext = (file.mimetype || 'bin').split('/')[1]?.split(';')[0] || 'bin';
+    const fileName = `msg_${messageId}_${Date.now()}.${ext}`;
+    const { error: storeErr } = await supabase.storage.from('whatsapp-media').upload(fileName, file.buffer, { contentType: file.mimetype, upsert: true });
+    if (storeErr) return res.status(500).json({ message: 'Storage upload failed', error: storeErr.message });
+
+    const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
+    const mediaUrl = urlData?.publicUrl || '';
+
+    const mimeType = file.mimetype.startsWith('image/') ? 'image' : file.mimetype.startsWith('video/') ? 'video' : file.mimetype.startsWith('audio/') ? 'audio' : 'document';
+    await supabase.from('messages').update({ media_url: mediaUrl, media_mime_type: file.mimetype, message_type: mimeType }).eq('id', messageId);
+
+    let toPhone = '';
+    if (contactId) {
+      const { data: c } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
+      if (c) toPhone = c.phone_normalized;
+    }
+    if (!toPhone) {
+      const { data: conv } = await supabase.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
+      if (conv?.contact) toPhone = conv.contact.phone_normalized;
+    }
+    if (!toPhone) {
+      await supabase.from('messages').update({ status: 'sent', failure_reason: 'No phone' }).eq('id', messageId);
+      return res.json({ message: 'No phone found, saved to storage only', mediaUrl });
+    }
+
+    const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+    if (!accounts?.length) {
+      await supabase.from('messages').update({ status: 'sent', failure_reason: 'No WhatsApp account' }).eq('id', messageId);
+      return res.json({ message: 'No active account, saved to storage only', mediaUrl });
+    }
+
+    let metaDelivered = false;
+    if (mimeType === 'audio') {
+      try {
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('file', new Blob([file.buffer], { type: file.mimetype }), `audio.${ext}`);
+        form.append('type', file.mimetype);
+        const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
+          method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
+        });
+        const upData = await upRes.json();
+        if (upRes.ok && upData.id) {
+          const sendRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messaging_product: 'whatsapp', to: toPhone.replace(/[^0-9]/g, ''), type: 'audio', audio: { id: upData.id } }),
+          });
+          const sendData = await sendRes.json();
+          if (sendRes.ok && sendData.messages?.[0]?.id) {
+            await supabase.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', messageId);
+            metaDelivered = true;
+          }
+        }
+      } catch (e) { console.error('Audio send error:', e); }
+    }
+
+    if (!metaDelivered) {
+      await supabase.from('messages').update({ status: 'sent', status_updated_at: new Date().toISOString() }).eq('id', messageId);
+    }
+
+    await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
+    res.json({ success: true, mediaUrl, metaDelivered });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
   app.get('/whatsapp*', (req, res) => {
