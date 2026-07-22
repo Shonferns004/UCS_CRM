@@ -94,7 +94,7 @@ export async function sendWhatsAppMessage(
       if (mediaFile) {
         mediaId = await uploadMedia(access_token, phone_number_id, mediaFile);
         if (mediaId) {
-          const fileType = mediaFile.type.startsWith('image/') ? 'image' : mediaFile.type.startsWith('video/') ? 'video' : 'document';
+          const fileType = mediaFile.type.startsWith('image/') ? 'image' : mediaFile.type.startsWith('video/') ? 'video' : mediaFile.type.startsWith('audio/') ? 'audio' : 'document';
           textPayload.type = fileType;
           textPayload[fileType] = { id: mediaId };
           if (messageText) textPayload[fileType].caption = messageText;

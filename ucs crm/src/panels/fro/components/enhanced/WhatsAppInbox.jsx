@@ -82,14 +82,13 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
   const handleSendMedia = useCallback(async (files) => {
     if (!activeConv || !waUser) return
     const fileArr = Array.isArray(files) ? files : [files]
-    const uploaded = []
     for (const f of fileArr) {
       const r = await uploadMedia(waUser.id, f)
-      if (r?.file_url) uploaded.push({ url: r.file_url, type: f.type, file: f })
+      if (r?.file_url) {
+        await sendMsgApi(activeConv.id, activeConv.contact_id, '', waUser.id, r.file_url, f.type, f)
+        await new Promise(r => setTimeout(r, 200))
+      }
     }
-    if (uploaded.length === 0) return
-    const combinedUrls = uploaded.map(u => `${u.url}|||${u.type}|||${u.file.name}`).join(',')
-    await sendMsgApi(activeConv.id, activeConv.contact_id, '__MULTI__', waUser.id, combinedUrls, uploaded[0].type, uploaded[0].file)
     queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [activeConv, waUser, queryClient])
