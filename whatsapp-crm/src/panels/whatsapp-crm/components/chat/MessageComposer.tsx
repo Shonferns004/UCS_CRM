@@ -57,7 +57,8 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           });
 
           await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
-          sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, null, userId);
+          const msgFile = selectedFiles[0];
+          sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, msgFile, userId);
         }
       } else if (text.trim()) {
         const { data: msg, error: insertErr } = await supabase.from('messages').insert({
