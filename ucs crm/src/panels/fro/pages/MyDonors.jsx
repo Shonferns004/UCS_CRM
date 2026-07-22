@@ -195,7 +195,7 @@ export default function MyDonors() {
     debounceReloadRef.current = setTimeout(() => reloadDonors(), 2000);
   }, [reloadDonors]);
 
-  useRealtime('fro_assignments', { onUpdate: () => debouncedReload(), onInsert: () => debouncedReload() });
+  useRealtime('fro_assignments', { event: 'INSERT', onInsert: () => debouncedReload() });
 
   const switchTab = (tab) => {
     setDataTab(tab);
