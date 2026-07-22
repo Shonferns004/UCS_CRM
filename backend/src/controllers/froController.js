@@ -641,12 +641,12 @@ export const getMyDonors = async (req, res) => {
     filtered.sort((a, b) => {
       const groupA = a.is_new ? 0
         : (notConnectedSet.has(a.status) || a.status === 'pending') ? 1
-        : a.status === 'lead_done' ? 2
-        : connectedSet.has(a.status) ? 3 : 4;
+        : connectedSet.has(a.status) ? 2
+        : a.status === 'lead_done' ? 3 : 4;
       const groupB = b.is_new ? 0
         : (notConnectedSet.has(b.status) || b.status === 'pending') ? 1
-        : b.status === 'lead_done' ? 2
-        : connectedSet.has(b.status) ? 3 : 4;
+        : connectedSet.has(b.status) ? 2
+        : b.status === 'lead_done' ? 3 : 4;
       if (groupA !== groupB) return groupA - groupB;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
