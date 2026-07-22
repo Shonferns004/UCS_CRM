@@ -191,14 +191,19 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
       try {
         const download = await fetch(mediaUrl);
         if (!download.ok) throw new Error('Failed to download media');
-        const blob = await download.blob();
-        const ext = (blob.type || 'audio/webm').split('/')[1]?.split(';')[0] || 'webm';
-        const form = new FormData();
-        form.append('messaging_product', 'whatsapp');
-        form.append('file', blob, `audio.${ext}`);
-        form.append('type', blob.type || 'audio/webm');
+        const buffer = Buffer.from(await download.arrayBuffer());
+        const ext = (mediaMimeType || 'audio/mp4').split('/')[1]?.split(';')[0] || 'mp4';
+        const boundary = 'up' + Math.random().toString(36).slice(2);
+        const metaBody = Buffer.concat([
+          Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="messaging_product"\r\n\r\nwhatsapp\r\n' +
+            '--' + boundary + '\r\nContent-Disposition: form-data; name="type"\r\n\r\n' + (mediaMimeType || 'audio/mp4') + '\r\n' +
+            '--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="audio.' + ext + '"\r\nContent-Type: ' + (mediaMimeType || 'audio/mp4') + '\r\n\r\n'),
+          buffer,
+          Buffer.from('\r\n--' + boundary + '--\r\n'),
+        ]);
         const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
-          method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
+          method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'multipart/form-data; boundary=' + boundary },
+          body: metaBody,
         });
         const upData = await upRes.json();
         if (upRes.ok && upData.id) {
@@ -268,23 +273,26 @@ app.post('/api/whatsapp/send-file', uploadApi.single('file'), async (req, res) =
 
     let metaDelivered = false;
     try {
-      const metaFileId = await (async () => {
-        const form = new FormData();
-        form.append('messaging_product', 'whatsapp');
-        form.append('file', new Blob([file.buffer], { type: file.mimetype }), `media.${ext}`);
-        form.append('type', file.mimetype);
-        const r = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
-          method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
-        });
-        const d = await r.json();
-        return r.ok ? d.id : null;
-      })();
-      if (metaFileId) {
+      const boundary = 'up' + Math.random().toString(36).slice(2);
+      const metaBody = Buffer.concat([
+        Buffer.from('--' + boundary + '\r\nContent-Disposition: form-data; name="messaging_product"\r\n\r\nwhatsapp\r\n' +
+          '--' + boundary + '\r\nContent-Disposition: form-data; name="type"\r\n\r\n' + file.mimetype + '\r\n' +
+          '--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="media.' + ext + '"\r\nContent-Type: ' + file.mimetype + '\r\n\r\n'),
+        file.buffer,
+        Buffer.from('\r\n--' + boundary + '--\r\n'),
+      ]);
+      const upR = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'multipart/form-data; boundary=' + boundary },
+        body: metaBody,
+      });
+      const upD = await upR.json();
+      if (upR.ok && upD.id) {
         const payload = {
           messaging_product: 'whatsapp',
           to: toPhone.replace(/[^0-9]/g, ''),
           type: mimeType,
-          [mimeType]: mimeType === 'document' ? { id: metaFileId, caption: '' } : { id: metaFileId },
+          [mimeType]: mimeType === 'document' ? { id: upD.id, caption: '' } : { id: upD.id },
         };
         const sR = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
           method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
