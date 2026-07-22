@@ -208,6 +208,7 @@ export default function Receipts() {
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [downloadAll, setDownloadAll] = useState(false)
+  const [loading, setLoading] = useState(true)
   const receiptRef = useRef(null)
 
   const [toast, setToast] = useState({ message:'', type:'', visible:false })
@@ -217,13 +218,16 @@ export default function Receipts() {
   const [bulkState, setBulkState] = useState({ active:false, total:0, sent:0, failed:0, currentBatch:0, totalBatches:0, results:[], previousBatches:[] })
   const cancelBulkRef = useRef(false)
   const [confirmBulk, setConfirmBulk] = useState({ visible:false, donorCount:0 })
-  const handleDataLoaded = useCallback((data) => { setDonors(data); setSelectedIndex(null) }, [])
+  const [receiptPage, setReceiptPage] = useState(1)
+  const handleDataLoaded = useCallback((data) => { setDonors(data); setSelectedIndex(null); setReceiptPage(1) }, [])
 
   const loadPending = useCallback(async () => {
+    setLoading(true)
     try {
       const data = await apiGet('/accounts/receipts/pending')
       setDonors(data)
     } catch {}
+    setLoading(false)
   }, [])
 
   useEffect(() => { loadPending() }, [loadPending])
@@ -274,6 +278,7 @@ export default function Receipts() {
       }
       const content = await zip.generateAsync({ type: 'blob' })
       saveAs(content, 'Donation_Receipts.zip')
+      donors.forEach(d => { try { apiPost('/accounts/receipts/mark-sent', { receiptId: d.receipt_id }) } catch {} })
     } catch (e) { alert('Failed to download ZIP: ' + e.message) }
     setDownloadAll(false)
   }
@@ -403,12 +408,10 @@ export default function Receipts() {
     <div>
       <ExcelUpload onDataLoaded={handleDataLoaded} />
 
-      {donors && (
-        <>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-pad">
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-                <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Donor Records <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span></h3>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-pad">
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
+            <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Donor Records {donors ? <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span> : <span className="sk" style={{ display:'inline-block', width:60, height:14, borderRadius:3, verticalAlign:'middle' }} />}</h3>
                 <div style={{ display:'flex', gap:8 }}>
                   <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
                     onClick={() => {
@@ -420,6 +423,7 @@ export default function Receipts() {
                       }));
                       XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
                       XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                      donors.forEach(d => { try { apiPost('/accounts/receipts/mark-sent', { receiptId: d.receipt_id }) } catch {} })
                     }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     Excel
@@ -443,18 +447,35 @@ export default function Receipts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {donors.map((d, i) => (
-                    <tr key={i} style={{ background: selectedIndex === i ? '#f0fdf4' : undefined, cursor:'pointer' }}
-                      onClick={() => setSelectedIndex(i)}>
-                      <td>{i + 1}</td>
+                  {loading ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i}>
+                        <td><div className="sk" style={{ width:20, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:'55%', height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:60, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:90, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:50, height:12, borderRadius:3 }} /></td>
+                        <td><div className="sk" style={{ width:70, height:24, borderRadius:4 }} /></td>
+                      </tr>
+                    ))
+                  ) : donors.length === 0 ? (
+                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>No pending receipts.</td></tr>
+                  ) : donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
+                    const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
+                    return (
+                    <tr key={realIdx} style={{ background: selectedIndex === realIdx ? '#f0fdf4' : undefined, cursor:'pointer' }}
+                      onClick={() => setSelectedIndex(realIdx)}>
+                      <td>{realIdx + 1}</td>
                       <td style={{ fontWeight:500 }}>{d['Donor Name']}</td>
                       <td style={{ color:'#059669', fontWeight:600 }}>{formatIndianCurrency(d['Amount'])}</td>
                       <td style={{ fontFamily:'monospace', fontSize:12 }}>{d['Receipt No.']}</td>
                       <td style={{ fontSize:12 }}>{formatReceiptDate(d['Receipt Date'])}</td>
-                      <td style={{ fontSize:12, cursor:'pointer' }} onClick={e => { e.stopPropagation(); setEditingPhone(editingPhone === i ? null : i) }}>
-                        {editingPhone === i ? (
+                        <td style={{ fontSize:12, cursor:'pointer' }} onClick={e => { e.stopPropagation(); setEditingPhone(editingPhone === realIdx ? null : realIdx) }}>
+                        {editingPhone === realIdx ? (
                           <input className="field-input" type="tel" value={d['Mobile No.'] || ''} autoFocus
-                            onChange={e => updatePhone(i, e.target.value)}
+                            onChange={e => updatePhone(realIdx, e.target.value)}
                             onBlur={() => setEditingPhone(null)}
                             onKeyDown={e => { if (e.key === 'Enter') setEditingPhone(null) }}
                             style={{ width:120, height:28, padding:'2px 6px', fontSize:12 }}
@@ -464,29 +485,36 @@ export default function Receipts() {
                       <td style={{ fontSize:12 }}><span className="pill pill-gray">{({ bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct'}</span></td>
                       <td style={{ display:'flex', gap:4 }}>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
-                          onClick={e => { e.stopPropagation(); handleSendSingle(d, i) }}
-                          disabled={sendingIndex === i}>
-                          {sendingIndex === i ? '...' : 'Send'}
+                          onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
+                          disabled={sendingIndex === realIdx}>
+                          {sendingIndex === realIdx ? '...' : 'Send'}
                         </button>
-                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(i) }}>Preview</button>
+                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }}>Preview</button>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
+              {donors && donors.length > PAGE_SIZE && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 0', borderTop:'1px solid var(--line)' }}>
+                  <button className="btn btn-sm" disabled={receiptPage === 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
+                  <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Page {receiptPage} of {Math.ceil(donors.length / PAGE_SIZE)} ({donors.length} records)</span>
+                  <button className="btn btn-sm" disabled={receiptPage >= Math.ceil(donors.length / PAGE_SIZE)} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
+                </div>
+              )}
             </div>
           </div>
 
-          <div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
-            {donors.map((d, i) => {
+          {donors && (<div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
+            {donors.length <= 100 && donors.map((d, i) => {
               const ngo = d['Project'] || 'bsct'
               const tpl = getNgoSettings(ngo)
               const Comp = tpl.comp
               return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
             })}
-          </div>
+          </div>)}
 
-          {previewIndex != null && donors[previewIndex] && (
+          {previewIndex != null && donors && donors[previewIndex] && (
             <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:1000 }}>
               <div className="modal" style={{ width:'95%', maxWidth:1060, height:'95vh', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
                 <div className="modal-header" style={{ flexShrink:0 }}>
@@ -515,8 +543,6 @@ export default function Receipts() {
               </div>
             </div>
           )}
-        </>
-      )}
 
       <ConfirmBulkModal visible={confirmBulk.visible} donorCount={confirmBulk.donorCount} projectName="" onConfirm={handleConfirmBulkSend} onCancel={() => setConfirmBulk({ visible:false, donorCount:0 })} />
       <BulkProgressModal visible={bulkState.active} total={bulkState.total} sent={bulkState.sent} failed={bulkState.failed} currentBatch={bulkState.currentBatch} totalBatches={bulkState.totalBatches} results={bulkState.results} previousBatches={bulkState.previousBatches} onCancel={() => { cancelBulkRef.current = true; setBulkState(prev => ({ ...prev, cancelled:true })) }} />

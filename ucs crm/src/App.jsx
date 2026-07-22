@@ -9,6 +9,7 @@ import FROPanel from './panels/fro/FROPanel'
 import RecruiterPanel from './panels/recruiter/RecruiterPanel'
 import EventHeadPanel from './panels/event-head/EventHeadPanel'
 import DocumentationPanel from './panels/documentation/DocumentationPanel'
+import WhatsAppPanel from './panels/whatsapp/WhatsAppPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -141,6 +142,11 @@ export default function App() {
           </ProtectedRoute>
         } />
 
+        <Route path="/wa/*" element={
+          <ProtectedRoute role={['*']}>
+            <WhatsAppPanel />
+          </ProtectedRoute>
+        } />
         <Route path="/docs/*" element={
           <ProtectedRoute role={['*']}>
             <DocumentationPanel />

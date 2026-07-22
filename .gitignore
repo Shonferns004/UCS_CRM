@@ -11,10 +11,13 @@ app-release.apk
 *.jpg
 feereceiptapp/
 admin-attendance/
-whatsapp-crm/
+/whatsapp-crm/
 shon/
 *.aab
 main.txt
 emails.txt
 razorypay.txt
 client/assets/*.properties
+
+package.json
+package-lock.json

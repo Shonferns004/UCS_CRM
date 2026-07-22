@@ -515,13 +515,29 @@ export async function uploadFroMedia(froWorkerId, file) {
   const fileName = `fro_${froWorkerId}_${Date.now()}_${file.originalname || 'file'}`;
   const bucket = 'whatsapp-media';
 
-  const { data: uploadData, error: uploadError } = await supabase.storage
+  let { data: uploadData, error: uploadError } = await supabase.storage
     .from(bucket)
     .upload(fileName, file.buffer, {
       contentType: file.mimetype,
       upsert: false,
     });
-  if (uploadError) throw uploadError;
+
+  if (uploadError?.message?.includes('Bucket not found')) {
+    const { error: bucketError } = await supabase.storage.createBucket(bucket, {
+      public: true,
+      allowedMimeTypes: ['image/*', 'video/*', 'audio/*', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      fileSizeLimit: 52428800,
+    });
+    if (bucketError) throw bucketError;
+
+    const result = await supabase.storage
+      .from(bucket)
+      .upload(fileName, file.buffer, { contentType: file.mimetype, upsert: false });
+    if (result.error) throw result.error;
+    uploadData = result.data;
+  } else if (uploadError) {
+    throw uploadError;
+  }
 
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
 
@@ -532,7 +548,6 @@ export async function uploadFroMedia(froWorkerId, file) {
       file_url: urlData.publicUrl,
       file_type: file.mimetype,
       file_size: file.size,
-      uploaded_by: String(froWorkerId),
     })
     .select()
     .single();

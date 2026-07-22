@@ -47,6 +47,8 @@ import eventHeadRoutes from './routes/eventHeadRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
 import superAdminRoutes from './routes/superAdminRoutes.js';
 import froWhatsAppRoutes from './routes/froWhatsAppRoutes.js';
+import bulkAgentImportRoutes from './routes/bulkAgentImportRoutes.js';
+import agentTransferRoutes from './routes/agentTransferRoutes.js';
 import userSettingsRoutes from './routes/userSettingsRoutes.js';
 import ticketRoutes from './routes/ticketRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
@@ -77,6 +79,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const froDist = path.resolve(__dirname, '../../fro-panel/dist');
 const ngoAdminDist = path.resolve(__dirname, '../../ngo-admin-panel/dist');
 const accountsDist = path.resolve(__dirname, '../../accounts-panel/dist');
+const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
@@ -123,11 +126,20 @@ app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
 app.use('/api/tickets', ticketRoutes);
+app.use('/api/whatsapp/agents', bulkAgentImportRoutes);
+app.use('/api/whatsapp/agents', agentTransferRoutes);
 app.use('/api/fro/whatsapp', froWhatsAppRoutes);
+
+if (fs.existsSync(whatsappDist)) {
+  app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
+  app.get('/whatsapp*', (req, res) => {
+    res.sendFile(path.join(whatsappDist, 'index.html'));
+  });
+}
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
