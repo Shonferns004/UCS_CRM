@@ -190,7 +190,21 @@ function MessageBubble({
         )}
         {message.media_url ? (
           <div className={`relative ${showBody ? 'mt-1' : ''}`}>
-            <img src={message.media_url} alt="" className="max-w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => onMediaClick(message.media_url!, message.media_mime_type)} />
+            {message.message_type === 'image' ? (
+              <img src={message.media_url} alt="" className="max-w-full max-h-60 rounded-lg cursor-pointer object-cover" onClick={() => onMediaClick(message.media_url!, message.media_mime_type)} />
+            ) : message.message_type === 'video' ? (
+              <video src={message.media_url} controls className="max-w-full max-h-60 rounded-lg" />
+            ) : message.message_type === 'audio' ? (
+              <div className="rounded-lg bg-[#f0fdf4] border border-[#bbf7d0] p-2 min-w-[220px]">
+                <div className="text-xs font-semibold text-[#16a34a] mb-1">🎵 Audio</div>
+                <audio src={message.media_url} controls className="w-full h-10" />
+              </div>
+            ) : (
+              <a href={message.media_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-lg bg-[#f0fdf4] p-2 text-sm text-[#16a34a] font-medium">
+                <span>📄</span>
+                <span className="truncate">{message.body_text || message.media_url.split('/').pop()}</span>
+              </a>
+            )}
           </div>
         ) : message.media_id ? (
           <div className={`relative ${showBody ? 'mt-1' : ''} cursor-pointer`} onClick={() => onMediaClick(message.media_id!, message.media_mime_type)}>

@@ -138,8 +138,9 @@ function MediaContent({ url, mimeType, messageType, name }) {
   }
   if (mime.startsWith('audio/')) {
     return (
-      <div style={{ borderRadius: 8, maxWidth: 300, margin: '4px 0', padding: 8, background: '#f3f4f6' }}>
-        <audio src={url} controls style={{ width: '100%' }} />
+      <div style={{ borderRadius: 8, maxWidth: 300, minWidth: 220, margin: '4px 0', padding: 8, background: '#e8f5e9', border: '1px solid #c8e6c9' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#2e7d32', marginBottom: 4 }}>🎵 Audio</div>
+        <audio src={url} controls style={{ width: '100%', height: 40 }} />
       </div>
     )
   }
