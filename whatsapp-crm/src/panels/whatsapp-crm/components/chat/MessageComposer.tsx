@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Loader2, Mic } from 'lucide-react';
-import { sendWhatsAppMessage } from '../../lib/whatsapp';
 import { MediaUploadPreview } from './MediaPreview';
 import { AudioRecorder } from './AudioRecorder';
 
@@ -51,8 +50,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           }
         }
       } else if (text.trim()) {
-        const { data: msg, error: insertErr } = await supabase.from('messages').insert({
-          tenant_id: tenantId,
+        const { data: msg } = await supabase.from('messages').insert({
           conversation_id: conversationId,
           contact_id: contactId,
           user_id: userId,
@@ -60,11 +58,18 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           message_type: 'text',
           body_text: text.trim(),
           status: 'queued',
-          message_category: 'service',
-        }).select('id').single();
+        }).select('id').maybeSingle();
 
-        if (insertErr) throw insertErr;
-        sendWhatsAppMessage(conversationId, contactId || '', text.trim(), undefined, userId, msg?.id);
+        if (msg?.id) {
+          const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+          fetch(apiUrl + '/whatsapp/send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messageId: msg.id, conversationId, contactId,
+              messageText: text.trim(), userId,
+            }),
+          }).catch(() => {});
+        }
       }
 
       setText('');
