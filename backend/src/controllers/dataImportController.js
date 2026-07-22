@@ -63,7 +63,8 @@ export const uploadImport = async (req, res) => {
     let selectedNgos = allNgos;
     if (ngo_ids) {
       const ids = Array.isArray(ngo_ids) ? ngo_ids : ngo_ids.split(',').map(s => s.trim());
-      selectedNgos = allNgos.filter(n => ids.includes(n.id));
+      const numIds = ids.map(id => Number(id));
+      selectedNgos = allNgos.filter(n => numIds.includes(n.id));
     }
 
     const importBatchId = uuidv4();

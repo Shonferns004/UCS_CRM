@@ -399,11 +399,11 @@ export const getMyDonors = async (req, res) => {
     }
 
     // Batch-based tab filtering: show only the latest batch per type.
-    // Falls back to is_new for legacy rows without batch_id/batch_type.
+    // Falls back to latest assigned_at date for legacy rows without batch_id/batch_type.
     if (req.query.new_only === 'true') {
       const { data: latestBatch } = await supabase
         .from('fro_assignments')
-        .select('batch_id')
+        .select('batch_id, assigned_at')
         .in('station', stationNames)
         .eq('batch_type', 'new_data')
         .not('status', 'eq', 'reassigned')
@@ -413,13 +413,22 @@ export const getMyDonors = async (req, res) => {
       if (latestBatch?.batch_id) {
         query = query.eq('batch_id', latestBatch.batch_id);
       } else {
-        // Legacy fallback: no batch-tracked data yet, use is_new flag
-        query = query.or('is_new.is.null,is_new.eq.true');
+        const { data: latestDate } = await supabase
+          .from('fro_assignments')
+          .select('assigned_at')
+          .in('station', stationNames)
+          .not('status', 'eq', 'reassigned')
+          .order('assigned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestDate?.assigned_at) {
+          query = query.gte('assigned_at', latestDate.assigned_at);
+        }
       }
     } else if (req.query.old_only === 'true') {
       const { data: latestBatch } = await supabase
         .from('fro_assignments')
-        .select('batch_id')
+        .select('batch_id, assigned_at')
         .in('station', stationNames)
         .eq('batch_type', 'old_data')
         .not('status', 'eq', 'reassigned')
@@ -429,8 +438,17 @@ export const getMyDonors = async (req, res) => {
       if (latestBatch?.batch_id) {
         query = query.eq('batch_id', latestBatch.batch_id);
       } else {
-        // Legacy fallback: no batch-tracked data yet, use is_new=false
-        query = query.eq('is_new', false);
+        const { data: latestDate } = await supabase
+          .from('fro_assignments')
+          .select('assigned_at')
+          .in('station', stationNames)
+          .not('status', 'eq', 'reassigned')
+          .order('assigned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latestDate?.assigned_at) {
+          query = query.gte('assigned_at', latestDate.assigned_at);
+        }
       }
     }
 
