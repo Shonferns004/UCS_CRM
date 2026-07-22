@@ -438,21 +438,8 @@ export const getMyDonors = async (req, res) => {
       if (latestBatch?.batch_id) {
         query = query.eq('batch_id', latestBatch.batch_id);
       } else {
-        const { data: latestDate } = await supabase
-          .from('fro_assignments')
-          .select('assigned_at')
-          .in('station', stationNames)
-          .not('status', 'eq', 'reassigned')
-          .order('assigned_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (latestDate?.assigned_at) {
-          query = query.gte('assigned_at', latestDate.assigned_at);
-        }
+        return res.json([]);
       }
-    }
-
-    let { data: assignments } = await query;
 
     if (!assignments || assignments.length === 0) return res.json([]);
 

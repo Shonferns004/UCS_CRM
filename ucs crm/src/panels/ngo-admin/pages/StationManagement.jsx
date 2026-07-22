@@ -271,13 +271,10 @@ function SearchableSelect({ options, value, onChange, placeholder }) {
             </div>
             {filtered.map(w => (
               <div key={w.id} onClick={() => { onChange(w.id); setOpen(false); }}
-                style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', gap: 6 }}
+                style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
                 onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
                 onMouseLeave={e => e.currentTarget.style.background = w.id === value ? '#f0fdf4' : 'transparent'}>
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#4338ca', flexShrink: 0 }}>
-                  {(w.name || '?')[0]}
-                </div>
-                <span style={{ flex: 1 }}>{w.name}</span>
+                <span>{w.name}</span>
                 {w.login_id && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{w.login_id}</span>}
               </div>
             ))}
