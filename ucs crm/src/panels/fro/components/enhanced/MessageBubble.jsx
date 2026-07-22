@@ -152,10 +152,23 @@ function MediaContent({ url, mimeType, messageType, name }) {
   )
 }
 
+function MediaPlaceholder({ messageType }) {
+  const icon = messageType === 'audio' ? '🎵' : messageType === 'video' ? '🎬' : messageType === 'image' ? '🖼️' : messageType === 'document' ? '📄' : messageType === 'sticker' ? '🏷️' : '📎'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: '#f3f4f6', margin: '4px 0', fontSize: 12, color: '#6b7280' }}>
+      <span style={{ fontSize: 18 }}>{icon}</span>
+      <span>{messageType || 'media'}</span>
+    </div>
+  )
+}
+
+const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker']
+
 export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu }) {
   const isOutbound = message.direction === 'outbound'
-  const text = message.body_text || message.body || ''
-  const hasMedia = !!(message.media_url || message.media_id)
+  const isMediaType = MEDIA_TYPES.includes(message.message_type)
+  const text = isMediaType ? '' : (message.body_text || message.body || '')
+  const hasMedia = !!(message.media_url || message.media_id || isMediaType)
 
   const bubbleStyle = {
     maxWidth: '75%',
@@ -183,8 +196,10 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
       <div style={bubbleStyle}>
         {hasMedia && (
           message.media_url
-            ? <MediaContent url={message.media_url} mimeType={message.media_mime_type} messageType={message.message_type} name={text || ''} />
-            : <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type || typeToMime(message.message_type)} />
+            ? <MediaContent url={message.media_url} mimeType={message.media_mime_type} messageType={message.message_type} name={message.body_text || ''} />
+            : message.media_id
+              ? <MediaFromMeta mediaId={message.media_id} mimeType={message.media_mime_type || typeToMime(message.message_type)} />
+              : <MediaPlaceholder messageType={message.message_type} />
         )}
         {text && (
           <div style={{ fontSize: 13, lineHeight: 1.45, color: '#111827', whiteSpace: 'pre-wrap', padding: hasMedia ? '2px 6px 0' : 0 }}>
