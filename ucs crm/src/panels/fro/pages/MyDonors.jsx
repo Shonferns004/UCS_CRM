@@ -198,14 +198,16 @@ export default function MyDonors() {
   useRealtime('fro_assignments', { event: 'INSERT', onInsert: () => debouncedReload() });
 
   const switchTab = (tab) => {
+    if (donor) {
+      api('/fro/progress', {
+        method: 'PUT',
+        body: JSON.stringify({ donor_id: donor.id, data_tab: tab }),
+        _prefix: 'ucs'
+      }).catch(() => {});
+    }
     setDataTab(tab);
     setIndex(0);
     setSelected(null);
-    api('/fro/progress', {
-      method: 'PUT',
-      body: JSON.stringify({ data_tab: tab, donor_id: null }),
-      _prefix: 'ucs'
-    }).catch(() => {});
   };
 
   const donor = donors[index];
@@ -214,6 +216,18 @@ export default function MyDonors() {
     if (!donor) return;
     localStorage.setItem('mydonors_current_donor', JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
   }, [donor?.id, donor?.ngo_id, index]);
+
+  useEffect(() => {
+    return () => {
+      if (donor) {
+        api('/fro/progress', {
+          method: 'PUT',
+          body: JSON.stringify({ donor_id: donor.id, data_tab: dataTab }),
+          _prefix: 'ucs'
+        }).catch(() => {});
+      }
+    };
+  }, [donor?.id, dataTab]);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
