@@ -8,7 +8,7 @@ export function AgentOnlyInbox() {
   if (isLoading) return null;
   if (!user) return <Outlet />;
 
-  if (user.role === 'agent' && location.pathname !== '/inbox' && !location.pathname.startsWith('/inbox/')) {
+  if (user.role !== 'master' && location.pathname !== '/inbox' && !location.pathname.startsWith('/inbox/')) {
     return <Navigate to="/inbox" replace />;
   }
 
