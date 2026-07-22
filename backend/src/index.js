@@ -130,9 +130,16 @@ app.use('/api/whatsapp/agents', bulkAgentImportRoutes);
 app.use('/api/whatsapp/agents', agentTransferRoutes);
 app.use('/api/fro/whatsapp', froWhatsAppRoutes);
 
+if (fs.existsSync(whatsappDist)) {
+  app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
+  app.get('/whatsapp*', (req, res) => {
+    res.sendFile(path.join(whatsappDist, 'index.html'));
+  });
+}
+
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
@@ -155,13 +162,6 @@ if (fs.existsSync(accountsDist)) {
   app.use('/accounts/assets', express.static(path.join(accountsDist, 'assets')));
   app.get('/accounts*', (req, res) => {
     res.sendFile(path.join(accountsDist, 'index.html'));
-  });
-}
-
-if (fs.existsSync(whatsappDist)) {
-  app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
-  app.get('/whatsapp*', (req, res) => {
-    res.sendFile(path.join(whatsappDist, 'index.html'));
   });
 }
 
