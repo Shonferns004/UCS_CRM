@@ -155,9 +155,16 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
     const mime = mediaMimeType || '';
     const msgType = mediaUrl ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text';
 
+    let safeContactId = contactId;
+    if (safeContactId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeContactId)) {
+      const { data: existing } = await supabase.from('contacts').select('id').eq('phone_normalized', phoneNumber.replace(/[^0-9]/g, '')).maybeSingle();
+      if (existing) safeContactId = existing.id;
+      else { const { data: nc } = await supabase.from('contacts').insert({ phone: phoneNumber, phone_normalized: phoneNumber.replace(/[^0-9]/g, ''), source: 'api' }).select().single(); if (nc) safeContactId = nc.id; }
+    }
+
     const { data: msg, error: msgErr } = await supabase.from('messages').insert({
       conversation_id: conversationId,
-      contact_id: contactId || null,
+      contact_id: safeContactId || null,
       user_id: userId || null,
       direction: 'outbound',
       message_type: msgType,
@@ -168,13 +175,14 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
     }).select().single();
     if (msgErr) return res.status(500).json({ message: msgErr.message });
 
-    if (mediaUrl && mediaMimeType?.startsWith('audio/')) {
+    if (mediaUrl && (mediaMimeType?.startsWith('audio/') || mime.startsWith('audio/'))) {
       const download = await fetch(mediaUrl);
       const blob = await download.blob();
+      const ext = (blob.type || 'audio/webm').split('/')[1]?.split(';')[0] || 'webm';
       const form = new FormData();
       form.append('messaging_product', 'whatsapp');
-      form.append('file', blob, `audio.${blob.type.split('/')[1] || 'webm'}`);
-      form.append('type', blob.type);
+      form.append('file', blob, `audio.${ext}`);
+      form.append('type', blob.type || 'audio/webm');
       const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
         method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
       });
@@ -185,7 +193,7 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
         method: 'POST',
         headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messaging_product: 'whatsapp', to: phoneNumber,
+          messaging_product: 'whatsapp', to: phoneNumber.replace(/[^0-9]/g, ''),
           type: 'audio', audio: { id: upData.id },
         }),
       });
