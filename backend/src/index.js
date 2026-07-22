@@ -144,6 +144,65 @@ app.post('/api/upload', uploadApi.single('file'), async (req, res) => {
   res.json({ url: urlData?.publicUrl, name: req.file.originalname, type: req.file.mimetype });
 });
 
+app.post('/api/whatsapp/send', express.json(), async (req, res) => {
+  try {
+    const { conversationId, contactId, messageText, mediaUrl, mediaMimeType, userId, phoneNumber } = req.body;
+    if (!conversationId || !phoneNumber) return res.status(400).json({ message: 'Missing required fields' });
+
+    const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+    if (!accounts?.length) return res.status(500).json({ message: 'No active WhatsApp account' });
+
+    const mime = mediaMimeType || '';
+    const msgType = mediaUrl ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text';
+
+    const { data: msg, error: msgErr } = await supabase.from('messages').insert({
+      conversation_id: conversationId,
+      contact_id: contactId || null,
+      user_id: userId || null,
+      direction: 'outbound',
+      message_type: msgType,
+      body_text: mediaUrl ? '' : (messageText || ''),
+      media_url: mediaUrl || null,
+      media_mime_type: mediaMimeType || null,
+      status: 'queued',
+    }).select().single();
+    if (msgErr) return res.status(500).json({ message: msgErr.message });
+
+    if (mediaUrl && mediaMimeType?.startsWith('audio/')) {
+      const download = await fetch(mediaUrl);
+      const blob = await download.blob();
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('file', blob, `audio.${blob.type.split('/')[1] || 'webm'}`);
+      form.append('type', blob.type);
+      const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
+        method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
+      });
+      const upData = await upRes.json();
+      if (!upRes.ok || !upData.id) return res.json({ message: 'Meta upload failed', error: upData, msg });
+
+      const sendRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp', to: phoneNumber,
+          type: 'audio', audio: { id: upData.id },
+        }),
+      });
+      const sendData = await sendRes.json();
+      if (sendRes.ok && sendData.messages?.[0]?.id) {
+        await supabase.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', msg.id);
+        return res.json({ success: true, msg });
+      }
+      return res.json({ message: 'Meta send failed', error: sendData, msg });
+    }
+
+    res.json({ success: true, msg });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
   app.get('/whatsapp*', (req, res) => {

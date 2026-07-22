@@ -82,10 +82,26 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
   const handleSendMedia = useCallback(async (files) => {
     if (!activeConv || !waUser) return
     const fileArr = Array.isArray(files) ? files : [files]
+    const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+    const contact = activeConv.contact || {}
+    const phoneNumber = contact.phone_normalized || contact.phone || ''
     for (const f of fileArr) {
       const r = await uploadMedia(waUser.id, f)
       if (r?.file_url) {
-        await sendMsgApi(activeConv.id, activeConv.contact_id, '', waUser.id, r.file_url, f.type, f)
+        try {
+          await fetch(baseUrl + '/whatsapp/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversationId: activeConv.id,
+              contactId: activeConv.contact_id,
+              mediaUrl: r.file_url,
+              mediaMimeType: f.type,
+              userId: waUser.id,
+              phoneNumber,
+            }),
+          })
+        } catch (e) { console.error('Backend send failed', e) }
         await new Promise(r => setTimeout(r, 200))
       }
     }
