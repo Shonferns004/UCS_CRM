@@ -147,7 +147,18 @@ app.post('/api/upload', uploadApi.single('file'), async (req, res) => {
 app.post('/api/whatsapp/send', express.json(), async (req, res) => {
   try {
     const { conversationId, contactId, messageText, mediaUrl, mediaMimeType, userId, phoneNumber, messageId } = req.body;
-    if (!conversationId || !phoneNumber) return res.status(400).json({ message: 'Missing required fields' });
+    if (!conversationId) return res.status(400).json({ message: 'Missing conversationId' });
+
+    let toPhone = phoneNumber;
+    if (!toPhone && contactId) {
+      const { data: c } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
+      if (c) toPhone = c.phone_normalized;
+    }
+    if (!toPhone) {
+      const { data: conv } = await supabase.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
+      toPhone = conv?.contact?.phone_normalized;
+    }
+    if (!toPhone) return res.status(400).json({ message: 'No phone number found' });
 
     const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
     if (!accounts?.length) return res.status(500).json({ message: 'No active WhatsApp account' });
@@ -161,15 +172,9 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
       msg = existing;
     }
     if (!msg) {
-      let safeContactId = contactId;
-      if (safeContactId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeContactId)) {
-        const { data: existing } = await supabase.from('contacts').select('id').eq('phone_normalized', phoneNumber.replace(/[^0-9]/g, '')).maybeSingle();
-        if (existing) safeContactId = existing.id;
-        else { const { data: nc } = await supabase.from('contacts').insert({ phone: phoneNumber, phone_normalized: phoneNumber.replace(/[^0-9]/g, ''), source: 'api' }).select().single(); if (nc) safeContactId = nc.id; }
-      }
       const { data: newMsg, error: msgErr } = await supabase.from('messages').insert({
         conversation_id: conversationId,
-        contact_id: safeContactId || null,
+        contact_id: contactId || null,
         user_id: userId || null,
         direction: 'outbound',
         message_type: msgType,
@@ -183,36 +188,41 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
     }
 
     if (mediaUrl && (mediaMimeType?.startsWith('audio/') || mime.startsWith('audio/'))) {
-      const download = await fetch(mediaUrl);
-      const blob = await download.blob();
-      const ext = (blob.type || 'audio/webm').split('/')[1]?.split(';')[0] || 'webm';
-      const form = new FormData();
-      form.append('messaging_product', 'whatsapp');
-      form.append('file', blob, `audio.${ext}`);
-      form.append('type', blob.type || 'audio/webm');
-      const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
-        method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
-      });
-      const upData = await upRes.json();
-      if (!upRes.ok || !upData.id) return res.json({ message: 'Meta upload failed', error: upData, msg });
-
-      const sendRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp', to: phoneNumber.replace(/[^0-9]/g, ''),
-          type: 'audio', audio: { id: upData.id },
-        }),
-      });
-      const sendData = await sendRes.json();
-      if (sendRes.ok && sendData.messages?.[0]?.id) {
-        await supabase.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', msg.id);
-        return res.json({ success: true, msg });
+      try {
+        const download = await fetch(mediaUrl);
+        if (!download.ok) throw new Error('Failed to download media');
+        const blob = await download.blob();
+        const ext = (blob.type || 'audio/webm').split('/')[1]?.split(';')[0] || 'webm';
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('file', blob, `audio.${ext}`);
+        form.append('type', blob.type || 'audio/webm');
+        const upRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/media`, {
+          method: 'POST', headers: { Authorization: `Bearer ${accounts[0].access_token}` }, body: form,
+        });
+        const upData = await upRes.json();
+        if (upRes.ok && upData.id) {
+          const sendRes = await fetch(`https://graph.facebook.com/v23.0/${accounts[0].phone_number_id}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accounts[0].access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messaging_product: 'whatsapp', to: toPhone.replace(/[^0-9]/g, ''),
+              type: 'audio', audio: { id: upData.id },
+            }),
+          });
+          const sendData = await sendRes.json();
+          if (sendRes.ok && sendData.messages?.[0]?.id) {
+            await supabase.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', msg.id);
+            return res.json({ success: true });
+          }
+        }
+      } catch (audioErr) {
+        console.error('Audio send error:', audioErr);
       }
-      return res.json({ message: 'Meta send failed', error: sendData, msg });
     }
 
-    res.json({ success: true, msg });
+    await supabase.from('messages').update({ status: 'failed', failure_reason: 'Meta send failed', status_updated_at: new Date().toISOString() }).eq('id', msg.id);
+    res.json({ message: 'Meta send failed', msg });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
