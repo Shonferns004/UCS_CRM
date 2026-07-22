@@ -112,6 +112,8 @@ export default function MyDonors() {
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const searchRef = useRef(null);
   const lastSavedDonorRef = useRef(null);
+  const lastProgressCallRef = useRef(0);
+  const debounceReloadRef = useRef(null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -189,7 +191,13 @@ export default function MyDonors() {
   const reloadDonors = useCallback(() => {
     getMyDonors(null, null, { newOnly: dataTab === 'new', oldOnly: dataTab === 'old' }).then(r => { setDonors(r); }).catch(() => {});
   }, [dataTab]);
-  useRealtime('fro_assignments', { onUpdate: () => reloadDonors(), onInsert: () => reloadDonors() });
+
+  const debouncedReload = useCallback(() => {
+    if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
+    debounceReloadRef.current = setTimeout(() => reloadDonors(), 2000);
+  }, [reloadDonors]);
+
+  useRealtime('fro_assignments', { onUpdate: () => debouncedReload(), onInsert: () => debouncedReload() });
 
   const switchTab = (tab) => {
     setDataTab(tab);
@@ -210,6 +218,9 @@ export default function MyDonors() {
     const key = `${donor.id}_${donor.ngo_id}`;
     if (lastSavedDonorRef.current === key) return;
     lastSavedDonorRef.current = key;
+    const now = Date.now();
+    if (now - lastProgressCallRef.current < 1000) return;
+    lastProgressCallRef.current = now;
     api('/fro/progress', { method: 'PUT', body: JSON.stringify({ donor_id: donor.id, data_tab: dataTab }), _prefix: 'ucs' }).catch(() => {});
   }, [donor?.id, donor?.ngo_id, index]);
   const logs = detail?.logs || [];
