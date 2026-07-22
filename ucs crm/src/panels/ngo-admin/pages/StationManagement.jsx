@@ -82,7 +82,7 @@ function TransferDataModal({ station, sourceName, sourceCount, stations, onClose
   );
 }
 
-function OldDataUploadModal({ station, onClose, onUploaded }) {
+function OldDataUploadModal({ station, ngoId, onClose, onUploaded }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -124,6 +124,7 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
     try {
       const fd = new FormData();
       fd.append('file', file);
+      if (ngoId) fd.append('ngo_id', ngoId);
       setProgress(60);
       setProgressLabel('Creating profiles & assignments...');
       const res = await api(`/ngo-admin/stations/${encodeURIComponent(station)}/upload-old-data`, { method: 'POST', body: fd, _prefix: 'ucs' });
@@ -908,6 +909,7 @@ export default function StationManagement() {
       {uploadStation && (
         <OldDataUploadModal
           station={uploadStation}
+          ngoId={selectedNgoId}
           onClose={() => setUploadStation(null)}
           onUploaded={() => { setUploadStation(null); fetchData('Old data uploaded successfully'); }}
         />

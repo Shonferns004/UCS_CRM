@@ -3390,13 +3390,20 @@ export const uploadOldDataForStation = async (req, res) => {
     }
 
     const access = await getUserNgoAccess(req.user.id);
-    const ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
       const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
     }
+
+    // Filter by selected NGO if provided
+    const { ngo_id } = req.body;
+    if (ngo_id) {
+      ngoEntries = ngoEntries.filter(e => e.ngoId === ngo_id || e.ngoId === Number(ngo_id));
+    }
+
     if (ngoEntries.length === 0) {
-      return res.status(400).json({ message: 'No NGOs assigned to your account' });
+      return res.status(400).json({ message: 'No NGOs assigned to your account or selected NGO not found' });
     }
 
     const normalizedRows = rows.map(row => ({
@@ -3498,7 +3505,7 @@ export const uploadOldDataForStation = async (req, res) => {
     }
 
     return res.json({
-      message: `${createdAssignments} assignments created for station ${station} across ${ngoEntries.length} NGO(s)`,
+      message: `${createdAssignments} assignments created for station ${station} (${ngoEntries.map(e => e.ngoName).join(', ')})`,
       total_rows: normalizedRows.length,
       created_profiles: createdProfiles,
       created_assignments: createdAssignments,
