@@ -227,6 +227,8 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
   );
 }
 
+const NGO_TABS = ['BSCT', 'AFLF', 'MANN'];
+
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -252,7 +254,7 @@ export default function StationManagement() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [selectedNgoId, setSelectedNgoId] = useState('all');
+  const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [uploadStation, setUploadStation] = useState(null);
 
   useEffect(() => {
@@ -313,21 +315,20 @@ export default function StationManagement() {
   useEffect(() => {
     setLoading(true);
     const m = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-    const url = selectedNgoId === 'all' ? '/ngo-admin/stations' : `/ngo-admin/stations?ngo_id=${selectedNgoId}`;
     Promise.all([
-      apiGet(url),
       apiGet('/ngo-admin/ngos'),
       apiGet('/ngo-admin/fro-workers'),
       apiGet('/ngo-admin/targets?month=' + m),
       apiGet('/ngo-admin/incentives'),
-    ]).then(([s, n, f, t, i]) => {
-      const list = Array.isArray(s) ? s : [];
-      setStations(list);
+    ]).then(([n, f, t, i]) => {
       setAllNgos(Array.isArray(n) ? n : []);
       setFroWorkers(Array.isArray(f) ? f : []);
       if (Array.isArray(t)) setTargets(t);
       if (Array.isArray(i)) setIncentives(i);
-      setNewStation(computeNextName(list));
+      const ngoId = (Array.isArray(n) ? n : []).find(ng => NGO_TABS.includes(ng.name))?.id;
+      if (ngoId) {
+        setSelectedNgoId(ngoId);
+      }
     }).catch(err => console.error('Initial load error:', err)).finally(() => setLoading(false));
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
@@ -335,14 +336,8 @@ export default function StationManagement() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    if (selectedNgoId) fetchData();
   }, [selectedNgoId]);
-
-  useEffect(() => {
-    if (allNgos.length > 0 && selectedNgoId === 'all') {
-      setSelectedNgoId(allNgos[0].id);
-    }
-  }, [allNgos]);
 
   const activeTransfers = transfers.filter(t => !t.returned);
   const historyTransfers = transfers.filter(t => t.returned);
@@ -414,10 +409,6 @@ export default function StationManagement() {
     }
   };
 
-  const assignedFroIds = new Set(
-    stations.map(s => s.fro_worker_id).filter(Boolean)
-  );
-
   return (
     <div>
       {msg && (
@@ -487,12 +478,16 @@ export default function StationManagement() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
-            {allNgos.map(ngo => (
-              <button key={ngo.id} onClick={() => setSelectedNgoId(ngo.id)}
-                style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: selectedNgoId === ngo.id ? 'var(--sage)' : 'transparent', color: selectedNgoId === ngo.id ? '#fff' : 'var(--ink-soft)' }}>
-                {ngo.name}
-              </button>
-            ))}
+            {NGO_TABS.map(name => {
+              const ngo = allNgos.find(n => n.name === name);
+              const active = ngo && selectedNgoId === ngo.id;
+              return (
+                <button key={name} onClick={() => ngo && setSelectedNgoId(ngo.id)}
+                  style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)' }}>
+                  {name}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="card-pad">
@@ -542,7 +537,7 @@ export default function StationManagement() {
                         style={{ fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', maxWidth: 200 }}
                       >
                         <option value="">-- No FRO --</option>
-                        {froWorkers.filter(w => !assignedFroIds.has(w.id) || w.id === s.fro_worker_id).map(w => (
+                        {froWorkers.map(w => (
                           <option key={w.id} value={w.id}>{w.name}</option>
                         ))}
                       </select>
