@@ -84,6 +84,26 @@ router.put('/progress', saveMyProgress);
 router.get('/history', getMyHistory);
 router.get('/target', getMyTarget);
 router.get('/debug/my-stations', debugMyStations);
+router.get('/debug/simple-query', async (req, res) => {
+  try {
+    const results = {};
+    const { data: c1, error: e1 } = await supabase.from('fro_assignments').select('count').limit(1);
+    results.table_exists = !e1 ? 'ok' : e1.message;
+    const { data: c2, error: e2 } = await supabase.from('fro_assignments').select('station').limit(1);
+    results.station_column = !e2 ? 'ok' : e2.message;
+    const { data: c3, error: e3 } = await supabase.from('fro_assignments').select('batch_type').limit(1);
+    results.batch_type_column = !e3 ? 'ok' : e3.message;
+    const { data: c4, error: e4 } = await supabase.from('fro_assignments').select('status').limit(1);
+    results.status_column = !e4 ? 'ok' : e4.message;
+    const { data: c5, error: e5 } = await supabase.from('fro_assignments').select('*').in('station', ['DH-9', 'DH-13']).limit(5);
+    results.multi_station_query = !e5 ? { count: c5?.length || 0 } : e5.message;
+    const { data: c6, error: e6 } = await supabase.from('fro_assignments').select('batch_id').eq('station', 'DH-9').eq('batch_type', 'new_data').limit(1);
+    results.batch_query_single = !e6 ? { found: !!c6?.length } : e6.message;
+    return res.json(results);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 router.post('/request-data', requestData);
 router.get('/database-requests', getMyDataRequests);
 router.get('/follow-ups', getFollowUps);
