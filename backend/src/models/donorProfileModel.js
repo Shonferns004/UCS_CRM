@@ -14,48 +14,56 @@ export const upsertDonorProfile = async (profile) => {
   const existing = await getDonorByMobile(profile.mobile_number);
 
   if (existing) {
-    const newAmount = Math.max(parseFloat(existing.amount || 0), parseFloat(profile.amount || 0));
-    const newTotal = parseFloat(existing.total_amount || 0) + parseFloat(profile.amount || 0);
-    const newCount = (existing.donation_count || 0) + 1;
+    // BUG #60: read-then-write race on total_amount / donation_count.
+    // TODO: replace with a DB-side increment function (e.g. supabase.rpc('increment_donor_total', ...))
+    // to avoid lost updates under concurrent writes. For now, wrap in try-catch.
+    try {
+      const newAmount = Math.max(parseFloat(existing.amount || 0), parseFloat(profile.amount || 0));
+      const newTotal = parseFloat(existing.total_amount || 0) + parseFloat(profile.amount || 0);
+      const newCount = (existing.donation_count || 0) + 1;
 
-    const updates = {
-      amount: newAmount,
-      total_amount: newTotal,
-      donation_count: newCount,
-      updated_at: new Date().toISOString(),
-    };
+      const updates = {
+        amount: newAmount,
+        total_amount: newTotal,
+        donation_count: newCount,
+        updated_at: new Date().toISOString(),
+      };
 
-    if (profile.name) updates.name = profile.name;
-    if (profile.bank_donor_name) updates.bank_donor_name = profile.bank_donor_name;
-    if (profile.agent_donor_name) updates.agent_donor_name = profile.agent_donor_name;
-    if (profile.mobile_2) updates.mobile_2 = profile.mobile_2;
-    if (profile.address_1) updates.address_1 = profile.address_1;
-    if (profile.address_2) updates.address_2 = profile.address_2;
-    if (profile.city) updates.city = profile.city;
-    if (profile.pin_code) updates.pin_code = profile.pin_code;
-    if (profile.pan_number) updates.pan_number = profile.pan_number;
-    if (profile.email) updates.email = profile.email;
-    if (profile.birth_date) updates.birth_date = profile.birth_date;
-    if (profile.data_category) updates.data_category = profile.data_category;
-    if (profile.team) updates.team = profile.team;
-    if (profile.agent_name) updates.agent_name = profile.agent_name;
-    if (profile.mop) updates.mop = profile.mop;
-    if (profile.donors_bank_name) updates.donors_bank_name = profile.donors_bank_name;
-    if (profile.project_supported) updates.project_supported = profile.project_supported;
-    if (profile.account_of) updates.account_of = profile.account_of;
-    if (profile.category) updates.category = profile.category;
-    if (profile.station) updates.station = profile.station;
-    if (profile.ngo) updates.ngo = profile.ngo;
-    if (profile.transaction_date) updates.last_donation_date = profile.transaction_date;
+      if (profile.name) updates.name = profile.name;
+      if (profile.bank_donor_name) updates.bank_donor_name = profile.bank_donor_name;
+      if (profile.agent_donor_name) updates.agent_donor_name = profile.agent_donor_name;
+      if (profile.mobile_2) updates.mobile_2 = profile.mobile_2;
+      if (profile.address_1) updates.address_1 = profile.address_1;
+      if (profile.address_2) updates.address_2 = profile.address_2;
+      if (profile.city) updates.city = profile.city;
+      if (profile.pin_code) updates.pin_code = profile.pin_code;
+      if (profile.pan_number) updates.pan_number = profile.pan_number;
+      if (profile.email) updates.email = profile.email;
+      if (profile.birth_date) updates.birth_date = profile.birth_date;
+      if (profile.data_category) updates.data_category = profile.data_category;
+      if (profile.team) updates.team = profile.team;
+      if (profile.agent_name) updates.agent_name = profile.agent_name;
+      if (profile.mop) updates.mop = profile.mop;
+      if (profile.donors_bank_name) updates.donors_bank_name = profile.donors_bank_name;
+      if (profile.project_supported) updates.project_supported = profile.project_supported;
+      if (profile.account_of) updates.account_of = profile.account_of;
+      if (profile.category) updates.category = profile.category;
+      if (profile.station) updates.station = profile.station;
+      if (profile.ngo) updates.ngo = profile.ngo;
+      if (profile.transaction_date) updates.last_donation_date = profile.transaction_date;
 
-    const { data, error } = await supabase
-      .from('donor_profiles')
-      .update(updates)
-      .eq('id', existing.id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return data;
+      const { data, error } = await supabase
+        .from('donor_profiles')
+        .update(updates)
+        .eq('id', existing.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error('Donor profile update race condition:', err.message);
+      throw err;
+    }
   }
 
   const { data, error } = await supabase

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPut } from '../api/auth';
+import { toast } from '../../../components/Toast';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -19,7 +20,7 @@ export default function Suspense() {
     try {
       const data = await apiGet('/ngo-admin/suspense');
       setEntries(data || []);
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
     finally { setLoading(false); }
   };
 
@@ -52,7 +53,7 @@ export default function Suspense() {
       setShowDropdown(null);
       setSearchQuery(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       load();
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
     finally { setLinking(null); }
   };
 
@@ -64,7 +65,7 @@ export default function Suspense() {
       setShowDropdown(null);
       setSearchQuery(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       load();
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
     finally { setLinking(null); }
   };
 

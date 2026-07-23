@@ -303,18 +303,29 @@ async function findOrCreateContact(phoneNormalized) {
 
   if (existing) return existing;
 
-  const { data: newContact, error } = await supabase
-    .from('contacts')
-    .insert({
-      phone: phoneNormalized,
-      phone_normalized: phoneNormalized,
-      source: 'fro_initiated',
-    })
-    .select()
-    .single();
+  try {
+    const { data: newContact, error } = await supabase
+      .from('contacts')
+      .insert({
+        phone: phoneNormalized,
+        phone_normalized: phoneNormalized,
+        source: 'fro_initiated',
+      })
+      .select()
+      .single();
 
-  if (error) throw error;
-  return newContact;
+    if (error) throw error;
+    return newContact;
+  } catch (insertErr) {
+    // Handle race: another request inserted the same contact concurrently
+    const { data: raceContact } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('phone_normalized', phoneNormalized)
+      .maybeSingle();
+    if (raceContact) return raceContact;
+    throw insertErr;
+  }
 }
 
 async function findOrCreateConversation(contact, froWorkerId) {
@@ -327,19 +338,31 @@ async function findOrCreateConversation(contact, froWorkerId) {
 
   if (existing) return existing;
 
-  const { data: newConv, error } = await supabase
-    .from('conversations')
-    .insert({
-      contact_id: contact.id,
-      status: 'open',
-      last_message_at: new Date().toISOString(),
-      project: contact.project || null,
-    })
-    .select()
-    .single();
+  try {
+    const { data: newConv, error } = await supabase
+      .from('conversations')
+      .insert({
+        contact_id: contact.id,
+        status: 'open',
+        last_message_at: new Date().toISOString(),
+        project: contact.project || null,
+      })
+      .select()
+      .single();
 
-  if (error) throw error;
-  return newConv;
+    if (error) throw error;
+    return newConv;
+  } catch (insertErr) {
+    // Handle race: another request inserted the same conversation concurrently
+    const { data: raceConv } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('contact_id', contact.id)
+      .eq('status', 'open')
+      .maybeSingle();
+    if (raceConv) return raceConv;
+    throw insertErr;
+  }
 }
 
 export async function markConversationRead(conversationId, froWorkerId) {
@@ -496,7 +519,7 @@ export async function searchFroMessages(froWorkerId, query) {
     .from('messages')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .in('conversation_id', convIds)
-    .ilike('body_text', `%${query}%`)
+    .ilike('body_text', `%${query.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`)
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) throw error;

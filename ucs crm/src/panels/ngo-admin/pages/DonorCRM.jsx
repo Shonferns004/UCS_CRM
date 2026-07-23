@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../../../api/auth'
-import { ClipboardText, UsersThree, CalendarCheck, PlusCircle, UploadSimple, ArrowUpRight, ArrowsLeftRight, MagnifyingGlass, User, UserCircle, DeviceMobile, Envelope, House, Buildings, MapPin, IdentificationCard, Gift, Heart, Translate, CurrencyCircleDollar, Star, CreditCard, FileText, PushPin, CheckCircle, Circle, X, WarningCircle, ArrowDown } from '@phosphor-icons/react'
+import { toast } from '../../../components/Toast'
+import { ClipboardText, UsersThree, CalendarCheck, PlusCircle, UploadSimple, ArrowUpRight, ArrowsLeftRight, MagnifyingGlass, User, UserCircle, DeviceMobile, Envelope, House, Buildings, MapPin, IdentificationCard, Gift, Heart, Translate, CurrencyCircleDollar, Star, CreditCard, FileText, PushPin, CheckCircle, Circle, X, WarningCircle } from '@phosphor-icons/react'
 import DonorDetailModal from '../../../components/DonorDetailModal'
 
 const ICON_SIZE = 16
@@ -160,7 +161,7 @@ function AssignModal({ leads, onClose, onAssigned }) {
     try {
       await api('/ngo-admin/donor-crm/leads/assign', { method: 'PUT', body: JSON.stringify({ lead_ids: selected, fro_worker_id: parseInt(froId) }), _prefix: 'ucs' })
       onAssigned(); onClose()
-    } catch (e) { alert(e.message) } finally { setAssigning(false) }
+    } catch (e) { toast(e.message, 'error') } finally { setAssigning(false) }
   }
 
   return (
@@ -217,11 +218,19 @@ function TransferModal({ leads, onClose, onTransferred }) {
     if (!targetFro && !targetStation) return
     setTransferring(true)
     try {
-      await Promise.all(selected.map(id =>
+      const results = await Promise.allSettled(selected.map(id =>
         api(`/ngo-admin/donor-crm/leads/${id}/transfer`, { method: 'PUT', body: JSON.stringify({ target_fro_worker_id: targetFro || undefined, target_station: targetStation || undefined }), _prefix: 'ucs' })
       ))
+      const succeeded = results.filter(r => r.status === 'fulfilled').length
+      const failed = results.filter(r => r.status === 'rejected').length
+      if (failed > 0) {
+        toast(`${succeeded} transferred, ${failed} failed. Check console for details.`, 'warning')
+        results.filter(r => r.status === 'rejected').forEach(r => console.error('Transfer failed:', r.reason))
+      } else {
+        toast(`${succeeded} leads transferred successfully.`, 'success')
+      }
       onTransferred(); onClose()
-    } catch (e) { alert(e.message) } finally { setTransferring(false) }
+    } finally { setTransferring(false) }
   }
 
   return (

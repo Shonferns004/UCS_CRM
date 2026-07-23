@@ -98,22 +98,6 @@ function DonorsPage() {
 export default function NgoAdminPanel() {
   const { user, logout } = useUcs()
   const navigate = useNavigate()
-
-  if (user && user.role !== 'admin' && user.role !== 'super_admin') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16, padding: 32, textAlign: 'center' }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 48, color: '#94a3b8' }}>lock</span>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#1F332B' }}>Access Restricted</h2>
-        <p style={{ margin: 0, fontSize: 14, color: '#64748b', maxWidth: 400 }}>
-          NGO Admin panel requires an <strong>Admin</strong> account.<br />
-          Your current role is <strong>{user?.role || 'unknown'}</strong>.
-        </p>
-        <button onClick={() => navigate('/sa/dashboard')} style={{ marginTop: 8, padding: '10px 24px', borderRadius: 10, border: 'none', background: '#2A6B45', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-          Back to Dashboard
-        </button>
-      </div>
-    )
-  }
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -128,17 +112,6 @@ export default function NgoAdminPanel() {
   const searchTimer = useRef(null)
   const menuRef = useRef(null)
   const location = useLocation()
-
-  useEffect(() => {
-    if (themes[themeName]) {
-      applyTheme(themes[themeName], '.panel-ngo-admin')
-      const t = themes[themeName]
-      const el = document.querySelector('.panel-ngo-admin') || document.documentElement
-      el.style.setProperty('--bg', t.sand); el.style.setProperty('--card-bg', t.paper); el.style.setProperty('--sage-light', t['sage-soft'])
-    }
-    localStorage.setItem('ngoadmin_theme', themeName)
-  }, [themeName])
-
   const [rejectedCount, setRejectedCount] = useState(0);
   const [rejectedItems, setRejectedItems] = useState([]);
   const [allNotifs, setAllNotifs] = useState([]);
@@ -179,6 +152,16 @@ export default function NgoAdminPanel() {
       })
       .catch(() => {});
   };
+
+  useEffect(() => {
+    if (themes[themeName]) {
+      applyTheme(themes[themeName], '.panel-ngo-admin')
+      const t = themes[themeName]
+      const el = document.querySelector('.panel-ngo-admin') || document.documentElement
+      el.style.setProperty('--bg', t.sand); el.style.setProperty('--card-bg', t.paper); el.style.setProperty('--sage-light', t['sage-soft'])
+    }
+    localStorage.setItem('ngoadmin_theme', themeName)
+  }, [themeName])
 
   useEffect(() => {
     loadRejectedCount();
@@ -237,6 +220,21 @@ export default function NgoAdminPanel() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showSearchDropdown]);
 
+  if (user && user.role !== 'admin' && user.role !== 'super_admin') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 16, padding: 32, textAlign: 'center' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 48, color: '#94a3b8' }}>lock</span>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#1F332B' }}>Access Restricted</h2>
+        <p style={{ margin: 0, fontSize: 14, color: '#64748b', maxWidth: 400 }}>
+          NGO Admin panel requires an <strong>Admin</strong> account.<br />
+          Your current role is <strong>{user?.role || 'unknown'}</strong>.
+        </p>
+        <button onClick={() => navigate('/sa/dashboard')} style={{ marginTop: 8, padding: '10px 24px', borderRadius: 10, border: 'none', background: '#2A6B45', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+          Back to Dashboard
+        </button>
+      </div>
+    )
+  }
   const searchTotal = (searchResults.donors?.length || 0) + (searchResults.fros?.length || 0) + (searchResults.stations?.length || 0);
 
   const meta = NAV.find(n => location.pathname === n.path || location.pathname.startsWith(n.path + '/') || (n.id === 'donors' && location.pathname.startsWith('/ngo-admin/donors/')))

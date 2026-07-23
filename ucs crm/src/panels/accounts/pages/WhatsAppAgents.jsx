@@ -30,6 +30,9 @@ export default function WhatsAppAgents() {
   };
 
   useEffect(() => { loadAccounts(); }, []);
+  useEffect(() => {
+    return () => { if (timers.current) Object.values(timers.current).forEach(clearTimeout); };
+  }, []);
 
   const handleSearch = (accountId, query) => {
     setSearch(prev => ({ ...prev, [accountId]: query }));
