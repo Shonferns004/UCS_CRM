@@ -512,7 +512,7 @@ export function InboxPage() {
           }).select('id').single();
           if (msg) {
             try {
-              await sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+              await sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id, pn.id);
             } catch (err: any) {
               toast.error('Send failed: ' + (err.message || 'Unknown error'));
             }
@@ -534,6 +534,7 @@ export function InboxPage() {
         status: 'open',
         project: project,
         assigned_agent_id: user?.id,
+        whatsapp_account_id: Number(newConvPhoneId),
         last_message_at: new Date().toISOString(),
       }).select('*, contact:contacts(*)').single();
       if (convError) throw convError;
@@ -552,7 +553,7 @@ export function InboxPage() {
         }).select('id').single();
         if (msg) {
           try {
-            await sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+            await sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id, pn.id);
           } catch (err: any) {
             toast.error('Send failed: ' + (err.message || 'Unknown error'));
           }

@@ -40,6 +40,7 @@ export async function sendWhatsAppMessage(
   mediaFile?: File | null,
   userId?: string,
   messageId?: string,
+  accountId?: number | string,
 ): Promise<boolean> {
   try {
     const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at, project').eq('id', conversationId).maybeSingle();
@@ -48,9 +49,14 @@ export async function sendWhatsAppMessage(
 
     const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at);
 
-    const accounts: { phone_number_id: string; access_token: string; project?: string }[] = [];
+    let accounts: { phone_number_id: string; access_token: string; project?: string }[] = [];
 
-    if (userId) {
+    if (accountId) {
+      const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('id', accountId).eq('is_active', true);
+      if (data && data.length > 0) accounts = data;
+    }
+
+    if (accounts.length === 0 && userId) {
       const { data: assignments } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', userId);
       if (assignments && assignments.length > 0) {
         const ids = assignments.map((a: any) => a.account_id);
@@ -62,21 +68,6 @@ export async function sendWhatsAppMessage(
     if (accounts.length === 0) {
       const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true);
       if (fallback) accounts.push(...fallback.filter((a: any) => a.access_token));
-    }
-
-    const convProject = (conv as any)?.project || '';
-    if (convProject) {
-      const hasProjectAccount = accounts.some(a => a.project === convProject);
-      if (!hasProjectAccount) {
-        const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true).eq('project', convProject);
-        if (fallback && fallback.length > 0) accounts.unshift(...fallback.filter((a: any) => a.access_token));
-      } else {
-        const matchIdx = accounts.findIndex(a => a.project === convProject);
-        if (matchIdx > 0) {
-          const match = accounts.splice(matchIdx, 1)[0];
-          accounts.unshift(match);
-        }
-      }
     }
 
     if (accounts.length === 0) {
