@@ -6,6 +6,7 @@ import { Check, X } from '../icons';
 export default function Leaves() {
   const { fetchLeaves, decideLeave } = useHR();
   const [leaves, setLeaves] = useState([]);
+  const [selectedWorker, setSelectedWorker] = useState(null);
 
   useEffect(() => { fetchLeaves().then(setLeaves).catch(() => {}); }, []);
 
@@ -33,7 +34,9 @@ export default function Leaves() {
           <tbody>
             {leaves.map(l => (
               <tr key={l.id}>
-                <td style={{ fontWeight:500 }}>{l.workers?.name || 'Unknown'}</td>
+                <td style={{ fontWeight:500 }}>
+                  <a href="#" className="worker-link" onClick={e => { e.preventDefault(); if (l.workers) setSelectedWorker(l.workers); }}>{l.workers?.name || 'Unknown'}</a>
+                </td>
                 <td>{l.type?.replace('_',' ')}</td>
                 <td>{l.days}</td>
                 <td style={{ color:'var(--ink-soft)' }}>{fmtDate(l.leave_date || l.start_date)}</td>
@@ -52,6 +55,25 @@ export default function Leaves() {
           </tbody>
         </table>
       </div>
+
+      {selectedWorker && (
+        <div className="modal-overlay" onClick={() => setSelectedWorker(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Worker Details</h3>
+              <button className="btn btn-sm" onClick={() => setSelectedWorker(null)}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <label className="field"><span>Name</span><input type="text" value={selectedWorker.name || ''} disabled /></label>
+              <label className="field"><span>Login ID</span><input type="text" value={selectedWorker.login_id || ''} disabled /></label>
+              <label className="field"><span>Email</span><input type="text" value={selectedWorker.email || ''} disabled /></label>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setSelectedWorker(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

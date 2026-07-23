@@ -119,7 +119,8 @@ export default function Visualizations() {
   const [noticeRefresh, setNoticeRefresh] = useState(0)
 
   const publishNotice = useCallback(async () => {
-    if (!noticeForm.title.trim()) { setNoticeErr('Title is required'); return }
+    if (!noticeForm.title.trim()) { setNoticeErr('Please enter a title for the notice'); return }
+    if (!noticeForm.content.trim()) { setNoticeErr('Please enter content for the notice'); return }
     setNoticeSaving(true); setNoticeErr('')
     try {
       await api('/notices', { method: 'POST', body: JSON.stringify(noticeForm), _prefix: 'ucs' })
