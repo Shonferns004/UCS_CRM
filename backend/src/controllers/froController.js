@@ -382,7 +382,7 @@ export const getMyDonors = async (req, res) => {
 
     let query = supabase
       .from('fro_assignments')
-      .select('*')
+      .select('*, ngos(name)')
       .in('station', stationNames)
       .not('status', 'eq', 'reassigned');
 
@@ -449,7 +449,7 @@ export const getMyDonors = async (req, res) => {
     let { data: assignments, error: qErr } = await query;
     if (qErr) {
       console.error('getMyDonors main query error:', qErr);
-      query = supabase.from('fro_assignments').select('*').in('station', stationNames).not('status', 'eq', 'reassigned');
+      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', stationNames).not('status', 'eq', 'reassigned');
       if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
       else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
       const { data: retry } = await query;
@@ -459,7 +459,7 @@ export const getMyDonors = async (req, res) => {
     if (!assignments || assignments.length === 0) {
       const { data: byWorker } = await supabase
         .from('fro_assignments')
-        .select('*')
+        .select('*, ngos(name)')
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned');
       if (byWorker && byWorker.length > 0) {
