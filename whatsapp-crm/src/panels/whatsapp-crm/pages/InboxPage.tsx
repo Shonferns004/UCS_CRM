@@ -510,7 +510,13 @@ export function InboxPage() {
             status: 'queued',
             message_category: 'service',
           }).select('id').single();
-          if (msg) sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+          if (msg) {
+            try {
+              await sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+            } catch (err: any) {
+              toast.error('Send failed: ' + (err.message || 'Unknown error'));
+            }
+          }
         }
         setShowNewConv(false);
         setNewConvPhone('');
@@ -544,7 +550,13 @@ export function InboxPage() {
           status: 'queued',
           message_category: 'service',
         }).select('id').single();
-        if (msg) sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+        if (msg) {
+          try {
+            await sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+          } catch (err: any) {
+            toast.error('Send failed: ' + (err.message || 'Unknown error'));
+          }
+        }
       }
 
       setShowNewConv(false);
