@@ -97,6 +97,7 @@ export async function sendWhatsAppMessage(
         const tResult = await tRes.json();
         if (tRes.ok && tResult.messages?.[0]?.id) {
           if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
+          await new Promise(r => setTimeout(r, 1000));
         }
       } catch {}
     }
