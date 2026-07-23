@@ -52,20 +52,20 @@ import agentTransferRoutes from './routes/agentTransferRoutes.js';
 import userSettingsRoutes from './routes/userSettingsRoutes.js';
 import ticketRoutes from './routes/ticketRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
+import { authenticate } from './middleware/authMiddleware.js';
 
 dotenv.config();
 
 const _log = console.log;
-if (process.env.LOG_LEVEL !== 'debug') {
-  console.log = () => {};
-  console.warn = () => {};
-}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : ['*'];
 app.use(cors({
-  origin: '*',
+  origin: allowedOrigins.length === 1 && allowedOrigins[0] === '*' ? '*' : allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -144,7 +144,7 @@ app.post('/api/upload', uploadApi.single('file'), async (req, res) => {
   res.json({ url: urlData?.publicUrl, name: req.file.originalname, type: req.file.mimetype });
 });
 
-app.post('/api/whatsapp/send', express.json(), async (req, res) => {
+app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) => {
   try {
     const { conversationId, contactId, messageText, mediaUrl, mediaMimeType, userId, phoneNumber, messageId } = req.body;
     if (!conversationId) return res.status(400).json({ message: 'Missing conversationId' });
@@ -244,7 +244,7 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
   }
 });
 
-app.post('/api/whatsapp/send-file', uploadApi.single('file'), async (req, res) => {
+app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No file' });
     const { messageId, conversationId, contactId, userId } = req.body;
@@ -278,7 +278,7 @@ app.post('/api/whatsapp/send-file', uploadApi.single('file'), async (req, res) =
 
     let accounts = [];
     const { data: convAcc } = await supabase.from('conversations').select('whatsapp_account_id').eq('id', conversationId).maybeSingle();
-    const fileAccId = (convAcc as any)?.whatsapp_account_id;
+    const fileAccId = convAcc?.whatsapp_account_id;
     if (fileAccId) {
       const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('id', fileAccId).eq('is_active', true);
       if (data && data.length > 0) accounts = data;
@@ -372,7 +372,15 @@ if (fs.existsSync(accountsDist)) {
   });
 }
 
-    app.post('/api/cron/notifications', async (req, res) => {
+const CRON_API_KEY = process.env.CRON_API_KEY || null;
+const requireCronAuth = (req, res, next) => {
+  if (CRON_API_KEY && req.headers['x-api-key'] !== CRON_API_KEY) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  next();
+};
+
+    app.post('/api/cron/notifications', requireCronAuth, async (req, res) => {
       try {
         const { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders } =
           await import('./services/notificationScheduler.js');
@@ -389,7 +397,7 @@ if (fs.existsSync(accountsDist)) {
       }
     });
 
-    app.post('/api/cron/email-import', async (req, res) => {
+    app.post('/api/cron/email-import', requireCronAuth, async (req, res) => {
       try {
         const { pollEmailInbox } = await import('./services/emailImporter.js');
         const result = await pollEmailInbox();
@@ -400,7 +408,7 @@ if (fs.existsSync(accountsDist)) {
       }
     });
 
-    app.post('/api/cron/generate-daily-codes', async (req, res) => {
+    app.post('/api/cron/generate-daily-codes', requireCronAuth, async (req, res) => {
       try {
         const { generateDailyCodes } = await import('./services/dailyCodeService.js');
         const result = await generateDailyCodes();
@@ -411,7 +419,7 @@ if (fs.existsSync(accountsDist)) {
       }
     });
 
-    app.post('/api/cron/razorpay-sync', async (req, res) => {
+    app.post('/api/cron/razorpay-sync', requireCronAuth, async (req, res) => {
       try {
         const { syncAllRazorpayAccounts } = await import('./services/razorpayWebhook.js');
         const result = await syncAllRazorpayAccounts();

@@ -240,7 +240,7 @@ export default function BankAudit(){
       if(res[1].status==='fulfilled')setSr(res[1].value);if(res[2].status==='fulfilled')setSu(res[2].value);
     }catch(err){console.error(err);setEr(err.message)}finally{setLd(false)}
   }
-  useEffect(()=>{load(sd,st)},[st]);useEffect(()=>{load(sd,st)},[sd]);
+  useEffect(()=>{load(sd,st)},[sd, st]);
   useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current),onUpdate:()=>load(sd,srRef.current),onDelete:()=>load(sd,srRef.current)});
 
   const ngoKw={bsct:['beingsevak','being sevak','sevak'],maan:['mann','maan','manncar','mann care'],aflf:['ashray','aflf']};

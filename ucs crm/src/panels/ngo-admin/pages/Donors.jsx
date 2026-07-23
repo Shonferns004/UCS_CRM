@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiGet, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 
 function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
   const [selectedWorker, setSelectedWorker] = useState('');
@@ -13,7 +14,7 @@ function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
       await apiPost('/ngo-admin/assignments', { donor_ids: ids, fro_worker_id: selectedWorker });
       onAssigned();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }

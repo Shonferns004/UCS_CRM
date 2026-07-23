@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiGet } from '../api/auth'
 
 const NGO_LIST = [
   { key: 'bsct', label: 'Being Sevak' },
@@ -29,9 +30,7 @@ export default function TemplateSettings() {
   const [savedToast, setSavedToast] = useState(false)
 
   useEffect(() => {
-    import('../api/auth').then(({ apiGet }) => {
-      apiGet('/whatsapp/templates').then(list => setMetaTemplates(list || [])).catch(() => {})
-    })
+    apiGet('/whatsapp/templates').then(list => setMetaTemplates(list || [])).catch(() => {})
   }, [])
 
   const update = (ngoKey, field, value) => {

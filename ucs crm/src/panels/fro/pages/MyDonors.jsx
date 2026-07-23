@@ -43,9 +43,11 @@ const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
 const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
-const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
-const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+function useTomorrowStr() {
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
 
 const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
@@ -228,7 +230,7 @@ export default function MyDonors() {
       endDonorView(false)
       startDonorView(donors[index].id)
     }
-  }, [index]);
+  }, [index, donors, endDonorView, startDonorView]);
 
   useEffect(() => {
     if (stationsFetchedRef.current) return;
@@ -284,27 +286,38 @@ export default function MyDonors() {
     localStorage.setItem(`mydonors_current_donor_${stationKey}`, JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
   }, [donor?.id, donor?.ngo_id, index, stationKey]);
 
+  const progressRef = useRef({ donor, index, dataTab });
+  progressRef.current = { donor, index, dataTab };
   useEffect(() => {
     return () => {
-      if (donor) saveProgress(dataTab, donor.id, index);
+      const p = progressRef.current;
+      if (p.donor) saveProgress(p.dataTab, p.donor.id, p.index);
     };
-  }, [donor?.id, dataTab, selectedStation]);
+  }, []);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
 
+  const cancelledRef = useRef(false);
   const loadDetail = useCallback(() => {
     if (!donor) return;
+    cancelledRef.current = false;
+    const id = donor.id;
+    const ngoId = donor.ngo_id;
     setDetailLoading(true);
     if (donor.is_new) {
-      markDonorSeen(donor.id, donor.ngo_id).then(() => {
-        setDonors(prev => prev.map(d =>
-          d.id === donor.id && d.ngo_id === donor.ngo_id ? { ...d, is_new: false } : d
-        ));
+      markDonorSeen(id, ngoId).then(() => {
+        if (!cancelledRef.current) {
+          setDonors(prev => prev.map(d =>
+            d.id === id && d.ngo_id === ngoId ? { ...d, is_new: false } : d
+          ));
+        }
       }).catch(err => console.error('markDonorSeen error:', err));
     }
-    getDonorDetail(donor.id, donor.ngo_id).then(d => { setDetail(d); setShowAllLogs(false); }).catch(err => console.error('getDonorDetail error:', err)).finally(() => setDetailLoading(false));
+    getDonorDetail(id, ngoId).then(d => { if (!cancelledRef.current) { setDetail(d); setShowAllLogs(false); } }).catch(err => console.error('getDonorDetail error:', err)).finally(() => { if (!cancelledRef.current) setDetailLoading(false); });
   }, [donor?.id, donor?.ngo_id]);
+
+  useEffect(() => { return () => { cancelledRef.current = true; }; }, [loadDetail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
@@ -363,7 +376,7 @@ export default function MyDonors() {
             setTransactionDatetime(dt.toISOString().slice(0, 16));
           }
         }
-        if (amount && !leadAmount) setLeadAmount(amount);
+        if (amount) setLeadAmount(prev => prev || amount);
         if (fromName) setOcrFromName(fromName);
       } catch {}
       setOcrLoading(false);
@@ -523,8 +536,13 @@ export default function MyDonors() {
       setReturnToDonor(null);
       return;
     }
-    const nextIdx = findNextDonorIndex(donors, donor.id); setIndex(nextIdx); const nextDonor = donors[nextIdx]; if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx); return;
-    setMessage({ type: 'error', text: 'No more donors' });
+    const nextIdx = findNextDonorIndex(donors, donor.id);
+    if (nextIdx === index || !donors[nextIdx]) {
+      setMessage({ type: 'error', text: 'No more donors' });
+      return;
+    }
+    setIndex(nextIdx);
+    saveProgress(dataTab, donors[nextIdx].id, nextIdx);
   };
 
   const fmt = callFmt
@@ -883,7 +901,7 @@ export default function MyDonors() {
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Follow Up Date</label>
-                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={tomorrowStr} />
+                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={(() => { const t = new Date(); t.setDate(t.getDate() + 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; })()} />
                     </div>
                   </div>
                   {dateConfirmed && (

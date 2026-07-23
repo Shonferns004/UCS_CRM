@@ -30,7 +30,7 @@ export default function SuspensePage() {
     const url = statusFilter ? `/accounts/suspense?status=${statusFilter}` : '/accounts/suspense';
     apiGet(url)
       .then(setItems)
-      .catch(() => {})
+      .catch(err => console.error('SuspensePage error:', err))
       .finally(() => setLoading(false));
   }, [statusFilter]);
 

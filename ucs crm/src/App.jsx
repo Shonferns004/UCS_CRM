@@ -43,7 +43,7 @@ function ProtectedRoute({ role, children }) {
   const allowedRoles = Array.isArray(role) ? role : [role]
   if (!user) return <Navigate to="/login" replace />
   if (allowedRoles.includes('*')) return children
-  if (user.role === 'super_admin') return children
+  if (user.role === 'super_admin' && (allowedRoles.includes('super_admin') || allowedRoles.includes('*'))) return children
   if (!allowedRoles.includes(user.role) && !allowedRoles.includes(user.department)) {
     return <AccessDenied />
   }
@@ -95,7 +95,7 @@ function LoginWrapper() {
   }
   return <Login onLogin={(role) => {
     const path = ROLE_PATHS[role]
-    if (path) navigate(path, { replace: true })
+    navigate(path || '/login', { replace: true })
   }} />
 }
 

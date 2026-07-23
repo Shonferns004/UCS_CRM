@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiGet, apiPut } from '../api/auth'
+import { toast } from '../../../components/Toast'
 
 function getAlertIcon(type) {
   switch (type) {
@@ -48,7 +49,7 @@ export default function Alerts() {
       await apiPut(`/ngo-admin/alerts/${alertId}/acknowledge`, {});
       setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, acknowledged: true } : a));
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 

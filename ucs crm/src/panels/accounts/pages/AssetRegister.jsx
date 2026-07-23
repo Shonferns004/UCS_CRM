@@ -395,7 +395,7 @@ export default function AssetRegister() {
       ? { ...a, ...changes, history: newHistory }
       : a))
     // Backend endpoint: PUT /assets/:id (history bhi saath save hoti hai)
-    api(`/assets/${id}`, { method: 'PUT', body: JSON.stringify({ ...changes, history: newHistory }) }).catch(() => {})
+    api(`/assets/${id}`, { method: 'PUT', body: JSON.stringify({ ...changes, history: newHistory }) }).catch(err => console.warn('Save failed (offline?):', err.message))
   }
 
   function doAction(changes, historyText) {

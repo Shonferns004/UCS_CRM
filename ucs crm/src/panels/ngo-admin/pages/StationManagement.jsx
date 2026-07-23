@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
+import { toast } from '../../../components/Toast';
 import * as XLSX from 'xlsx';
 
 const NGO_NAME_COLORS = {
@@ -28,7 +29,7 @@ function TransferDataModal({ station, sourceName, sourceCount, stations, onClose
       onClose();
       setTimeout(() => { if (onTransferred) onTransferred(); }, 600);
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -422,7 +423,7 @@ export default function StationManagement() {
         setNewStation(computeNextName(list));
       }
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setAdding(false);
     }
@@ -433,7 +434,7 @@ export default function StationManagement() {
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, { ngo_id: ngoId });
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -447,7 +448,7 @@ export default function StationManagement() {
       });
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -458,7 +459,7 @@ export default function StationManagement() {
       await apiPost(`/ngo-admin/transfers/${transferId}/return-early`);
       setTimeout(() => fetchData('Leads returned successfully'), 400);
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setReturningId(null);
     }
@@ -470,7 +471,7 @@ export default function StationManagement() {
       await apiDelete(`/ngo-admin/stations/${encodeURIComponent(station)}`);
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -775,7 +776,7 @@ export default function StationManagement() {
                     });
                     setEditTarget(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }} disabled={!targetAmount}>Save</button>
               </div>
             </div>
@@ -807,7 +808,7 @@ export default function StationManagement() {
                     });
                     setEditAchieved(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Save</button>
               </div>
             </div>
@@ -848,7 +849,7 @@ export default function StationManagement() {
                     });
                     setEditIncentive(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Clear</button>
                 <button className="btn btn-outline" onClick={() => setEditIncentive(null)}>Cancel</button>
                 <button className="btn btn-primary" onClick={async () => {
@@ -861,7 +862,7 @@ export default function StationManagement() {
                     });
                     setEditIncentive(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Save</button>
               </div>
             </div>
