@@ -1,4 +1,4 @@
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { Button } from '../components/ui/Button';
@@ -17,25 +17,6 @@ import { QuickReplyBar } from '../components/chat/QuickReplyBar';
 import { TemplateBar } from '../components/chat/TemplateBar';
 import { MediaFromMeta } from '../components/chat/MediaPreview';
 import { MessageContextMenu } from '../components/chat/MessageContextMenu';
-
-const PROJECT_LABELS: Record<string, string> = {
-  bsct: 'Being Sevak',
-  aflf: 'Ashray Life',
-  maan: 'Mann Care',
-};
-
-const PROJECT_BADGES: Record<string, { bg: string; text: string }> = {
-  bsct: { bg: '#dbeafe', text: '#1d4ed8' },
-  aflf: { bg: '#dcfce7', text: '#16a34a' },
-  maan: { bg: '#fce7f3', text: '#db2777' },
-};
-
-const PROJECT_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'bsct', label: 'Being Sevak', color: '#3b82f6' },
-  { id: 'aflf', label: 'Ashray Life', color: '#22c55e' },
-  { id: 'maan', label: 'Mann Care', color: '#ec4899' },
-];
 
 const AVATAR_COLORS = ['#00a884','#5f9ea0','#d4a574','#8b7e74','#c97b84','#6fa8dc','#93c47d','#e69138'];
 function hashColor(name?: string) {
@@ -258,11 +239,9 @@ function MessageBubble({
 export function InboxPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(searchParams.get('project') || 'all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [showNewConv, setShowNewConv] = useState(false);
@@ -366,10 +345,6 @@ export function InboxPage() {
     refetchInterval: 10000,
   });
 
-  const filteredConvs = activeTab === 'all'
-    ? conversations
-    : (conversations || []).filter(c => (c.project || c.contact?.project) === activeTab);
-
   const { data: messages, isLoading: loadingMsgs } = useQuery({
     queryKey: ['messages', conversationId],
     queryFn: async () => {
@@ -441,22 +416,6 @@ export function InboxPage() {
   }, [user?.tenant_id, conversationId, queryClient]);
 
   useEffect(() => {
-    const phoneParam = searchParams.get('phone');
-    if (phoneParam && conversations && conversations.length > 0 && !conversationId) {
-      const match = conversations.find(c => {
-        const p = c.contact?.phone_normalized || c.contact?.phone || '';
-        return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''));
-      });
-      if (match) {
-        navigate(`/inbox/${match.id}`, { replace: true });
-      } else if (phoneParam) {
-        setNewConvPhone(phoneParam);
-        setShowNewConv(true);
-      }
-    }
-  }, [searchParams, conversations, conversationId, navigate]);
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -479,33 +438,13 @@ export function InboxPage() {
         if (!assignments || assignments.length === 0) return [];
         const accountIds = assignments.map((a: any) => a.account_id);
         const { data } = await supabase.from('whatsapp_accounts').select('*').in('id', accountIds);
-        const result = (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at, project: a.project })) as any;
-        return result as WhatsAppPhoneNumber[];
+        return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
       }
       const { data } = await supabase.from('whatsapp_accounts').select('*');
-      const result = (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at, project: a.project })) as any;
-      return result as WhatsAppPhoneNumber[];
+      return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
     },
     enabled: !!user,
   });
-
-  const myProjectTabs = phoneNumbers?.length
-    ? [
-        { id: 'all', label: 'All', color: '#6b7280' },
-        ...phoneNumbers.map(p => ({
-          id: (p as any).project,
-          label: PROJECT_LABELS[(p as any).project] || (p as any).project || 'Unknown',
-          color: PROJECT_TABS.find(t => t.id === (p as any).project)?.color || '#6b7280',
-        })),
-      ]
-    : PROJECT_TABS;
-
-  useEffect(() => {
-    if (phoneNumbers && phoneNumbers.length === 1 && !newConvPhoneId) {
-      setNewConvPhoneId(String(phoneNumbers[0].id));
-      setActiveTab((phoneNumbers[0] as any).project || 'all');
-    }
-  }, [phoneNumbers, newConvPhoneId]);
 
   const handleStartConversation = async () => {
     const phone = newConvPhone.trim();
@@ -675,74 +614,36 @@ export function InboxPage() {
                 </div>
               </div>
             ))
-          ) : (
-            <>
-              <div className="flex gap-1 px-3 py-2 border-b border-[#e9edef] overflow-x-auto">
-                {myProjectTabs.map(tab => {
-                  const isActive = activeTab === tab.id;
-                  const style = tab.id !== 'all' ? PROJECT_BADGES[tab.id] : null;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className="shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap"
-                      style={{
-                        background: isActive ? (style?.bg || '#111827') : '#f0f2f5',
-                        color: isActive ? (style?.text || '#fff') : '#667781',
-                      }}
-                    >
-                      {tab.id !== 'all' && (
-                        <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: tab.color }} />
-                      )}
-                      {tab.label}
-                    </button>
-                  );
-                })}
+          ) : conversations?.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 p-8 text-[#667781]">
+              <MessageSquare className="h-8 w-8" />
+              <p className="text-sm">No conversations yet</p>
+            </div>
+          ) : conversations?.map((conversation) => (
+            <button
+              key={conversation.id}
+              onClick={() => navigate(`/inbox/${conversation.id}`)}
+              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#f0f2f5] ${
+                conversation.id === conversationId ? 'bg-[#e8f4f8]' : ''
+              }`}
+            >
+              <div className="relative">
+                <WAAvatar waId={conversation.contact?.phone_normalized} name={conversation.contact?.wa_profile_name || conversation.contact?.phone} size="md" />
+                <div className={`absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${conversation.status === 'open' ? 'bg-[#00a884]' : 'bg-gray-400'}`} />
               </div>
-              {filteredConvs?.length === 0 && activeTab !== 'all' && (
-                <div className="flex flex-col items-center gap-2 p-8 text-[#667781]">
-                  <MessageSquare className="h-8 w-8" />
-                  <p className="text-sm">No conversations in this tab</p>
+              <div className="min-w-0 flex-1 border-b border-[#e9edef] pb-3 -mb-[5px]">
+                <div className="flex items-center justify-between">
+                  <span className="truncate text-[15px] font-normal text-[#111b21]">
+                    {conversation.contact?.wa_profile_name || conversation.contact?.phone}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-[#667781] ml-2">
+                    {conversation.last_message_at ? format(new Date(conversation.last_message_at), 'HH:mm') : ''}
+                  </span>
                 </div>
-              )}
-              {filteredConvs?.map((conversation) => {
-                const project = conversation.project || conversation.contact?.project || '';
-                const badge = PROJECT_BADGES[project] || null;
-                const projectLabel = PROJECT_LABELS[project] || project.toUpperCase();
-                return (
-                <button
-                  key={conversation.id}
-                  onClick={() => navigate(`/inbox/${conversation.id}`)}
-                  className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#f0f2f5] ${
-                    conversation.id === conversationId ? 'bg-[#e8f4f8]' : ''
-                  }`}
-                >
-                  <div className="relative">
-                    <WAAvatar waId={conversation.contact?.phone_normalized} name={conversation.contact?.wa_profile_name || conversation.contact?.phone} size="md" />
-                    <div className={`absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${conversation.status === 'open' ? 'bg-[#00a884]' : 'bg-gray-400'}`} />
-                  </div>
-                  <div className="min-w-0 flex-1 border-b border-[#e9edef] pb-3 -mb-[5px]">
-                    <div className="flex items-center justify-between">
-                      <span className="truncate text-[15px] font-normal text-[#111b21]">
-                        {conversation.contact?.wa_profile_name || conversation.contact?.phone}
-                      </span>
-                      <span className="shrink-0 text-[11px] text-[#667781] ml-2">
-                        {conversation.last_message_at ? format(new Date(conversation.last_message_at), 'HH:mm') : ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="truncate text-[13px] text-[#667781]">{conversation.contact?.phone}</span>
-                      {badge && (
-                        <span className="shrink-0 text-[10px] font-semibold rounded px-1.5 py-0.5" style={{ background: badge.bg, color: badge.text }}>
-                          {projectLabel}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              )})}
-            </>
-          )}
+                <p className="truncate text-[13px] text-[#667781] mt-0.5">{conversation.contact?.phone}</p>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -754,17 +655,7 @@ export function InboxPage() {
               <WAAvatar waId={currentConv?.contact?.phone_normalized} name={currentConv?.contact?.wa_profile_name || currentConv?.contact?.phone} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[15px] font-medium text-[#111b21]">{currentConv?.contact?.wa_profile_name || currentConv?.contact?.phone || 'Chat'}</p>
-                <div className="flex items-center gap-2 text-[12px] text-[#667781]">
-                  <span>{currentConv?.contact?.phone || ''}</span>
-                  {(currentConv as any)?.project && (
-                    <span className="text-[10px] font-semibold rounded px-1.5 py-0.5" style={{
-                      background: PROJECT_BADGES[(currentConv as any).project]?.bg || '#f0f2f5',
-                      color: PROJECT_BADGES[(currentConv as any).project]?.text || '#667781',
-                    }}>
-                      {PROJECT_LABELS[(currentConv as any).project] || (currentConv as any).project.toUpperCase()}
-                    </span>
-                  )}
-                </div>
+                <p className="text-[12px] text-[#667781]">{currentConv?.contact?.phone || ''}</p>
               </div>
               {(user?.role === 'admin' || user?.role === 'tenant_admin') && currentConv && (
                 <div className="relative shrink-0">

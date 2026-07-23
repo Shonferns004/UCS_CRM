@@ -42,35 +42,26 @@ export async function sendWhatsAppMessage(
   messageId?: string,
 ): Promise<boolean> {
   try {
-    const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at, project').eq('id', conversationId).maybeSingle();
+    const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at').eq('id', conversationId).maybeSingle();
     const { data: contact } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
     if (!contact?.phone_normalized) return false;
 
     const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at);
 
-    const accounts: { phone_number_id: string; access_token: string; project?: string }[] = [];
+    const accounts: { phone_number_id: string; access_token: string }[] = [];
 
     if (userId) {
       const { data: assignments } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', userId);
       if (assignments && assignments.length > 0) {
         const ids = assignments.map((a: any) => a.account_id);
-        const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').in('id', ids).eq('is_active', true);
+        const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').in('id', ids).eq('is_active', true);
         if (data) accounts.push(...data.filter((a: any) => a.access_token));
       }
     }
 
     if (accounts.length === 0) {
-      const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true);
+      const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
       if (fallback) accounts.push(...fallback.filter((a: any) => a.access_token));
-    }
-
-    const convProject = (conv as any)?.project || '';
-    if (convProject) {
-      const matchIdx = accounts.findIndex(a => a.project === convProject);
-      if (matchIdx > 0) {
-        const match = accounts.splice(matchIdx, 1)[0];
-        accounts.unshift(match);
-      }
     }
 
     if (accounts.length === 0) {
