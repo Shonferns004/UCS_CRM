@@ -11,12 +11,18 @@ export const createAssignment = async (data) => {
 };
 
 export const batchCreateAssignments = async (assignments) => {
-  const { data, error } = await supabase
-    .from('fro_assignments')
-    .insert(assignments)
-    .select();
-  if (error) throw error;
-  return data;
+  const BATCH_SIZE = 500;
+  let allData = [];
+  for (let i = 0; i < assignments.length; i += BATCH_SIZE) {
+    const batch = assignments.slice(i, i + BATCH_SIZE);
+    const { data, error } = await supabase
+      .from('fro_assignments')
+      .insert(batch)
+      .select();
+    if (error) throw error;
+    if (data) allData = allData.concat(data);
+  }
+  return allData;
 };
 
 export const findAssignmentById = async (id) => {

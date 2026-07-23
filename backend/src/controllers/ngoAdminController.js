@@ -1666,11 +1666,16 @@ export const distributeNewData = async (req, res) => {
         }
 
         if (toInsert.length > 0) {
-          const { data: newProfiles } = await supabase
-            .from('donor_profiles')
-            .insert(toInsert)
-            .select('id');
-          newProfileIds = (newProfiles || []).map(p => p.id);
+          let allProfiles = [];
+          for (let i = 0; i < toInsert.length; i += 500) {
+            const batch = toInsert.slice(i, i + 500);
+            const { data: newProfiles } = await supabase
+              .from('donor_profiles')
+              .insert(batch)
+              .select('id');
+            if (newProfiles) allProfiles = allProfiles.concat(newProfiles);
+          }
+          newProfileIds = allProfiles.map(p => p.id);
           totalConverted += toInsert.length;
           messages.push(`${toInsert.length} new donors converted to profiles (${ngoName})`);
         }
