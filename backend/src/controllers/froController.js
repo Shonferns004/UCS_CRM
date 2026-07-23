@@ -402,20 +402,25 @@ export const getMyDonors = async (req, res) => {
       // No default status filter — include all except 'reassigned'
     }
 
-    // Batch-based tab filtering: show only the latest batch per type.
-    // Falls back to latest assigned_at date for legacy rows without batch_id/batch_type.
+    // Batch-based tab filtering: show latest batch PER station.
+    // This ensures FROs with multiple stations see data from ALL stations.
     if (req.query.new_only === 'true') {
-      const { data: latestBatch } = await supabase
-        .from('fro_assignments')
-        .select('batch_id, assigned_at')
-        .in('station', stationNames)
-        .eq('batch_type', 'new_data')
-        .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestBatch?.batch_id) {
-        query = query.eq('batch_id', latestBatch.batch_id);
+      const batchIds = [];
+      for (const s of stationNames) {
+        const { data: lb } = await supabase
+          .from('fro_assignments')
+          .select('batch_id')
+          .eq('station', s)
+          .eq('batch_type', 'new_data')
+          .not('status', 'eq', 'reassigned')
+          .not('batch_id', 'is', null)
+          .order('assigned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lb?.batch_id) batchIds.push(lb.batch_id);
+      }
+      if (batchIds.length > 0) {
+        query = query.in('batch_id', [...new Set(batchIds)]);
       } else {
         const { data: latestDate } = await supabase
           .from('fro_assignments')
@@ -430,17 +435,22 @@ export const getMyDonors = async (req, res) => {
         }
       }
     } else if (req.query.old_only === 'true') {
-      const { data: latestBatch } = await supabase
-        .from('fro_assignments')
-        .select('batch_id, assigned_at')
-        .in('station', stationNames)
-        .eq('batch_type', 'old_data')
-        .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestBatch?.batch_id) {
-        query = query.eq('batch_id', latestBatch.batch_id);
+      const batchIds = [];
+      for (const s of stationNames) {
+        const { data: lb } = await supabase
+          .from('fro_assignments')
+          .select('batch_id')
+          .eq('station', s)
+          .eq('batch_type', 'old_data')
+          .not('status', 'eq', 'reassigned')
+          .not('batch_id', 'is', null)
+          .order('assigned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lb?.batch_id) batchIds.push(lb.batch_id);
+      }
+      if (batchIds.length > 0) {
+        query = query.in('batch_id', [...new Set(batchIds)]);
       } else {
         return res.json([]);
       }
