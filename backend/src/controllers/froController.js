@@ -374,12 +374,12 @@ const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'fol
 export const getMyDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
+    console.log('getMyDonors START workerId:', workerId);
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
-    // Query fro_assignments by this FRO's station names (not fro_worker_id,
-    // since stations may not have an FRO assigned)
     const stationNames = await getMyStationNames(workerId);
+    console.log('getMyDonors stationNames:', JSON.stringify(stationNames));
     if (stationNames.length === 0) return res.json([]);
 
     let query = supabase
@@ -387,6 +387,7 @@ export const getMyDonors = async (req, res) => {
       .select('*, ngos(name)')
       .in('station', stationNames)
       .not('status', 'eq', 'reassigned');
+    console.log('getMyDonors base query built');
 
     if (req.query.station) {
       query = query.eq('station', req.query.station);
@@ -466,16 +467,27 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    let { data: assignments } = await query;
+    console.log('getMyDonors executing main query');
+    let { data: assignments, error: qErr } = await query;
+    if (qErr) {
+      console.error('getMyDonors main query error:', qErr);
+      return res.status(500).json({ message: qErr.message, details: qErr.details, hint: qErr.hint });
+    }
+    console.log('getMyDonors main query result count:', assignments?.length);
 
     // Fallback: query by fro_worker_id if station-based query found nothing
     if (!assignments || assignments.length === 0) {
-      const { data: byWorker } = await supabase
+      console.log('getMyDonors trying fro_worker_id fallback');
+      const { data: byWorker, error: bwErr } = await supabase
         .from('fro_assignments')
         .select('*, ngos(name)')
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned');
+      if (bwErr) {
+        console.error('getMyDonors fallback error:', bwErr);
+      }
       if (byWorker && byWorker.length > 0) {
+        console.log('getMyDonors fallback found:', byWorker.length);
         assignments = byWorker;
       }
     }
@@ -705,7 +717,7 @@ export const getMyDonors = async (req, res) => {
     return res.json(filtered);
   } catch (error) {
     console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: error.message, stack: error.stack });
   }
 };
 
