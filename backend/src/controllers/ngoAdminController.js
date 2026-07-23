@@ -1346,15 +1346,12 @@ export const reassignStationFro = async (req, res) => {
       .single();
     if (!stationAssign) return res.status(404).json({ message: 'Station assignment not found' });
 
-    const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
-    const ngoName = ngoNames[0] || stationAssign.ngo_id;
-
     // Update station assignment
     await upsertStationAssignment(fro_worker_id, ngoId, stationAssign.station, req.user.id);
 
     // Reassign donors in this station
     const { reassignStationDonors } = await import('../models/froAssignmentModel.js');
-    const newAssignments = await reassignStationDonors(ngoId, ngoName, stationAssign.station, fro_worker_id, req.user.id);
+    const newAssignments = await reassignStationDonors(ngoId, stationAssign.station, fro_worker_id, req.user.id);
 
     return res.json({
       message: `Station reassigned. ${newAssignments.length} donors assigned to new FRO.`,

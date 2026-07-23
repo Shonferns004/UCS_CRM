@@ -131,27 +131,21 @@ export const getUnassignedDonorIdsByStation = async (ngoName, stations) => {
   return allIds.filter(id => !assignedSet.has(id));
 };
 
-export const reassignStationDonors = async (ngoId, ngoName, station, newFroWorkerId, assignedBy) => {
-  const { data: donors, error: dErr } = await supabase
-    .from('donor_profiles')
-    .select('id')
-    .eq('ngo', ngoName)
-    .eq('station', station);
-  if (dErr) throw dErr;
-  if (!donors || donors.length === 0) return [];
-
-  const donorIds = donors.map(d => d.id);
-
-  // Fetch old assignments to preserve station, batch_id, batch_type
-  const { data: oldAsgn } = await supabase
+export const reassignStationDonors = async (ngoId, station, newFroWorkerId, assignedBy) => {
+  // Fetch old fro_assignments for this station (donor_profiles.station may be null)
+  const { data: oldRows, error: fErr } = await supabase
     .from('fro_assignments')
     .select('donor_id, station, batch_id, batch_type')
-    .in('donor_id', donorIds)
     .eq('ngo_id', ngoId)
+    .eq('station', station)
     .not('status', 'eq', 'reassigned');
+  if (fErr) throw fErr;
+  if (!oldRows || oldRows.length === 0) return [];
+
+  const donorIds = oldRows.map(r => r.donor_id);
 
   const oldMap = {};
-  for (const a of oldAsgn || []) oldMap[a.donor_id] = a;
+  for (const a of oldRows) oldMap[a.donor_id] = a;
 
   // Mark old assignments as reassigned
   const { error: updErr } = await supabase
