@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Loader2, Mic } from 'lucide-react';
-import { sendWhatsAppMessage } from '../../lib/whatsapp';
 import { MediaUploadPreview } from './MediaPreview';
 import { AudioRecorder } from './AudioRecorder';
 
@@ -26,42 +25,32 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
 
     try {
       if (selectedFiles.length > 0) {
-        const uploaded: { url: string; type: string; name: string }[] = [];
+        const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
         for (const file of selectedFiles) {
-          const ext = file.type.split('/')[1]?.split(';')[0] || 'bin';
-          const fileName = `composer_${userId}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-          const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(fileName, file, { contentType: file.type, upsert: true });
-          if (uploadErr) continue;
-          const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
-          if (urlData?.publicUrl) uploaded.push({ url: urlData.publicUrl, type: file.type, name: file.name });
-        }
+          const mimeType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document';
 
-        if (uploaded.length > 0) {
-          const first = uploaded[0];
-          const rest = uploaded.slice(1);
-          const msgType = first.type.startsWith('image/') ? 'image' : first.type.startsWith('video/') ? 'video' : first.type.startsWith('audio/') ? 'audio' : 'document';
-
-          await supabase.from('messages').insert({
-            tenant_id: tenantId,
+          const { data: msg } = await supabase.from('messages').insert({
             conversation_id: conversationId,
             contact_id: contactId,
             user_id: userId,
             direction: 'outbound',
-            message_type: msgType,
+            message_type: mimeType,
             body_text: text.trim() || null,
-            media_url: first.url,
-            media_mime_type: first.type,
-            template_params: rest.length > 0 ? rest : null,
             status: 'queued',
-            message_category: 'service',
-          });
+          }).select('id').maybeSingle();
 
-          await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
-          sendWhatsAppMessage(conversationId, contactId || '', text.trim() || undefined, null, userId);
+          if (msg?.id) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('messageId', msg.id);
+            formData.append('conversationId', conversationId);
+            formData.append('contactId', contactId || '');
+            formData.append('userId', userId || '');
+            fetch(apiUrl + '/whatsapp/send-file', { method: 'POST', body: formData }).catch(() => {});
+          }
         }
       } else if (text.trim()) {
-        const { data: msg, error: insertErr } = await supabase.from('messages').insert({
-          tenant_id: tenantId,
+        const { data: msg } = await supabase.from('messages').insert({
           conversation_id: conversationId,
           contact_id: contactId,
           user_id: userId,
@@ -69,12 +58,18 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           message_type: 'text',
           body_text: text.trim(),
           status: 'queued',
-          message_category: 'service',
-        }).select('id').single();
+        }).select('id').maybeSingle();
 
-        if (insertErr) throw insertErr;
-        await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null);
-        sendWhatsAppMessage(conversationId, contactId || '', text.trim(), undefined, userId, msg?.id);
+        if (msg?.id) {
+          const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+          fetch(apiUrl + '/whatsapp/send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messageId: msg.id, conversationId, contactId,
+              messageText: text.trim(), userId,
+            }),
+          }).catch(() => {});
+        }
       }
 
       setText('');

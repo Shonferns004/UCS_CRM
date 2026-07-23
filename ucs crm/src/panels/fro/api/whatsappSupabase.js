@@ -63,7 +63,7 @@ export async function markRead(conversationId) {
 export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType, mediaFile) {
   const { data: conv } = await supabase
     .from('conversations')
-    .select('last_inbound_at, last_message_at')
+    .select('last_inbound_at, last_message_at, project')
     .eq('id', conversationId)
     .maybeSingle()
 
@@ -77,7 +77,8 @@ export async function sendMessage(conversationId, contactId, messageText, userId
 
   const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at)
   const isMedia = !!mediaUrl
-  const msgType = isMedia ? (mediaType || 'image') : 'text'
+  const mime = mediaType || ''
+  const msgType = isMedia ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text'
 
   const isMulti = messageText === '__MULTI__'
   let extraFiles = null
@@ -120,7 +121,7 @@ export async function sendMessage(conversationId, contactId, messageText, userId
     const ids = assignments.map(a => a.account_id)
     const { data } = await supabase
       .from('whatsapp_accounts')
-      .select('phone_number_id, access_token')
+      .select('phone_number_id, access_token, project')
       .in('id', ids)
     if (data) accounts.push(...data)
   }
@@ -128,8 +129,17 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   if (accounts.length === 0) {
     const { data } = await supabase
       .from('whatsapp_accounts')
-      .select('phone_number_id, access_token')
+      .select('phone_number_id, access_token, project')
     if (data) accounts.push(...data)
+  }
+
+  const convProject = conv?.project || ''
+  if (convProject) {
+    const matchIdx = accounts.findIndex(a => a.project === convProject)
+    if (matchIdx > 0) {
+      const match = accounts.splice(matchIdx, 1)[0]
+      accounts.unshift(match)
+    }
   }
 
   async function uploadToMeta(accessToken, phoneNumberId) {
@@ -244,7 +254,7 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   throw new Error('Failed to send message')
 }
 
-export async function sendDirectMessage(userId, phone, messageText) {
+export async function sendDirectMessage(userId, phone, messageText, project) {
   const phoneNormalized = String(phone).replace(/[^0-9]/g, '')
 
   let { data: contact } = await supabase
@@ -278,6 +288,7 @@ export async function sendDirectMessage(userId, phone, messageText) {
         contact_id: contact.id,
         status: 'open',
         assigned_agent_id: userId,
+        project: project || null,
         last_message_at: new Date().toISOString(),
       })
       .select('*, contact:contacts(*)')
@@ -453,5 +464,11 @@ export async function updateLabels(conversationId, labels) {
 export async function uploadMedia(userId, file) {
   const formData = new FormData()
   formData.append('file', file)
+  try {
+    const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/upload', {
+      method: 'POST', body: formData,
+    })
+    if (res.ok) return res.json()
+  } catch {}
   return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
 }

@@ -31,7 +31,7 @@ export function AudioRecorder({ onSend, onClose }: AudioRecorderProps) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const mimeType = MediaRecorder.isTypeSupported('audio/ogg; codecs=opus') ? 'audio/ogg; codecs=opus' : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorder.current = recorder;
       chunks.current = [];

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones, MoreVertical, LogOut, User, Mail, Shield, Phone } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones, MoreVertical, LogOut, User, Mail, Shield, Phone, UserCog } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
@@ -9,6 +9,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
   { name: 'Inbox', href: '/inbox', icon: MessageSquare },
   { name: 'Contacts', href: '/contacts', icon: Users },
+  { name: 'Team', href: '/team', icon: UserCog },
   { name: 'Pipeline', href: '/pipeline', icon: Kanban },
   { name: 'Automations', href: '/automations', icon: Bot },
   { name: 'Templates', href: '/templates', icon: FileText },
