@@ -150,6 +150,7 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
     if (!conversationId) return res.status(400).json({ message: 'Missing conversationId' });
 
     let toPhone = phoneNumber;
+    let convInfo = null;
     if (!toPhone && contactId) {
       const { data: c } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
       if (c) toPhone = c.phone_normalized;
@@ -157,11 +158,21 @@ app.post('/api/whatsapp/send', express.json(), async (req, res) => {
     if (!toPhone) {
       const { data: conv } = await supabase.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
       toPhone = conv?.contact?.phone_normalized;
+      convInfo = conv;
     }
     if (!toPhone) return res.status(400).json({ message: 'No phone number found' });
 
-    const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+    const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true);
     if (!accounts?.length) return res.status(500).json({ message: 'No active WhatsApp account' });
+
+    const convProject = convInfo?.project || '';
+    if (convProject) {
+      const matchIdx = accounts.findIndex((a: any) => a.project === convProject);
+      if (matchIdx > 0) {
+        const match = accounts.splice(matchIdx, 1)[0];
+        accounts.unshift(match);
+      }
+    }
 
     const mime = mediaMimeType || '';
     const msgType = mediaUrl ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text';
@@ -265,10 +276,20 @@ app.post('/api/whatsapp/send-file', uploadApi.single('file'), async (req, res) =
       return res.json({ message: 'No phone found, saved to storage only', mediaUrl });
     }
 
-    const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+    const { data: accounts } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true);
     if (!accounts?.length) {
       await supabase.from('messages').update({ status: 'sent', failure_reason: 'No WhatsApp account' }).eq('id', messageId);
       return res.json({ message: 'No active account, saved to storage only', mediaUrl });
+    }
+
+    const { data: convProject } = await supabase.from('conversations').select('project').eq('id', conversationId).maybeSingle();
+    const projectName = (convProject as any)?.project || '';
+    if (projectName) {
+      const matchIdx = accounts.findIndex((a: any) => a.project === projectName);
+      if (matchIdx > 0) {
+        const match = accounts.splice(matchIdx, 1)[0];
+        accounts.unshift(match);
+      }
     }
 
     let metaDelivered = false;
