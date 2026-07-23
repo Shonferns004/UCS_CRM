@@ -42,6 +42,12 @@ export default function AdminTeamMemberPage({ workerId, onBack }) {
         .from('fro_whatsapp_assignments')
         .insert({ fro_worker_id: workerId, whatsapp_account_id: Number(selectedAccountId) })
       if (insErr) throw insErr
+
+      if (worker?.login_id) {
+        await supabase.from('agent_phone_assignments').delete().eq('user_id', worker.login_id)
+        await supabase.from('agent_phone_assignments').insert({ user_id: worker.login_id, account_id: Number(selectedAccountId) })
+      }
+
       setCurrentAssignment({ fro_worker_id: workerId, whatsapp_account_id: Number(selectedAccountId) })
       setMessage({ type: 'success', text: 'Assignment updated successfully' })
     } catch (err) {
