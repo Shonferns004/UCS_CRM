@@ -41,7 +41,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
       .then(d => {
         setNotices(Array.isArray(d) ? d.slice(0, limit) : d?.data?.slice(0, limit) || [])
       })
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false))
   }, [limit, role])
 

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
+import { Component } from 'react'
 import Login from './pages/Login'
 import SuperAdminPanel from './panels/super-admin/SuperAdminPanel'
 import HRPanel from './panels/hr/HRPanel'
@@ -99,8 +100,29 @@ function LoginWrapper() {
   }} />
 }
 
+class ErrorBoundary extends Component {
+  state = { hasError: false, error: null }
+  static getDerivedStateFromError(error) { return { hasError: true, error } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center', fontFamily: 'sans-serif' }}>
+          <h2>Something went wrong</h2>
+          <p style={{ color: '#666', marginBottom: 16 }}>{this.state.error?.message}</p>
+          <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload() }}
+            style={{ padding: '8px 20px', cursor: 'pointer' }}>
+            Reload Page
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
   return (
+    <ErrorBoundary>
     <UcsProvider>
       <Routes>
         <Route path="/login" element={<LoginWrapper />} />
@@ -156,5 +178,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </UcsProvider>
+    </ErrorBoundary>
   )
 }

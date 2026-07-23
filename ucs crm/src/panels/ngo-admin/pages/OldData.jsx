@@ -42,7 +42,7 @@ export default function OldData() {
     apiGet('/ngo-admin/stations').then(r => {
       const list = Array.isArray(r) ? r.map(s => s.station || s).filter(Boolean).sort() : [];
       setStations(list);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const load = async (st) => {

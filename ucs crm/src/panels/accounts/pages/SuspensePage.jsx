@@ -37,7 +37,7 @@ export default function SuspensePage() {
   useEffect(load, [load]);
 
   useEffect(() => {
-    apiGet('/workers').then(setWorkers).catch(() => {});
+    apiGet('/workers').then(setWorkers).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stats = useMemo(() => {

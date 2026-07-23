@@ -132,12 +132,12 @@ export default function Visualizations() {
   useEffect(() => {
     const token = localStorage.getItem('ucs_token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    fetchWorkers().then(setWorkers).catch(() => {});
-    fetchAttendance().then(setAttendance).catch(() => {});
-    fetchLeaves().then(setLeaves).catch(() => {});
-    fetchHolidays().then(setHolidays).catch(() => {});
+    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
+    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
+    fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
+    fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); });
     fetch(API_BASE + '/salary/workers-summary', { headers })
-      .then(r => r.json()).then(setSalSum).catch(() => {});
+      .then(r => r.json()).then(setSalSum).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const w = workers || [], a = attendance || [], l = leaves || [], h = holidays || [];

@@ -11,7 +11,7 @@ export default function AdminTeamPage({ onSelectMember }) {
       .select('id, fro_worker_id, is_active, created_at, workers!inner(id, name, email, phone), whatsapp_accounts!inner(id, name, phone_number_id)')
       .order('created_at', { ascending: true })
       .then(({ data }) => setAgents(data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false))
   }, [])
 

@@ -13,7 +13,7 @@ const calcAge = (dob) => {
 const getJobRole = (lead) => {
   if (lead.job_role) return lead.job_role;
   let notes = [];
-  try { notes = JSON.parse(lead.notes || '[]'); } catch {}
+  try { notes = JSON.parse(lead.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
   const meta = notes.find(n => n.__meta === true && n.type === 'job_role');
   return meta ? meta.value : null;
 };
@@ -320,7 +320,7 @@ export default function Leads() {
                 {filteredLeads.map(l => {
                   const isOwner = myId && l.created_by === myId;
                   let parsed = [];
-                  try { parsed = JSON.parse(l.notes || '[]'); } catch {}
+                  try { parsed = JSON.parse(l.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
                   const displayAge = l.dob ? calcAge(l.dob) : l.age;
                   return (
                     <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>

@@ -181,9 +181,9 @@ export default function MyDonors() {
                 if (savedIndex != null && savedIndex < r.length) {
                   setIndex(savedIndex); restored = true;
                 }
+                }
               }
-            }
-          } catch {}
+            } catch (e) { console.error('Error:', e.message); }
         }
 
         if (!restored) setIndex(0);
@@ -204,7 +204,7 @@ export default function MyDonors() {
             setDataTab(progress.data_tab);
             return;
           }
-        } catch {}
+        } catch (e) { console.error('Error:', e.message); }
       }
       load(dataTab);
     })();
@@ -235,7 +235,7 @@ export default function MyDonors() {
   useEffect(() => {
     if (stationsFetchedRef.current) return;
     stationsFetchedRef.current = true;
-    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch(() => {});
+    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stationOpts = (tab, station) => {
@@ -245,7 +245,7 @@ export default function MyDonors() {
   };
 
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch(() => {});
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation]);
 
   const debouncedReload = useCallback(() => {
@@ -265,7 +265,7 @@ export default function MyDonors() {
       body.old_donor_id = donorId;
       body.old_donor_index = donorIndex;
     }
-    api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch(() => {});
+    api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch((err) => { console.error('API error:', err.message); });
   }, [selectedStation]);
 
   const stationKey = selectedStation !== 'all' ? selectedStation : 'all';
@@ -378,7 +378,7 @@ export default function MyDonors() {
         }
         if (amount) setLeadAmount(prev => prev || amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);

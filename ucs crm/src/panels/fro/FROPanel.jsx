@@ -127,7 +127,8 @@ export default function FROPanel() {
   const [statsData, setStatsData] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]')));
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs));
   const notifRef = useRef(null);
   const pollRef = useRef(null);
   const poppedIds = useRef(new Set());
@@ -135,7 +136,7 @@ export default function FROPanel() {
 
   const markRead = async (notifId) => {
     try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); }
-    catch {}
+    catch (e) { console.error('Error:', e.message); }
   };
 
   const handleRejectedClick = async (item) => {
@@ -196,7 +197,7 @@ export default function FROPanel() {
         setRejectedCount(rejected.length);
         setVerifiedCount(verified.length);
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
   useEffect(() => {
     loadNotifications();
@@ -223,7 +224,7 @@ export default function FROPanel() {
           const data = await res.json()
           setWaUnreadCount(data?.count || 0)
         }
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
     }
     fetchWaUnread()
     const interval = setInterval(fetchWaUnread, 15000)
@@ -255,7 +256,7 @@ export default function FROPanel() {
         }
       });
       setRows(items);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
   useEffect(() => { loadReminders(); }, [refetch]);
   useEffect(() => { const interval = setInterval(() => loadReminders(), 30000); return () => clearInterval(interval); }, []);
@@ -332,7 +333,7 @@ export default function FROPanel() {
               </div>
             </div>
             <div style={{ position:'relative' }}>
-              <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch(() => null), getMyTarget().catch(() => null)]); setStatsData({ dash: d, target: t }); } catch {} finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
+              <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch((err) => { console.error('Error:', err.message); }), getMyTarget().catch((err) => { console.error('Error:', err.message); })]);             setStatsData({ dash: d, target: t }); } catch (e) { console.error('Error:', e.message); } finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
             </div>

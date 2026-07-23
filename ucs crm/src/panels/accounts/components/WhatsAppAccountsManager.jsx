@@ -38,7 +38,19 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadAccounts(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const data = await apiGet('/whatsapp/accounts');
+        if (!cancelled) setAccounts(data || []);
+      } catch (err) { console.error(err); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   const resetForm = () => {
     setForm(emptyForm);

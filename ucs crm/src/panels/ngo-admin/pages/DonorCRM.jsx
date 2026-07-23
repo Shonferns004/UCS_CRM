@@ -149,7 +149,7 @@ function AssignModal({ leads, onClose, onAssigned }) {
   const [assigning, setAssigning] = useState(false)
 
   useEffect(() => {
-    api('/ngo-admin/fro-workers', { _prefix: 'ucs' }).then(setFroWorkers).catch(() => {})
+    api('/ngo-admin/fro-workers', { _prefix: 'ucs' }).then(setFroWorkers).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const toggleAll = () => { setSelected(selected.length === leads.length ? [] : leads.map(l => l.id)) }
@@ -208,7 +208,7 @@ function TransferModal({ leads, onClose, onTransferred }) {
   const [transferring, setTransferring] = useState(false)
 
   useEffect(() => {
-    api('/ngo-admin/fro-workers', { _prefix: 'ucs' }).then(setFroWorkers).catch(() => {})
+    api('/ngo-admin/fro-workers', { _prefix: 'ucs' }).then(setFroWorkers).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const toggle = (id) => { setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
@@ -353,7 +353,7 @@ export default function DonorCRM() {
   const [accessibleNgos, setAccessibleNgos] = useState([])
 
   useEffect(() => {
-    api('/ngo-admin/ngos', { _prefix: 'ucs' }).then(setAccessibleNgos).catch(() => {});
+    api('/ngo-admin/ngos', { _prefix: 'ucs' }).then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const loadLeads = useCallback(async () => {

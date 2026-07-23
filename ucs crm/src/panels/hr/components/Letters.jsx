@@ -138,7 +138,11 @@ export default function Letters() {
   const pdfRef = useRef(null);
   const pdfDocRef = useRef(null);
 
-  useEffect(() => { fetchWorkers().then(setWorkers).catch(() => {}); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetchWorkers().then(data => { if (!cancelled) setWorkers(data); }).catch((err) => { console.error('API error:', err.message); });
+    return () => { cancelled = true; };
+  }, []);
 
   const capturePdf = async (bodyText, letterType) => {
     const el = pdfRef.current;

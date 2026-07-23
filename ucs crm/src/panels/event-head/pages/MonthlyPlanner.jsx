@@ -32,17 +32,20 @@ export default function MonthlyPlanner() {
 
   /* ── Data fetching ── */
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
     Promise.all([
       fetchEventsByMonth(month + 1, year).catch(() => []),
       fetchNGOs().catch(() => []),
     ]).then(([evts, n]) => {
+      if (cancelled) return
       setEvents(Array.isArray(evts) ? evts : [])
       setNgos(Array.isArray(n) ? n : [])
     }).catch(e => {
       console.error('MonthlyPlanner fetch:', e)
-      setEvents([])
-    }).finally(() => setLoading(false))
+      if (!cancelled) setEvents([])
+    }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [month, year])
 
   /* ── Calendar derivation ── */

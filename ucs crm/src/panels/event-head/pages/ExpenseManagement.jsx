@@ -8,10 +8,16 @@ export default function ExpenseManagement() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ type:'', amount:0, description:'', bill_attached:false })
 
-  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('ExpenseManagement fetchEvents:', e)) }, [])
+  useEffect(() => {
+    let cancelled = false
+    fetchEvents().then(data => { if (!cancelled) setEvents(data) }).catch(e => console.error('ExpenseManagement fetchEvents:', e))
+    return () => { cancelled = true }
+  }, [])
   useEffect(() => {
     if (!selectedEvent) { setExpenses([]); return }
-    fetchExpenses(selectedEvent).then(setExpenses).catch(e => console.error('ExpenseManagement fetchExpenses:', e))
+    let cancelled = false
+    fetchExpenses(selectedEvent).then(data => { if (!cancelled) setExpenses(data) }).catch(e => console.error('ExpenseManagement fetchExpenses:', e))
+    return () => { cancelled = true }
   }, [selectedEvent])
 
   const total = expenses.reduce((s, e) => s + (+e.amount || 0), 0)
@@ -20,11 +26,17 @@ export default function ExpenseManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    await createExpense(selectedEvent, form).then((res) => { setExpenses([...expenses, res]); setShowForm(false); setForm({type:'',amount:0,description:'',bill_attached:false}) }).catch(e => console.error('ExpenseManagement createExpense:', e))
+    try {
+      const res = await createExpense(selectedEvent, form)
+      setExpenses([...expenses, res]); setShowForm(false); setForm({type:'',amount:0,description:'',bill_attached:false})
+    } catch (e) { console.error('ExpenseManagement createExpense:', e) }
   }
   const handleDelete = async (id) => {
     if (!confirm('Delete this expense?')) return
-    await deleteExpense(selectedEvent, id).then(() => setExpenses(expenses.filter(e => e.id !== id))).catch(e => console.error('ExpenseManagement deleteExpense:', e))
+    try {
+      await deleteExpense(selectedEvent, id)
+      setExpenses(expenses.filter(e => e.id !== id))
+    } catch (e) { console.error('ExpenseManagement deleteExpense:', e) }
   }
 
   return (

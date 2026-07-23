@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getMyTarget } from '../api/target';
 import { SkeletonRow } from '../../../components/Skeleton';
 
@@ -10,7 +10,7 @@ export default function MyTarget() {
     setLoading(true);
     getMyTarget()
       .then(setData)
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -31,7 +31,7 @@ export default function MyTarget() {
       <div className="bento-col-3">
         <div className="bento-card">
           <div className="m3-stat">
-            <div className="m3-stat-num">₹{Number(target || 0).toLocaleString('en-IN')}</div>
+            <div className="m3-stat-num">?{Number(target || 0).toLocaleString('en-IN')}</div>
             <div className="m3-stat-lbl">Monthly Target</div>
           </div>
         </div>
@@ -39,7 +39,7 @@ export default function MyTarget() {
       <div className="bento-col-3">
         <div className="bento-card">
           <div className="m3-stat">
-            <div className="m3-stat-num">₹{Number(collected || 0).toLocaleString('en-IN')}</div>
+            <div className="m3-stat-num">?{Number(collected || 0).toLocaleString('en-IN')}</div>
             <div className="m3-stat-lbl">Collected</div>
           </div>
         </div>
@@ -47,7 +47,7 @@ export default function MyTarget() {
       <div className="bento-col-3">
         <div className="bento-card">
           <div className="m3-stat">
-            <div className="m3-stat-num">₹{Number(remaining || 0).toLocaleString('en-IN')}</div>
+            <div className="m3-stat-num">?{Number(remaining || 0).toLocaleString('en-IN')}</div>
             <div className="m3-stat-lbl">Remaining</div>
           </div>
         </div>
@@ -75,7 +75,7 @@ export default function MyTarget() {
           </div>
           {target_source === 'auto' && (
             <div style={{ marginTop:4, fontSize:10, color:'var(--md-outline)' }}>
-              Salary: ₹{Number(salary || 0).toLocaleString('en-IN')} | Month {Math.min(months_employed + 1, 3)} of auto-calculation
+              Salary: ?{Number(salary || 0).toLocaleString('en-IN')} | Month {Math.min(months_employed + 1, 3)} of auto-calculation
             </div>
           )}
         </div>

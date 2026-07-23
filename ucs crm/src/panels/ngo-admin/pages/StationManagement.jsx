@@ -347,7 +347,7 @@ export default function StationManagement() {
   const fetchTransfers = () => {
     apiGet('/ngo-admin/transfers').then(r => {
       setTransfers(Array.isArray(r) ? r : []);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
 
   const fetchData = (successMsg, month) => {
@@ -361,10 +361,10 @@ export default function StationManagement() {
     }).catch(err => console.error('fetchData transfers error:', err));
     apiGet('/ngo-admin/targets?month=' + m).then(t => {
       if (Array.isArray(t)) setTargets(t);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
       if (Array.isArray(r)) setIncentives(r);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     if (successMsg) setMsg(successMsg);
   };
 
@@ -372,10 +372,10 @@ export default function StationManagement() {
     const m = month || selectedMonth;
     apiGet('/ngo-admin/targets?month=' + m).then(t => {
       if (Array.isArray(t)) setTargets(t);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
       if (Array.isArray(r)) setIncentives(r);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {

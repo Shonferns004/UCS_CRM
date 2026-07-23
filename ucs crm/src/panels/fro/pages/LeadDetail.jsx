@@ -43,7 +43,7 @@ export default function LeadDetail({ leadId, onBack }) {
         setLead(l);
         setCallLogs(logs);
       })
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false));
   }, [leadId]);
 

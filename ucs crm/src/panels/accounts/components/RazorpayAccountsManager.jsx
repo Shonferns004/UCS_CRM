@@ -23,7 +23,19 @@ export default function RazorpayAccountsManager({ onAccountsChange }) {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const data = await apiGet('/webhooks/razorpay/accounts');
+        if (!cancelled) setAccounts(data || []);
+      } catch (err) { console.error(err); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   const resetForm = () => {
     setForm(emptyForm);

@@ -23,7 +23,7 @@ export default function AdminTeamMemberPage({ workerId, onBack }) {
         setCurrentAssignment(assignRes.data)
         setSelectedAccountId(String(assignRes.data.whatsapp_account_id))
       }
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false))
   }, [workerId])
 
   const handleSave = async () => {
