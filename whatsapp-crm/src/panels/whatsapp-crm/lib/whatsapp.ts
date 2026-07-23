@@ -66,10 +66,16 @@ export async function sendWhatsAppMessage(
 
     const convProject = (conv as any)?.project || '';
     if (convProject) {
-      const matchIdx = accounts.findIndex(a => a.project === convProject);
-      if (matchIdx > 0) {
-        const match = accounts.splice(matchIdx, 1)[0];
-        accounts.unshift(match);
+      const hasProjectAccount = accounts.some(a => a.project === convProject);
+      if (!hasProjectAccount) {
+        const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true).eq('project', convProject);
+        if (fallback && fallback.length > 0) accounts.unshift(...fallback.filter((a: any) => a.access_token));
+      } else {
+        const matchIdx = accounts.findIndex(a => a.project === convProject);
+        if (matchIdx > 0) {
+          const match = accounts.splice(matchIdx, 1)[0];
+          accounts.unshift(match);
+        }
       }
     }
 
