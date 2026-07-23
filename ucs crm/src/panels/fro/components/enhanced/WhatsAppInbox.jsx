@@ -40,7 +40,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
   const bottomRef = useRef(null)
 
   const [activeConv, setActiveConv] = useState(null)
-  const [activeTab, setActiveTab] = useState('all')
+  const [activeTab, setActiveTab] = useState(searchParams.get('project') || 'all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewConv, setShowNewConv] = useState(false)
   const [newConvPhone, setNewConvPhone] = useState('')
@@ -60,6 +60,23 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     enabled: !!waUser?.id,
     refetchInterval: 15000,
   })
+
+  const myProjectTabs = myAccounts.length
+    ? [
+        { id: 'all', label: 'All', color: '#6b7280' },
+        ...myAccounts.map(a => ({
+          id: a.project,
+          label: PROJECT_TABS.find(t => t.id === a.project)?.label || a.project,
+          color: PROJECT_TABS.find(t => t.id === a.project)?.color || '#6b7280',
+        })),
+      ]
+    : PROJECT_TABS
+
+  useEffect(() => {
+    if (!activeConv && myAccounts.length === 1) {
+      setActiveTab(myAccounts[0].project)
+    }
+  }, [myAccounts])
 
   const filteredByTab = activeTab === 'all'
     ? conversations
@@ -242,7 +259,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
           </button>
         </div>
         <div style={{ display: 'flex', gap: 2, padding: '6px 10px', borderBottom: '1px solid #e5e7eb', overflowX: 'auto', flexShrink: 0 }}>
-          {PROJECT_TABS.map(tab => {
+          {myProjectTabs.map(tab => {
             const isActive = activeTab === tab.id
             const style = tab.id === 'all'
               ? {}
