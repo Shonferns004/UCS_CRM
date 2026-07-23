@@ -399,25 +399,69 @@ export const getMyDonors = async (req, res) => {
     }
 
     if (req.query.new_only === 'true') {
-      query = query.eq('batch_type', 'new_data');
+      const batchIds = [];
+      for (const s of stationNames) {
+        try {
+          const { data: lb } = await supabase
+            .from('fro_assignments')
+            .select('batch_id')
+            .eq('station', s)
+            .eq('batch_type', 'new_data')
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb?.batch_id) batchIds.push(lb.batch_id);
+        } catch (e) {
+          console.error(`getMyDonors batch query error ${s}:`, e.message);
+        }
+      }
+      if (batchIds.length > 0) {
+        query = query.in('batch_id', [...new Set(batchIds)]);
+      } else {
+        query = query.eq('batch_type', 'new_data');
+      }
     } else if (req.query.old_only === 'true') {
-      query = query.eq('batch_type', 'old_data');
+      const batchIds = [];
+      for (const s of stationNames) {
+        try {
+          const { data: lb } = await supabase
+            .from('fro_assignments')
+            .select('batch_id')
+            .eq('station', s)
+            .eq('batch_type', 'old_data')
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb?.batch_id) batchIds.push(lb.batch_id);
+        } catch (e) {
+          console.error(`getMyDonors batch query error ${s}:`, e.message);
+        }
+      }
+      if (batchIds.length > 0) {
+        query = query.in('batch_id', [...new Set(batchIds)]);
+      } else {
+        query = query.eq('batch_type', 'old_data');
+      }
     }
 
     let { data: assignments, error: qErr } = await query;
     if (qErr) {
-      return res.status(500).json({ error: 'main_query_failed', message: qErr.message });
+      console.error('getMyDonors main query error:', qErr);
+      query = supabase.from('fro_assignments').select('*').in('station', stationNames).not('status', 'eq', 'reassigned');
+      if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
+      else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
+      const { data: retry } = await query;
+      assignments = retry || [];
     }
 
     if (!assignments || assignments.length === 0) {
-      const { data: byWorker, error: bwErr } = await supabase
+      const { data: byWorker } = await supabase
         .from('fro_assignments')
         .select('*')
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned');
-      if (bwErr) {
-        return res.status(500).json({ error: 'fallback_query_failed', message: bwErr.message });
-      }
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
       }
