@@ -414,7 +414,6 @@ export const getMyDonors = async (req, res) => {
             .eq('station', s)
             .eq('batch_type', 'new_data')
             .not('status', 'eq', 'reassigned')
-            .not('batch_id', 'is', null)
             .order('assigned_at', { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -452,7 +451,6 @@ export const getMyDonors = async (req, res) => {
             .eq('station', s)
             .eq('batch_type', 'old_data')
             .not('status', 'eq', 'reassigned')
-            .not('batch_id', 'is', null)
             .order('assigned_at', { ascending: false })
             .limit(1)
             .maybeSingle();
