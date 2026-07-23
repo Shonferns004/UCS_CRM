@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
+import * as XLSX from 'xlsx';
 
 const NGO_NAME_COLORS = {
   bsct: '#2563eb',
@@ -85,6 +86,8 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
 
@@ -98,11 +101,6 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const XLSX = window.XLSX;
-        if (!XLSX) {
-          setError('XLSX library not loaded. Please refresh.');
-          return;
-        }
         const wb = XLSX.read(evt.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
@@ -119,14 +117,23 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
     setUploading(true);
     setError('');
     setResult(null);
+    setProgressLabel('Reading file...');
+    await new Promise(r => setTimeout(r, 200));
+    setProgress(30);
+    setProgressLabel('Uploading & processing...');
     try {
       const fd = new FormData();
       fd.append('file', file);
+      setProgress(60);
+      setProgressLabel('Creating profiles & assignments...');
       const res = await api(`/ngo-admin/stations/${encodeURIComponent(station)}/upload-old-data`, { method: 'POST', body: fd, _prefix: 'ucs' });
+      setProgress(100);
+      setProgressLabel('Complete!');
       setResult(res);
-      setTimeout(() => { if (onUploaded) onUploaded(); }, 600);
     } catch (err) {
       setError(err.message);
+      setProgress(0);
+      setProgressLabel('');
     } finally {
       setUploading(false);
     }
@@ -158,23 +165,39 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
             </div>
           )}
 
-          {result && (
-            <div style={{ padding: '12px 14px', marginTop: 12, borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
-              <strong>{result.message}</strong><br />
-              <span style={{ fontSize: 11 }}>
-                {result.total_rows} rows · {result.created_profiles} new profiles · {result.created_assignments} assignments created
-                {result.skipped_duplicate_assignments > 0 && ` · ${result.skipped_duplicate_assignments} skipped (duplicates)`}
-              </span>
+          {uploading && (
+            <div style={{ marginTop: 12, padding: '14px 16px', background: '#f0f7ff', border: '1px solid #bdd3eb', borderRadius: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#1e40af' }}>{progressLabel}</span>
+                <span style={{ fontSize: 11, color: '#1e40af' }}>{progress}%</span>
+              </div>
+              <div style={{ width: '100%', height: 8, background: '#dbeafe', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ width: `${progress}%`, height: '100%', background: '#2563eb', borderRadius: 4, transition: 'width .3s ease' }} />
+              </div>
             </div>
           )}
 
-          {preview.length > 0 && !result && (
+          {result && (
+            <div style={{ padding: '12px 14px', marginTop: 12, borderRadius: 6, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 13, color: '#166534' }}>
+              <strong style={{ fontSize: 14 }}>✓ {result.message}</strong><br />
+              <div style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <span><strong>{result.total_rows}</strong> rows</span>
+                <span><strong>{result.created_profiles}</strong> new profiles</span>
+                <span><strong>{result.created_assignments}</strong> assignments</span>
+                {result.skipped_duplicate_assignments > 0 && <span><strong>{result.skipped_duplicate_assignments}</strong> skipped (duplicates)</span>}
+              </div>
+            </div>
+          )}
+
+          {preview.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 600 }}>Preview ({preview.length} rows)</span>
-                <button className="btn btn-primary btn-sm" onClick={handleUpload} disabled={uploading || !file}>
-                  {uploading ? 'Uploading...' : 'Upload & Assign'}
-                </button>
+                {!result && (
+                  <button className="btn btn-primary btn-sm" onClick={handleUpload} disabled={uploading || !file}>
+                    {uploading ? `${progress}%` : 'Upload & Assign'}
+                  </button>
+                )}
               </div>
               <div style={{ overflowX: 'auto', maxHeight: 240, overflowY: 'auto' }}>
                 <table style={{ fontSize: 11 }}>
@@ -196,7 +219,7 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
           )}
 
           <div className="modal-actions" style={{ marginTop: 12 }}>
-            <button className="btn btn-outline" onClick={onClose}>Close</button>
+            <button className="btn btn-outline" onClick={() => { if (result && onUploaded) onUploaded(); else onClose(); }}>Close</button>
           </div>
         </div>
       </div>

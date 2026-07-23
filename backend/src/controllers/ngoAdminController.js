@@ -1455,21 +1455,26 @@ export const getDonorsByStation = async (req, res) => {
     }
 
     const seen = new Set();
-    const unique = allDonors.filter(a => { const k = a.id; if (seen.has(k)) return false; seen.add(k); return true; });
+    const unique = allDonors.filter(a => { const k = a.donor_id; if (seen.has(k)) return false; seen.add(k); return true; });
 
     const result = unique.map(a => ({
       id: a.id,
       donor_id: a.donor_id,
       donor_mobile: a.donor_profiles?.mobile_number || '',
+      donor_mobile_2: a.donor_profiles?.mobile_2 || '',
       donor_name: a.donor_profiles?.name || 'Unknown',
       donor_city: a.donor_profiles?.city || '',
+      data_category: a.donor_profiles?.data_category || '',
+      amount: a.donor_profiles?.amount || 0,
       fro_worker_id: a.fro_worker_id,
       fro_name: a.workers?.name || 'Unassigned',
       status: a.status,
+      station: a.station || '',
       notes: a.notes || '',
       last_contacted_at: a.last_contacted_at,
       next_follow_up: a.next_follow_up,
       assigned_at: a.assigned_at,
+      raw_data: a.donor_profiles?.raw_data || null,
     }));
 
     return res.json(result);
@@ -1610,6 +1615,7 @@ export const distributeNewData = async (req, res) => {
 
     for (const { ngoId, ngoName } of ngoEntries) {
       try {
+      const batchId = crypto.randomUUID();
       console.log(`[${ngoName}] === Processing NGO: ${ngoName} (id=${ngoId}) ===`);
       // Step 1: Create donor_profiles from new_data
       const { data: importedRows, error: irErr } = await supabase
@@ -1774,6 +1780,8 @@ export const distributeNewData = async (req, res) => {
           station: station,
           status: 'pending',
           assigned_at: new Date().toISOString(),
+          batch_id: batchId,
+          batch_type: 'new_data',
         });
       }
 
@@ -3233,6 +3241,7 @@ export const uploadOldData = async (req, res) => {
     })).filter(r => r.mobile && r.station);
 
     const validStations = new Set(STATION_NAMES);
+    const batchId = crypto.randomUUID();
     let createdProfiles = 0;
     let createdAssignments = 0;
     let skippedDuplicate = 0;
@@ -3299,6 +3308,8 @@ export const uploadOldData = async (req, res) => {
             station: row.station,
             status: 'pending',
             assigned_at: new Date().toISOString(),
+            batch_id: batchId,
+            batch_type: 'old_data',
           }]);
         if (asgnErr) {
           errors.push(`Failed to create assignment for ${row.mobile} in ${ngoName}: ${asgnErr.message}`);
@@ -3338,10 +3349,44 @@ export const uploadOldDataForStation = async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) return res.status(400).json({ message: 'No sheets found in file' });
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+    const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+
+    if (rawRows.length === 0) {
+      return res.status(400).json({ message: 'No data found in file' });
+    }
+
+    // Find the actual header row (contains "Sr. No." or "Donor Name" or "Mobile")
+    let headerIdx = -1;
+    let headerRow = null;
+    const headerKeywords = ['sr.no', 'sr no', 'sr.', 'donor name', 'mobile', 'agent name'];
+    for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+      const row = rawRows[i].map(c => String(c).toLowerCase().trim());
+      if (headerKeywords.some(k => row.some(c => c.includes(k)))) {
+        headerIdx = i;
+        headerRow = rawRows[i];
+        break;
+      }
+    }
+    if (headerIdx < 0) {
+      return res.status(400).json({ message: 'Could not find header row. Ensure file has Sr. No., Donor Name, or Mobile column.' });
+    }
+
+    // Parse rows after header as objects using headerRow as keys
+    const rows = [];
+    for (let i = headerIdx + 1; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      const firstVal = String(row[0] || '').trim();
+      if (!firstVal || firstVal === '') continue; // skip empty rows
+      const obj = {};
+      for (let j = 0; j < headerRow.length; j++) {
+        const key = String(headerRow[j] || '').trim();
+        if (key) obj[key] = row[j] != null ? String(row[j]).trim() : '';
+      }
+      if (Object.keys(obj).length > 0) rows.push(obj);
+    }
 
     if (rows.length === 0) {
-      return res.status(400).json({ message: 'No data found in file' });
+      return res.status(400).json({ message: 'No data rows found after header' });
     }
 
     const access = await getUserNgoAccess(req.user.id);
@@ -3355,76 +3400,101 @@ export const uploadOldDataForStation = async (req, res) => {
     }
 
     const normalizedRows = rows.map(row => ({
-      mobile: String(row.mobile || row.Mobile || row.mobile_number || row.MobileNumber || row['Mobile Number'] || row['Mobile No'] || '').trim(),
-      name: String(row.name || row.Name || row['Donor Name'] || row.donor_name || row.donorname || '').trim(),
-      amount: parseFloat(row.amount || row.Amount || row.donation_amount || row.DonationAmount || 0) || 0,
-      city: String(row.city || row.City || row.city_name || row.CityName || '').trim(),
+      mobile: String(row.Mobile || row.mobile || row['Max of Mobile no.'] || row['Mobile No'] || row['Mobile Number'] || row['Mobile no'] || row.mobile_number || row['Max of Mobile no'] || '').trim(),
+      name: String(row['Donor Name'] || row['Donor name'] || row['donor name'] || row['donor_name'] || row.Name || row.name || '').trim(),
+      amount: parseFloat(row['Max of Amt'] || row['Max Amt'] || row.amount || row.Amount || row['Max of amt'] || 0) || 0,
+      city: String(row.City || row.city || '').trim(),
+      mobile_2: String(row['Max of Mobile no.2'] || row['Mobile 2'] || row['Mobile No 2'] || row.mobile_2 || '').trim(),
+      data_category: String(row['Data Category'] || row['Data category'] || row.data_category || '').trim(),
+      agent_name: String(row['Agent Name'] || row['Agent name'] || row['agent name'] || row.agent_name || row.fro_name || '').trim(),
+      raw_data: row,
     })).filter(r => r.mobile);
 
     let createdProfiles = 0;
     let createdAssignments = 0;
     let skippedDuplicate = 0;
     const errors = [];
+    const now = new Date().toISOString();
+    const batchId = crypto.randomUUID();
 
+    // Batch 1: Get existing profiles by mobile
+    const mobiles = normalizedRows.map(r => r.mobile);
+    const { data: existingProfiles } = await supabase
+      .from('donor_profiles')
+      .select('id, mobile_number')
+      .in('mobile_number', mobiles);
+    const existingMobiles = new Set((existingProfiles || []).map(p => p.mobile_number));
+
+    // Batch 2: Insert new profiles (all fields), Upsert existing profiles (safe fields only)
+    const toInsert = [];
+    const toUpdate = [];
     for (const row of normalizedRows) {
-      const { data: existingProfile } = await supabase
-        .from('donor_profiles')
-        .select('id')
-        .eq('mobile_number', row.mobile)
-        .maybeSingle();
-
-      let donorId;
-      if (existingProfile) {
-        donorId = existingProfile.id;
-        await supabase
-          .from('donor_profiles')
-          .update({ name: row.name || undefined, city: row.city || undefined })
-          .eq('id', donorId);
+      if (existingMobiles.has(row.mobile)) {
+        toUpdate.push({ mobile_number: row.mobile, name: row.name || null, city: row.city || null, mobile_2: row.mobile_2 || null, data_category: row.data_category || null, raw_data: row.raw_data });
       } else {
-        const { data: newProfile } = await supabase
-          .from('donor_profiles')
-          .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null }])
-          .select('id')
-          .single();
-        if (newProfile) {
-          donorId = newProfile.id;
-          createdProfiles++;
+        toInsert.push({ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null, mobile_2: row.mobile_2 || null, data_category: row.data_category || null, raw_data: row.raw_data });
+      }
+    }
+
+    let donorIds = [];
+    const profileMap = {};
+    for (const p of existingProfiles || []) profileMap[p.mobile_number] = p.id;
+
+    if (toInsert.length > 0) {
+      const { data: newP } = await supabase.from('donor_profiles').insert(toInsert).select('id, mobile_number');
+      for (const p of newP || []) {
+        profileMap[p.mobile_number] = p.id;
+        donorIds.push(p.id);
+        createdProfiles++;
+      }
+    }
+    if (toUpdate.length > 0) {
+      const { data: updP } = await supabase.from('donor_profiles').upsert(toUpdate, { onConflict: 'mobile_number' }).select('id, mobile_number');
+      for (const p of updP || []) {
+        if (!profileMap[p.mobile_number]) profileMap[p.mobile_number] = p.id;
+        donorIds.push(p.id);
+      }
+    }
+    donorIds = [...new Set(donorIds)];
+
+    // Batch 3: Get existing assignments for all donor+ngo combos
+    const existingAssignmentKeys = new Set();
+    if (donorIds.length > 0) {
+      for (const { ngoId } of ngoEntries) {
+        const { data: existingAsgns } = await supabase
+          .from('fro_assignments')
+          .select('donor_id')
+          .eq('ngo_id', ngoId)
+          .in('donor_id', donorIds)
+          .not('status', 'eq', 'reassigned');
+        for (const a of existingAsgns || []) {
+          existingAssignmentKeys.add(`${a.donor_id}-${ngoId}`);
         }
       }
-      if (!donorId) continue;
+    }
 
+    // Batch 4: Get station assignments
+    const stationAssignMap = {};
+    for (const { ngoId } of ngoEntries) {
+      const sa = await getStationAssignmentByNgoAndStation(ngoId, station);
+      stationAssignMap[ngoId] = sa?.fro_worker_id || null;
+    }
+
+    // Batch 5: Create missing assignments
+    const assignmentsToInsert = [];
+    for (const did of donorIds) {
       for (const { ngoId, ngoName } of ngoEntries) {
-        const { data: existingAsgn } = await supabase
-          .from('fro_assignments')
-          .select('id')
-          .eq('donor_id', donorId)
-          .eq('ngo_id', ngoId)
-          .not('status', 'eq', 'reassigned')
-          .maybeSingle();
-
-        if (existingAsgn) {
+        if (existingAssignmentKeys.has(`${did}-${ngoId}`)) {
           skippedDuplicate++;
           continue;
         }
-
-        const stationAssign = await getStationAssignmentByNgoAndStation(ngoId, station);
-
-        const { error: asgnErr } = await supabase
-          .from('fro_assignments')
-          .insert([{
-            donor_id: donorId,
-            fro_worker_id: stationAssign?.fro_worker_id || null,
-            ngo_id: ngoId,
-            station,
-            status: 'pending',
-            assigned_at: new Date().toISOString(),
-          }]);
-        if (asgnErr) {
-          errors.push(`Failed to create assignment for ${row.mobile} in ${ngoName}: ${asgnErr.message}`);
-        } else {
-          createdAssignments++;
-        }
+        assignmentsToInsert.push({ donor_id: did, fro_worker_id: stationAssignMap[ngoId], ngo_id: ngoId, station, status: 'pending', assigned_at: now, batch_id: batchId, batch_type: 'old_data' });
       }
+    }
+    if (assignmentsToInsert.length > 0) {
+      const { error: batchErr } = await supabase.from('fro_assignments').insert(assignmentsToInsert);
+      if (batchErr) errors.push(`Batch insert error: ${batchErr.message}`);
+      else createdAssignments = assignmentsToInsert.length;
     }
 
     return res.json({

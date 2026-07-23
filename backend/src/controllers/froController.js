@@ -398,6 +398,42 @@ export const getMyDonors = async (req, res) => {
       // No default status filter — include all except 'reassigned'
     }
 
+    // Batch-based tab filtering: show only the latest batch per type.
+    // Falls back to is_new for legacy rows without batch_id/batch_type.
+    if (req.query.new_only === 'true') {
+      const { data: latestBatch } = await supabase
+        .from('fro_assignments')
+        .select('batch_id')
+        .in('station', stationNames)
+        .eq('batch_type', 'new_data')
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestBatch?.batch_id) {
+        query = query.eq('batch_id', latestBatch.batch_id);
+      } else {
+        // Legacy fallback: no batch-tracked data yet, use is_new flag
+        query = query.or('is_new.is.null,is_new.eq.true');
+      }
+    } else if (req.query.old_only === 'true') {
+      const { data: latestBatch } = await supabase
+        .from('fro_assignments')
+        .select('batch_id')
+        .in('station', stationNames)
+        .eq('batch_type', 'old_data')
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestBatch?.batch_id) {
+        query = query.eq('batch_id', latestBatch.batch_id);
+      } else {
+        // Legacy fallback: no batch-tracked data yet, use is_new=false
+        query = query.eq('is_new', false);
+      }
+    }
+
     let { data: assignments } = await query;
 
     if (!assignments || assignments.length === 0) return res.json([]);
@@ -597,12 +633,12 @@ export const getMyDonors = async (req, res) => {
     filtered.sort((a, b) => {
       const groupA = a.is_new ? 0
         : (notConnectedSet.has(a.status) || a.status === 'pending') ? 1
-        : connectedSet.has(a.status) && a.status !== 'lead_done' ? 2
-        : a.status === 'lead_done' ? 3 : 4;
+        : a.status === 'lead_done' ? 2
+        : connectedSet.has(a.status) ? 3 : 4;
       const groupB = b.is_new ? 0
         : (notConnectedSet.has(b.status) || b.status === 'pending') ? 1
-        : connectedSet.has(b.status) && b.status !== 'lead_done' ? 2
-        : b.status === 'lead_done' ? 3 : 4;
+        : b.status === 'lead_done' ? 2
+        : connectedSet.has(b.status) ? 3 : 4;
       if (groupA !== groupB) return groupA - groupB;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
@@ -1614,6 +1650,47 @@ export const updateLiveStatus = async (req, res) => {
     }
 
     return res.json({ message: 'Status updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Progress Save/Restore ──────────────────────────────────────
+
+export const getMyProgress = async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('fro_live_status')
+      .select('current_donor_id, data_tab, current_batch_id')
+      .eq('worker_id', req.user.id)
+      .maybeSingle();
+    return res.json(data || {});
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const saveMyProgress = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { donor_id, data_tab, current_batch_id } = req.body;
+    const payload = {
+      current_donor_id: donor_id || null,
+      data_tab: data_tab || 'new',
+      current_batch_id: current_batch_id || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: existing } = await supabase
+      .from('fro_live_status')
+      .select('id')
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    if (existing) {
+      await supabase.from('fro_live_status').update(payload).eq('worker_id', workerId);
+    } else {
+      await supabase.from('fro_live_status').insert([{ worker_id: workerId, ...payload }]);
+    }
+    return res.json({ message: 'Progress saved' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

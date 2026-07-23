@@ -29,6 +29,8 @@ import {
   searchDonors,
   updateLiveStatus,
   getLiveStatuses,
+  getMyProgress,
+  saveMyProgress,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -76,6 +78,8 @@ router.post('/upload-payment-screenshot', uploadPaymentScreenshot);
 router.get('/scheduled', getFroScheduled);
 router.get('/callbacks', getFroCallbacks);
 router.put('/status', updateLiveStatus);
+router.get('/progress', getMyProgress);
+router.put('/progress', saveMyProgress);
 router.get('/history', getMyHistory);
 router.get('/target', getMyTarget);
 router.get('/debug/my-stations', debugMyStations);
