@@ -435,12 +435,13 @@ export function InboxPage() {
           .from('agent_phone_assignments')
           .select('account_id')
           .eq('user_id', user.id);
-        if (!assignments || assignments.length === 0) return [];
-        const accountIds = assignments.map((a: any) => a.account_id);
-        const { data } = await supabase.from('whatsapp_accounts').select('*').in('id', accountIds);
-        return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
+        if (assignments && assignments.length > 0) {
+          const accountIds = assignments.map((a: any) => a.account_id);
+          const { data } = await supabase.from('whatsapp_accounts').select('*').in('id', accountIds);
+          return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
+        }
       }
-      const { data } = await supabase.from('whatsapp_accounts').select('*');
+      const { data } = await supabase.from('whatsapp_accounts').select('*').eq('is_active', true);
       return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
     },
     enabled: !!user,
