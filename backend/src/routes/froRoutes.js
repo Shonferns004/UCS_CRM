@@ -14,7 +14,7 @@ import {
   getMyTarget,
   scheduleContact,
   uploadPaymentScreenshot,
-  debugMyStations,
+  debugMyStations, getMyStations,
   getFroScheduled,
   getFroCallbacks,
   getMyHistory,
@@ -48,6 +48,7 @@ const requireFro = (req, res, next) => {
 
 router.use(requireFro);
 
+router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
 router.get('/donors', getMyDonors);
 router.get('/transferred-leads', getTransferredLeads);

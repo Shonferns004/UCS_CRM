@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -130,6 +130,9 @@ export default function MyDonors() {
   const searchRef = useRef(null);
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
+  const stationsFetchedRef = useRef(false);
+  const [stations, setStations] = useState([]);
+  const [selectedStation, setSelectedStation] = useState('all');
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -139,9 +142,10 @@ export default function MyDonors() {
     const load = async (tab) => {
       try {
         // Capture localStorage snapshot BEFORE any state changes (avoids race condition)
-        const savedSnapshot = (() => { try { return JSON.parse(localStorage.getItem(`${tab}_donor_progress`)); } catch { return null; } })();
+        const sk = selectedStation !== 'all' ? selectedStation : 'all';
+        const savedSnapshot = (() => { try { return JSON.parse(localStorage.getItem(`${tab}_${sk}_donor_progress`)); } catch { return null; } })();
 
-        const r = await getMyDonors(null, null, { newOnly: tab === 'new', oldOnly: tab === 'old' });
+        const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
         setDonors(r);
         setMessage(null);
@@ -163,15 +167,18 @@ export default function MyDonors() {
         if (!restored) {
           try {
             const progress = await api('/fro/progress', { _prefix: 'ucs' });
-            const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
-            if (savedId) {
-              const found = r.findIndex(d => d.id === savedId);
-              if (found >= 0) { setIndex(found); restored = true; }
-            }
-            if (!restored) {
-              const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
-              if (savedIndex != null && savedIndex < r.length) {
-                setIndex(savedIndex); restored = true;
+            const progressStation = progress?.station || 'all';
+            if (progressStation === (selectedStation !== 'all' ? selectedStation : 'all')) {
+              const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
+              if (savedId) {
+                const found = r.findIndex(d => d.id === savedId);
+                if (found >= 0) { setIndex(found); restored = true; }
+              }
+              if (!restored) {
+                const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
+                if (savedIndex != null && savedIndex < r.length) {
+                  setIndex(savedIndex); restored = true;
+                }
               }
             }
           } catch {}
@@ -201,7 +208,7 @@ export default function MyDonors() {
     })();
 
     return () => { cancelled = true; };
-  }, [dataTab]);
+  }, [dataTab, selectedStation]);
 
   useEffect(() => {
     if (donors.length > 0 && index >= donors.length) {
@@ -223,9 +230,21 @@ export default function MyDonors() {
     }
   }, [index]);
 
+  useEffect(() => {
+    if (stationsFetchedRef.current) return;
+    stationsFetchedRef.current = true;
+    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch(() => {});
+  }, []);
+
+  const stationOpts = (tab, station) => {
+    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
+    if (station && station !== 'all') opts.station = station;
+    return opts;
+  };
+
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, { newOnly: dataTab === 'new', oldOnly: dataTab === 'old' }).then(r => { setDonors(r); }).catch(() => {});
-  }, [dataTab]);
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch(() => {});
+  }, [dataTab, selectedStation]);
 
   const debouncedReload = useCallback(() => {
     if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
@@ -236,7 +255,7 @@ export default function MyDonors() {
 
   const saveProgress = useCallback((tab, donorId, donorIndex) => {
     if (!donorId) return;
-    const body = { data_tab: tab };
+    const body = { data_tab: tab, station: selectedStation !== 'all' ? selectedStation : null };
     if (tab === 'new') {
       body.new_donor_id = donorId;
       body.new_donor_index = donorIndex;
@@ -245,13 +264,14 @@ export default function MyDonors() {
       body.old_donor_index = donorIndex;
     }
     api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch(() => {});
-  }, []);
+  }, [selectedStation]);
+
+  const stationKey = selectedStation !== 'all' ? selectedStation : 'all';
 
   const switchTab = (tab) => {
     if (donor) {
       saveProgress(dataTab, donor.id, index);
-      // Save current tab's progress to tab-specific key (avoids cross-tab overwrite)
-      localStorage.setItem(`${dataTab}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
+      localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
     }
     setSelected(null);
     setDataTab(tab);
@@ -261,14 +281,14 @@ export default function MyDonors() {
 
   useEffect(() => {
     if (!donor) return;
-    localStorage.setItem('mydonors_current_donor', JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
-  }, [donor?.id, donor?.ngo_id, index]);
+    localStorage.setItem(`mydonors_current_donor_${stationKey}`, JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
+  }, [donor?.id, donor?.ngo_id, index, stationKey]);
 
   useEffect(() => {
     return () => {
       if (donor) saveProgress(dataTab, donor.id, index);
     };
-  }, [donor?.id, dataTab]);
+  }, [donor?.id, dataTab, selectedStation]);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
@@ -414,7 +434,7 @@ export default function MyDonors() {
       if (selected) endCall();
 
       if (returnToDonor) {
-        const newDonors = await getMyDonors(null, null, { newOnly: dataTab === 'new', oldOnly: dataTab === 'old' });
+        const newDonors = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
         setDonors(newDonors);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
@@ -640,6 +660,9 @@ export default function MyDonors() {
                 {donor.ngo_name && (
                   <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_names?.join(', ') || donor.ngo_name}</span>
                 )}
+                {donor.station && selectedStation === 'all' && (
+                  <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700, border: '1px solid #93c5fd' }}>{donor.station}</span>
+                )}
               </div>
             </div>
 
@@ -750,6 +773,24 @@ export default function MyDonors() {
 
         {/* MIDDLE PANEL — Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          {/* Station Tabs */}
+          {stations.length > 1 && (
+            <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+              <button onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation('all') }}
+                className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
+                style={{ fontSize: 10 }}>
+                All Stations
+              </button>
+              {stations.map(s => (
+                <button key={s} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation(s) }}
+                  className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
+                  style={{ fontSize: 10 }}>
+                  <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: selectedStation === s ? '#16a34a' : '#94a3b8', marginRight: 4, verticalAlign: 'middle' }} />
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           {/* New/Old Data Tabs */}
           <div className="fro-tab-segment">
             <button onClick={() => switchTab('new')}
@@ -1040,38 +1081,29 @@ export default function MyDonors() {
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
-      <div className="fro-progress-info">
-        {returnToDonor ? (
-          <span className="fro-progress-label" style={{ color: 'var(--sage)' }}>Searched donor — NEXT to return</span>
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', paddingRight: 4 }}>
+        {isOnCall && activeCall?.donorId === donor.id ? (
+          <button onClick={endCall} className="fro-btn-end-call">
+            <span className="fro-pulse-dot" />
+            End Call
+          </button>
         ) : (
-          <span className="fro-progress-label">{index + 1} of {donors.length} processed</span>
+          <button onClick={() => startCall(donor)} className="fro-btn-call">
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
+            Call Now
+          </button>
         )}
-        <div className="fro-progress">
-          <div className="fro-progress-fill" style={{ width: donors.length > 0 ? `${((index + 1) / donors.length) * 100}%` : '0%' }} />
-        </div>
+
+        <button className="btn-next"
+          disabled={saving || !selected}
+          onClick={() => { endDonorView(isOnCall); handleButtonClick() }}>
+          {saving ? 'Saving...' : selected ? (
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> Log {findDisp(selected)?.label || selected}</>
+          ) : (
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT</>
+          )}
+        </button>
       </div>
-
-      {isOnCall && activeCall?.donorId === donor.id ? (
-        <button onClick={endCall} className="fro-btn-end-call">
-          <span className="fro-pulse-dot" />
-          End Call
-        </button>
-      ) : (
-        <button onClick={() => startCall(donor)} className="fro-btn-call">
-          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
-          Call Now
-        </button>
-      )}
-
-      <button className="btn-next"
-        disabled={saving || !selected}
-        onClick={() => { endDonorView(isOnCall); handleButtonClick() }}>
-        {saving ? 'Saving...' : selected ? (
-          <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> Log {findDisp(selected)?.label || selected}</>
-        ) : (
-          <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT</>
-        )}
-      </button>
     </div>
 
     {/* Donation Modal */}

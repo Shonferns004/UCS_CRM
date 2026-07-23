@@ -388,6 +388,10 @@ export const getMyDonors = async (req, res) => {
       .in('station', stationNames)
       .not('status', 'eq', 'reassigned');
 
+    if (req.query.station) {
+      query = query.eq('station', req.query.station);
+    }
+
     if (statusGroup === 'not_connected') {
       query = query.in('status', NOT_CONNECTED_STATUSES);
     } else if (statusGroup === 'connected') {
@@ -1178,6 +1182,20 @@ export const getMyTarget = async (req, res) => {
   }
 };
 
+export const getMyStations = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { data: stations, error } = await supabase
+      .from('fro_station_assignments')
+      .select('station')
+      .eq('fro_worker_id', workerId);
+    if (error) throw error;
+    return res.json((stations || []).map(s => s.station));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const debugMyStations = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -1682,7 +1700,7 @@ export const getMyProgress = async (req, res) => {
   try {
     const { data } = await supabase
       .from('fro_live_status')
-      .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id')
+      .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
       .eq('worker_id', req.user.id)
       .maybeSingle();
     return res.json(data || {});
@@ -1694,11 +1712,12 @@ export const getMyProgress = async (req, res) => {
 export const saveMyProgress = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id } = req.body;
+    const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
     const tab = data_tab || 'new';
     const payload = {
       data_tab: tab,
       current_batch_id: current_batch_id || null,
+      station: station || null,
       updated_at: new Date().toISOString(),
     };
     if (tab === 'new') {

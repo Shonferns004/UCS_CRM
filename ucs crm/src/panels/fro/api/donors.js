@@ -14,6 +14,7 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (options.inactiveOnly) params.set('inactive_only', 'true');
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
+  if (options.station) params.set('station', options.station);
   const qs = params.toString();
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
@@ -100,6 +101,10 @@ export async function getMonthlyDonors(month) {
 export async function getDonorHistory(donorId, period) {
   const params = period ? `?period=${period}` : ''
   return api(`/fro/donors/${donorId}/history${params}`, { _prefix: 'ucs' })
+}
+
+export async function getMyStations() {
+  return api('/fro/my-stations', { _prefix: 'ucs' })
 }
 
 export async function searchDonorsByMobile(q) {
