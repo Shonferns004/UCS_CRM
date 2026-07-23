@@ -398,75 +398,17 @@ export const getMyDonors = async (req, res) => {
       query = query.eq('status', statusFilter);
     }
 
-    // Batch-based tab filtering: show latest batch PER station.
     if (req.query.new_only === 'true') {
-      const batchIds = [];
-      for (const s of stationNames) {
-        try {
-          const { data: lb } = await supabase
-            .from('fro_assignments')
-            .select('batch_id')
-            .eq('station', s)
-            .eq('batch_type', 'new_data')
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (lb?.batch_id) batchIds.push(lb.batch_id);
-        } catch (e) {
-          console.error(`batch query error for station ${s}:`, e.message);
-        }
-      }
-      if (batchIds.length > 0) {
-        query = query.in('batch_id', [...new Set(batchIds)]);
-      } else {
-        try {
-          const { data: latestDate } = await supabase
-            .from('fro_assignments')
-            .select('assigned_at')
-            .in('station', stationNames)
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (latestDate?.assigned_at) {
-            query = query.gte('assigned_at', latestDate.assigned_at);
-          }
-        } catch (e) {
-          console.error('fallback date query error:', e.message);
-        }
-      }
+      query = query.eq('batch_type', 'new_data');
     } else if (req.query.old_only === 'true') {
-      const batchIds = [];
-      for (const s of stationNames) {
-        try {
-          const { data: lb } = await supabase
-            .from('fro_assignments')
-            .select('batch_id')
-            .eq('station', s)
-            .eq('batch_type', 'old_data')
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (lb?.batch_id) batchIds.push(lb.batch_id);
-        } catch (e) {
-          console.error(`batch query error for station ${s}:`, e.message);
-        }
-      }
-      if (batchIds.length > 0) {
-        query = query.in('batch_id', [...new Set(batchIds)]);
-      } else {
-        return res.json([]);
-      }
+      query = query.eq('batch_type', 'old_data');
     }
 
     let { data: assignments, error: qErr } = await query;
     if (qErr) {
-      return res.status(500).json({ error: 'main_query_failed', message: qErr.message, details: qErr.details || null, hint: qErr.hint || null, code: qErr.code || null });
+      return res.status(500).json({ error: 'main_query_failed', message: qErr.message });
     }
 
-    // Fallback: query by fro_worker_id if station-based query found nothing
     if (!assignments || assignments.length === 0) {
       const { data: byWorker, error: bwErr } = await supabase
         .from('fro_assignments')
@@ -474,7 +416,7 @@ export const getMyDonors = async (req, res) => {
         .eq('fro_worker_id', workerId)
         .not('status', 'eq', 'reassigned');
       if (bwErr) {
-        return res.status(500).json({ error: 'fallback_query_failed', message: bwErr.message, details: bwErr.details || null });
+        return res.status(500).json({ error: 'fallback_query_failed', message: bwErr.message });
       }
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
