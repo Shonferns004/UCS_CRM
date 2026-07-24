@@ -26,6 +26,7 @@ function getRole() {
 export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
   const [notices, setNotices] = useState([])
   const [loading, setLoading] = useState(true)
+  const [deletingId, setDeletingId] = useState(null)
   const role = getRole()
 
   useEffect(() => {
@@ -43,6 +44,22 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [limit, role])
+
+  const handleDelete = async (id) => {
+    const token = getToken()
+    if (!token) return
+    setDeletingId(id)
+    try {
+      const res = await fetch(`${BASE}/notices/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        setNotices(prev => prev.filter(n => n.id !== id))
+      }
+    } catch {}
+    setDeletingId(null)
+  }
 
   if (loading) return null
 
@@ -67,7 +84,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
             <div key={n.id || i} style={{
               display: 'flex', gap: 8, padding: '8px 10px',
               borderRadius: 8, marginBottom: 6,
-              background: '#EFF6FF', border: '1px solid #BFDBFE'
+              background: '#EFF6FF', border: '1px solid #BFDBFE', alignItems: 'flex-start'
             }}>
               <div style={{
                 width: 26, height: 26, borderRadius: 6, flexShrink: 0,
@@ -104,6 +121,23 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
                   )}
                 </div>
               </div>
+              <button
+                onClick={() => handleDelete(n.id)}
+                disabled={deletingId === n.id}
+                title="Delete notice"
+                style={{
+                  background: 'none', border: 'none', cursor: deletingId === n.id ? 'wait' : 'pointer',
+                  padding: 2, borderRadius: 4, flexShrink: 0, alignSelf: 'center',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#94a3b8', transition: 'color 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
+                onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  {deletingId === n.id ? 'hourglass_top' : 'delete'}
+                </span>
+              </button>
             </div>
           ))}
         </div>

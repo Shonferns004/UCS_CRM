@@ -22,7 +22,7 @@ export const getAllNotices = async (ngo_id, target_role) => {
     .select('*')
     .eq('is_active', true)
     .order('created_at', { ascending: false });
-  if (ngo_id) query = query.eq('ngo_id', ngo_id);
+  if (ngo_id) query = query.or(`ngo_id.eq.${ngo_id},ngo_id.is.null`);
   const role = sanitizeRole(target_role);
   if (role && role !== 'all') {
     query = query.or(`target_role.eq.${role},target_role.is.null,target_role.eq.all`);

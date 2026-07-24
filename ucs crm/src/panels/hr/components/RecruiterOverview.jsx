@@ -2,14 +2,6 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useHR } from '../store';
 import { Users, Check, Clock, Bell, Cal } from '../icons';
 
-function SearchIcon({ size = 16 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
-
 const RCOLORS = ['#5B6B4E','#1565C0','#7A5C7E','#B5603A','#C08A2E','#00838F','#6A1B9A','#2E7D32','#E65100','#4F6472'];
 
 const STATUS_LABELS = {
@@ -121,12 +113,9 @@ function DonutChart({ data, size = 160 }) {
 
 export default function RecruiterOverview() {
   const { fetchRecruiters, fetchLeads } = useHR();
-  const [data, setData] = useState(null);
+  const [rawData, setRawData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterSource, setFilterSource] = useState('all');
   const [tablePage, setTablePage] = useState(0);
   const PAGE_SIZE = 8;
 
@@ -136,91 +125,114 @@ export default function RecruiterOverview() {
         fetchRecruiters().catch(() => []),
         fetchLeads().catch(() => []),
       ]);
-
-      const now = new Date();
-      const today = now.toISOString().slice(0, 10);
-
-      const recruiterStats = recruiters.map((r) => {
-        const rLeads = leads.filter((l) => l.recruiter_id === r.id || l.created_by === r.id);
-        const total = rLeads.length;
-        const byStatus = {};
-        rLeads.forEach((l) => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; });
-
-        const scheduled = byStatus['scheduled'] || 0;
-        const pending = (byStatus['hold'] || 0) + (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0) + (byStatus['ringing'] || 0) + (byStatus['unreachable'] || 0) + (byStatus['busy'] || 0) + (byStatus['switched_off'] || 0);
-        const interviewed = byStatus['selected'] || 0;
-        const joined = byStatus['joined'] || 0;
-        const rejected = byStatus['rejected'] || 0;
-        const followUp = (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0);
-
-        const convBase = joined + rejected;
-        const conversionRate = convBase > 0 ? parseFloat(((joined / convBase) * 100).toFixed(1)) : 0;
-        const todayLeads = rLeads.filter((l) => l.created_at?.slice(0, 10) === today).length;
-
-        const recentActivity = rLeads
-          .filter((l) => l.updated_at)
-          .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
-        const lastActivity = recentActivity?.updated_at || recentActivity?.created_at || null;
-
-        const withUpdates = rLeads.filter((l) => l.created_at && l.updated_at && l.created_at !== l.updated_at);
-        const avgResponseTime = withUpdates.length > 0
-          ? parseFloat((withUpdates.reduce((s, l) => s + (new Date(l.updated_at) - new Date(l.created_at)) / 3600000, 0) / withUpdates.length).toFixed(1))
-          : 0;
-
-        return {
-          id: r.id, name: r.name, department: r.department,
-          leadsCount: total, scheduled, pending, interviewed, joined, rejected, followUp,
-          conversionRate, todayLeads, lastActivity, avgResponseTime, byStatus,
-        };
-      });
-
-      const totalRecruiters = recruiters.length;
-      const totalLeads = leads.length;
-      const totalScheduled = leads.filter((l) => l.status === 'scheduled').length;
-      const totalPending = leads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
-      const totalInterviewed = leads.filter((l) => l.status === 'selected').length;
-      const totalJoined = leads.filter((l) => l.status === 'joined').length;
-      const totalRejected = leads.filter((l) => l.status === 'rejected').length;
-      const totalFollowUp = leads.filter((l) => ['followed_up', 'call_back'].includes(l.status)).length;
-      const overallConvBase = totalJoined + totalRejected;
-      const overallConversionRate = overallConvBase > 0 ? parseFloat(((totalJoined / overallConvBase) * 100).toFixed(1)) : 0;
-
-      const statusBreakdown = {};
-      leads.forEach((l) => { const s = l.status || 'unknown'; statusBreakdown[s] = (statusBreakdown[s] || 0) + 1; });
-
-      const monthlyData = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthLabel = d.toLocaleDateString('en', { month: 'short' });
-        const monthStart = d.toISOString().slice(0, 10);
-        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-        const monthLeads = leads.filter((l) => { const cd = l.created_at?.slice(0, 10); return cd >= monthStart && cd <= monthEnd; });
-        monthlyData.push({
-          month: monthLabel, total: monthLeads.length,
-          scheduled: monthLeads.filter((l) => l.status === 'scheduled').length,
-          joined: monthLeads.filter((l) => l.status === 'joined').length,
-          rejected: monthLeads.filter((l) => l.status === 'rejected').length,
-        });
-      }
-
-      const todayActivities = leads
-        .filter((l) => l.updated_at?.slice(0, 10) === today || l.created_at?.slice(0, 10) === today)
-        .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
-        .slice(0, 20)
-        .map((l) => ({ id: l.id, name: l.name, status: l.status, recruiter: l.created_by_name || 'System', time: l.updated_at || l.created_at }));
-
-      const activeRecruiters = recruiterStats.filter((r) => r.leadsCount > 0).length;
-      const avgLeadsPerRecruiter = totalRecruiters > 0 ? parseFloat((totalLeads / totalRecruiters).toFixed(1)) : 0;
-      const totalLeadAge = leads.reduce((sum, l) => sum + (now - new Date(l.created_at)) / 86400000, 0);
-      const avgHiringTime = totalLeads > 0 ? parseFloat((totalLeadAge / totalLeads).toFixed(1)) : 0;
-
-      setData({
-        summary: { totalRecruiters, activeRecruiters, totalLeads, totalScheduled, totalPending, totalInterviewed, totalJoined, totalRejected, totalFollowUp, overallConversionRate },
-        recruiterStats, statusBreakdown, monthlyData, todayActivities,
-        analytics: { avgLeadsPerRecruiter, avgHiringTime, avgResponseTime: recruiterStats.reduce((s, r) => s + r.avgResponseTime, 0) / (totalRecruiters || 1), avgDailyLeads: parseFloat((totalLeads / 30).toFixed(1)) },
-      });
+      setRawData({ recruiters, leads });
     } catch (e) { console.error('RecruiterOverview load error:', e); } finally { setLoading(false); }
   }, [fetchRecruiters, fetchLeads]);
+
+  const data = useMemo(() => {
+    if (!rawData) return null;
+    const { recruiters, leads } = rawData;
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+
+    let filteredLeads = leads;
+    if (filterDate === 'today') {
+      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) === today);
+    } else if (filterDate === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const ys = yesterday.toISOString().slice(0, 10);
+      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) === ys);
+    } else if (filterDate === '7days') {
+      const since = new Date(now);
+      since.setDate(since.getDate() - 7);
+      const sinceStr = since.toISOString().slice(0, 10);
+      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) >= sinceStr);
+    } else if (filterDate === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      filteredLeads = leads.filter((l) => l.created_at?.slice(0, 10) >= monthStart);
+    }
+
+    const recruiterStats = recruiters.map((r) => {
+      const rLeads = filteredLeads.filter((l) => l.recruiter_id === r.id || l.created_by === r.id);
+      const total = rLeads.length;
+      const byStatus = {};
+      rLeads.forEach((l) => { byStatus[l.status] = (byStatus[l.status] || 0) + 1; });
+
+      const scheduled = byStatus['scheduled'] || 0;
+      const pending = (byStatus['hold'] || 0) + (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0) + (byStatus['ringing'] || 0) + (byStatus['unreachable'] || 0) + (byStatus['busy'] || 0) + (byStatus['switched_off'] || 0);
+      const interviewed = byStatus['selected'] || 0;
+      const joined = byStatus['joined'] || 0;
+      const rejected = byStatus['rejected'] || 0;
+      const followUp = (byStatus['followed_up'] || 0) + (byStatus['call_back'] || 0);
+
+      const convBase = joined + rejected;
+      const conversionRate = convBase > 0 ? parseFloat(((joined / convBase) * 100).toFixed(1)) : 0;
+      const todayLeads = rLeads.filter((l) => l.created_at?.slice(0, 10) === today).length;
+
+      const recentActivity = rLeads
+        .filter((l) => l.updated_at)
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0];
+      const lastActivity = recentActivity?.updated_at || recentActivity?.created_at || null;
+
+      const withUpdates = rLeads.filter((l) => l.created_at && l.updated_at && l.created_at !== l.updated_at);
+      const avgResponseTime = withUpdates.length > 0
+        ? parseFloat((withUpdates.reduce((s, l) => s + (new Date(l.updated_at) - new Date(l.created_at)) / 3600000, 0) / withUpdates.length).toFixed(1))
+        : 0;
+
+      return {
+        id: r.id, name: r.name, department: r.department,
+        leadsCount: total, scheduled, pending, interviewed, joined, rejected, followUp,
+        conversionRate, todayLeads, lastActivity, avgResponseTime, byStatus,
+      };
+    });
+
+    const totalRecruiters = recruiters.length;
+    const totalLeads = filteredLeads.length;
+    const totalScheduled = filteredLeads.filter((l) => l.status === 'scheduled').length;
+    const totalPending = filteredLeads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
+    const totalInterviewed = filteredLeads.filter((l) => l.status === 'selected').length;
+    const totalJoined = filteredLeads.filter((l) => l.status === 'joined').length;
+    const totalRejected = filteredLeads.filter((l) => l.status === 'rejected').length;
+    const totalFollowUp = filteredLeads.filter((l) => ['followed_up', 'call_back'].includes(l.status)).length;
+    const overallConvBase = totalJoined + totalRejected;
+    const overallConversionRate = overallConvBase > 0 ? parseFloat(((totalJoined / overallConvBase) * 100).toFixed(1)) : 0;
+
+    const statusBreakdown = {};
+    filteredLeads.forEach((l) => { const s = l.status || 'unknown'; statusBreakdown[s] = (statusBreakdown[s] || 0) + 1; });
+
+    const monthlyData = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthLabel = d.toLocaleDateString('en', { month: 'short' });
+      const monthStart = d.toISOString().slice(0, 10);
+      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const monthLeads = filteredLeads.filter((l) => { const cd = l.created_at?.slice(0, 10); return cd >= monthStart && cd <= monthEnd; });
+      monthlyData.push({
+        month: monthLabel, total: monthLeads.length,
+        scheduled: monthLeads.filter((l) => l.status === 'scheduled').length,
+        joined: monthLeads.filter((l) => l.status === 'joined').length,
+        rejected: monthLeads.filter((l) => l.status === 'rejected').length,
+      });
+    }
+
+    const todayActivities = filteredLeads
+      .filter((l) => l.updated_at?.slice(0, 10) === today || l.created_at?.slice(0, 10) === today)
+      .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+      .slice(0, 20)
+      .map((l) => ({ id: l.id, name: l.name, status: l.status, recruiter: l.created_by_name || 'System', time: l.updated_at || l.created_at }));
+
+    const activeRecruiters = recruiterStats.filter((r) => r.leadsCount > 0).length;
+    const avgLeadsPerRecruiter = totalRecruiters > 0 ? parseFloat((totalLeads / totalRecruiters).toFixed(1)) : 0;
+    const totalLeadAge = filteredLeads.reduce((sum, l) => sum + (now - new Date(l.created_at)) / 86400000, 0);
+    const avgHiringTime = totalLeads > 0 ? parseFloat((totalLeadAge / totalLeads).toFixed(1)) : 0;
+
+    return {
+      summary: { totalRecruiters, activeRecruiters, totalLeads, totalScheduled, totalPending, totalInterviewed, totalJoined, totalRejected, totalFollowUp, overallConversionRate },
+      recruiterStats, statusBreakdown, monthlyData, todayActivities,
+      analytics: { avgLeadsPerRecruiter, avgHiringTime, avgResponseTime: recruiterStats.reduce((s, r) => s + r.avgResponseTime, 0) / (totalRecruiters || 1), avgDailyLeads: parseFloat((totalLeads / 30).toFixed(1)) },
+    };
+  }, [rawData, filterDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -232,13 +244,8 @@ export default function RecruiterOverview() {
   const analytics = data?.analytics || {};
 
   const filteredRecruiters = useMemo(() => {
-    let list = [...recruiters];
-    if (searchTerm) {
-      const s = searchTerm.toLowerCase();
-      list = list.filter(r => r.name?.toLowerCase().includes(s));
-    }
-    return list;
-  }, [recruiters, searchTerm]);
+    return [...recruiters];
+  }, [recruiters]);
 
   const leaderboard = useMemo(() =>
     [...filteredRecruiters].sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount),
@@ -304,24 +311,6 @@ export default function RecruiterOverview() {
             <option value="7days">Last 7 Days</option>
             <option value="month">This Month</option>
           </select>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="ro-filter-select">
-            <option value="all">All Status</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="joined">Joined</option>
-            <option value="rejected">Rejected</option>
-            <option value="hold">Pending</option>
-          </select>
-          <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="ro-filter-select">
-            <option value="all">All Sources</option>
-            <option value="Walk-in">Walk-in</option>
-            <option value="LinkedIn">LinkedIn</option>
-            <option value="Referral">Referral</option>
-            <option value="Job Portal">Job Portal</option>
-          </select>
-          <div className="ro-search-wrap">
-            <SearchIcon size={14} />
-            <input type="text" placeholder="Search recruiter..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setTablePage(0); }} className="ro-search-input" />
-          </div>
         </div>
       </div>
 

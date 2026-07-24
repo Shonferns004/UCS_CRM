@@ -52,8 +52,8 @@
   background:#fff; color:#1a1a2e; transition:all .15s; white-space:nowrap; line-height:1.4;
 }
 .btn:hover { background:#f9fafb; }
-.btn-primary { background:#5B6B4E; color:#fff; border-color:#5B6B4E; }
-.btn-primary:hover { background:#7A8F6A; }
+.btn-primary { background:var(--sage, var(--primary, #5B6B4E)); color:#fff; border-color:var(--sage, var(--primary, #5B6B4E)); }
+.btn-primary:hover { background:var(--sage, var(--primary, #5B6B4E)); color:#fff; border-color:var(--sage, var(--primary, #5B6B4E)); filter:brightness(1.15); }
 .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
 .btn-sm { padding:5px 10px; font-size:12px; }
 .btn-outline { background:transparent; border-color:#e5e7eb; color:#1a1a2e; }
