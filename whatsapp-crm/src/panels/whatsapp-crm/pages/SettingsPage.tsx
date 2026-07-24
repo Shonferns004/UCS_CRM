@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { BatchUserImport } from '../components/admin/BatchUserImport';
+import { TeamBulkImport } from '../components/admin/TeamBulkImport';
 import { Badge } from '../components/ui/Badge';
 import { useAuthStore } from '../stores/authStore';
 import { Plus, Pencil, Trash2, Save, QrCode, FileText, MessageSquare, Eye, EyeOff, CheckCircle2, XCircle, Users, Mail, Shield } from 'lucide-react';
@@ -226,6 +227,7 @@ function TeamSettings() {
 
   return (
     <div className="space-y-6">
+      <TeamBulkImport />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
         <BatchUserImport />
