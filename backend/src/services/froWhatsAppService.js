@@ -36,7 +36,10 @@ export async function getFroConversations(froWorkerId) {
     .select('id, phone, phone_normalized, wa_profile_name, project')
     .in('phone_normalized', phoneList);
 
-  if (contactErr) throw contactErr;
+  if (contactErr) {
+    if (contactErr.code === '42P01' || contactErr.message?.includes('does not exist')) return [];
+    throw contactErr;
+  }
   if (!contacts || contacts.length === 0) return [];
 
   const contactIds = contacts.map(c => c.id);
@@ -47,7 +50,10 @@ export async function getFroConversations(froWorkerId) {
     .in('contact_id', contactIds)
     .order('last_message_at', { ascending: false });
 
-  if (convErr) throw convErr;
+  if (convErr) {
+    if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
+    throw convErr;
+  }
   return conversations || [];
 }
 
@@ -303,18 +309,29 @@ async function findOrCreateContact(phoneNormalized) {
 
   if (existing) return existing;
 
-  const { data: newContact, error } = await supabase
-    .from('contacts')
-    .insert({
-      phone: phoneNormalized,
-      phone_normalized: phoneNormalized,
-      source: 'fro_initiated',
-    })
-    .select()
-    .single();
+  try {
+    const { data: newContact, error } = await supabase
+      .from('contacts')
+      .insert({
+        phone: phoneNormalized,
+        phone_normalized: phoneNormalized,
+        source: 'fro_initiated',
+      })
+      .select()
+      .single();
 
-  if (error) throw error;
-  return newContact;
+    if (error) throw error;
+    return newContact;
+  } catch (insertErr) {
+    // Handle race: another request inserted the same contact concurrently
+    const { data: raceContact } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('phone_normalized', phoneNormalized)
+      .maybeSingle();
+    if (raceContact) return raceContact;
+    throw insertErr;
+  }
 }
 
 async function findOrCreateConversation(contact, froWorkerId) {
@@ -327,19 +344,31 @@ async function findOrCreateConversation(contact, froWorkerId) {
 
   if (existing) return existing;
 
-  const { data: newConv, error } = await supabase
-    .from('conversations')
-    .insert({
-      contact_id: contact.id,
-      status: 'open',
-      last_message_at: new Date().toISOString(),
-      project: contact.project || null,
-    })
-    .select()
-    .single();
+  try {
+    const { data: newConv, error } = await supabase
+      .from('conversations')
+      .insert({
+        contact_id: contact.id,
+        status: 'open',
+        last_message_at: new Date().toISOString(),
+        project: contact.project || null,
+      })
+      .select()
+      .single();
 
-  if (error) throw error;
-  return newConv;
+    if (error) throw error;
+    return newConv;
+  } catch (insertErr) {
+    // Handle race: another request inserted the same conversation concurrently
+    const { data: raceConv } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('contact_id', contact.id)
+      .eq('status', 'open')
+      .maybeSingle();
+    if (raceConv) return raceConv;
+    throw insertErr;
+  }
 }
 
 export async function markConversationRead(conversationId, froWorkerId) {
@@ -352,8 +381,13 @@ export async function markConversationRead(conversationId, froWorkerId) {
 }
 
 export async function getFroUnreadCount(froWorkerId) {
-  const conversations = await getFroConversations(froWorkerId);
-  return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  try {
+    const conversations = await getFroConversations(froWorkerId);
+    return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  } catch (err) {
+    console.error('[getFroUnreadCount] WhatsApp tables may not exist:', err.message);
+    return 0;
+  }
 }
 
 export async function getQuickReplies() {
@@ -496,7 +530,7 @@ export async function searchFroMessages(froWorkerId, query) {
     .from('messages')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .in('conversation_id', convIds)
-    .ilike('body_text', `%${query}%`)
+    .ilike('body_text', `%${query.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`)
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) throw error;
@@ -515,13 +549,29 @@ export async function uploadFroMedia(froWorkerId, file) {
   const fileName = `fro_${froWorkerId}_${Date.now()}_${file.originalname || 'file'}`;
   const bucket = 'whatsapp-media';
 
-  const { data: uploadData, error: uploadError } = await supabase.storage
+  let { data: uploadData, error: uploadError } = await supabase.storage
     .from(bucket)
     .upload(fileName, file.buffer, {
       contentType: file.mimetype,
       upsert: false,
     });
-  if (uploadError) throw uploadError;
+
+  if (uploadError?.message?.includes('Bucket not found')) {
+    const { error: bucketError } = await supabase.storage.createBucket(bucket, {
+      public: true,
+      allowedMimeTypes: ['image/*', 'video/*', 'audio/*', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      fileSizeLimit: 52428800,
+    });
+    if (bucketError) throw bucketError;
+
+    const result = await supabase.storage
+      .from(bucket)
+      .upload(fileName, file.buffer, { contentType: file.mimetype, upsert: false });
+    if (result.error) throw result.error;
+    uploadData = result.data;
+  } else if (uploadError) {
+    throw uploadError;
+  }
 
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
 
@@ -532,7 +582,6 @@ export async function uploadFroMedia(froWorkerId, file) {
       file_url: urlData.publicUrl,
       file_type: file.mimetype,
       file_size: file.size,
-      uploaded_by: String(froWorkerId),
     })
     .select()
     .single();

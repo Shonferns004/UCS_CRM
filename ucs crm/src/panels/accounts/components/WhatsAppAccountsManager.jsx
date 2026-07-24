@@ -38,7 +38,19 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadAccounts(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const data = await apiGet('/whatsapp/accounts');
+        if (!cancelled) setAccounts(data || []);
+      } catch (err) { console.error(err); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -198,7 +210,7 @@ export default function WhatsAppAccountsManager({ onAccountsChange }) {
             </label>
             <label className="field" style={{ flex: '1 1 140px', marginBottom: 0 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Access Token</span>
-              <input type="text" value={form.access_token} onChange={e => setForm(p => ({ ...p, access_token: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Meta token'} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
+              <input type="password" value={form.access_token} onChange={e => setForm(p => ({ ...p, access_token: e.target.value }))} placeholder={editing ? 'Leave blank to keep' : 'Meta token'} style={{ marginTop: 2, fontSize: 12, padding: '5px 8px' }} />
             </label>
             <label className="field" style={{ flex: '1 1 130px', marginBottom: 0 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>WABA ID</span>

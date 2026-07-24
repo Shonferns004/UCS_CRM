@@ -5,9 +5,9 @@ import { useAuthStore } from '../../stores/authStore';
 
 export function AppLayout() {
   const { user } = useAuthStore();
-  const isAgent = user?.role === 'agent';
+  const isAgentOrAdmin = user?.role !== 'master';
 
-  if (isAgent) {
+  if (isAgentOrAdmin) {
     return (
       <div className="flex h-screen overflow-hidden">
         <main className="flex-1 overflow-y-auto scrollbar-thin">

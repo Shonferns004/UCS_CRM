@@ -13,21 +13,32 @@ export default function ApprovalWorkflow() {
   const [actionId, setActionId] = useState(null)
 
   useEffect(() => {
+    let cancelled = false
     Promise.all([fetchEvents().catch(() => []), fetchApprovals().catch(() => [])])
-      .then(([e,a]) => { setEvents(e); setApprovals(a) })
+      .then(([e,a]) => { if (!cancelled) { setEvents(e); setApprovals(a) } })
+    return () => { cancelled = true }
   }, [])
 
   const handleSubmit = async (id) => {
-    await submitApproval(id).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Submitted'} : e))).catch(e => console.error('ApprovalWorkflow submitApproval:', e))
+    try {
+      await submitApproval(id)
+      setEvents(events.map(e => e.id === id ? {...e, status:'Submitted'} : e))
+    } catch (e) { console.error('ApprovalWorkflow submitApproval:', e) }
   }
 
   const handleApprove = async (id) => {
-    await approveEvent(id).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Approved'} : e))).catch(e => console.error('ApprovalWorkflow approveEvent:', e))
+    try {
+      await approveEvent(id)
+      setEvents(events.map(e => e.id === id ? {...e, status:'Approved'} : e))
+    } catch (e) { console.error('ApprovalWorkflow approveEvent:', e) }
     setActionId(null); setRemark('')
   }
 
   const handleReject = async (id) => {
-    await rejectEvent(id, remark).then(() => setEvents(events.map(e => e.id === id ? {...e, status:'Rejected'} : e))).catch(e => console.error('ApprovalWorkflow rejectEvent:', e))
+    try {
+      await rejectEvent(id, remark)
+      setEvents(events.map(e => e.id === id ? {...e, status:'Rejected'} : e))
+    } catch (e) { console.error('ApprovalWorkflow rejectEvent:', e) }
     setActionId(null); setRemark('')
   }
 

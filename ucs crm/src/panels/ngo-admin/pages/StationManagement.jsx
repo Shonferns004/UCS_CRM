@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
+import { toast } from '../../../components/Toast';
 import * as XLSX from 'xlsx';
 
 const NGO_NAME_COLORS = {
@@ -28,7 +29,7 @@ function TransferDataModal({ station, sourceName, sourceCount, stations, onClose
       onClose();
       setTimeout(() => { if (onTransferred) onTransferred(); }, 600);
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -82,7 +83,7 @@ function TransferDataModal({ station, sourceName, sourceCount, stations, onClose
   );
 }
 
-function OldDataUploadModal({ station, onClose, onUploaded }) {
+function OldDataUploadModal({ station, ngoId, onClose, onUploaded }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -124,6 +125,7 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
     try {
       const fd = new FormData();
       fd.append('file', file);
+      if (ngoId) fd.append('ngo_id', ngoId);
       setProgress(60);
       setProgressLabel('Creating profiles & assignments...');
       const res = await api(`/ngo-admin/stations/${encodeURIComponent(station)}/upload-old-data`, { method: 'POST', body: fd, _prefix: 'ucs' });
@@ -227,6 +229,72 @@ function OldDataUploadModal({ station, onClose, onUploaded }) {
   );
 }
 
+function SearchableSelect({ options, value, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) { setSearch(''); return; }
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const filtered = options.filter(w =>
+    !search || w.name?.toLowerCase().includes(search.toLowerCase()) || w.login_id?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const selected = options.find(w => w.id === value);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', maxWidth: 200 }}>
+      <div onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', fontSize: 13, cursor: 'pointer', background: '#fff', minHeight: 26 }}>
+        <span style={{ color: selected ? 'inherit' : '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.name : (placeholder || '-- Select --')}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', zIndex: 200, marginTop: 2, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search FRO..."
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 11, fontFamily: 'inherit', background: 'transparent' }}
+              autoFocus />
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            <div onClick={() => { onChange(''); setOpen(false); }}
+              style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: '#9ca3af', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+              -- No FRO --
+            </div>
+            {filtered.map(w => (
+              <div key={w.id} onClick={() => { onChange(w.id); setOpen(false); }}
+                style={{ padding: '6px 10px', fontSize: 12, cursor: 'pointer', background: w.id === value ? '#f0fdf4' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+                onMouseLeave={e => e.currentTarget.style.background = w.id === value ? '#f0fdf4' : 'transparent'}>
+                <span>{w.name}</span>
+                {w.login_id && <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{w.login_id}</span>}
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center' }}>No FROs match</div>
+            )}
+          </div>
+          <div style={{ padding: '4px 8px', borderTop: '1px solid var(--line, #e5e7eb)', fontSize: 10, color: 'var(--ink-soft)', textAlign: 'right' }}>
+            {filtered.length} / {options.length}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const NGO_TABS = ['BSCT', 'AFLF', 'MANN'];
+
 export default function StationManagement() {
   const [stations, setStations] = useState([]);
   const [allNgos, setAllNgos] = useState([]);
@@ -252,7 +320,7 @@ export default function StationManagement() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [selectedNgoId, setSelectedNgoId] = useState('all');
+  const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [uploadStation, setUploadStation] = useState(null);
 
   useEffect(() => {
@@ -279,7 +347,7 @@ export default function StationManagement() {
   const fetchTransfers = () => {
     apiGet('/ngo-admin/transfers').then(r => {
       setTransfers(Array.isArray(r) ? r : []);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
 
   const fetchData = (successMsg, month) => {
@@ -293,10 +361,10 @@ export default function StationManagement() {
     }).catch(err => console.error('fetchData transfers error:', err));
     apiGet('/ngo-admin/targets?month=' + m).then(t => {
       if (Array.isArray(t)) setTargets(t);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
       if (Array.isArray(r)) setIncentives(r);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     if (successMsg) setMsg(successMsg);
   };
 
@@ -304,30 +372,29 @@ export default function StationManagement() {
     const m = month || selectedMonth;
     apiGet('/ngo-admin/targets?month=' + m).then(t => {
       if (Array.isArray(t)) setTargets(t);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
       if (Array.isArray(r)) setIncentives(r);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {
     setLoading(true);
     const m = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-    const url = selectedNgoId === 'all' ? '/ngo-admin/stations' : `/ngo-admin/stations?ngo_id=${selectedNgoId}`;
     Promise.all([
-      apiGet(url),
       apiGet('/ngo-admin/ngos'),
       apiGet('/ngo-admin/fro-workers'),
       apiGet('/ngo-admin/targets?month=' + m),
       apiGet('/ngo-admin/incentives'),
-    ]).then(([s, n, f, t, i]) => {
-      const list = Array.isArray(s) ? s : [];
-      setStations(list);
+    ]).then(([n, f, t, i]) => {
       setAllNgos(Array.isArray(n) ? n : []);
       setFroWorkers(Array.isArray(f) ? f : []);
       if (Array.isArray(t)) setTargets(t);
       if (Array.isArray(i)) setIncentives(i);
-      setNewStation(computeNextName(list));
+      const ngoId = (Array.isArray(n) ? n : []).find(ng => NGO_TABS.includes(ng.name))?.id;
+      if (ngoId) {
+        setSelectedNgoId(ngoId);
+      }
     }).catch(err => console.error('Initial load error:', err)).finally(() => setLoading(false));
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
@@ -335,14 +402,8 @@ export default function StationManagement() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    if (selectedNgoId) fetchData();
   }, [selectedNgoId]);
-
-  useEffect(() => {
-    if (allNgos.length > 0 && selectedNgoId === 'all') {
-      setSelectedNgoId(allNgos[0].id);
-    }
-  }, [allNgos]);
 
   const activeTransfers = transfers.filter(t => !t.returned);
   const historyTransfers = transfers.filter(t => t.returned);
@@ -362,7 +423,7 @@ export default function StationManagement() {
         setNewStation(computeNextName(list));
       }
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setAdding(false);
     }
@@ -373,7 +434,7 @@ export default function StationManagement() {
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, { ngo_id: ngoId });
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -387,7 +448,7 @@ export default function StationManagement() {
       });
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -398,7 +459,7 @@ export default function StationManagement() {
       await apiPost(`/ngo-admin/transfers/${transferId}/return-early`);
       setTimeout(() => fetchData('Leads returned successfully'), 400);
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setReturningId(null);
     }
@@ -410,13 +471,9 @@ export default function StationManagement() {
       await apiDelete(`/ngo-admin/stations/${encodeURIComponent(station)}`);
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
-
-  const assignedFroIds = new Set(
-    stations.map(s => s.fro_worker_id).filter(Boolean)
-  );
 
   return (
     <div>
@@ -487,12 +544,16 @@ export default function StationManagement() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
-            {allNgos.map(ngo => (
-              <button key={ngo.id} onClick={() => setSelectedNgoId(ngo.id)}
-                style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: selectedNgoId === ngo.id ? 'var(--sage)' : 'transparent', color: selectedNgoId === ngo.id ? '#fff' : 'var(--ink-soft)' }}>
-                {ngo.name}
-              </button>
-            ))}
+            {NGO_TABS.map(name => {
+              const ngo = allNgos.find(n => n.name === name);
+              const active = ngo && selectedNgoId === ngo.id;
+              return (
+                <button key={name} onClick={() => ngo && setSelectedNgoId(ngo.id)}
+                  style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)' }}>
+                  {name}
+                </button>
+              );
+            })}
           </div>
         </div>
         <div className="card-pad">
@@ -536,16 +597,12 @@ export default function StationManagement() {
                       </span>
                     </td>
                     <td>
-                      <select
+                      <SearchableSelect
+                        options={froWorkers}
                         value={s.fro_worker_id || ''}
-                        onChange={e => handleFroChange(s.station, e.target.value)}
-                        style={{ fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--line, #e5e7eb)', maxWidth: 200 }}
-                      >
-                        <option value="">-- No FRO --</option>
-                        {froWorkers.filter(w => !assignedFroIds.has(w.id) || w.id === s.fro_worker_id).map(w => (
-                          <option key={w.id} value={w.id}>{w.name}</option>
-                        ))}
-                      </select>
+                        onChange={(val) => handleFroChange(s.station, val)}
+                        placeholder="-- Select FRO --"
+                      />
                     </td>
                     <td>
                       <span className="pill pill-blue">{s.donor_count}</span>
@@ -719,7 +776,7 @@ export default function StationManagement() {
                     });
                     setEditTarget(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }} disabled={!targetAmount}>Save</button>
               </div>
             </div>
@@ -751,7 +808,7 @@ export default function StationManagement() {
                     });
                     setEditAchieved(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Save</button>
               </div>
             </div>
@@ -792,7 +849,7 @@ export default function StationManagement() {
                     });
                     setEditIncentive(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Clear</button>
                 <button className="btn btn-outline" onClick={() => setEditIncentive(null)}>Cancel</button>
                 <button className="btn btn-primary" onClick={async () => {
@@ -805,7 +862,7 @@ export default function StationManagement() {
                     });
                     setEditIncentive(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Save</button>
               </div>
             </div>
@@ -853,6 +910,7 @@ export default function StationManagement() {
       {uploadStation && (
         <OldDataUploadModal
           station={uploadStation}
+          ngoId={selectedNgoId}
           onClose={() => setUploadStation(null)}
           onUploaded={() => { setUploadStation(null); fetchData('Old data uploaded successfully'); }}
         />

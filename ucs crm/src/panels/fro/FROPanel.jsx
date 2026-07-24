@@ -22,9 +22,6 @@ import Donors from './pages/Donors'
 import Scheduled from './pages/Scheduled'
 import IncentiveInfo from './pages/IncentiveInfo'
 import History from './pages/History'
-import CallLogs from './pages/CallLogs'
-import MyTarget from './pages/MyTarget'
-import Suspense from './pages/Suspense'
 import WhatsAppChat from './pages/WhatsAppChat'
 import FroTickets from './pages/Tickets'
 
@@ -34,10 +31,7 @@ const NAV = [
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', icon: 'group' },
   { id: 'transferred-leads', path: '/fro/transferred-leads', label: 'Transferred', icon: 'swap_horiz' },
   { id: 'donors', path: '/fro/donors', label: 'Donors', icon: 'card_giftcard' },
-  { id: 'logs', path: '/fro/logs', label: 'Call Logs', icon: 'call_log' },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', icon: 'heart_broken' },
-  { id: 'target', path: '/fro/target', label: 'My Target', icon: 'track_changes' },
-  { id: 'suspense', path: '/fro/suspense', label: 'Suspense', icon: 'help_outline' },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', icon: 'confirmation_number' },
   { id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp Chat', icon: 'chat' },
 ]
@@ -63,7 +57,7 @@ function loadTodayStats() {
   } catch { return null; }
 }
 
-function Sidebar({ open, onClose }) {
+function Sidebar({ open, onClose, waUnreadCount }) {
   const location = useLocation()
   return (
     <>
@@ -79,7 +73,14 @@ function Sidebar({ open, onClose }) {
               className={`snav-item ${location.pathname === n.path ? 'active' : ''}`}
               onClick={() => onClose?.()}>
             <span className="ico material-symbols-outlined" style={{ fontSize: 18 }}>{n.icon}</span>
-            <span>{n.label}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>{n.label}</span>
+              {n.id === 'whatsapp-chat' && waUnreadCount > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
+                  {waUnreadCount > 9 ? '9+' : waUnreadCount}
+                </span>
+              )}
+            </span>
           </NavLink>
           ))}
         </nav>
@@ -94,6 +95,7 @@ export default function FROPanel() {
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [waUnreadCount, setWaUnreadCount] = useState(0)
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
 
@@ -125,7 +127,8 @@ export default function FROPanel() {
   const [statsData, setStatsData] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]')));
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs));
   const notifRef = useRef(null);
   const pollRef = useRef(null);
   const poppedIds = useRef(new Set());
@@ -133,7 +136,7 @@ export default function FROPanel() {
 
   const markRead = async (notifId) => {
     try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); }
-    catch {}
+    catch (e) { console.error('Error:', e.message); }
   };
 
   const handleRejectedClick = async (item) => {
@@ -194,7 +197,7 @@ export default function FROPanel() {
         setRejectedCount(rejected.length);
         setVerifiedCount(verified.length);
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
   useEffect(() => {
     loadNotifications();
@@ -208,6 +211,25 @@ export default function FROPanel() {
     onInsert: () => loadNotifications(),
     enabled: !!user?.id,
   });
+
+  useEffect(() => {
+    const fetchWaUnread = async () => {
+      try {
+        const token = localStorage.getItem('ucs_token')
+        if (!token) return
+        const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/whatsapp/conversations/unread-count', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setWaUnreadCount(data?.count || 0)
+        }
+      } catch (e) { console.error('Error:', e.message); }
+    }
+    fetchWaUnread()
+    const interval = setInterval(fetchWaUnread, 15000)
+    return () => clearInterval(interval)
+  }, [user?.id])
 
   useEffect(() => {
     const handler = (e) => {
@@ -234,7 +256,7 @@ export default function FROPanel() {
         }
       });
       setRows(items);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
   useEffect(() => { loadReminders(); }, [refetch]);
   useEffect(() => { const interval = setInterval(() => loadReminders(), 30000); return () => clearInterval(interval); }, []);
@@ -283,7 +305,7 @@ export default function FROPanel() {
   return (
     <CallProvider userId={user?.id}>
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCount={waUnreadCount} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -311,7 +333,7 @@ export default function FROPanel() {
               </div>
             </div>
             <div style={{ position:'relative' }}>
-              <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch(() => null), getMyTarget().catch(() => null)]); setStatsData({ dash: d, target: t }); } catch {} finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
+              <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch((err) => { console.error('Error:', err.message); }), getMyTarget().catch((err) => { console.error('Error:', err.message); })]);             setStatsData({ dash: d, target: t }); } catch (e) { console.error('Error:', e.message); } finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
             </div>
@@ -496,11 +518,8 @@ export default function FROPanel() {
             <Route path="transferred-leads" element={<TransferredLeads />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="donors" element={<Donors />} />
-            <Route path="logs" element={<CallLogs />} />
-            <Route path="target" element={<MyTarget />} />
             <Route path="history" element={<History />} />
             <Route path="incentive-info" element={<IncentiveInfo />} />
-            <Route path="suspense" element={<Suspense />} />
             <Route path="tickets" element={<FroTickets />} />
             <Route path="whatsapp-chat" element={<WhatsAppChat />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />

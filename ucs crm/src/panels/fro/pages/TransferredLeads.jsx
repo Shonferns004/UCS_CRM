@@ -83,7 +83,7 @@ export default function TransferredLeads() {
           const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
           setIndex(found >= 0 ? found : 0);
           return;
-        } catch {}
+        } catch (e) { console.error('Error:', e.message); }
       }
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
@@ -164,7 +164,7 @@ export default function TransferredLeads() {
         }
         if (amount && !leadAmount) setLeadAmount(amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);

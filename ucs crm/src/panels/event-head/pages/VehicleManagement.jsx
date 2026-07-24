@@ -15,7 +15,10 @@ export default function VehicleManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    await createVehicle(form).then((res) => { setVehicles([...vehicles, res]); setShowForm(false); setForm({vehicle_name:'',driver:'',fuel:'',kilometer_reading:'',assigned_event:''}) }).catch(e => console.error('VehicleManagement createVehicle:', e))
+    try {
+      const res = await createVehicle(form)
+      setVehicles([...vehicles, res]); setShowForm(false); setForm({vehicle_name:'',driver:'',fuel:'',kilometer_reading:'',assigned_event:''})
+    } catch (e) { console.error('VehicleManagement createVehicle:', e) }
   }
 
   const inTransit = vehicles.filter(v => v.status === 'In Transit' || v.status === 'Assigned').length

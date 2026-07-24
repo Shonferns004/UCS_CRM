@@ -32,7 +32,8 @@ function AppShell() {
   const menuRef = useRef(null)
   const notifRef = useRef(null)
   const pollRef = useRef(null)
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('recruiter_seen_notifs') || '[]')))
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('recruiter_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs))
   useEffect(() => {
     if (themes[themeName]) applyTheme(themes[themeName], '.panel-recruiter');
     localStorage.setItem('recruiter_theme', themeName)
@@ -59,7 +60,7 @@ function AppShell() {
           }
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {

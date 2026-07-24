@@ -123,7 +123,7 @@ export default function HRForms() {
   const [workerPhotoErr, setWorkerPhotoErr] = useState(false);
 
   useEffect(() => {
-    fetchWorkers().then(setWorkers).catch(() => {});
+    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const handleSearchChange = (value) => {
@@ -219,7 +219,7 @@ export default function HRForms() {
       setDeclarationDate(data.declaration_date ? data.declaration_date.slice(0, 10) : (data.created_at ? data.created_at.slice(0, 10) : ''));
       setPlace(data.declaration_place || 'Mumbai');
       setSignatureUrl(data.signature_url || '');
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
   };
 
   const [personal, setPersonal] = useState({

@@ -128,18 +128,68 @@
               conversation = newConversation;
             }
 
-            const { error: msgError } = await supabase.from("messages").insert({
+            const mediaId = message[message.type]?.id || null;
+            const mediaMimeType = message[message.type]?.mime_type || null;
+
+            const { data: newMessage, error: msgError } = await supabase.from("messages").insert({
               conversation_id: conversation.id,
               contact_id: contact.id,
               direction: "inbound",
               message_type: message.type,
               body_text: bodyText,
               wa_message_id: message.id,
+              media_id: mediaId,
+              media_mime_type: mediaMimeType,
               status: "delivered",
               message_category: "service",
-            });
+            }).select().single();
 
             if (msgError) throw msgError;
+
+            if (mediaId && ["image", "video", "audio", "document", "sticker"].includes(message.type)) {
+              try {
+                const { data: waAccount } = await supabase
+                  .from("whatsapp_accounts")
+                  .select("access_token")
+                  .eq("phone_number_id", phoneNumberId)
+                  .eq("is_active", true)
+                  .maybeSingle();
+
+                if (waAccount?.access_token) {
+                  const infoRes = await fetch(
+                    `https://graph.facebook.com/v23.0/${mediaId}`,
+                    { headers: { Authorization: `Bearer ${waAccount.access_token}` } }
+                  );
+                  const info = await infoRes.json();
+                  if (infoRes.ok && info.url) {
+                    const dlRes = await fetch(info.url, {
+                      headers: { Authorization: `Bearer ${waAccount.access_token}` },
+                    });
+                    if (dlRes.ok) {
+                      const blob = await dlRes.blob();
+                      const ext = (mediaMimeType?.split("/")[1] || "bin").split(";")[0].trim();
+                      const fileName = `webhook_${message.id}.${ext}`;
+
+                      const { error: uploadError } = await supabase.storage
+                        .from("whatsapp-media")
+                        .upload(fileName, blob, { contentType: mediaMimeType, upsert: true });
+                      if (!uploadError) {
+                        const { data: publicUrl } = supabase.storage
+                          .from("whatsapp-media")
+                          .getPublicUrl(fileName);
+                        if (publicUrl?.publicUrl) {
+                          await supabase.from("messages").update({
+                            media_url: publicUrl.publicUrl,
+                          }).eq("id", newMessage.id);
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (mediaErr) {
+                console.error("Failed to download/upload media:", mediaErr);
+              }
+            }
 
             await supabase
               .from("conversations")

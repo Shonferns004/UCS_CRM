@@ -40,6 +40,7 @@ export const updateAchievedTarget = async (workerId, ngoId, month, achievedAmoun
     .from('fro_monthly_targets')
     .select('id')
     .eq('fro_worker_id', workerId)
+    .eq('ngo_id', ngoId)
     .eq('month', month)
     .maybeSingle();
 
@@ -68,6 +69,7 @@ export const updateIncentive = async (workerId, ngoId, month, amount) => {
     .from('fro_monthly_targets')
     .select('id')
     .eq('fro_worker_id', workerId)
+    .eq('ngo_id', ngoId)
     .eq('month', month)
     .maybeSingle();
 

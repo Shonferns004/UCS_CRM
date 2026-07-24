@@ -130,8 +130,8 @@ export default function Attendance() {
     const d = new Date();
     const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     setMonthFilter(m);
-    fetchAttendance().then(setAttendance).catch(() => {});
-    fetchWorkers().then(setWorkers).catch(() => {});
+    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
+    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   useEffect(() => {
@@ -154,7 +154,7 @@ export default function Attendance() {
   };
 
   const refreshData = () => {
-    fetchAttendance().then(setAttendance).catch(() => {});
+    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
   };
 
   const historyRecords = attendance.filter(r => {
@@ -476,7 +476,7 @@ export default function Attendance() {
                     const err = await res.json().catch(() => ({ message: 'Failed to create' }));
                     throw new Error(err.message || 'Creation failed');
                   }
-                  fetchAttendance().then(setAttendance).catch(() => {});
+                  fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
                   setAddingRecord(false);
                 } catch (err) {
                   alert(err.message);

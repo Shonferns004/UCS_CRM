@@ -10,15 +10,16 @@ export default function Leaves() {
   const [remark, setRemark] = useState('');
 
   useEffect(() => {
-    fetchLeaves().then(setLeaves).catch(console.error);
+    let cancelled = false;
+    fetchLeaves().then(data => { if (!cancelled) setLeaves(data); }).catch((err) => { console.error('API error:', err.message); });
+    return () => { cancelled = true; };
   }, []);
 
   const handleDecide = async (id, status) => {
     try {
       await decideLeave(id, status);
-      const updated = await fetchLeaves();
-      setLeaves(updated);
-      setSelectedLeave(null);
+
+      fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
     } catch (e) {
       alert(e.message || 'Something went wrong');
     }

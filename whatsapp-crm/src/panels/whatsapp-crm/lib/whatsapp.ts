@@ -39,81 +39,105 @@ export async function sendWhatsAppMessage(
   messageText?: string,
   mediaFile?: File | null,
   userId?: string,
+  messageId?: string,
+  accountId?: number | string,
 ): Promise<boolean> {
   try {
-    const { data: conv } = await supabase.from('conversations').select('last_inbound_at').eq('id', conversationId).maybeSingle();
+    const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at, project').eq('id', conversationId).maybeSingle();
     const { data: contact } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
     if (!contact?.phone_normalized) return false;
 
-    const windowOpen = isWithin24Hours(conv?.last_inbound_at);
+    const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at);
 
-    const accounts: { phone_number_id: string; access_token: string }[] = [];
+    let accounts: { phone_number_id: string; access_token: string; project?: string }[] = [];
 
-    if (userId) {
+    if (accountId) {
+      const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('id', accountId).eq('is_active', true);
+      if (data && data.length > 0) accounts = data;
+    }
+
+    if (accounts.length === 0 && userId) {
       const { data: assignments } = await supabase.from('agent_phone_assignments').select('account_id').eq('user_id', userId);
       if (assignments && assignments.length > 0) {
         const ids = assignments.map((a: any) => a.account_id);
-        const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').in('id', ids);
-        if (data) accounts.push(...data);
+        const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').in('id', ids).eq('is_active', true);
+        if (data) accounts.push(...data.filter((a: any) => a.access_token));
       }
     }
 
     if (accounts.length === 0) {
-      const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token');
-      if (fallback) accounts.push(...fallback);
+      const { data: fallback } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token, project').eq('is_active', true);
+      if (fallback) accounts.push(...fallback.filter((a: any) => a.access_token));
+    }
+
+    if (accounts.length === 0) {
+      console.error('No active WhatsApp accounts with valid tokens found');
+      return false;
+    }
+
+    const acct = accounts[0];
+    const { phone_number_id, access_token } = acct;
+
+    if (!windowOpen && !mediaFile) {
+      const templatePayload = { messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } };
+      try {
+        const tRes = await fetch(`${META_API}/${phone_number_id}/messages`, {
+          method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(templatePayload),
+        });
+        const tResult = await tRes.json();
+        if (tRes.ok && tResult.messages?.[0]?.id) {
+          if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch {}
     }
 
     let mediaId: string | null = null;
+    const textPayload: any = { messaging_product: 'whatsapp', to: contact.phone_normalized };
 
-    for (const acct of accounts) {
-      const { phone_number_id, access_token } = acct;
-      const payloads: any[] = [];
-
-      if (mediaFile) {
-        mediaId = await uploadMedia(access_token, phone_number_id, mediaFile);
-        if (mediaId) {
-          const fileType = mediaFile.type.startsWith('image/') ? 'image' : mediaFile.type.startsWith('video/') ? 'video' : 'document';
-          const p: any = { messaging_product: 'whatsapp', to: contact.phone_normalized, type: fileType, [fileType]: { id: mediaId } };
-          if (messageText) p[fileType].caption = messageText;
-          payloads.push(p);
-        }
-      } else if (!windowOpen) {
-        payloads.push(
-          { messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } },
-          { messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'text', text: { body: messageText || '' } }
-        );
+    if (mediaFile) {
+      mediaId = await uploadMedia(access_token, phone_number_id, mediaFile);
+      if (mediaId) {
+        const fileType = mediaFile.type.startsWith('image/') ? 'image' : mediaFile.type.startsWith('video/') ? 'video' : mediaFile.type.startsWith('audio/') ? 'audio' : 'document';
+        textPayload.type = fileType;
+        textPayload[fileType] = { id: mediaId };
+        if (messageText) textPayload[fileType].caption = messageText;
       } else {
-        payloads.push({ messaging_product: 'whatsapp', to: contact.phone_normalized, type: 'text', text: { body: messageText || '' } });
+        await supabase.from('messages').update({ status: 'failed', failure_reason: 'Media upload failed' }).eq('id', messageId);
+        return false;
       }
-
-      for (const p of payloads) {
-        let res: Response;
-        let result: any;
-        try {
-          res = await fetch(`${META_API}/${phone_number_id}/messages`, {
-            method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(p),
-          });
-          result = await res.json();
-        } catch {
-          continue;
-        }
-        console.log('Meta API response:', res.status, JSON.stringify(result).slice(0, 200));
-        if (res.ok && result.messages?.[0]?.id) {
-          const updates: any = { status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() };
-          if (mediaId) { updates.media_id = mediaId; updates.media_mime_type = mediaFile?.type; }
-          try { await supabase.from('messages').update(updates).eq('conversation_id', conversationId).eq('status', 'queued'); } catch {}
-          if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
-          return true;
-        }
-      }
+    } else {
+      textPayload.type = 'text';
+      textPayload.text = { body: messageText || '' };
     }
 
-    await supabase.from('messages').update({ status: 'failed', failure_reason: 'All accounts failed' }).eq('conversation_id', conversationId).eq('status', 'queued');
-    return false;
-  } catch {
-    await supabase.from('messages').update({ status: 'failed', failure_reason: 'Network error' }).eq('conversation_id', conversationId).eq('status', 'queued');
-    return false;
+    try {
+      const res = await fetch(`${META_API}/${phone_number_id}/messages`, {
+        method: 'POST', headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(textPayload),
+      });
+      const result = await res.json();
+      if (res.ok && result.messages?.[0]?.id) {
+        const updates: any = { status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() };
+        if (mediaId) { updates.media_id = mediaId; updates.media_mime_type = mediaFile?.type; }
+        try { await supabase.from('messages').update(updates).eq('id', messageId); } catch {}
+        if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
+        return true;
+      }
+      const errMsg = result.error?.message || JSON.stringify(result.error || result);
+      console.error('Meta send failed with', phone_number_id, ':', errMsg);
+      await supabase.from('messages').update({ status: 'failed', failure_reason: errMsg }).eq('id', messageId);
+      throw new Error(errMsg);
+    } catch (e) {
+      console.error('Meta send error:', e);
+      await supabase.from('messages').update({ status: 'failed', failure_reason: (e as any)?.message || 'Network error' }).eq('id', messageId);
+      throw e;
+    }
+  } catch (e) {
+    console.error('sendWhatsAppMessage error:', e);
+    await supabase.from('messages').update({ status: 'failed', failure_reason: (e as any)?.message || 'Exception' }).eq('id', messageId).catch(() => {});
+    throw e;
   }
 }
 
@@ -147,10 +171,12 @@ function buildTemplateComponents(
 
     if (type === 'header') {
       if (format === 'DOCUMENT' || format === 'IMAGE' || format === 'VIDEO') {
-        if (comp.example?.header_handle) {
+        const handle = comp.example?.header_handle;
+        const link = Array.isArray(handle) ? handle[0] : handle;
+        if (link) {
           result.push({
             type,
-            parameters: [{ type: format.toLowerCase(), [format.toLowerCase()]: { link: comp.example.header_handle } }],
+            parameters: [{ type: format.toLowerCase(), [format.toLowerCase()]: { link: String(link) } }],
           });
         }
       } else {

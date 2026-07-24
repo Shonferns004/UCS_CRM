@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPut } from '../api/auth';
+import { toast } from '../../../components/Toast';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
@@ -11,7 +12,7 @@ export default function RejectedLeads() {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const load = (showLoading = true) => {
@@ -19,7 +20,7 @@ export default function RejectedLeads() {
     const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
     apiGet(`/ngo-admin/rejected-leads${ngoParam}`)
       .then(d => setTickets(d || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => { if (showLoading) setLoading(false); });
   };
 
@@ -33,7 +34,7 @@ export default function RejectedLeads() {
     try {
       await apiPut(`/ngo-admin/rejected-leads/${id}/acknowledge`);
       setTickets(prev => prev.map(t => t.id === id ? { ...t, status: 'acknowledged' } : t));
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
   };
 
   const pending = tickets.filter(t => t.status === 'pending_review');
