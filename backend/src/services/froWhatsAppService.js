@@ -36,7 +36,10 @@ export async function getFroConversations(froWorkerId) {
     .select('id, phone, phone_normalized, wa_profile_name, project')
     .in('phone_normalized', phoneList);
 
-  if (contactErr) throw contactErr;
+  if (contactErr) {
+    if (contactErr.code === '42P01' || contactErr.message?.includes('does not exist')) return [];
+    throw contactErr;
+  }
   if (!contacts || contacts.length === 0) return [];
 
   const contactIds = contacts.map(c => c.id);
@@ -47,7 +50,10 @@ export async function getFroConversations(froWorkerId) {
     .in('contact_id', contactIds)
     .order('last_message_at', { ascending: false });
 
-  if (convErr) throw convErr;
+  if (convErr) {
+    if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
+    throw convErr;
+  }
   return conversations || [];
 }
 
@@ -375,8 +381,13 @@ export async function markConversationRead(conversationId, froWorkerId) {
 }
 
 export async function getFroUnreadCount(froWorkerId) {
-  const conversations = await getFroConversations(froWorkerId);
-  return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  try {
+    const conversations = await getFroConversations(froWorkerId);
+    return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  } catch (err) {
+    console.error('[getFroUnreadCount] WhatsApp tables may not exist:', err.message);
+    return 0;
+  }
 }
 
 export async function getQuickReplies() {

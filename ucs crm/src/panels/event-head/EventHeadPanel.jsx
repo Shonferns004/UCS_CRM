@@ -97,8 +97,10 @@ export default function EventHeadPanel() {
   const menuRef = useRef(null)
   const notifRef = useRef(null)
   const pollRef = useRef(null)
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('eh_seen_notifs') || '[]')))
-  const clearedNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]')))
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('eh_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs))
+  let _initClearedNotifs = []; try { _initClearedNotifs = JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]'); } catch { /* corrupted */ }
+  const clearedNotifIds = useRef(new Set(_initClearedNotifs))
 
   const loadNotifications = () => {
     const uid = user?.id;
@@ -116,7 +118,7 @@ export default function EventHeadPanel() {
           }
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {

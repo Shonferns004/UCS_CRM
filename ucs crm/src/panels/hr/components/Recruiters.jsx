@@ -55,8 +55,8 @@ export default function Recruiters() {
 
   useEffect(() => {
     setLeadsLoading(true);
-    fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
-    fetchRecruiters().then(setRecruiters).catch(() => {});
+    fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
+    fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const filteredLeads = leads.filter(l => {
@@ -147,7 +147,7 @@ export default function Recruiters() {
         setShowForm(false);
         setEditingLead(null);
         setLeadsLoading(true);
-        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
+        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
       } else {
         const temp = { ...payload, id: -Date.now(), created_at: new Date().toISOString(), name: form.name.trim() };
         setLeads(p => [temp, ...p]);
@@ -159,7 +159,7 @@ export default function Recruiters() {
           setLeads(p => p.filter(l => l.id !== temp.id));
         }
       }
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
   };
 
   const formAge = form.dob ? calcAge(form.dob) : null;

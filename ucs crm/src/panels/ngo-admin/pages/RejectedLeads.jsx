@@ -12,7 +12,7 @@ export default function RejectedLeads() {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const load = (showLoading = true) => {
@@ -20,7 +20,7 @@ export default function RejectedLeads() {
     const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
     apiGet(`/ngo-admin/rejected-leads${ngoParam}`)
       .then(d => setTickets(d || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => { if (showLoading) setLoading(false); });
   };
 

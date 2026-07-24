@@ -29,7 +29,29 @@ export default function WhatsAppAgents() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { loadAccounts(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const accs = await apiGet('/whatsapp/accounts');
+        if (cancelled) return;
+        setAccounts(accs || []);
+        const agentMap = {};
+        for (const acc of (accs || [])) {
+          try {
+            const data = await apiGet(`/whatsapp/accounts/${acc.id}/agents`);
+            agentMap[acc.id] = data || [];
+          } catch { agentMap[acc.id] = []; }
+        }
+        if (cancelled) return;
+        setAgents(agentMap);
+      } catch (err) { console.error(err); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => {
     return () => { if (timers.current) Object.values(timers.current).forEach(clearTimeout); };
   }, []);

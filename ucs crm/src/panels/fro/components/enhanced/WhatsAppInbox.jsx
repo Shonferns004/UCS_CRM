@@ -131,9 +131,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
         if (data) setMyAccounts(data)
       }
     })()
-    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
+    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch((err) => { console.error('Error:', err.message); })
     const interval = setInterval(() => {
-      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
+      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch((err) => { console.error('Error:', err.message); })
     }, 15000)
     return () => clearInterval(interval)
   }, [waUser?.id])
@@ -147,7 +147,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
     setMediaFile(null)
-    try { await markRead(conv.id) } catch {}
+    try { await markRead(conv.id) } catch (e) { console.error('Error:', e.message); }
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
   }, [queryClient])
 
@@ -190,7 +190,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
               phoneNumber,
               messageId: msg.id,
             }),
-          }).catch(() => {})
+          }).catch((err) => { console.error('Error:', err.message); })
         }
         await new Promise(r => setTimeout(r, 200))
       }

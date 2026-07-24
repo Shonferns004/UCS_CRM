@@ -298,16 +298,16 @@ export default function DataManagement() {
   }, [])
   useEffect(() => {
     loadSources();
-    api('/data-import/batches').then(setBatches).catch(() => {});
+    api('/data-import/batches').then(setBatches).catch((err) => { console.error('Error:', err.message); });
     api('/ngos').then(n => {
       const list = Array.isArray(n) ? n : [];
       setNgos(list);
       setSelectedNgoIds(list.map(ngo => ngo.id));
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   }, [loadSources])
 
   const loadBatches = useCallback(() => {
-    api('/data-import/batches').then(setBatches).catch(() => {})
+    api('/data-import/batches').then(setBatches).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const openNew = () => { setEdit(null); setForm({ name: '' }); setShowForm(true) }

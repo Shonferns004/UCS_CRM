@@ -18,7 +18,7 @@ function EmailTab(){
   const[s,setS]=useState(null);const[l,setL]=useState([]);const[a,setA]=useState([]);const[ld,setLd]=useState(true);
   const[tr,setTr]=useState(false);const[ts,setTs]=useState(false);const[fd,setFd]=useState('');const[ifd,setIfd]=useState(false);const[fa,setFa]=useState('');const[tt,setTt]=useState(null);
   const show=(m,t)=>{setTt({m,t});setTimeout(()=>setTt(null),4000)};
-  async function load(){setLd(true);try{const p=new URLSearchParams();if(fa)p.set('account_id',fa);const[sr,lr,ar]=await Promise.allSettled([apiGet('/accounts/email-import/status'),apiGet('/accounts/email-import/log?'+p.toString()),apiGet('/accounts/email-import/accounts')]);if(sr.status==='fulfilled')setS(sr.value);if(lr.status==='fulfilled')setL(lr.value||[]);if(ar.status==='fulfilled')setA(ar.value||[])}catch{}finally{setLd(false)}}
+  async function load(){setLd(true);try{const p=new URLSearchParams();if(fa)p.set('account_id',fa);const[sr,lr,ar]=await Promise.allSettled([apiGet('/accounts/email-import/status'),apiGet('/accounts/email-import/log?'+p.toString()),apiGet('/accounts/email-import/accounts')]);if(sr.status==='fulfilled')setS(sr.value);if(lr.status==='fulfilled')setL(lr.value||[]);if(ar.status==='fulfilled')setA(ar.value||[])}catch(e){console.error('Error:',e.message);}finally{setLd(false)}}
   useEffect(()=>{load()},[fa]);
   const c=s?.counts||{imported:0,failed:0,skipped:0,seen:0};if(ld)return <SkTbl/>;
   return <div>
@@ -64,7 +64,7 @@ function EmailTab(){
 // ─── Payment Gateways ──────────────────────────────────────
 function GatewayTab(){
   const[l,setL]=useState([]);const[c,setC]=useState({});const[a,setA]=useState([]);const[ld,setLd]=useState(true);const[sy,setSy]=useState(false);const[fg,setFg]=useState('');const[fa,setFa]=useState('');
-  async function load(){setLd(true);try{const p=new URLSearchParams();if(fg)p.set('gateway',fg);if(fa)p.set('account_id',fa);const[lr,sr,ar]=await Promise.allSettled([apiGet('/webhooks/log?'+p.toString()),apiGet('/webhooks/status'),apiGet('/webhooks/razorpay/accounts')]);if(lr.status==='fulfilled')setL(lr.value||[]);if(sr.status==='fulfilled')setC(sr.value.counts||{});if(ar.status==='fulfilled')setA(ar.value||[])}catch{}finally{setLd(false)}}
+  async function load(){setLd(true);try{const p=new URLSearchParams();if(fg)p.set('gateway',fg);if(fa)p.set('account_id',fa);const[lr,sr,ar]=await Promise.allSettled([apiGet('/webhooks/log?'+p.toString()),apiGet('/webhooks/status'),apiGet('/webhooks/razorpay/accounts')]);if(lr.status==='fulfilled')setL(lr.value||[]);if(sr.status==='fulfilled')setC(sr.value.counts||{});if(ar.status==='fulfilled')setA(ar.value||[])}catch(e){console.error('Error:',e.message);}finally{setLd(false)}}
   useEffect(()=>{load()},[fg,fa]);
   const rc=(c['razorpay_processed']||0)+(c['razorpay_received']||0),pt=(c['paytm_processed']||0)+(c['paytm_received']||0);if(ld)return <SkTbl/>;
   return <div>

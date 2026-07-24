@@ -8,12 +8,16 @@ export default function Leaves() {
   const [leaves, setLeaves] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
 
-  useEffect(() => { fetchLeaves().then(setLeaves).catch(() => {}); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetchLeaves().then(data => { if (!cancelled) setLeaves(data); }).catch((err) => { console.error('API error:', err.message); });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleDecide = async (id, status) => {
     try {
       await decideLeave(id, status);
-      fetchLeaves().then(setLeaves).catch(() => {});
+      fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
     } catch (e) {
       alert(e.message);
     }

@@ -8,20 +8,33 @@ export default function AssetRegister() {
   const [editAsset, setEditAsset] = useState(null)
   const [form, setForm] = useState({ name:'', quantity:1, purchase_cost:0, condition:'Good', location:'' })
 
-  useEffect(() => { fetchAssets().then(setAssets).catch(e => console.error('AssetRegister fetchAssets:', e)) }, [])
+  useEffect(() => {
+    let cancelled = false
+    fetchAssets().then(data => { if (!cancelled) setAssets(data) }).catch(e => console.error('AssetRegister fetchAssets:', e))
+    return () => { cancelled = true }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (editAsset) {
-      await updateAsset(editAsset.id, form).then(() => { setAssets(assets.map(a => a.id === editAsset.id ? {...a,...form} : a)); setShowForm(false); setEditAsset(null) }).catch(e => console.error('AssetRegister updateAsset:', e))
+      try {
+        await updateAsset(editAsset.id, form)
+        setAssets(assets.map(a => a.id === editAsset.id ? {...a,...form} : a)); setShowForm(false); setEditAsset(null)
+      } catch (e) { console.error('AssetRegister updateAsset:', e) }
     } else {
-      await createAsset(form).then((res) => { setAssets([...assets, res]); setShowForm(false) }).catch(e => console.error('AssetRegister createAsset:', e))
+      try {
+        const res = await createAsset(form)
+        setAssets([...assets, res]); setShowForm(false)
+      } catch (e) { console.error('AssetRegister createAsset:', e) }
     }
   }
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this asset?')) return
-    await deleteAsset(id).then(() => setAssets(assets.filter(a => a.id !== id))).catch(e => console.error('AssetRegister deleteAsset:', e))
+    try {
+      await deleteAsset(id)
+      setAssets(assets.filter(a => a.id !== id))
+    } catch (e) { console.error('AssetRegister deleteAsset:', e) }
   }
 
   const totalValue = assets.reduce((s, a) => s + (+a.purchase_cost || 0) * (+a.quantity || 0), 0)

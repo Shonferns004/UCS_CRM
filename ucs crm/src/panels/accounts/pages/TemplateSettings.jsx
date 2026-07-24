@@ -30,7 +30,7 @@ export default function TemplateSettings() {
   const [savedToast, setSavedToast] = useState(false)
 
   useEffect(() => {
-    apiGet('/whatsapp/templates').then(list => setMetaTemplates(list || [])).catch(() => {})
+    apiGet('/whatsapp/templates').then(list => setMetaTemplates(list || [])).catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   const update = (ngoKey, field, value) => {

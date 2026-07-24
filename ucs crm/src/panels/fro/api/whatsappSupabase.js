@@ -469,6 +469,6 @@ export async function uploadMedia(userId, file) {
       method: 'POST', body: formData,
     })
     if (res.ok) return res.json()
-  } catch {}
+  } catch (e) { console.error('Error:', e.message); }
   return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
 }

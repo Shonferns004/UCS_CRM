@@ -31,7 +31,7 @@ export default function DonorDetailModal({ donorId, onClose }) {
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      api(`/ngo-admin/donor-crm/donors/${donorId}`, { _prefix: 'ucs' }).catch(() => null),
+      api(`/ngo-admin/donor-crm/donors/${donorId}`, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); }),
       api(`/ngo-admin/donor-crm/donors/${donorId}/receipts`, { _prefix: 'ucs' }).catch(() => []),
       api(`/ngo-admin/donor-crm/donors/${donorId}/followups`, { _prefix: 'ucs' }).catch(() => []),
       api(`/ngo-admin/donor-crm/donors/${donorId}/transactions?page=${txPage}&page_size=20`, { _prefix: 'ucs' }).catch(() => ({ data: [], pagination: {} })),

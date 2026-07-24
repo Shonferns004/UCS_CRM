@@ -70,7 +70,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
     setLoading(true);
     getDonorDetail(assignmentId)
       .then(r => setData(r))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false));
   }, [assignmentId]);
 
@@ -126,7 +126,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
         }
         if (amount && !paymentAmount) setPaymentAmount(amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);

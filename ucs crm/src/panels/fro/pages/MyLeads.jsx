@@ -32,7 +32,7 @@ export default function MyLeads() {
 
   useEffect(() => {
     setLoading(true);
-    fetchMyLeads().then(setLeads).catch(() => {}).finally(() => setLoading(false));
+    fetchMyLeads().then(setLeads).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false));
   }, []);
 
   const filtered = leads.filter(l => {
@@ -52,7 +52,7 @@ export default function MyLeads() {
 
   useEffect(() => {
     if (!lead) return;
-    fetchLeadCallLogs(lead.id).then(setCallLogs).catch(() => setCallLogs([]));
+    fetchLeadCallLogs(lead.id).then(setCallLogs).catch((err) => { console.error('API error:', err.message); setCallLogs([]); });
   }, [lead?.id]);
 
   const handleStatusChange = async (newStatus) => {

@@ -8,7 +8,7 @@ export default function AdminTemplatesPage() {
   useEffect(() => {
     supabase.from('whatsapp_templates').select('*').order('name', { ascending: true })
       .then(({ data }) => setTemplates(data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false))
   }, [])
 

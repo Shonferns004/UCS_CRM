@@ -57,7 +57,19 @@ export default function FroTickets() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const data = await apiGet('/tickets/my');
+        if (!cancelled) setTickets(data || []);
+      } catch (err) { console.error(err); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleRaise = async () => {
     if (!form.subject) { alert('Subject is required'); return; }

@@ -20,8 +20,10 @@ export default function Holidays() {
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
-    fetchWorkers().then(setWorkers).catch(() => {});
-    fetchHolidays().then(setHolidays).catch(() => {});
+    let cancelled = false;
+    fetchWorkers().then(data => { if (!cancelled) setWorkers(data); }).catch((err) => { console.error('API error:', err.message); });
+    fetchHolidays().then(data => { if (!cancelled) setHolidays(data); }).catch((err) => { console.error('API error:', err.message); });
+    return () => { cancelled = true; };
   }, []);
 
   const birthdays = useMemo(() => {
@@ -90,7 +92,7 @@ export default function Holidays() {
     await addHoliday({ name: name.trim(), date, is_recurring: recurring, type });
     setName('');
     setShowForm(false);
-    fetchHolidays().then(setHolidays).catch(() => {});
+    fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); });
   };
 
   const isToday = (d) => calYear === today.getFullYear() && calMonth === today.getMonth() && d === today.getDate();
@@ -159,7 +161,7 @@ export default function Holidays() {
                     </div>
                   </div>
                   {e.kind !== 'birthday' && (
-                    <button className="btn btn-icon" onClick={() => { removeHoliday(e.id); fetchHolidays().then(setHolidays).catch(() => {}); }} title="Remove">
+                    <button className="btn btn-icon" onClick={() => { removeHoliday(e.id); fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); }); }} title="Remove">
                       <Trash width={13} />
                     </button>
                   )}

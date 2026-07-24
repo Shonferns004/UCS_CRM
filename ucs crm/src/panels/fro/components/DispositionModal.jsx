@@ -109,7 +109,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         }
         if (amount && !leadAmount) setLeadAmount(amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);

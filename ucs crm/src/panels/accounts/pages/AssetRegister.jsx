@@ -320,7 +320,7 @@ export default function AssetRegister() {
       .finally(() => setLoading(false))
     api('/workers')
       .then(list => setWorkers(Array.isArray(list) ? list : list?.data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const selected = assets.find(a => a.id === selectedId) || null

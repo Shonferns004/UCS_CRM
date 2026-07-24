@@ -40,16 +40,16 @@ export default function DataImport() {
 
   useEffect(() => {
     api('/data-sources').then(setDataSources).catch(e => setErr(e.message))
-    api('/data-import/batches').then(setBatches).catch(() => {})
+    api('/data-import/batches').then(setBatches).catch((err) => { console.error('Error:', err.message); })
     api('/ngos').then(n => {
       const list = Array.isArray(n) ? n : []
       setNgos(list)
       setSelectedNgoIds(list.map(ngo => ngo.id))
-    }).catch(() => {})
+    }).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const loadBatches = () => {
-    api('/data-import/batches').then(setBatches).catch(() => {})
+    api('/data-import/batches').then(setBatches).catch((err) => { console.error('Error:', err.message); })
   }
 
   const inspectFile = async (file, setSheetsFn, setSelectedSheetsFn) => {

@@ -68,7 +68,7 @@ export default function Donors({ onSelect }) {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const load = () => {
@@ -80,7 +80,7 @@ export default function Donors({ onSelect }) {
     ]).then(([d, f]) => {
       setDonors(d);
       setFroWorkers(f);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false));
   };
 
   useEffect(load, [selectedNgoId]);

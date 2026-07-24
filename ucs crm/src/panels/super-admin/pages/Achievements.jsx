@@ -11,7 +11,7 @@ export default function Achievements() {
 
   const load = () => {
     api('/achievements').then(setAchievements).catch(e => setErr(e.message))
-    getWorkers().then(setWorkers).catch(() => {})
+    getWorkers().then(setWorkers).catch((err) => { console.error('Error:', err.message); })
   }
   useEffect(load, [])
 

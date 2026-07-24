@@ -220,7 +220,7 @@ export default function NewData() {
       setAccessibleNgos(list);
       const ngo = (list || []).find(n => NGO_TABS.includes(n.name));
       if (ngo) setSelectedNgoId(ngo.id);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -240,7 +240,7 @@ export default function NewData() {
       setDonors(Array.isArray(d) ? d : d?.unassigned || [])
       setTotal(d?.total || 0)
       setStations(Array.isArray(s) ? s : [])
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false))
   }
 
   useEffect(() => { setPage(1) }, [selectedNgoId])

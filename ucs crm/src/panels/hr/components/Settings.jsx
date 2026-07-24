@@ -12,7 +12,7 @@ export default function Settings({ onClose }) {
     fetchSettings().then(s => {
       if (s.office_start_time) setStartTime(s.office_start_time);
       if (s.office_end_time) setEndTime(s.office_end_time);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   }, [fetchSettings]);
 
   const calcHours = (s, e) => {
