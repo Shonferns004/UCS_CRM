@@ -43,8 +43,11 @@ export async function api(path, options = {}) {
   try {
     const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: combinedSignal })
     if (res.status === 401) {
-      clearSession(options._prefix || 'ucs')
-      throw new Error('Session expired. Please login again.')
+      const err = await res.json().catch(() => ({ message: res.statusText }))
+      if (token) {
+        clearSession(options._prefix || 'ucs')
+      }
+      throw new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }))
