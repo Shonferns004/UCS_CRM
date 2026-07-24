@@ -117,6 +117,7 @@ export default function Visualizations() {
   const [noticeSaving, setNoticeSaving] = useState(false)
   const [noticeErr, setNoticeErr] = useState('')
   const [noticeRefresh, setNoticeRefresh] = useState(0)
+  const [noticeSuccess, setNoticeSuccess] = useState(false)
 
   const publishNotice = useCallback(async () => {
     if (!noticeForm.title.trim()) { setNoticeErr('Please enter a title for the notice'); return }
@@ -126,6 +127,7 @@ export default function Visualizations() {
       await api('/notices', { method: 'POST', body: JSON.stringify(noticeForm), _prefix: 'ucs' })
       setNoticeForm({ title: '', content: '', target_role: 'all' })
       setNoticeRefresh(k => k + 1)
+      setNoticeSuccess(true)
     } catch (e) { setNoticeErr(e.message) } finally { setNoticeSaving(false) }
   }, [noticeForm])
 
@@ -442,8 +444,6 @@ export default function Visualizations() {
                   <option value="all">All Panels</option>
                   <option value="admin">NGO Admin</option>
                   <option value="accounts">Accounts</option>
-                  <option value="hr">HR</option>
-                  <option value="recruiter">Recruiter</option>
                   <option value="fro">FRO</option>
                   <option value="event_head">Event Head</option>
                 </select>
@@ -456,6 +456,43 @@ export default function Visualizations() {
         </div>
         <RecentNotices key={noticeRefresh} limit={5} title="Recent Notices" />
       </div>
+
+      {noticeSuccess && (
+        <div onClick={() => setNoticeSuccess(false)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100, padding: '20px'
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#FFFFFF', width: '100%', maxWidth: '400px',
+            borderRadius: '16px', boxShadow: '0 25px 60px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.08)',
+            overflow: 'hidden'
+          }}>
+            <div style={{ padding: '32px 28px 24px', textAlign: 'center' }}>
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%', background: '#DCFCE7',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}>
+                <Check width={26} style={{ color: '#16A34A' }} />
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: 700, color: '#111827' }}>
+                Notice Created Successfully
+              </h3>
+              <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', lineHeight: 1.5 }}>
+                Your notice has been published and is now visible to the selected panels.
+              </p>
+            </div>
+            <div style={{ padding: '0 28px 28px', display: 'flex', justifyContent: 'center' }}>
+              <button onClick={() => setNoticeSuccess(false)} style={{
+                padding: '10px 32px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
+                background: '#16A34A', color: '#FFFFFF', border: 'none',
+                cursor: 'pointer', width: '100%'
+              }}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
