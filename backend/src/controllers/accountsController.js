@@ -620,7 +620,7 @@ export const getReceipt = async (req, res) => {
 
 export const getReceiptList = async (req, res) => {
   try {
-    const receipts = await listAllReceipts(200);
+    const receipts = await listAllReceipts();
     return res.json(receipts);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -629,10 +629,11 @@ export const getReceiptList = async (req, res) => {
 
 export const getPendingReceipts = async (req, res) => {
   try {
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { data: receipts, error: recError } = await supabase
       .from('receipts')
       .select('*')
-      .or('sent.is.null,sent.eq.false')
+      .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
       .order('created_at', { ascending: false });
 
     if (recError) throw recError;
@@ -833,6 +834,20 @@ export const getDayEndReport = async (req, res) => {
   }
 };
 
+function normalizeReceiptDate(val) {
+  if (!val || val === 'NA' || val === 'na' || val === '-') return null;
+  const s = String(val).trim();
+  if (/^\d+$/.test(s) && s.length <= 5) {
+    const d = new Date(1899, 11, 30 + parseInt(s, 10));
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  return null;
+}
+
 export const importReceipts = async (req, res) => {
   try {
     const { receipts } = req.body;
@@ -840,32 +855,83 @@ export const importReceipts = async (req, res) => {
       return res.status(400).json({ message: 'No receipts data provided' });
     }
 
-    const rows = receipts.map(r => ({
-      receipt_no: r.receipt_no || r['Receipt No.'] || '',
-      project_id: r.project_id || r['Project'] || 'bsct',
-      donor_name: r.donor_name || r['Donor Name'] || 'Unknown',
-      donor_mobile: r.donor_mobile || r['Donor Mobile'] || r['Mobile No.'] || null,
-      amount: Number(r.amount || r['Amount'] || 0),
-      pan_number: r.pan_number || r['PAN No.'] || null,
-      address: r.address || r['Address 1'] || null,
-      mode: r.mode || r['Mode of Payment (MOP)'] || null,
-      purpose: r.purpose || r['Purpose'] || 'General Donation',
-      receipt_date: r.receipt_date || r['Receipt Date'] || null,
-      generated_by: r.generated_by || req.user.id,
-    }));
+    const rows = receipts
+      .map(r => {
+        const row = {};
+        Object.keys(r).forEach(k => { row[k.trim()] = r[k]; });
+        const donorName = row.donor_name || row['Receipt Name'] || row['Donor Name'] || '';
+        const projectRaw = (row.project_id || row['Project'] || row['Project Supported'] || 'bsct').trim();
+        const projectId = projectRaw.toLowerCase().includes('anna') ? 'bsct' : projectRaw.toLowerCase();
+        const rawAmount = String(row.amount || row['Amount'] || row['Amt'] || '0')
+          .replace(/,/g, '')
+          .trim();
+        return {
+          receipt_no: row.receipt_no || row['Receipt No'] || row['Receipt No.'] || '',
+          project_id: projectId,
+          donor_name: donorName,
+          donor_mobile: row.donor_mobile || row['Donor Mobile'] || row['Mobile No.'] || null,
+          amount: parseFloat(rawAmount) || 0,
+          pan_number: row.pan_number || row['PAN No.'] || row['PAN No'] || row['Pan No'] || null,
+          address: row.address || row['Address 1'] || row['Address-1'] || null,
+          mode: row.mode || row['Mode of Payment (MOP)'] || row['MOP'] || null,
+          purpose: row.purpose || row['Purpose'] || 'General Donation',
+          receipt_date: normalizeReceiptDate(row.receipt_date || row['Receipt Date']),
+          generated_by: row.generated_by || req.user.id,
+          email: row.email || row['Mail Id'] || row['Email ID'] || null,
+          payment_id: row.payment_id || row['Payment Id No.'] || null,
+          bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
+        };
+      })
+      .filter(row => {
+        const isBlank = row.donor_name.toLowerCase().includes('blank');
+        const hasAmount = row.amount > 0;
+        return !isBlank && hasAmount;
+      });
+
+    if (rows.length === 0) {
+      return res.status(400).json({ message: 'No valid receipts found after filtering' });
+    }
+
+    const { error: delErr } = await supabase.from('receipts').delete().neq('id', 0);
+    if (delErr) throw delErr;
+
+    const seen = new Set();
+    const uniqueRows = rows.filter(r => {
+      const key = r.receipt_no || `${r.donor_name}_${r.amount}_${r.receipt_date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const dupCount = rows.length - uniqueRows.length;
 
     const { data, error } = await supabase
       .from('receipts')
-      .insert(rows)
+      .insert(uniqueRows)
       .select();
 
     if (error) throw error;
 
+    const withBank = data.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+
     return res.status(201).json({
-      message: `${data.length} receipts imported successfully`,
+      message: `${data.length} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}`,
       imported: data.length,
+      withBank,
       receipts: data,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const clearReceipts = async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('receipts')
+      .delete()
+      .neq('id', 0);
+    if (error) throw error;
+    return res.json({ message: 'All receipts deleted successfully' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

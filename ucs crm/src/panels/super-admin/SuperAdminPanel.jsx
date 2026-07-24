@@ -132,7 +132,8 @@ function PageShell({ children }) {
   const menuRef = useRef(null)
   const notifRef = useRef(null)
   const pollRef = useRef(null)
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('sa_seen_notifs') || '[]')))
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('sa_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs))
   const location = useLocation()
 
   useEffect(() => {
@@ -174,7 +175,7 @@ function PageShell({ children }) {
           }
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {

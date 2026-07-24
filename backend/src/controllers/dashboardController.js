@@ -1,7 +1,7 @@
 import { getAllNgos } from '../models/ngoModel.js';
 import { getAllUsers, getUsersCountByRole } from '../models/userModel.js';
 import { getAllHRs } from '../models/hrModel.js';
-import { getAllWorkers } from '../models/workerModel.js';
+import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
 import supabase from '../config/supabase.js';
@@ -120,12 +120,69 @@ export const getSuperAdminDashboard = async (req, res) => {
       if (w.gender && genderCounts[w.gender] !== undefined) genderCounts[w.gender]++;
     });
 
-    /* ── Attendance ── */
-    const { data: attendance } = await supabase
-      .from('attendance')
-      .select('status, date, worker_id, punch_in_time')
-      .gte('date', range.from)
-      .lte('date', range.to);
+    /* ── Parallel independent queries ── */
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    const todayDate = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}-${String(istNow.getUTCDate()).padStart(2, '0')}`;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const [
+      { data: attendance },
+      { data: todayRows },
+      { data: prevAtt },
+      { count: pendingLeaves },
+      { data: monthData },
+      { data: salaries },
+      { data: recentNotices },
+      { data: upcomingEvents },
+      { data: leadLogs },
+    ] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('status, date, worker_id, punch_in_time')
+        .gte('date', range.from)
+        .lte('date', range.to),
+      supabase
+        .from('attendance')
+        .select('status, worker_id, punch_in_time')
+        .eq('date', todayDate),
+      supabase
+        .from('attendance')
+        .select('status')
+        .gte('date', range.prevFrom)
+        .lte('date', range.prevTo),
+      supabase
+        .from('leaves')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending'),
+      supabase
+        .from('attendance')
+        .select('date, status')
+        .gte('date', range.from)
+        .lte('date', range.to),
+      supabase
+        .from('salary_history')
+        .select('worker_id, salary')
+        .is('to_month', null),
+      supabase
+        .from('notices')
+        .select('id, title, content, created_at, created_by_name, target_role')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(5),
+      supabase
+        .from('events')
+        .select('id, title, description, event_date, event_time, location')
+        .gte('event_date', today)
+        .eq('is_active', true)
+        .order('event_date', { ascending: true })
+        .limit(5),
+      supabase
+        .from('fro_donor_logs')
+        .select('accounts_status, amount_collected, verified_at')
+        .eq('disposition_detail', 'lead_done'),
+    ]);
 
     const attendanceStatus = { present: 0, late: 0, absent: 0, leave: 0 };
     const uniquePills = { present: new Set(), late: new Set(), absent: new Set(), leave: new Set() };
@@ -190,22 +247,12 @@ export const getSuperAdminDashboard = async (req, res) => {
     };
     const deptAttendance = Object.values(deptPivot);
 
-    const totalAtt = Object.values(attendanceStatus).reduce((s, v) => s + v, 0);
+    const totalAtt = Object.values(attendanceWorkerCounts).reduce((s, v) => s + v, 0);
     const attendancePercent = totalAtt > 0
       ? Math.round((attendanceStatus.present / totalAtt) * 1000) / 10
       : 0;
 
     /* ── Today attendance (for Daily Check-ins pills) ── */
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const istNow = new Date(now.getTime() + istOffset);
-    const todayDate = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}-${String(istNow.getUTCDate()).padStart(2, '0')}`;
-
-    const { data: todayRows } = await supabase
-      .from('attendance')
-      .select('status, worker_id, punch_in_time')
-      .eq('date', todayDate);
-
     const todayUnique = { present: new Set(), late: new Set(), absent: new Set(), leave: new Set() };
     const todayAdded = { present: new Set(), late: new Set(), absent: new Set() };
     const todayAttendanceDetails = { present: [], late: [], absent: [] };
@@ -256,29 +303,14 @@ export const getSuperAdminDashboard = async (req, res) => {
     };
 
     /* ── Previous period attendance for comparison ── */
-    const { data: prevAtt } = await supabase
-      .from('attendance')
-      .select('status')
-      .gte('date', range.prevFrom)
-      .lte('date', range.prevTo);
     const prevAttCount = (prevAtt || []).length;
     const prevPresent = (prevAtt || []).filter(a => a.status === 'present').length;
     const prevAttPercent = prevAttCount > 0 ? Math.round((prevPresent / prevAttCount) * 1000) / 10 : 0;
     kpiChanges.attendancePercent = calcChange(attendancePercent, prevAttPercent);
 
     /* ── Pending leaves ── */
-    const { count: pendingLeaves } = await supabase
-      .from('leaves')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending');
 
     /* ── Monthly trend (based on period range) ── */
-    const { data: monthData } = await supabase
-      .from('attendance')
-      .select('date, status')
-      .gte('date', range.from)
-      .lte('date', range.to);
-
     const dateMap = {};
     const startDate = new Date(range.from);
     const endDate = new Date(range.to);
@@ -294,10 +326,6 @@ export const getSuperAdminDashboard = async (req, res) => {
     const monthlyAttendance = Object.values(dateMap);
 
     /* ── Salary payable (always all-time) ── */
-    const { data: salaries } = await supabase
-      .from('salary_history')
-      .select('worker_id, salary')
-      .is('to_month', null);
     const salarySet = new Set();
     let totalSalaryPayable = 0;
     (salaries || []).forEach(s => {
@@ -308,28 +336,10 @@ export const getSuperAdminDashboard = async (req, res) => {
     });
 
     /* ── Recent notices ── */
-    const { data: recentNotices } = await supabase
-      .from('notices')
-      .select('id, title, content, created_at, created_by_name, target_role')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(5);
 
     /* ── Upcoming events ── */
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: upcomingEvents } = await supabase
-      .from('events')
-      .select('id, title, description, event_date, event_time, location')
-      .gte('event_date', today)
-      .eq('is_active', true)
-      .order('event_date', { ascending: true })
-      .limit(5);
 
     /* ── Accounts Summary (lead verification) ── */
-    const { data: leadLogs } = await supabase
-      .from('fro_donor_logs')
-      .select('accounts_status, amount_collected, verified_at')
-      .eq('disposition_detail', 'lead_done');
     const accountsSummary = { pending: 0, pendingAmount: 0, verified: 0, verifiedAmount: 0, rejected: 0, rejectedAmount: 0, verifiedToday: 0, verifiedTodayAmount: 0 };
     const todayStr = new Date().toISOString().slice(0, 10);
     for (const log of leadLogs || []) {
@@ -600,13 +610,58 @@ export const getFroLiveStatus = async (req, res) => {
     const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0));
     const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999));
 
-    const result = await Promise.all(froWorkers.map(async (w) => {
-      const [stats, todayCollection] = await Promise.all([
-        getDashboardStats(w.id),
-        getTotalCollectedByWorker(w.id, todayStart.toISOString(), todayEnd.toISOString()),
-      ]);
+    const froWorkerIds = froWorkers.map(w => w.id);
 
-      const dataUsed = (stats.contacted || 0) + (stats.donation_collected || 0) + (stats.follow_up || 0);
+    const [allAssignments, allTodayLogs] = await Promise.all([
+      supabase
+        .from('fro_assignments')
+        .select('fro_worker_id, status')
+        .in('fro_worker_id', froWorkerIds),
+      supabase
+        .from('fro_donor_logs')
+        .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_assignments!inner(fro_worker_id)')
+        .in('fro_assignments.fro_worker_id', froWorkerIds)
+        .or(
+          `and(action.eq.donation,created_at.gte.${todayStart.toISOString()},created_at.lte.${todayEnd.toISOString()}),` +
+          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart.toISOString()},verified_at.lte.${todayEnd.toISOString()})`
+        ),
+    ]);
+
+    const keyMap = {
+      pending: 'pending', contacted: 'contacted', follow_up: 'follow_up',
+      busy: 'not_reachable', ringing: 'not_reachable', unreachable: 'not_reachable',
+      switched_off: 'not_reachable', wrong_number: 'not_reachable', invalid_number: 'not_reachable', rejected: 'not_reachable',
+      not_interested: 'not_interested', not_interested_now: 'not_interested',
+      donation_collected: 'donation_collected', lead_done: 'donation_collected',
+      scheduled: 'follow_up', visit_donate: 'contacted', promise_to_pay: 'contacted',
+      payment_pending: 'contacted', already_donated: 'contacted',
+      language_barrier: 'contacted', transferred_senior: 'contacted',
+      query_complaint: 'contacted', receipt_request: 'contacted',
+    };
+
+    const perWorkerStats = {};
+    for (const wid of froWorkerIds) {
+      perWorkerStats[wid] = { total: 0, pending: 0, contacted: 0, not_reachable: 0, donation_collected: 0, not_interested: 0, follow_up: 0 };
+    }
+    for (const a of allAssignments?.data || []) {
+      const s = perWorkerStats[a.fro_worker_id];
+      if (!s) continue;
+      s.total++;
+      const key = keyMap[a.status];
+      if (key && s[key] !== undefined) s[key]++;
+    }
+
+    const perWorkerToday = {};
+    for (const wid of froWorkerIds) perWorkerToday[wid] = 0;
+    for (const d of allTodayLogs?.data || []) {
+      const wid = d.fro_assignments?.fro_worker_id;
+      if (!wid || !(wid in perWorkerToday)) continue;
+      perWorkerToday[wid] += parseFloat(d.amount_collected || 0);
+    }
+
+    const result = froWorkers.map((w) => {
+      const stats = perWorkerStats[w.id];
+      const dataUsed = (stats.contacted || 0) + (stats.donation_collected || 0);
       const dataUnused = (stats.total || 0) - dataUsed;
 
       return {
@@ -618,9 +673,9 @@ export const getFroLiveStatus = async (req, res) => {
         total_data: stats.total || 0,
         data_used: dataUsed,
         data_unused: dataUnused,
-        today_collection: todayCollection,
+        today_collection: perWorkerToday[w.id],
       };
-    }));
+    });
 
     return res.json(result);
   } catch (error) {
@@ -649,7 +704,8 @@ export const getHrDashboard = async (req, res) => {
 
     const { data: attendance } = await supabase
       .from('attendance')
-      .select('status');
+      .select('status')
+      .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
     const statusCounts = { present: 0, late: 0, absent: 0, leave: 0 };
     (attendance || []).forEach((a) => {
       if (statusCounts[a.status] !== undefined) statusCounts[a.status]++;
@@ -687,7 +743,8 @@ export const getAdminDashboard = async (req, res) => {
 
     const { data: attendance } = await supabase
       .from('attendance')
-      .select('status, workers!inner(ngo_id)');
+      .select('status, workers!inner(ngo_id)')
+      .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
 
     const statusCounts = { present: 0, late: 0, absent: 0, leave: 0 };
     const workerIds = new Set(workers.map((w) => w.id));
@@ -717,7 +774,8 @@ export const getAccountsDashboard = async (req, res) => {
 
     const { data: attendance } = await supabase
       .from('attendance')
-      .select('worker_id, status, date, late_minutes');
+      .select('worker_id, status, date, late_minutes')
+      .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
 
     const workerIds = new Set(workers.map((w) => w.id));
     const monthAttendance = (attendance || []).filter((a) => workerIds.has(a.worker_id));
@@ -749,6 +807,7 @@ export const getRecruiterDashboard = async (req, res) => {
 
 export const getLeadsDashboard = async (req, res) => {
   try {
+    // TODO: Implement actual leads dashboard query
     return res.json({ stats: { totalLeads: 0, callsToday: 0 } });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -811,6 +870,13 @@ export const getTeamLeadDashboard = async (req, res) => {
 export const getFroWorkerDashboard = async (req, res) => {
   try {
     const { workerId } = req.params;
+    const userNgoIds = req.user.ngo_id ? [Number(req.user.ngo_id)] : [];
+    if (userNgoIds.length > 0) {
+      const worker = await getWorkerById(workerId);
+      if (worker && worker.ngo_id && !userNgoIds.includes(Number(worker.ngo_id))) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+    }
 
     const [stats] = await Promise.all([
       getDashboardStats(workerId),
@@ -909,14 +975,15 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip this alert on error */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 2. High Rejection Ratio (>10% rejected leads per FRO) ──
     try {
       const { data: recentLogs } = await supabase
         .from('fro_donor_logs')
         .select('fro_worker_id, disposition_detail, accounts_status, rejection_reason')
-        .gte('created_at', sevenDaysAgo.toISOString());
+        .gte('created_at', sevenDaysAgo.toISOString())
+        .limit(50000);
 
       const froStats = {};
       for (const log of recentLogs || []) {
@@ -961,7 +1028,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 3. Revenue Drop (>20% week-over-week decline) ──
     try {
@@ -1002,7 +1069,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           });
         }
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 4. Unverified Receipts >48h ──
     try {
@@ -1036,7 +1103,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 5. Unresolved Suspense Entries >7d ──
     try {
@@ -1060,7 +1127,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 6. Missed Schedules (2+ per FRO this week) ──
     try {
@@ -1098,7 +1165,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 7. Unresolved Data Requests >24h ──
     try {
@@ -1130,7 +1197,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 8. Missing PAN for Large Donations (>₹10,000) ──
     try {
@@ -1156,7 +1223,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 9. Stale Leads (>7 days, status 'new', no contact) ──
     try {
@@ -1180,7 +1247,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 10. Pending Leaves >3 days ──
     try {
@@ -1204,7 +1271,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 11. FRO on Break >30 min (HIGH) ──
     try {
@@ -1238,7 +1305,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 12. FRO Ghost Login — punched in but zero calls all day (HIGH) ──
     try {
@@ -1276,7 +1343,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 13. Duplicate UPI Transaction IDs (HIGH) ──
     try {
@@ -1321,7 +1388,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 14. Consecutive Absences (3+ days) (HIGH) ──
     try {
@@ -1375,7 +1442,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 15. FRO High Idle Time (>50% of work hours) (HIGH) ──
     try {
@@ -1412,7 +1479,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 16. NGOs with Zero Active FROs (HIGH) ──
     try {
@@ -1448,7 +1515,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 17. Workers Missing ALL KYC Documents (HIGH) ──
     try {
@@ -1477,7 +1544,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 18. Large Unmatched Bank Entries (>₹50K) (HIGH) ──
     try {
@@ -1504,7 +1571,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 19. Stale FRO Transfers Not Returned (HIGH) ──
     try {
@@ -1542,7 +1609,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 20. Chronic Lateness (3+ late days/month) (MEDIUM) ──
     try {
@@ -1586,7 +1653,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 21. Workers with Multiple Active Loans (MEDIUM) ──
     try {
@@ -1626,7 +1693,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 22. FRO High Skip Rate (MEDIUM) ──
     try {
@@ -1662,7 +1729,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 23. FRO Targets Not Set for Current Month (MEDIUM) ──
     try {
@@ -1698,7 +1765,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 24. Assets Assigned to Inactive Workers (MEDIUM) ──
     try {
@@ -1735,7 +1802,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           });
         }
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── 25. Donor Name Mismatch with Bank Name (MEDIUM) ──
     try {
@@ -1770,7 +1837,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           createdAt: now.toISOString(),
         });
       }
-    } catch (e) { /* skip */ }
+    } catch (e) { console.error('Alert error:', e.message); }
 
     // ── Sort: critical first, then warning, then info ──
     const severityOrder = { critical: 0, warning: 1, info: 2 };

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -40,11 +40,14 @@ const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
 const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
+const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
-const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
-const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+function useTomorrowStr() {
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
 
 const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
@@ -66,6 +69,22 @@ const WALKTHROUGH_STEPS = [
   { icon: 'search', title: 'Search Donors', desc: 'Search for any donor by name or mobile number using the search bar above the disposition form.', color: '#2563eb' },
   { icon: 'chat', title: 'WhatsApp Chat', desc: 'Send a WhatsApp message directly to the donor using the green chat button next to the call button.', color: '#25D366' },
 ];
+
+function findNextDonorIndex(donors, currentId) {
+  // Priority 1: pending (no disposition yet), skip current donor
+  for (let i = 0; i < donors.length; i++) {
+    if (donors[i].status === 'pending' && donors[i].id !== currentId) return i;
+  }
+  // Priority 2: not connected, skip current
+  for (let i = 0; i < donors.length; i++) {
+    if (NOT_CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId) return i;
+  }
+  // Priority 3: connected, skip current
+  for (let i = 0; i < donors.length; i++) {
+    if (CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId) return i;
+  }
+  return 0;
+}
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -111,6 +130,11 @@ export default function MyDonors() {
   const [showWalkthrough, setShowWalkthrough] = useState(() => !localStorage.getItem('fro_walkthrough_seen'));
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const searchRef = useRef(null);
+  const debounceReloadRef = useRef(null);
+  const initialMountRef = useRef(true);
+  const stationsFetchedRef = useRef(false);
+  const [stations, setStations] = useState([]);
+  const [selectedStation, setSelectedStation] = useState('all');
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -119,29 +143,49 @@ export default function MyDonors() {
 
     const load = async (tab) => {
       try {
-        const r = await getMyDonors(null, null, { newOnly: tab === 'new', oldOnly: tab === 'old' });
+        // Capture localStorage snapshot BEFORE any state changes (avoids race condition)
+        const sk = selectedStation !== 'all' ? selectedStation : 'all';
+        const savedSnapshot = (() => { try { return JSON.parse(localStorage.getItem(`${tab}_${sk}_donor_progress`)); } catch { return null; } })();
+
+        const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
         setDonors(r);
         setMessage(null);
         let restored = false;
-        try {
-          const progress = await api('/fro/progress', { _prefix: 'ucs' });
-          if (progress?.current_donor_id) {
-            const found = r.findIndex(d => d.id === progress.current_donor_id);
+
+        // Restore from localStorage snapshot (captured before state changes)
+        if (savedSnapshot) {
+          const { id, idx } = savedSnapshot;
+          if (id) {
+            const found = r.findIndex(d => d.id === id);
             if (found >= 0) { setIndex(found); restored = true; }
           }
-        } catch {}
-        if (!restored) {
-          const saved = localStorage.getItem('mydonors_current_donor');
-          if (saved) {
-            try {
-              const { id, ngo_id, idx } = JSON.parse(saved);
-              const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
-              if (found >= 0) { setIndex(found); restored = true; return; }
-              if (typeof idx === 'number') { setIndex(Math.min(idx, Math.max(0, r.length - 1))); restored = true; return; }
-            } catch { }
+          if (!restored && typeof idx === 'number' && idx < r.length) {
+            setIndex(idx); restored = true;
           }
         }
+
+        // Fallback to backend progress (for cross-device restore)
+        if (!restored) {
+          try {
+            const progress = await api('/fro/progress', { _prefix: 'ucs' });
+            const progressStation = progress?.station || 'all';
+            if (progressStation === (selectedStation !== 'all' ? selectedStation : 'all')) {
+              const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
+              if (savedId) {
+                const found = r.findIndex(d => d.id === savedId);
+                if (found >= 0) { setIndex(found); restored = true; }
+              }
+              if (!restored) {
+                const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
+                if (savedIndex != null && savedIndex < r.length) {
+                  setIndex(savedIndex); restored = true;
+                }
+                }
+              }
+            } catch (e) { console.error('Error:', e.message); }
+        }
+
         if (!restored) setIndex(0);
       } catch (err) {
         if (!cancelled) setMessage({ type: 'error', text: err.message });
@@ -150,20 +194,23 @@ export default function MyDonors() {
       }
     };
 
-    // On first mount, restore the saved tab from progress
+    // On first mount, restore the saved tab and position from progress
     (async () => {
-      try {
-        const progress = await api('/fro/progress', { _prefix: 'ucs' });
-        if (progress?.data_tab && progress.data_tab !== dataTab) {
-          setDataTab(progress.data_tab);
-          return; // the dataTab effect will re-run with the correct tab
-        }
-      } catch {}
+      if (initialMountRef.current) {
+        initialMountRef.current = false;
+        try {
+          const progress = await api('/fro/progress', { _prefix: 'ucs' });
+          if (progress?.data_tab && progress.data_tab !== dataTab) {
+            setDataTab(progress.data_tab);
+            return;
+          }
+        } catch (e) { console.error('Error:', e.message); }
+      }
       load(dataTab);
     })();
 
     return () => { cancelled = true; };
-  }, [dataTab]);
+  }, [dataTab, selectedStation]);
 
   useEffect(() => {
     if (donors.length > 0 && index >= donors.length) {
@@ -183,48 +230,94 @@ export default function MyDonors() {
       endDonorView(false)
       startDonorView(donors[index].id)
     }
-  }, [index]);
+  }, [index, donors, endDonorView, startDonorView]);
+
+  useEffect(() => {
+    if (stationsFetchedRef.current) return;
+    stationsFetchedRef.current = true;
+    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch((err) => { console.error('API error:', err.message); });
+  }, []);
+
+  const stationOpts = (tab, station) => {
+    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
+    if (station && station !== 'all') opts.station = station;
+    return opts;
+  };
 
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, { newOnly: dataTab === 'new', oldOnly: dataTab === 'old' }).then(r => { setDonors(r); }).catch(() => {});
-  }, [dataTab]);
-  useRealtime('fro_assignments', { onUpdate: () => reloadDonors(), onInsert: () => reloadDonors() });
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch((err) => { console.error('API error:', err.message); });
+  }, [dataTab, selectedStation]);
+
+  const debouncedReload = useCallback(() => {
+    if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
+    debounceReloadRef.current = setTimeout(() => reloadDonors(), 2000);
+  }, [reloadDonors]);
+
+  useRealtime('fro_assignments', { event: 'INSERT', onInsert: () => debouncedReload() });
+
+  const saveProgress = useCallback((tab, donorId, donorIndex) => {
+    if (!donorId) return;
+    const body = { data_tab: tab, station: selectedStation !== 'all' ? selectedStation : null };
+    if (tab === 'new') {
+      body.new_donor_id = donorId;
+      body.new_donor_index = donorIndex;
+    } else {
+      body.old_donor_id = donorId;
+      body.old_donor_index = donorIndex;
+    }
+    api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch((err) => { console.error('API error:', err.message); });
+  }, [selectedStation]);
+
+  const stationKey = selectedStation !== 'all' ? selectedStation : 'all';
 
   const switchTab = (tab) => {
-    setDataTab(tab);
-    setIndex(0);
+    if (donor) {
+      saveProgress(dataTab, donor.id, index);
+      localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
+    }
     setSelected(null);
-    api('/fro/progress', {
-      method: 'PUT',
-      body: JSON.stringify({ data_tab: tab, donor_id: null }),
-      _prefix: 'ucs'
-    }).catch(() => {});
+    setDataTab(tab);
   };
 
   const donor = donors[index];
 
   useEffect(() => {
-    if (donor) {
-      localStorage.setItem('mydonors_current_donor', JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
-      api('/fro/progress', { method: 'PUT', body: JSON.stringify({ donor_id: donor.id, data_tab: dataTab }), _prefix: 'ucs' }).catch(() => {});
-    }
-  }, [donor?.id, donor?.ngo_id, index]);
+    if (!donor) return;
+    localStorage.setItem(`mydonors_current_donor_${stationKey}`, JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
+  }, [donor?.id, donor?.ngo_id, index, stationKey]);
+
+  const progressRef = useRef({ donor, index, dataTab });
+  progressRef.current = { donor, index, dataTab };
+  useEffect(() => {
+    return () => {
+      const p = progressRef.current;
+      if (p.donor) saveProgress(p.dataTab, p.donor.id, p.index);
+    };
+  }, []);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
 
+  const cancelledRef = useRef(false);
   const loadDetail = useCallback(() => {
     if (!donor) return;
+    cancelledRef.current = false;
+    const id = donor.id;
+    const ngoId = donor.ngo_id;
     setDetailLoading(true);
     if (donor.is_new) {
-      markDonorSeen(donor.id, donor.ngo_id).then(() => {
-        setDonors(prev => prev.map(d =>
-          d.id === donor.id && d.ngo_id === donor.ngo_id ? { ...d, is_new: false } : d
-        ));
+      markDonorSeen(id, ngoId).then(() => {
+        if (!cancelledRef.current) {
+          setDonors(prev => prev.map(d =>
+            d.id === id && d.ngo_id === ngoId ? { ...d, is_new: false } : d
+          ));
+        }
       }).catch(err => console.error('markDonorSeen error:', err));
     }
-    getDonorDetail(donor.id, donor.ngo_id).then(d => { setDetail(d); setShowAllLogs(false); }).catch(err => console.error('getDonorDetail error:', err)).finally(() => setDetailLoading(false));
+    getDonorDetail(id, ngoId).then(d => { if (!cancelledRef.current) { setDetail(d); setShowAllLogs(false); } }).catch(err => console.error('getDonorDetail error:', err)).finally(() => { if (!cancelledRef.current) setDetailLoading(false); });
   }, [donor?.id, donor?.ngo_id]);
+
+  useEffect(() => { return () => { cancelledRef.current = true; }; }, [loadDetail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
@@ -283,9 +376,9 @@ export default function MyDonors() {
             setTransactionDatetime(dt.toISOString().slice(0, 16));
           }
         }
-        if (amount && !leadAmount) setLeadAmount(amount);
+        if (amount) setLeadAmount(prev => prev || amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);
@@ -352,8 +445,9 @@ export default function MyDonors() {
       }
       await addDonorLog(donor.id, logData);
       if (selected) endCall();
+
       if (returnToDonor) {
-        const newDonors = await getMyDonors(null, null, { newOnly: dataTab === 'new', oldOnly: dataTab === 'old' });
+        const newDonors = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
         setDonors(newDonors);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
@@ -363,11 +457,10 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        if (index < donors.length - 1) {
-          setIndex(index + 1);
-        } else {
-          setIndex(0);
-        }
+        const nextIdx = findNextDonorIndex(donors, donor.id);
+        setIndex(nextIdx);
+        const nextDonor = donors[nextIdx];
+        if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
       setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
     } catch (err) {
@@ -443,8 +536,13 @@ export default function MyDonors() {
       setReturnToDonor(null);
       return;
     }
-    if (index < donors.length - 1) { setIndex(i => i + 1); return; }
-    setMessage({ type: 'error', text: 'No more donors' });
+    const nextIdx = findNextDonorIndex(donors, donor.id);
+    if (nextIdx === index || !donors[nextIdx]) {
+      setMessage({ type: 'error', text: 'No more donors' });
+      return;
+    }
+    setIndex(nextIdx);
+    saveProgress(dataTab, donors[nextIdx].id, nextIdx);
   };
 
   const fmt = callFmt
@@ -570,12 +668,18 @@ export default function MyDonors() {
               <div className="detail-name">{donor.donor_name}</div>
               <div className="fro-donor-position">#{index + 1} of {donors.length}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                {donor.is_new && (
-                  <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
-                )}
+                  {donor.is_new && (
+                    <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
+                  )}
+                  {dataTab === 'old' && (
+                    <span style={{ padding: '1px 6px', borderRadius: 4, background: '#7c3aed', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>OLD</span>
+                  )}
                 {statusPill(donor.status || 'pending')}
                 {donor.ngo_name && (
-                  <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_name}</span>
+                  <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700 }}>{donor.ngo_names?.join(', ') || donor.ngo_name}</span>
+                )}
+                {donor.station && selectedStation === 'all' && (
+                  <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '1px 7px', borderRadius: 999, fontSize: 8, fontWeight: 700, border: '1px solid #93c5fd' }}>{donor.station}</span>
                 )}
               </div>
             </div>
@@ -607,7 +711,7 @@ export default function MyDonors() {
                   </button>
                 )}
               </div>
-              <button onClick={(e) => { e.stopPropagation(); navigate(`/fro/whatsapp-chat?phone=${donor.donor_mobile || ''}`) }}
+              <button onClick={(e) => { e.stopPropagation(); navigate(`/fro/whatsapp-chat?phone=${donor.donor_mobile || ''}&project=${donor.donor_project || ''}`) }}
                 style={{ width: 48, border: 'none', borderRadius: 10, background: 'linear-gradient(135deg, #25D366 0%, #1da851 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
               </button>
@@ -687,6 +791,24 @@ export default function MyDonors() {
 
         {/* MIDDLE PANEL — Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          {/* Station Tabs */}
+          {stations.length > 1 && (
+            <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+              <button onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation('all') }}
+                className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
+                style={{ fontSize: 10 }}>
+                All Stations
+              </button>
+              {stations.map(s => (
+                <button key={s} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation(s) }}
+                  className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
+                  style={{ fontSize: 10 }}>
+                  <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: selectedStation === s ? '#16a34a' : '#94a3b8', marginRight: 4, verticalAlign: 'middle' }} />
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
           {/* New/Old Data Tabs */}
           <div className="fro-tab-segment">
             <button onClick={() => switchTab('new')}
@@ -779,7 +901,7 @@ export default function MyDonors() {
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Follow Up Date</label>
-                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={tomorrowStr} />
+                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={(() => { const t = new Date(); t.setDate(t.getDate() + 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; })()} />
                     </div>
                   </div>
                   {dateConfirmed && (
@@ -977,38 +1099,29 @@ export default function MyDonors() {
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
-      <div className="fro-progress-info">
-        {returnToDonor ? (
-          <span className="fro-progress-label" style={{ color: 'var(--sage)' }}>Searched donor — NEXT to return</span>
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', paddingRight: 4 }}>
+        {isOnCall && activeCall?.donorId === donor.id ? (
+          <button onClick={endCall} className="fro-btn-end-call">
+            <span className="fro-pulse-dot" />
+            End Call
+          </button>
         ) : (
-          <span className="fro-progress-label">{index + 1} of {donors.length} processed</span>
+          <button onClick={() => startCall(donor)} className="fro-btn-call">
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
+            Call Now
+          </button>
         )}
-        <div className="fro-progress">
-          <div className="fro-progress-fill" style={{ width: donors.length > 0 ? `${((index + 1) / donors.length) * 100}%` : '0%' }} />
-        </div>
+
+        <button className="btn-next"
+          disabled={saving || !selected}
+          onClick={() => { endDonorView(isOnCall); handleButtonClick() }}>
+          {saving ? 'Saving...' : selected ? (
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> Log {findDisp(selected)?.label || selected}</>
+          ) : (
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT</>
+          )}
+        </button>
       </div>
-
-      {isOnCall && activeCall?.donorId === donor.id ? (
-        <button onClick={endCall} className="fro-btn-end-call">
-          <span className="fro-pulse-dot" />
-          End Call
-        </button>
-      ) : (
-        <button onClick={() => startCall(donor)} className="fro-btn-call">
-          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
-          Call Now
-        </button>
-      )}
-
-      <button className="btn-next"
-        disabled={saving || !selected}
-        onClick={() => { endDonorView(isOnCall); handleButtonClick() }}>
-        {saving ? 'Saving...' : selected ? (
-          <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> Log {findDisp(selected)?.label || selected}</>
-        ) : (
-          <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT</>
-        )}
-      </button>
     </div>
 
     {/* Donation Modal */}

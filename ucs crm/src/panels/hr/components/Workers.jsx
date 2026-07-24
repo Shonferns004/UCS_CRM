@@ -10,7 +10,7 @@ function load() {
   try { return JSON.parse(sessionStorage.getItem('wrk') || '{}'); } catch { return {}; }
 }
 function save(v) {
-  try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch {}
+  try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch (e) { console.error('Error:', e.message); }
 }
 
 function isComplete(w) {
@@ -120,21 +120,21 @@ export default function Workers({ onSelect, onOffboard }) {
     fetchWorkers('all').then(list => {
       setWorkers(list);
       Promise.all((list || []).map(w =>
-        api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)
+        api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })
       )).then(details => {
         const map = {};
         for (const d of details) { if (d) map[d.id] = d; }
         setWorkerDetails(map);
       });
-    }).catch(() => {});
-    fetchNGOs().then(setNgos).catch(() => {});
+    }).catch((err) => { console.error('API error:', err.message); });
+    fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
     api('/salary/workers-summary', { _prefix: 'ucs' })
       .then(data => {
         const map = {};
         for (const w of data) map[w.id] = w;
         setSalaryMap(map);
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const roles = [...new Set(workers.map(w => (w.department || 'Team Member')).filter(Boolean))].sort();
@@ -179,7 +179,7 @@ export default function Workers({ onSelect, onOffboard }) {
       setName('');
       setDept(DEPTS?.[0] || '');
       setSelectedNgos([]);
-      fetchWorkers('all').then(setWorkers).catch(() => {});
+      fetchWorkers('all').then(setWorkers).catch((err) => { console.error('API error:', err.message); });
     } catch (e) {
       setErr(e.message);
     }
@@ -291,7 +291,7 @@ export default function Workers({ onSelect, onOffboard }) {
     try {
       const list = await api('/workers', { _prefix: 'ucs' });
       if (!list || list.length === 0) { alert('No workers to export'); return; }
-      const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)));
+      const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })));
       const data = full.filter(Boolean);
 
       const famKeys = ['name', 'relationship', 'occupation', 'phone'];

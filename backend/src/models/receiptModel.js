@@ -33,12 +33,11 @@ export const getLastReceiptNo = async (projectId) => {
   return data?.receipt_no || null;
 };
 
-export const listAllReceipts = async (limit = 100) => {
+export const listAllReceipts = async () => {
   const { data, error } = await supabase
     .from('receipts')
     .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
 };

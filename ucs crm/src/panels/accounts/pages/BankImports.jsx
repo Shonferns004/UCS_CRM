@@ -68,7 +68,7 @@ function EmailImportTab() {
       if (statusRes.status === 'fulfilled') setStatus(statusRes.value);
       if (logRes.status === 'fulfilled') setLog(logRes.value || []);
       if (accRes.status === 'fulfilled') setAccounts(accRes.value || []);
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
     finally { setLoading(false); }
   }
 
@@ -192,7 +192,7 @@ function PaymentGatewaysTab() {
       if (logRes.status === 'fulfilled') setLog(logRes.value || []);
       if (statusRes.status === 'fulfilled') setCounts(statusRes.value.counts || {});
       if (accRes.status === 'fulfilled') setAccounts(accRes.value || []);
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
     finally { setLoading(false); }
   }
 

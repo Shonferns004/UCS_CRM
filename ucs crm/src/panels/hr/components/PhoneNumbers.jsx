@@ -9,7 +9,7 @@ export default function PhoneNumbers() {
   const [message, setMessage] = useState(null)
 
   useEffect(() => {
-    fetchWorkers().then(setWorkers).catch(() => {})
+      fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   const changeCount = Object.keys(edits).length
@@ -23,7 +23,7 @@ export default function PhoneNumbers() {
       await bulkUpdateWorkers(payload)
       setEdits({})
       setMessage({ type: 'success', text: `${payload.length} workers updated successfully` })
-      fetchWorkers().then(setWorkers).catch(() => {})
+    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); })
     } catch (err) {
       setMessage({ type: 'error', text: err.message || 'Update failed' })
     } finally {

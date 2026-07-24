@@ -26,7 +26,28 @@ export default function WhatsAppSettings() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const [accs, stats] = await Promise.all([
+          apiGet('/whatsapp/accounts').catch(() => []),
+          apiGet('/whatsapp/status').catch(() => []),
+        ]);
+        if (cancelled) return;
+        setAccounts(accs || []);
+        const statusList = Array.isArray(stats) ? stats : (stats ? [stats] : []);
+        setStatuses(statusList);
+        if (accs?.length > 0 && !selectedAccountId) {
+          setSelectedAccountId(String(accs[0].id));
+        }
+      } catch (err) { console.error(err); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   const getSelectedStatus = () => {
     if (!selectedAccountId) return statuses[0] || null;

@@ -15,7 +15,7 @@ export default function Workers({ onViewWorker }) {
 
   const load = () => {
     api('/workers').then(setWorkers).catch(e => setErr(e.message))
-    api('/ngos').then(setNgos).catch(() => {})
+    api('/ngos').then(setNgos).catch((err) => { console.error('Error:', err.message); })
   }
   useEffect(load, [])
 

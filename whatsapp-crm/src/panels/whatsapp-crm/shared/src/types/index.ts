@@ -1,4 +1,4 @@
-export type UserRole = 'tenant_admin' | 'agent' | 'viewer';
+export type UserRole = 'master' | 'tenant_admin' | 'agent' | 'viewer';
 
 export type UserStatus = 'active' | 'invited' | 'deactivated';
 

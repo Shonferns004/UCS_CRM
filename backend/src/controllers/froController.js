@@ -62,12 +62,26 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     station = sa?.station || null;
   }
 
+  // Use upsert to avoid race condition on concurrent creates
   const { data: created } = await supabase
     .from('fro_assignments')
-    .insert([{ donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() }])
+    .upsert(
+      { donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() },
+      { onConflict: 'donor_id,fro_worker_id,ngo_id', ignoreDuplicates: false }
+    )
     .select('id, station')
     .single();
-  return created;
+  if (created) return created;
+
+  // Fallback: re-query if upsert returned no data (e.g., conflict ignored)
+  const { data: retry } = await supabase
+    .from('fro_assignments')
+    .select('id, station')
+    .eq('donor_id', donorId)
+    .eq('fro_worker_id', workerId)
+    .not('status', 'eq', 'reassigned')
+    .maybeSingle();
+  return retry;
 }
 
 async function getMyStationNames(workerId) {
@@ -75,7 +89,7 @@ async function getMyStationNames(workerId) {
     .from('fro_station_assignments')
     .select('station')
     .eq('fro_worker_id', workerId);
-  if (error) console.error('getMyStationNames query error:', error.message);
+  if (error) throw error;
   return (stationAssigns || []).map(s => s.station);
 }
 
@@ -134,19 +148,21 @@ export const getDashboard = async (req, res) => {
     const stats = await getDashboardStats(workerId);
     stats.total = totalDonors;
     const worker = await getWorkerById(workerId);
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
     const salary = await getActiveSalaryByWorker(workerId);
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    const utcNow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59)).toISOString();
     const monthStr = now.toISOString().slice(0, 7) + '-01';
 
     const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
 
     const joinedAt = new Date(worker.created_at);
-    const monthsEmployed = (now.getFullYear() - joinedAt.getFullYear()) * 12
-      + (now.getMonth() - joinedAt.getMonth());
+    const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
+    const monthsEmployed = monthDiff + (now.getDate() >= joinedAt.getDate() ? 0 : -1);
 
     let target;
     let targetSource;
@@ -162,10 +178,9 @@ export const getDashboard = async (req, res) => {
 
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const nowUtc = new Date();
+    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
 
     const verifiedMonth = await getVerifiedCollection(workerId, monthStart, monthEnd);
     const unverifiedMonth = await getUnverifiedCollection(workerId, monthStart, monthEnd);
@@ -377,8 +392,6 @@ export const getMyDonors = async (req, res) => {
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
-    // Query fro_assignments by this FRO's station names (not fro_worker_id,
-    // since stations may not have an FRO assigned)
     const stationNames = await getMyStationNames(workerId);
     if (stationNames.length === 0) return res.json([]);
 
@@ -388,53 +401,90 @@ export const getMyDonors = async (req, res) => {
       .in('station', stationNames)
       .not('status', 'eq', 'reassigned');
 
+    if (req.query.station) {
+      query = query.eq('station', req.query.station);
+    }
+
     if (statusGroup === 'not_connected') {
       query = query.in('status', NOT_CONNECTED_STATUSES);
     } else if (statusGroup === 'connected') {
       query = query.in('status', CONNECTED_STATUSES);
     } else if (statusFilter) {
       query = query.eq('status', statusFilter);
-    } else {
-      // No default status filter — include all except 'reassigned'
     }
 
-    // Batch-based tab filtering: show only the latest batch per type.
-    // Falls back to is_new for legacy rows without batch_id/batch_type.
     if (req.query.new_only === 'true') {
-      const { data: latestBatch } = await supabase
-        .from('fro_assignments')
-        .select('batch_id')
-        .in('station', stationNames)
-        .eq('batch_type', 'new_data')
-        .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestBatch?.batch_id) {
-        query = query.eq('batch_id', latestBatch.batch_id);
+      const batchIds = [];
+      for (const s of stationNames) {
+        try {
+          const { data: lb } = await supabase
+            .from('fro_assignments')
+            .select('batch_id')
+            .eq('station', s)
+            .eq('batch_type', 'new_data')
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb?.batch_id) batchIds.push(lb.batch_id);
+        } catch (e) {
+          console.error(`getMyDonors batch query error ${s}:`, e.message);
+        }
+      }
+      if (batchIds.length > 0) {
+        query = query.in('batch_id', [...new Set(batchIds)]);
       } else {
-        // Legacy fallback: no batch-tracked data yet, use is_new flag
-        query = query.or('is_new.is.null,is_new.eq.true');
+        query = query.eq('batch_type', 'new_data');
       }
     } else if (req.query.old_only === 'true') {
-      const { data: latestBatch } = await supabase
-        .from('fro_assignments')
-        .select('batch_id')
-        .in('station', stationNames)
-        .eq('batch_type', 'old_data')
-        .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestBatch?.batch_id) {
-        query = query.eq('batch_id', latestBatch.batch_id);
+      const batchIds = [];
+      for (const s of stationNames) {
+        try {
+          const { data: lb } = await supabase
+            .from('fro_assignments')
+            .select('batch_id')
+            .eq('station', s)
+            .eq('batch_type', 'old_data')
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb?.batch_id) batchIds.push(lb.batch_id);
+        } catch (e) {
+          console.error(`getMyDonors batch query error ${s}:`, e.message);
+        }
+      }
+      if (batchIds.length > 0) {
+        query = query.in('batch_id', [...new Set(batchIds)]);
       } else {
-        // Legacy fallback: no batch-tracked data yet, use is_new=false
-        query = query.eq('is_new', false);
+        query = query.eq('batch_type', 'old_data');
       }
     }
 
-    let { data: assignments } = await query;
+    const DONOR_LIMIT = 500;
+    query = query.limit(DONOR_LIMIT);
+    let { data: assignments, error: qErr } = await query;
+    if (qErr) {
+      console.error('getMyDonors main query error:', qErr);
+      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', stationNames).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+      if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
+      else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
+      const { data: retry } = await query;
+      assignments = retry || [];
+    }
+
+    if (!assignments || assignments.length === 0) {
+      const { data: byWorker } = await supabase
+        .from('fro_assignments')
+        .select('*, ngos(name)')
+        .eq('fro_worker_id', workerId)
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned')
+        .limit(DONOR_LIMIT);
+      if (byWorker && byWorker.length > 0) {
+        assignments = byWorker;
+      }
+    }
 
     if (!assignments || assignments.length === 0) return res.json([]);
 
@@ -547,6 +597,19 @@ export const getMyDonors = async (req, res) => {
       });
     }
 
+    // Aggregate all NGO names per donor (since dedup by donor_id loses NGO info)
+    const donorNgos = {};
+    for (const a of assignments || []) {
+      if (!donorNgos[a.donor_id]) donorNgos[a.donor_id] = [];
+      const ngoName = a.ngos?.name;
+      if (ngoName && !donorNgos[a.donor_id].includes(ngoName)) {
+        donorNgos[a.donor_id].push(ngoName);
+      }
+    }
+    for (const r of result) {
+      r.ngo_names = donorNgos[r.donor_id] || [r.ngo_name];
+    }
+
     // Attach latest accounts_status from fro_donor_logs (for verified_only view)
     if (req.query.verified_only === 'true' && result.length > 0) {
       const donorIdsForStatus = result.map(r => r.donor_id);
@@ -633,12 +696,12 @@ export const getMyDonors = async (req, res) => {
     filtered.sort((a, b) => {
       const groupA = a.is_new ? 0
         : (notConnectedSet.has(a.status) || a.status === 'pending') ? 1
-        : a.status === 'lead_done' ? 2
-        : connectedSet.has(a.status) ? 3 : 4;
+        : connectedSet.has(a.status) ? 2
+        : a.status === 'lead_done' ? 3 : 4;
       const groupB = b.is_new ? 0
         : (notConnectedSet.has(b.status) || b.status === 'pending') ? 1
-        : b.status === 'lead_done' ? 2
-        : connectedSet.has(b.status) ? 3 : 4;
+        : connectedSet.has(b.status) ? 2
+        : b.status === 'lead_done' ? 3 : 4;
       if (groupA !== groupB) return groupA - groupB;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
@@ -647,7 +710,7 @@ export const getMyDonors = async (req, res) => {
 
     return res.json(filtered);
   } catch (error) {
-    console.error('getMyDonors error for worker', req.user?.id, ':', error.message);
+    console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -663,7 +726,8 @@ export const getTransferredLeads = async (req, res) => {
       .select('*, ngos(name)')
       .in('station', stationNames)
       .is('fro_worker_id', null)
-      .not('status', 'eq', 'reassigned');
+      .not('status', 'eq', 'reassigned')
+      .limit(200);
 
     if (!assignments || assignments.length === 0) return res.json([]);
 
@@ -738,7 +802,8 @@ export const getTransferredLeads = async (req, res) => {
 export const updateDonorStatus = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const donorId = parseInt(req.params.id);
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { status, notes, next_follow_up, ngo_id } = req.body;
     if (!status) return res.status(400).json({ message: 'status is required' });
 
@@ -773,7 +838,8 @@ export const updateDonorStatus = async (req, res) => {
 export const getDonorLogs = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const donorId = parseInt(req.params.id);
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { ngo_id } = req.query;
 
     let assignment = null;
@@ -817,7 +883,8 @@ export const getDonorLogs = async (req, res) => {
 export const createDonorLogHandler = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const donorId = parseInt(req.params.id);
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { action, notes, outcome, amount_collected, disposition_category, disposition_detail, scheduled_at, payment_screenshot_url, pan_number, donor_address, donor_dob, ngo_id, project_name, remark, upi_transaction_id, transaction_datetime } = req.body;
 
     if (!action) return res.status(400).json({ message: 'action is required' });
@@ -985,8 +1052,12 @@ export const uploadPaymentScreenshot = async (req, res) => {
       return res.status(400).json({ message: 'File data is required' });
     }
 
-    const buffer = Buffer.from(file_base64, 'base64');
+    const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
     const contentType = mime_type || 'image/jpeg';
+    if (!ALLOWED_MIME_TYPES.includes(contentType)) {
+      return res.status(400).json({ message: `Invalid file type. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}` });
+    }
+    const buffer = Buffer.from(file_base64, 'base64');
     const ext = contentType.split('/')[1] || 'jpg';
     const fileName = `payment_screenshots/${req.user.id}_${Date.now()}.${ext}`;
 
@@ -1016,7 +1087,8 @@ export const uploadPaymentScreenshot = async (req, res) => {
       .from('worker-documents')
       .getPublicUrl(fileName);
 
-    const fileUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+    const fileUrl = publicUrlData?.publicUrl;
+    if (!fileUrl) return res.status(500).json({ message: 'Failed to get file URL' });
 
     return res.json({ message: 'Screenshot uploaded', file_url: fileUrl });
   } catch (error) {
@@ -1032,6 +1104,7 @@ function dispositionDetailToStatus(detail) {
     switched_off: 'switched_off',
     wrong_number: 'wrong_number',
     invalid: 'invalid_number',
+    invalid_number: 'invalid_number',
     rejected: 'rejected',
     lead_done: 'lead_done',
     scheduled: 'scheduled',
@@ -1052,9 +1125,11 @@ function dispositionDetailToStatus(detail) {
 export const scheduleContact = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const donorId = parseInt(req.params.id);
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { scheduled_at, notes, ngo_id } = req.body;
     if (!scheduled_at) return res.status(400).json({ message: 'scheduled_at is required' });
+    if (isNaN(new Date(scheduled_at).getTime())) return res.status(400).json({ message: 'scheduled_at must be a valid date' });
 
     const assignment = await findOrCreateAssignment(donorId, workerId, ngo_id);
     if (!assignment) return res.status(404).json({ message: 'Donor not found' });
@@ -1085,6 +1160,7 @@ export const getMyTarget = async (req, res) => {
   try {
     const workerId = req.user.id;
     const worker = await getWorkerById(workerId);
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
     const salary = await getActiveSalaryByWorker(workerId);
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
@@ -1094,8 +1170,8 @@ export const getMyTarget = async (req, res) => {
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
 
     const joinedAt = new Date(worker.created_at);
-    const monthsEmployed = (now.getFullYear() - joinedAt.getFullYear()) * 12
-      + (now.getMonth() - joinedAt.getMonth());
+    const monthDiff = (now.getFullYear() - joinedAt.getFullYear()) * 12 + (now.getMonth() - joinedAt.getMonth());
+    const monthsEmployed = monthDiff + (now.getDate() >= joinedAt.getDate() ? 0 : -1);
 
     let target;
     let targetSource;
@@ -1130,7 +1206,7 @@ export const getMyTarget = async (req, res) => {
       const totalAKI = achievements.reduce((sum, r) => {
         return sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date));
       }, 0);
-      const monthlyTargetMet = monthlyAchievement >= target;
+      const monthlyTargetMet = target > 0 && monthlyAchievement >= target;
       if (monthlyTargetMet) {
         const akiPayout = incentive.isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
         const monthlyIncentive = Math.round((monthlyAchievement - target) * 0.1);
@@ -1152,6 +1228,20 @@ export const getMyTarget = async (req, res) => {
       stats,
       incentive,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getMyStations = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { data: stations, error } = await supabase
+      .from('fro_station_assignments')
+      .select('station')
+      .eq('fro_worker_id', workerId);
+    if (error) throw error;
+    return res.json((stations || []).map(s => s.station));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1360,16 +1450,13 @@ export const requestData = async (req, res) => {
     const workerId = req.user.id;
     const ngoId = req.user.ngo_id;
     const { message } = req.body;
-    if (!message || !message.trim()) {
-      return res.status(400).json({ message: 'Message is required' });
-    }
-
-    const { data: worker } = await supabase.from('workers').select('name').eq('id', workerId).maybeSingle();
-    const froName = worker?.name || 'Unknown';
+    const trimmed = message ? message.trim() : '';
+    if (!trimmed) return res.status(400).json({ message: 'Message is required' });
+    if (trimmed.length > 2000) return res.status(400).json({ message: 'Message too long (max 2000 characters)' });
 
     const { data, error } = await supabase
       .from('fro_data_requests')
-      .insert([{ fro_worker_id: workerId, message: message.trim(), status: 'pending', ngo_id: req.user.ngo_id || null }])
+      .insert([{ fro_worker_id: workerId, message: trimmed, status: 'pending', ngo_id: req.user.ngo_id || null }])
       .select()
       .single();
     if (error) throw error;
@@ -1401,10 +1488,9 @@ export const getFollowUps = async (req, res) => {
     const stationNames = await getMyStationNames(workerId);
     if (stationNames.length === 0) return res.json([]);
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const nowUtc = new Date();
+    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
 
     const { data: contacts, error } = await supabase
       .from('fro_scheduled_contacts')
@@ -1482,12 +1568,14 @@ export const getLeadStats = async (req, res) => {
     const existingSet = new Set((existingDonations || []).map(e => e.donor_id));
 
     let newDonors = 0, newAmount = 0, existingDonors = 0, existingAmount = 0;
-    const seen = new Set();
+    const donorAmounts = new Map();
     for (const l of logs || []) {
-      if (seen.has(l.donor_id)) continue;
-      seen.add(l.donor_id);
+      const did = l.donor_id;
       const amount = parseFloat(l.amount_collected) || 0;
-      if (existingSet.has(l.donor_id)) {
+      donorAmounts.set(did, (donorAmounts.get(did) || 0) + amount);
+    }
+    for (const [did, amount] of donorAmounts) {
+      if (existingSet.has(did)) {
         existingDonors++;
         existingAmount += amount;
       } else {
@@ -1563,8 +1651,11 @@ export const getMonthlyDonors = async (req, res) => {
 export const getDonorHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const donorId = parseInt(req.params.id);
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const period = req.query.period || 'monthly';
+    const stationNames = await getMyStationNames(workerId);
+    if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const now = new Date();
     let startDate;
@@ -1573,6 +1664,17 @@ export const getDonorHistory = async (req, res) => {
       startDate = now.getMonth() < 3 ? `${year - 1}-04-01` : `${year}-04-01`;
     } else {
       startDate = now.toISOString().slice(0, 7) + '-01';
+    }
+
+    const { data: checkAccess } = await supabase
+      .from('fro_assignments')
+      .select('id')
+      .eq('donor_id', donorId)
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned')
+      .limit(1);
+    if (!checkAccess || checkAccess.length === 0) {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     const { data: logs, error } = await supabase
@@ -1601,6 +1703,16 @@ export const updateLiveStatus = async (req, res) => {
     const workerId = req.user.id;
     const { status, current_donor_name, current_donor_id, today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds, on_break, break_type } = req.body;
 
+    if (status && !['online', 'idle', 'on_call', 'break', 'offline'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status. Must be one of: online, idle, on_call, break, offline' });
+    }
+    const numericFields = { today_calls, today_talk_seconds, today_skipped, today_idle_seconds, today_break_seconds };
+    for (const [key, val] of Object.entries(numericFields)) {
+      if (val !== undefined && (typeof val !== 'number' || val < 0 || !Number.isFinite(val))) {
+        return res.status(400).json({ message: `${key} must be a non-negative number` });
+      }
+    }
+
     const payload = {
       status,
       updated_at: new Date().toISOString(),
@@ -1625,29 +1737,11 @@ export const updateLiveStatus = async (req, res) => {
       payload.break_started_at = new Date().toISOString();
       payload.on_break = true;
     }
-    if (status !== 'break') {
-      payload.break_started_at = null;
-      payload.on_break = false;
-    }
 
-    const { data: existing } = await supabase
+    const { error } = await supabase
       .from('fro_live_status')
-      .select('id')
-      .eq('worker_id', workerId)
-      .maybeSingle();
-
-    if (existing) {
-      const { error } = await supabase
-        .from('fro_live_status')
-        .update(payload)
-        .eq('worker_id', workerId);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from('fro_live_status')
-        .insert([{ worker_id: workerId, ...payload }]);
-      if (error) throw error;
-    }
+      .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
+    if (error) throw error;
 
     return res.json({ message: 'Status updated' });
   } catch (error) {
@@ -1661,7 +1755,7 @@ export const getMyProgress = async (req, res) => {
   try {
     const { data } = await supabase
       .from('fro_live_status')
-      .select('current_donor_id, data_tab, current_batch_id')
+      .select('new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station')
       .eq('worker_id', req.user.id)
       .maybeSingle();
     return res.json(data || {});
@@ -1673,23 +1767,25 @@ export const getMyProgress = async (req, res) => {
 export const saveMyProgress = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { donor_id, data_tab, current_batch_id } = req.body;
+    const { new_donor_id, old_donor_id, new_donor_index, old_donor_index, data_tab, current_batch_id, station } = req.body;
+    const tab = data_tab || 'new';
     const payload = {
-      current_donor_id: donor_id || null,
-      data_tab: data_tab || 'new',
+      data_tab: tab,
       current_batch_id: current_batch_id || null,
+      station: station || null,
       updated_at: new Date().toISOString(),
     };
-    const { data: existing } = await supabase
-      .from('fro_live_status')
-      .select('id')
-      .eq('worker_id', workerId)
-      .maybeSingle();
-    if (existing) {
-      await supabase.from('fro_live_status').update(payload).eq('worker_id', workerId);
+    if (tab === 'new') {
+      payload.new_donor_id = new_donor_id || null;
+      payload.new_donor_index = new_donor_index ?? null;
     } else {
-      await supabase.from('fro_live_status').insert([{ worker_id: workerId, ...payload }]);
+      payload.old_donor_id = old_donor_id || null;
+      payload.old_donor_index = old_donor_index ?? null;
     }
+
+    await supabase
+      .from('fro_live_status')
+      .upsert({ worker_id: workerId, ...payload }, { onConflict: 'worker_id' });
     return res.json({ message: 'Progress saved' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1718,9 +1814,9 @@ export const getLiveStatuses = async (req, res) => {
     if (!liveStatuses || liveStatuses.length === 0) return res.json([]);
 
     const workerIds = liveStatuses.map(ls => ls.worker_id);
-    const todayStr = new Date().toISOString().slice(0, 10);
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(Date.now() + istOffset);
+    const todayStr = istNow.toISOString().slice(0, 10);
     const todayStart = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 0, 0, 0, 0)).toISOString();
     const todayEnd = new Date(Date.UTC(istNow.getFullYear(), istNow.getMonth(), istNow.getDate(), 23, 59, 59, 999)).toISOString();
 
@@ -1785,7 +1881,7 @@ export const getLiveStatuses = async (req, res) => {
 
     const result = liveStatuses.map(ls => {
       const stats = statsMap[ls.worker_id] || { total: 0, contacted: 0, donation_collected: 0, follow_up: 0 };
-      const dataUsed = stats.contacted + stats.donation_collected + stats.follow_up;
+      const dataUsed = stats.contacted + stats.donation_collected;
       const totalActive = (ls.today_talk_seconds || 0) + (ls.today_idle_seconds || 0);
       const productivity = totalActive > 0 ? Math.round(((ls.today_talk_seconds || 0) / totalActive) * 100) : null;
 
@@ -1850,21 +1946,30 @@ export const searchDonors = async (req, res) => {
 
     const searchTerm = `%${q.trim()}%`;
 
+    const { data: donorIdsFromStation } = await supabase
+      .from('fro_assignments')
+      .select('donor_id')
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
+    const stationDonorIds = [...new Set((donorIdsFromStation || []).map(a => a.donor_id).filter(Boolean))];
+    if (stationDonorIds.length === 0) return res.json([]);
+
     const { data: donors, error } = await supabase
       .from('donor_profiles')
       .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .in('id', stationDonorIds)
       .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
       .limit(20);
 
     if (error) throw error;
     if (!donors || donors.length === 0) return res.json([]);
 
-    const donorIds = donors.map(d => d.id);
+    const matchedIds = donors.map(d => d.id);
 
     const { data: assignments, error: asgnError } = await supabase
       .from('fro_assignments')
       .select('*, ngos!inner(name)')
-      .in('donor_id', donorIds)
+      .in('donor_id', matchedIds)
       .in('station', stationNames)
       .not('status', 'eq', 'reassigned');
     if (asgnError) throw asgnError;
@@ -1909,7 +2014,8 @@ export const searchDonors = async (req, res) => {
 export const getFullDonorHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const donorId = parseInt(req.params.id);
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const ngoId = parseInt(req.query.ngo_id) || null;
     const unlockAll = req.query.unlock_all === 'true';
 

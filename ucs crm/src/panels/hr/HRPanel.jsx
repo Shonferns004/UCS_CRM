@@ -79,7 +79,8 @@ function HRPageShell({ children }) {
   const menuRef = useRef(null)
   const notifRef = useRef(null)
   const pollRef = useRef(null)
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('hr_seen_notifs') || '[]')))
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('hr_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs))
 
   const loadNotifications = () => {
     const uid = user?.id;
@@ -97,7 +98,7 @@ function HRPageShell({ children }) {
           }
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {
@@ -116,7 +117,7 @@ function HRPageShell({ children }) {
   useEffect(() => { if (themes[themeName]) applyTheme(themes[themeName], '.panel-hr'); localStorage.setItem('hr_theme', themeName) }, [themeName])
 
   useEffect(() => {
-    const poll = async () => { try { const r = await fetchTicketCount(); setTicketCount(r?.count ?? 0) } catch {} }
+    const poll = async () => { try { const r = await fetchTicketCount(); setTicketCount(r?.count ?? 0) } catch (e) { console.error('Error:', e.message); } }
     poll(); const id = setInterval(poll, 30000); return () => clearInterval(id)
   }, [])
 

@@ -26,7 +26,7 @@ export default function CallLogs() {
     if (toDate) params.to_date = toDate;
     fetchCallLogs(params)
       .then(setLogs)
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
   };
 

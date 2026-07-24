@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { api } from './auth'
 
 function isWithin24Hours(dateStr) {
   if (!dateStr) return false
@@ -6,42 +7,17 @@ function isWithin24Hours(dateStr) {
 }
 
 export async function getConversations(userId) {
-  let query = supabase
+  const { data, error } = await supabase
     .from('conversations')
     .select('*, contact:contacts(*)')
-
-  const { data: assign } = await supabase
-    .from('agent_phone_assignments')
-    .select('account_id')
-    .eq('user_id', userId)
-
-  if (assign && assign.length > 0) {
-    const ids = assign.map(a => a.account_id)
-    const { data: accts } = await supabase
-      .from('whatsapp_accounts')
-      .select('project')
-      .in('id', ids)
-    if (accts) {
-      const projects = accts.map(a => a.project).filter(Boolean)
-      if (projects.length > 0) {
-        query = query.in('project', projects)
-        query = query.or(`assigned_agent_id.eq.${userId},assigned_agent_id.is.null`)
-      } else {
-        query = query.eq('assigned_agent_id', userId)
-      }
-    }
-  } else {
-    query = query.eq('assigned_agent_id', userId)
-  }
-
-  const { data, error } = await query
+    .eq('assigned_agent_id', userId)
     .order('last_message_at', { ascending: false, nullsFirst: false })
 
   if (error) throw error
 
   const seen = new Map()
   for (const c of data || []) {
-    const key = c.contact_id + '|' + (c.project || '')
+    const key = c.contact_id
     if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
       seen.set(key, c)
     }
@@ -84,10 +60,10 @@ export async function markRead(conversationId) {
   await supabase.from('conversations').update({ unread_count: 0 }).eq('id', conversationId)
 }
 
-export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType) {
+export async function sendMessage(conversationId, contactId, messageText, userId, mediaUrl, mediaType, mediaFile) {
   const { data: conv } = await supabase
     .from('conversations')
-    .select('last_inbound_at')
+    .select('last_inbound_at, last_message_at, project')
     .eq('id', conversationId)
     .maybeSingle()
 
@@ -99,9 +75,22 @@ export async function sendMessage(conversationId, contactId, messageText, userId
 
   if (!contact?.phone_normalized) throw new Error('Contact phone not found')
 
-  const windowOpen = isWithin24Hours(conv?.last_inbound_at)
+  const windowOpen = isWithin24Hours(conv?.last_inbound_at || conv?.last_message_at)
   const isMedia = !!mediaUrl
-  const msgType = isMedia ? (mediaType || 'image') : 'text'
+  const mime = mediaType || ''
+  const msgType = isMedia ? (mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'document') : 'text'
+
+  const isMulti = messageText === '__MULTI__'
+  let extraFiles = null
+  if (isMulti && mediaUrl) {
+    const parts = mediaUrl.includes(',') ? mediaUrl.split(',') : [mediaUrl]
+    const first = parts[0].split('|||')
+    mediaUrl = first[0]
+    extraFiles = parts.slice(1).map(u => {
+      const [url, type, name] = u.split('|||')
+      return { url, type, name }
+    })
+  }
 
   const { data: msg, error: msgErr } = await supabase
     .from('messages')
@@ -111,8 +100,10 @@ export async function sendMessage(conversationId, contactId, messageText, userId
       user_id: userId || null,
       direction: 'outbound',
       message_type: msgType,
-      body_text: isMedia ? '' : messageText,
+      body_text: isMedia && !isMulti ? '' : (isMulti ? '' : messageText),
       media_url: mediaUrl || null,
+      media_mime_type: mediaFile?.type || null,
+      ...(extraFiles ? { template_params: extraFiles } : {}),
       status: 'queued',
     })
     .select()
@@ -130,7 +121,7 @@ export async function sendMessage(conversationId, contactId, messageText, userId
     const ids = assignments.map(a => a.account_id)
     const { data } = await supabase
       .from('whatsapp_accounts')
-      .select('phone_number_id, access_token')
+      .select('phone_number_id, access_token, project')
       .in('id', ids)
     if (data) accounts.push(...data)
   }
@@ -138,56 +129,89 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   if (accounts.length === 0) {
     const { data } = await supabase
       .from('whatsapp_accounts')
-      .select('phone_number_id, access_token')
+      .select('phone_number_id, access_token, project')
     if (data) accounts.push(...data)
   }
 
-  const payloads = []
+  const convProject = conv?.project || ''
+  if (convProject) {
+    const matchIdx = accounts.findIndex(a => a.project === convProject)
+    if (matchIdx > 0) {
+      const match = accounts.splice(matchIdx, 1)[0]
+      accounts.unshift(match)
+    }
+  }
 
-  function mediaPayload() {
+  async function uploadToMeta(accessToken, phoneNumberId) {
+    if (!mediaFile) return null
+    const form = new FormData()
+    form.append('messaging_product', 'whatsapp')
+    form.append('file', mediaFile, mediaFile.name)
+    form.append('type', mediaFile.type)
+    try {
+      const r = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      })
+      const d = await r.json()
+      return d.id || null
+    } catch { return null }
+  }
+
+  function mediaPayload(metaMediaId) {
     const body = { messaging_product: 'whatsapp', to: contact.phone_normalized }
-    if (msgType === 'image') {
-      body.type = 'image'
-      body.image = { link: mediaUrl }
-    } else if (msgType === 'video') {
-      body.type = 'video'
-      body.video = { link: mediaUrl }
-    } else if (msgType === 'audio') {
-      body.type = 'audio'
-      body.audio = { link: mediaUrl }
+    if (metaMediaId) {
+      if (msgType === 'image') {
+        body.type = 'image'; body.image = { id: metaMediaId }
+      } else if (msgType === 'video') {
+        body.type = 'video'; body.video = { id: metaMediaId }
+      } else if (msgType === 'audio') {
+        body.type = 'audio'; body.audio = { id: metaMediaId }
+      } else {
+        body.type = 'document'; body.document = { id: metaMediaId, caption: messageText || '' }
+      }
     } else {
-      body.type = 'document'
-      body.document = { link: mediaUrl, caption: messageText || '' }
+      if (msgType === 'image') {
+        body.type = 'image'; body.image = { link: mediaUrl }
+      } else if (msgType === 'video') {
+        body.type = 'video'; body.video = { link: mediaUrl }
+      } else if (msgType === 'audio') {
+        body.type = 'audio'; body.audio = { link: mediaUrl }
+      } else {
+        body.type = 'document'; body.document = { link: mediaUrl, caption: messageText || '' }
+      }
     }
     return body
   }
 
-  if (!windowOpen) {
-    payloads.push({
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-      type: 'template',
-      template: { name: 'hello_world', language: { code: 'en_US' } },
-    })
-    payloads.push(isMedia ? mediaPayload() : {
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-      type: 'text',
-      text: { body: messageText },
-    })
-  } else {
-    payloads.push(isMedia ? mediaPayload() : {
-      messaging_product: 'whatsapp',
-      to: contact.phone_normalized,
-      type: 'text',
-      text: { body: messageText },
-    })
-  }
-
   const metaApi = 'https://graph.facebook.com/v23.0'
 
+  let metaMediaId = null
+  if (isMedia && mediaFile && accounts.length > 0) {
+    metaMediaId = await uploadToMeta(accounts[0].access_token, accounts[0].phone_number_id)
+  }
+
   for (const acct of accounts) {
-    for (const payload of payloads) {
+    const buildPayloads = () => {
+      const list = []
+      if (!windowOpen) {
+        list.push({
+          messaging_product: 'whatsapp',
+          to: contact.phone_normalized,
+          type: 'template',
+          template: { name: 'hello_world', language: { code: 'en_US' } },
+        })
+      }
+      list.push(isMedia ? mediaPayload(metaMediaId) : {
+        messaging_product: 'whatsapp',
+        to: contact.phone_normalized,
+        type: 'text',
+        text: { body: messageText },
+      })
+      return list
+    }
+    for (const payload of buildPayloads()) {
       try {
         const res = await fetch(`${metaApi}/${acct.phone_number_id}/messages`, {
           method: 'POST',
@@ -199,13 +223,15 @@ export async function sendMessage(conversationId, contactId, messageText, userId
         })
         const result = await res.json()
         if (res.ok && result.messages?.[0]?.id) {
+          const updates = {
+            status: 'sent',
+            wa_message_id: result.messages[0].id,
+            status_updated_at: new Date().toISOString(),
+          }
+          if (metaMediaId) updates.media_id = metaMediaId
           await supabase
             .from('messages')
-            .update({
-              status: 'sent',
-              wa_message_id: result.messages[0].id,
-              status_updated_at: new Date().toISOString(),
-            })
+            .update(updates)
             .eq('id', msg.id)
           await supabase
             .from('conversations')
@@ -228,7 +254,7 @@ export async function sendMessage(conversationId, contactId, messageText, userId
   throw new Error('Failed to send message')
 }
 
-export async function sendDirectMessage(userId, phone, messageText) {
+export async function sendDirectMessage(userId, phone, messageText, project) {
   const phoneNormalized = String(phone).replace(/[^0-9]/g, '')
 
   let { data: contact } = await supabase
@@ -262,6 +288,7 @@ export async function sendDirectMessage(userId, phone, messageText) {
         contact_id: contact.id,
         status: 'open',
         assigned_agent_id: userId,
+        project: project || null,
         last_message_at: new Date().toISOString(),
       })
       .select('*, contact:contacts(*)')
@@ -435,29 +462,13 @@ export async function updateLabels(conversationId, labels) {
 }
 
 export async function uploadMedia(userId, file) {
-  const fileName = `fro_${userId}_${Date.now()}_${file.name}`
-  const bucket = 'whatsapp-media'
-
-  const { error: uploadError } = await supabase.storage
-    .from(bucket)
-    .upload(fileName, file, { contentType: file.type, upsert: false })
-
-  if (uploadError) throw uploadError
-
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName)
-
-  const { data: record, error } = await supabase
-    .from('media_library')
-    .insert({
-      name: file.name,
-      file_url: urlData.publicUrl,
-      file_type: file.type,
-      file_size: file.size,
-      uploaded_by: userId,
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/upload', {
+      method: 'POST', body: formData,
     })
-    .select()
-    .single()
-
-  if (error) throw error
-  return record
+    if (res.ok) return res.json()
+  } catch (e) { console.error('Error:', e.message); }
+  return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
 }

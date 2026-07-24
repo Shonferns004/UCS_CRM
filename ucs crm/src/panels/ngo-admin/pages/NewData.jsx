@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../api/auth'
 import { api } from '../../../api/auth'
+import { toast } from '../../../components/Toast'
 import * as XLSX from 'xlsx'
 
 const PAGE_SIZES = [100, 500, 1000]
@@ -33,7 +34,7 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoId }) {
       const res = await apiPost('/ngo-admin/new-data/distribute', body)
       onDistribute(res)
     } catch (err) {
-      alert(err.message)
+      toast(err.message, 'error')
     } finally {
       setLoading(false)
     }
@@ -196,6 +197,8 @@ const NGO_COLORS = {
   mann: '#ec4899',
 };
 
+const NGO_TABS = ['BSCT', 'AFLF', 'MANN'];
+
 export default function NewData() {
   const [tab, setTab] = useState('new')
   const [donors, setDonors] = useState([])
@@ -204,14 +207,20 @@ export default function NewData() {
   const [result, setResult] = useState(null)
   const [showStationSelect, setShowStationSelect] = useState(false)
   const [stations, setStations] = useState([])
-  const [selectedNgoId, setSelectedNgoId] = useState('all')
+  const [selectedNgoId, setSelectedNgoId] = useState(null)
   const [accessibleNgos, setAccessibleNgos] = useState([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [perPage, setPerPage] = useState(500)
+  const [showDistributeConfirm, setShowDistributeConfirm] = useState(false)
+  const [distributeConfirmed, setDistributeConfirmed] = useState(false)
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(list => {
+      setAccessibleNgos(list);
+      const ngo = (list || []).find(n => NGO_TABS.includes(n.name));
+      if (ngo) setSelectedNgoId(ngo.id);
+    }).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -231,18 +240,23 @@ export default function NewData() {
       setDonors(Array.isArray(d) ? d : d?.unassigned || [])
       setTotal(d?.total || 0)
       setStations(Array.isArray(s) ? s : [])
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false))
   }
 
   useEffect(() => { setPage(1) }, [selectedNgoId])
   useEffect(load, [selectedNgoId, page, perPage])
 
-  useEffect(() => { if (tab === 'new') load() }, [tab])
+  useEffect(() => { if (tab === 'new') { setPage(1); load() } }, [tab])
 
   const handleDistributeAll = async () => {
     const count = total
     if (count === 0) return
-    if (!confirm(`Distribute ${count} donor(s) equally among all stations?`)) return
+    setDistributeConfirmed(false)
+    setShowDistributeConfirm(true)
+  }
+
+  const executeDistributeAll = async () => {
+    setShowDistributeConfirm(false)
     setDistributing(true)
     setResult(null)
     try {
@@ -252,7 +266,7 @@ export default function NewData() {
       setResult(res)
       load()
     } catch (err) {
-      alert(err.message)
+      toast(err.message, 'error')
     } finally {
       setDistributing(false)
     }
@@ -261,13 +275,18 @@ export default function NewData() {
   return (
     <div>
       <div className="filter-bar">
-        <span style={{fontSize:13, fontWeight:600, color:'var(--ink-soft)'}}>NGO:</span>
-        <select value={selectedNgoId} onChange={e => setSelectedNgoId(e.target.value)}>
-          <option value="all">All NGOs</option>
-          {accessibleNgos.map(ngo => (
-            <option key={ngo.id} value={ngo.id}>{ngo.name}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
+          {NGO_TABS.map(name => {
+            const ngo = accessibleNgos.find(n => n.name === name);
+            const active = ngo && selectedNgoId === ngo.id;
+            return (
+              <button key={name} onClick={() => ngo && setSelectedNgoId(ngo.id)}
+                style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)' }}>
+                {name}
+              </button>
+            );
+          })}
+        </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2 }}>
           <button onClick={() => setTab('new')} style={{ padding: '5px 14px', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: tab === 'new' ? 'var(--sage)' : 'transparent', color: tab === 'new' ? '#fff' : 'var(--ink-soft)' }}>
             New Data
@@ -382,6 +401,45 @@ export default function NewData() {
               onDistribute={(res) => { setShowStationSelect(false); setResult(res); load() }}
               ngoId={selectedNgoId}
             />
+          )}
+
+          {showDistributeConfirm && (
+            <div className="modal-overlay" onClick={() => setShowDistributeConfirm(false)}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+                <div className="modal-head">
+                  <h3>Confirm Distribution</h3>
+                  <button className="btn btn-sm btn-outline" onClick={() => setShowDistributeConfirm(false)}>✕</button>
+                </div>
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span style={{ color: 'var(--ink-soft)' }}>Donors to distribute:</span>
+                      <strong>{Number(total).toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span style={{ color: 'var(--ink-soft)' }}>NGO:</span>
+                      <strong>{accessibleNgos.find(n => n.id === selectedNgoId)?.name || '—'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span style={{ color: 'var(--ink-soft)' }}>Stations:</span>
+                      <strong>{stations.length}</strong>
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, padding: '8px 12px', borderRadius: 6, background: distributeConfirmed ? '#f0fdf4' : '#f9fafb', border: `1px solid ${distributeConfirmed ? '#86efac' : 'var(--line)'}`, transition: 'all .15s' }}>
+                    <input type="checkbox" checked={distributeConfirmed} onChange={e => setDistributeConfirmed(e.target.checked)} />
+                    <span>I confirm I want to distribute this data to <strong>all stations</strong></span>
+                  </label>
+
+                  <div className="modal-actions">
+                    <button className="btn btn-outline" onClick={() => setShowDistributeConfirm(false)}>Cancel</button>
+                    <button className="btn btn-primary" onClick={executeDistributeAll} disabled={!distributeConfirmed}>
+                      Proceed
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}

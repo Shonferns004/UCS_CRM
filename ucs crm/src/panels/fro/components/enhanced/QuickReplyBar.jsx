@@ -18,7 +18,7 @@ export default function QuickReplyBar({ onSend }) {
   useEffect(() => {
     getQuickReplies()
       .then(data => setReplies(data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false))
   }, [])
 
@@ -27,7 +27,7 @@ export default function QuickReplyBar({ onSend }) {
     setSendingId(reply.id)
     try {
       await onSend(reply.message_text)
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
     setSendingId(null)
   }
 
