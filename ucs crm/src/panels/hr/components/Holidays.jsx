@@ -18,6 +18,7 @@ export default function Holidays() {
   const today = new Date();
   const [selectedDay, setSelectedDay] = useState(today.getDate());
   const [showForm, setShowForm] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +162,7 @@ export default function Holidays() {
                     </div>
                   </div>
                   {e.kind !== 'birthday' && (
-                    <button className="btn btn-icon" onClick={() => { removeHoliday(e.id); fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); }); }} title="Remove">
+                    <button className="btn btn-icon" onClick={() => setConfirmDelete(e)} title="Remove">
                       <Trash width={13} />
                     </button>
                   )}
@@ -199,6 +200,50 @@ export default function Holidays() {
           )}
         </div>
       </div>
+
+      {confirmDelete && (
+        <div onClick={() => setConfirmDelete(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100, padding: '20px'
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#FFFFFF', width: '100%', maxWidth: '400px',
+            borderRadius: '16px', boxShadow: '0 25px 60px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.08)',
+            overflow: 'hidden'
+          }}>
+            <div style={{ padding: '28px 28px 20px', textAlign: 'center' }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '50%', background: '#FEE2E2',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}>
+                <Trash width={22} />
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: 700, color: '#111827' }}>
+                Delete {confirmDelete.kind === 'event' ? 'Event' : 'Holiday'}?
+              </h3>
+              <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', lineHeight: 1.5 }}>
+                Are you sure you want to delete <strong style={{ color: '#111827' }}>"{confirmDelete.name}"</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div style={{
+              padding: '16px 28px 24px', display: 'flex', gap: '10px', justifyContent: 'center'
+            }}>
+              <button onClick={() => setConfirmDelete(null)} style={{
+                padding: '10px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
+                background: '#FFFFFF', color: '#111827', border: '1px solid #E5E7EB',
+                cursor: 'pointer', flex: 1
+              }}>Cancel</button>
+              <button onClick={() => { removeHoliday(confirmDelete.id); setConfirmDelete(null); fetchHolidays().then(setHolidays).catch(() => {}); }} style={{
+                padding: '10px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
+                background: '#EF4444', color: '#FFFFFF', border: 'none',
+                cursor: 'pointer', flex: 1
+              }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

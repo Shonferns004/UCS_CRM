@@ -153,7 +153,7 @@ function HRPageShell({ children }) {
             <h2>{meta?.label || 'Dashboard'}</h2>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <NavLink to="/hr/tickets" className="btn btn-icon" style={{position:'relative'}} title="Pending Tickets">
+            <NavLink to="/hr/tickets" className="btn btn-icon" style={{position:'relative', display:'none'}} title="Pending Tickets">
               <Bell size={19} />
               {ticketCount > 0 && <span className="badge badge-pending2" style={{position:'absolute',top:-6,right:-6,fontSize:10,padding:'1px 5px',lineHeight:'16px',minWidth:18,textAlign:'center'}}>{ticketCount > 99 ? '99+' : ticketCount}</span>}
             </NavLink>
