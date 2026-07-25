@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, unwrapDonors } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -91,7 +91,6 @@ const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).jo
 export default function MyDonors() {
   const navigate = useNavigate()
   const [donors, setDonors] = useState([]);
-  const [totalDonors, setTotalDonors] = useState(0);
   const [dataTab, setDataTab] = useState('new');
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
@@ -136,7 +135,7 @@ export default function MyDonors() {
   const stationsFetchedRef = useRef(false);
   const [stations, setStations] = useState([]);
   const [selectedStation, setSelectedStation] = useState('all');
-  const { isOnCall, activeCall, startCall, endCall, todayStats, elapsed, startDonorView, endDonorView } = useCall();
+  const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
     let cancelled = false;
@@ -150,9 +149,7 @@ export default function MyDonors() {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
-        const { donors: donorList, total } = unwrapDonors(r);
-        setDonors(donorList);
-        setTotalDonors(total);
+        setDonors(r);
         setMessage(null);
         let restored = false;
 
@@ -160,10 +157,10 @@ export default function MyDonors() {
         if (savedSnapshot) {
           const { id, idx } = savedSnapshot;
           if (id) {
-            const found = donorList.findIndex(d => d.id === id);
+            const found = r.findIndex(d => d.id === id);
             if (found >= 0) { setIndex(found); restored = true; }
           }
-          if (!restored && typeof idx === 'number' && idx < donorList.length) {
+          if (!restored && typeof idx === 'number' && idx < r.length) {
             setIndex(idx); restored = true;
           }
         }
@@ -176,12 +173,12 @@ export default function MyDonors() {
             if (progressStation === (selectedStation !== 'all' ? selectedStation : 'all')) {
               const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
               if (savedId) {
-                const found = donorList.findIndex(d => d.id === savedId);
+                const found = r.findIndex(d => d.id === savedId);
                 if (found >= 0) { setIndex(found); restored = true; }
               }
               if (!restored) {
                 const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
-                if (savedIndex != null && savedIndex < donorList.length) {
+                if (savedIndex != null && savedIndex < r.length) {
                   setIndex(savedIndex); restored = true;
                 }
                 }
@@ -248,11 +245,7 @@ export default function MyDonors() {
   };
 
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
-      const { donors: dl, total } = unwrapDonors(r);
-      setDonors(dl);
-      setTotalDonors(total);
-    }).catch((err) => { console.error('API error:', err.message); });
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation]);
 
   const debouncedReload = useCallback(() => {
@@ -454,10 +447,8 @@ export default function MyDonors() {
       if (selected) endCall();
 
       if (returnToDonor) {
-        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-        const { donors: newDonors, total: newTotal } = unwrapDonors(refreshed);
+        const newDonors = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
         setDonors(newDonors);
-        setTotalDonors(newTotal);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
           setIndex(returnIdx);
@@ -675,7 +666,7 @@ export default function MyDonors() {
             <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div className="detail-avatar">{initials(donor.donor_name)}</div>
               <div className="detail-name">{donor.donor_name}</div>
-              <div className="fro-donor-position">#{index + 1} of {totalDonors}{donors.length < totalDonors ? ` (showing ${donors.length})` : ''}</div>
+              <div className="fro-donor-position">#{index + 1} of {donors.length}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                   {donor.is_new && (
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
@@ -704,7 +695,7 @@ export default function MyDonors() {
                     </div>
                     <div style={{ flex: 1, textAlign: 'left' }}>
                       <div style={{ fontSize: 10, color: '#991b1b', fontWeight: 500 }}>On Call</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{callFmt(elapsed || 0)}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{callFmt(todayStats?.totalSeconds || 0)}</div>
                     </div>
                   </button>
                 ) : (

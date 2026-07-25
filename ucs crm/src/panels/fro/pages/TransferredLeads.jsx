@@ -16,7 +16,6 @@ const PROJECTS = [
 
 const CONNECTED = [
   { id: 'lead_done', label: 'Lead Done' }, { id: 'scheduled', label: 'Schedule' },
-  { id: 'callback', label: 'Callback' },
   { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
   { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
   { id: 'not_interested_now', label: 'Not Interested Now' }, { id: 'language_barrier', label: 'Language Barrier' },
@@ -163,7 +162,7 @@ export default function TransferredLeads() {
             setTransactionDatetime(dt.toISOString().slice(0, 16));
           }
         }
-        if (amount) setLeadAmount(prev => prev || amount);
+        if (amount && !leadAmount) setLeadAmount(amount);
         if (fromName) setOcrFromName(fromName);
       } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);

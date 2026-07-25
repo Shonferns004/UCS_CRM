@@ -66,8 +66,6 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [transactionDatetime, setTransactionDatetime] = useState('');
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrFromName, setOcrFromName] = useState('');
-  const [leadRemark, setLeadRemark] = useState('');
-  const [showRemark, setShowRemark] = useState(false);
   const isOverdue = origScheduledAt && new Date(origScheduledAt) < new Date();
   const { startCall, endCall } = useCall();
 
@@ -85,7 +83,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   useEffect(() => {
     startCall({ id: donorId, donorName, donorMobile })
     return () => endCall()
-  }, [donorId, donorName, donorMobile, startCall, endCall]);
+  }, []);
 
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
@@ -109,7 +107,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
             setTransactionDatetime(dt.toISOString().slice(0, 16));
           }
         }
-        if (amount) setLeadAmount(prev => prev || amount);
+        if (amount && !leadAmount) setLeadAmount(amount);
         if (fromName) setOcrFromName(fromName);
       } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
@@ -147,7 +145,6 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         logPayload.donor_dob = leadDob || null;
         logPayload.project_name = projectName || null;
         logPayload.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
-        logPayload.remark = leadRemark || null;
         logPayload.upi_transaction_id = upiTransactionId || null;
         logPayload.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
@@ -193,8 +190,6 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       setTransactionDatetime('');
       setOcrFromName('');
       setOcrLoading(false);
-      setLeadRemark('');
-      setShowRemark(false);
     }
   };
 

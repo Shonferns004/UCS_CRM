@@ -442,10 +442,8 @@ export default function StationManagement() {
     const s = stations.find(st => st.station === station);
     if (!s) return;
     try {
-      const ngoId = s.ngos?.[0]?.ngo_id || null;
-      if (!ngoId && !froWorkerId) return;
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, {
-        ...(ngoId ? { ngo_id: ngoId } : {}),
+        ngo_id: s.ngos[0]?.ngo_id || null,
         fro_worker_id: froWorkerId,
       });
       fetchData();
@@ -695,7 +693,7 @@ export default function StationManagement() {
                           const w = froWorkers.find(fw => fw.id === s.fro_worker_id);
                           if (!w) return null;
                           const t = targets.find(tg => tg.id === w.id);
-                          if (!t || Number(t?.months_employed) >= 3) {
+                          if (!t || t?.months_employed >= 3) {
                             return (
                               <button className="btn btn-sm btn-outline" onClick={() => { setEditTarget(w); setTargetAmount(String(t?.target || '')); }}>
                                 {t?.target_source === 'manual' ? 'Edit' : 'Set'}
@@ -847,7 +845,7 @@ export default function StationManagement() {
                     await apiPost('/ngo-admin/incentive', {
                       fro_worker_id: editIncentive.id,
                       month,
-                      incentive_amount: null,
+                      incentive_amount: '',
                     });
                     setEditIncentive(null);
                     loadTargets();

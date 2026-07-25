@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getDonorDetail, getFullDonorHistory, unwrapDonors } from '../api/donors';
+import { getMyDonors, getDonorDetail, getFullDonorHistory } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 
 const PERIOD_FILTERS = [
@@ -42,7 +42,7 @@ export default function Donors() {
     if (filter === 'active') opts.activeOnly = true;
     else if (filter === 'inactive') opts.inactiveOnly = true;
     getMyDonors(null, null, opts)
-      .then(data => { if (mounted) { const { donors } = unwrapDonors(data); setDonors(donors); } })
+      .then(data => { if (mounted) setDonors(data); })
       .catch((err) => { console.error('API error:', err.message); if (mounted) setDonors([]); })
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
