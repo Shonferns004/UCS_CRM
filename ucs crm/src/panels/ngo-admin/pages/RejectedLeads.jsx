@@ -12,7 +12,7 @@ export default function RejectedLeads() {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
+    apiGet('/ngo-admin/ngos').then(data => setAccessibleNgos(Array.isArray(data) ? data : [])).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const load = (showLoading = true) => {
@@ -32,8 +32,8 @@ export default function RejectedLeads() {
 
   const ack = async (id) => {
     try {
-      await apiPut(`/ngo-admin/rejected-leads/${id}/acknowledge`);
-      setTickets(prev => prev.map(t => t.id === id ? { ...t, status: 'acknowledged' } : t));
+      const updated = await apiPut(`/ngo-admin/rejected-leads/${id}/acknowledge`);
+      setTickets(prev => prev.map(t => t.id === id ? { ...t, ...updated, status: 'acknowledged' } : t));
     } catch (err) { toast(err.message, 'error'); }
   };
 

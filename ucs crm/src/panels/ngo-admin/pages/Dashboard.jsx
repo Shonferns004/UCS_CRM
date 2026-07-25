@@ -296,7 +296,7 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
   const displayAmount = isVerification
     ? (period === 'month' ? (monthAmount || 0) : (todayAmount || 0))
     : (totalAmount || 0);
-  const totalLeads = rows.reduce((s, r) => s + (r.count || 0), 0);
+  const totalLeads = isVerification ? rows.reduce((s, r) => s + (r.count || 0), 0) : 0;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -481,14 +481,17 @@ export default function Dashboard() {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
-    const dateParam = stationDateFrom || stationDateTo
-      ? `${ngoParam ? '&' : '?'}from=${stationDateFrom}&to=${stationDateTo}`
-      : '';
+    const params = new URLSearchParams();
+    if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
+    if (stationDateFrom) params.set('from', stationDateFrom);
+    if (stationDateTo) params.set('to', stationDateTo);
+    const qs = params.toString();
+    const ngoDashPath = `/ngo-admin/dashboard${qs ? '?' + qs : ''}`;
+    const stationPath = `/ngo-admin/dashboard/station-stats${qs ? '?' + qs : ''}`;
     const opts = { signal: controller.signal, timeout: 180000 };
     Promise.all([
-      apiGet(`/ngo-admin/dashboard${ngoParam}`, opts),
-      apiGet(`/ngo-admin/dashboard/station-stats${ngoParam}${dateParam}`, opts),
+      apiGet(ngoDashPath, opts),
+      apiGet(stationPath, opts),
       apiGet('/ngo-admin/stations', opts),
     ])
       .then(([d, s, st]) => {

@@ -124,7 +124,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             setTransactionDatetime(dt.toISOString().slice(0, 16));
           }
         }
-        if (amount && !paymentAmount) setPaymentAmount(amount);
+        if (amount) setPaymentAmount(prev => prev || amount);
         if (fromName) setOcrFromName(fromName);
       } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
@@ -167,7 +167,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
 
       const logData = {
         action: 'disposition',
-        disposition_category: category,
+        disposition_category: isConnected(selected) ? 'connected' : 'not_connected',
         disposition_detail: selected,
         notes: notes || null,
       };
