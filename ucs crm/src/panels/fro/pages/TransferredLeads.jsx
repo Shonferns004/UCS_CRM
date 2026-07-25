@@ -198,6 +198,10 @@ export default function TransferredLeads() {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && !scheduledAt) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
+    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
+    if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
+    if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
 
     setSaving(true); setMessage(null);
     try {
