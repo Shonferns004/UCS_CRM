@@ -25,6 +25,7 @@ import Tickets from './components/Tickets'
 import PhoneNumbers from './components/PhoneNumbers'
 import SettingsPage from './components/Settings'
 import { fetchTicketCount } from './store'
+import ToastContainer from '../../components/Toast'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
@@ -138,6 +139,7 @@ function HRPageShell({ children }) {
 
   return (
     <div className="app">
+      <ToastContainer />
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
       <div className="main">
         <div className="mobile-top">
