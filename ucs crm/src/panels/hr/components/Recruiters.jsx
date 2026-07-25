@@ -217,7 +217,6 @@ export default function Recruiters() {
               <Dropdown className="filter-select" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{ width: '100%', maxWidth: 130 }}
                 options={[{value:'',label:'All sources'}, ...SOURCES.map(s => ({value:s, label:s}))]} />
               <input className="filter-select" placeholder="Search name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
-              <button className="btn btn-primary" onClick={() => openForm(null)}><Plus width={16} /> Add Lead</button>
             </div>
           </div>
           <div className="table-wrap">

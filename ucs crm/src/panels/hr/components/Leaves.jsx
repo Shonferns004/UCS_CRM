@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useHR } from '../store';
 import { Pill } from './ui';
 import { Check, X } from '../icons';
+import { toast } from '../../../components/Toast';
 
 export default function Leaves() {
   const { fetchLeaves, decideLeave } = useHR();
@@ -18,10 +19,11 @@ export default function Leaves() {
   const handleDecide = async (id, status) => {
     try {
       await decideLeave(id, status);
-
+      const msg = status === 'Approved' ? 'approved' : status === 'Cancelled' ? 'cancelled' : 'rejected';
+      toast(`Leave request ${msg}`, 'success');
       fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
     } catch (e) {
-      alert(e.message || 'Something went wrong');
+      toast(e.message || 'Something went wrong', 'error');
     }
   };
 
@@ -46,6 +48,10 @@ export default function Leaves() {
           <span className="sub">
             {leaves.filter(l => l.status === 'pending').length} pending
           </span>
+          <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()} style={{ marginLeft: 'auto' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
+            Reload
+          </button>
         </div>
 
         <table>
@@ -56,45 +62,25 @@ export default function Leaves() {
               <th>Days</th>
               <th>Starts</th>
               <th>Status</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
             {leaves.map(l => (
-              <tr key={l.id}>
+              <tr key={l.id} onClick={() => openLeaveDetail(l)} style={{ cursor: 'pointer' }}>
                 <td style={{ fontWeight: 500 }}>
-                  <a 
-                    href="#" 
-                    className="worker-link" 
-                    onClick={(e) => { e.preventDefault(); openLeaveDetail(l); }}
-                    style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--primary)' }}
-                  >
-                    {l.workers?.name || l.name || 'Unknown'}
-                  </a>
+                  {l.workers?.name || l.name || 'Unknown'}
                 </td>
                 <td>{l.type?.replace('_', ' ')}</td>
                 <td>{l.days}</td>
                 <td style={{ color: 'var(--ink-soft)' }}>{fmtDate(l.leave_date || l.start_date)}</td>
                 <td><Pill 
-                  label={l.status === 'approved' ? 'Approved' : l.status === 'rejected' ? 'Rejected' : 'Pending'} 
-                  color={l.status === 'approved' ? 'green' : l.status === 'rejected' ? 'red' : 'yellow'} 
+                  label={l.status === 'approved' ? 'Approved' : (l.status === 'rejected' && l.admin_remark === 'Cancelled') ? 'Cancelled' : l.status === 'rejected' ? 'Rejected' : 'Pending'} 
+                  color={l.status === 'approved' ? 'green' : (l.status === 'rejected' && l.admin_remark === 'Cancelled') ? 'grey' : l.status === 'rejected' ? 'red' : 'yellow'} 
                 /></td>
-                <td style={{ textAlign: 'right' }}>
-                  {l.status === 'pending' && (
-                    <span style={{ display: 'inline-flex', gap: 6 }}>
-                      <button className="btn btn-sm" onClick={() => handleDecide(l.id, 'Approved')}>
-                        <Check width={14} /> Approve
-                      </button>
-                      <button className="btn btn-sm" onClick={() => handleDecide(l.id, 'Rejected')}>
-                        <X width={14} />
-                      </button>
-                    </span>
-                  )}
-                </td>
               </tr>
             ))}
             {!leaves.length && (
-              <tr><td colSpan={6}><div className="empty">No leave requests.</div></td></tr>
+              <tr><td colSpan={5}><div className="empty">No leave requests.</div></td></tr>
             )}
           </tbody>
         </table>
@@ -116,55 +102,70 @@ export default function Leaves() {
             style={{
               background: '#FFFFFF',
               width: '100%',
-              maxWidth: '680px',
-              borderRadius: '20px',
+              maxWidth: '420px',
+              borderRadius: '16px',
               boxShadow: '0 25px 60px rgba(0,0,0,0.12), 0 4px 20px rgba(0,0,0,0.06)',
-              overflow: 'hidden'
+              overflow: 'hidden',
             }}
           >
             {/* ── Header ── */}
             <div style={{ 
-              padding: '28px 32px 24px', 
+              padding: '16px 20px 12px', 
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center'
             }}>
               <h2 style={{ 
-                margin: 0, fontSize: '24px', fontWeight: 700, color: '#111827',
+                margin: 0, fontSize: '16px', fontWeight: 700, color: '#111827',
                 fontFamily: "'Inter', sans-serif"
               }}>
                 Leave Review
               </h2>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center',
-                padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: 600,
-                background: selectedLeave.status === 'approved' ? '#DCFCE7' 
-                  : selectedLeave.status === 'rejected' ? '#FEE2E2' 
-                  : '#FEF9C3',
-                color: selectedLeave.status === 'approved' ? '#16A34A' 
-                  : selectedLeave.status === 'rejected' ? '#EF4444' 
-                  : '#CA8A04',
-                fontFamily: "'Inter', sans-serif"
-              }}>
-                {selectedLeave.status === 'approved' ? 'Approved' 
-                  : selectedLeave.status === 'rejected' ? 'Rejected' 
-                  : 'Pending'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
+                  background: selectedLeave.status === 'approved' ? '#DCFCE7' 
+                    : (selectedLeave.status === 'rejected' && selectedLeave.admin_remark === 'Cancelled') ? '#F3F4F6'
+                    : selectedLeave.status === 'rejected' ? '#FEE2E2' 
+                    : '#FEF9C3',
+                  color: selectedLeave.status === 'approved' ? '#16A34A' 
+                    : (selectedLeave.status === 'rejected' && selectedLeave.admin_remark === 'Cancelled') ? '#6B7280'
+                    : selectedLeave.status === 'rejected' ? '#EF4444' 
+                    : '#CA8A04',
+                  fontFamily: "'Inter', sans-serif"
+                }}>
+                  {selectedLeave.status === 'approved' ? 'Approved' 
+                    : (selectedLeave.status === 'rejected' && selectedLeave.admin_remark === 'Cancelled') ? 'Cancelled'
+                    : selectedLeave.status === 'rejected' ? 'Rejected' 
+                    : 'Pending'}
+                </span>
+                <button 
+                  onClick={() => setSelectedLeave(null)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: '18px', color: '#6B7280', padding: '2px 6px',
+                    lineHeight: 1, borderRadius: '6px'
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
             </div>
 
             {/* ── Information Section ── */}
-            <div style={{ padding: '0 32px 24px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div style={{ padding: '0 20px 12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <div style={{ 
-                    fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px',
+                    fontSize: '10px', fontWeight: 600, color: '#6B7280', 
+                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     Worker
                   </div>
                   <div style={{ 
-                    fontSize: '20px', fontWeight: 700, color: '#111827',
+                    fontSize: '14px', fontWeight: 700, color: '#111827',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     {selectedLeave.workers?.name || selectedLeave.name || 'Unknown'}
@@ -172,14 +173,14 @@ export default function Leaves() {
                 </div>
                 <div>
                   <div style={{ 
-                    fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px',
+                    fontSize: '10px', fontWeight: 600, color: '#6B7280', 
+                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     Leave Type
                   </div>
                   <div style={{ 
-                    fontSize: '20px', fontWeight: 700, color: '#111827', textTransform: 'capitalize',
+                    fontSize: '14px', fontWeight: 700, color: '#111827', textTransform: 'capitalize',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     {selectedLeave.type?.replace('_', ' ') || 'Half Day'}
@@ -187,14 +188,14 @@ export default function Leaves() {
                 </div>
                 <div>
                   <div style={{ 
-                    fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px',
+                    fontSize: '10px', fontWeight: 600, color: '#6B7280', 
+                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     Total Days
                   </div>
                   <div style={{ 
-                    fontSize: '20px', fontWeight: 700, color: '#111827',
+                    fontSize: '14px', fontWeight: 700, color: '#111827',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     {selectedLeave.days || 1}
@@ -202,14 +203,14 @@ export default function Leaves() {
                 </div>
                 <div>
                   <div style={{ 
-                    fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '6px',
+                    fontSize: '10px', fontWeight: 600, color: '#6B7280', 
+                    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     Applied On
                   </div>
                   <div style={{ 
-                    fontSize: '20px', fontWeight: 700, color: '#111827',
+                    fontSize: '14px', fontWeight: 700, color: '#111827',
                     fontFamily: "'Inter', sans-serif"
                   }}>
                     {fmtDate(selectedLeave.created_at?.split('T')[0] || selectedLeave.leave_date || selectedLeave.start_date)}
@@ -219,70 +220,57 @@ export default function Leaves() {
             </div>
 
             {/* ── Time Details Card ── */}
-            <div style={{ padding: '0 32px 24px' }}>
-              <div style={{
-                background: '#F5F7FA', borderRadius: '16px', padding: '20px'
-              }}>
-                <div style={{ 
-                  fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                  textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '14px',
-                  fontFamily: "'Inter', sans-serif"
+            <div style={{ padding: '0 20px 10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div style={{
+                  background: '#F5F7FA', borderRadius: '10px', padding: '10px', textAlign: 'center'
                 }}>
-                  Time Details
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div style={{
-                    background: '#FFFFFF', borderRadius: '12px', 
-                    border: '1px solid #E5E7EB', padding: '20px', textAlign: 'center'
+                  <div style={{ 
+                    fontSize: '9px', fontWeight: 600, color: '#6B7280', 
+                    textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px',
+                    fontFamily: "'Inter', sans-serif"
                   }}>
-                    <div style={{ 
-                      fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                      textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px',
-                      fontFamily: "'Inter', sans-serif"
-                    }}>
-                      Start Date
-                    </div>
-                    <div style={{ 
-                      fontSize: '20px', fontWeight: 700, color: '#EF4444',
-                      fontFamily: "'Inter', sans-serif"
-                    }}>
-                      {fmtDate(selectedLeave.leave_date || selectedLeave.start_date)}
-                    </div>
+                    Start Date
                   </div>
-                  <div style={{
-                    background: '#FFFFFF', borderRadius: '12px', 
-                    border: '1px solid #E5E7EB', padding: '20px', textAlign: 'center'
+                  <div style={{ 
+                    fontSize: '14px', fontWeight: 700, color: '#EF4444',
+                    fontFamily: "'Inter', sans-serif"
                   }}>
-                    <div style={{ 
-                      fontSize: '11px', fontWeight: 600, color: '#6B7280', 
-                      textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px',
-                      fontFamily: "'Inter', sans-serif"
-                    }}>
-                      End Date
-                    </div>
-                    <div style={{ 
-                      fontSize: '20px', fontWeight: 700, color: '#16A34A',
-                      fontFamily: "'Inter', sans-serif"
-                    }}>
-                      {fmtDate(selectedLeave.end_date || selectedLeave.leave_date || selectedLeave.start_date)}
-                    </div>
+                    {fmtDate(selectedLeave.leave_date || selectedLeave.start_date)}
+                  </div>
+                </div>
+                <div style={{
+                  background: '#F5F7FA', borderRadius: '10px', padding: '10px', textAlign: 'center'
+                }}>
+                  <div style={{ 
+                    fontSize: '9px', fontWeight: 600, color: '#6B7280', 
+                    textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px',
+                    fontFamily: "'Inter', sans-serif"
+                  }}>
+                    End Date
+                  </div>
+                  <div style={{ 
+                    fontSize: '14px', fontWeight: 700, color: '#16A34A',
+                    fontFamily: "'Inter', sans-serif"
+                  }}>
+                    {fmtDate(selectedLeave.end_date || selectedLeave.leave_date || selectedLeave.start_date)}
                   </div>
                 </div>
               </div>
             </div>
 
             {/* ── Reason Section ── */}
-            <div style={{ padding: '0 32px 20px' }}>
+            <div style={{ padding: '0 20px 8px' }}>
               <div style={{ 
-                fontSize: '12px', fontWeight: 600, color: '#6B7280', 
-                textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '8px',
+                fontSize: '10px', fontWeight: 600, color: '#6B7280', 
+                textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px',
                 fontFamily: "'Inter', sans-serif"
               }}>
                 Reason
               </div>
               <div style={{
-                background: '#F5F7FA', borderRadius: '12px', padding: '14px 18px',
-                border: '1px solid #E5E7EB', fontSize: '15px', lineHeight: 1.6,
+                background: '#F5F7FA', borderRadius: '8px', padding: '8px 12px',
+                border: '1px solid #E5E7EB', fontSize: '12px', lineHeight: 1.4,
                 color: selectedLeave.reason ? '#111827' : '#9CA3AF',
                 fontFamily: "'Inter', sans-serif"
               }}>
@@ -291,10 +279,10 @@ export default function Leaves() {
             </div>
 
             {/* ── Remark Section ── */}
-            <div style={{ padding: '0 32px 24px' }}>
+            <div style={{ padding: '0 20px 12px' }}>
               <div style={{ 
-                fontSize: '12px', fontWeight: 600, color: '#6B7280', 
-                textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '8px',
+                fontSize: '10px', fontWeight: 600, color: '#6B7280', 
+                textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '4px',
                 fontFamily: "'Inter', sans-serif"
               }}>
                 Remark
@@ -303,86 +291,85 @@ export default function Leaves() {
                 value={remark}
                 onChange={(e) => setRemark(e.target.value)}
                 placeholder="Add a remark..."
-                rows={3}
+                rows={2}
                 style={{
-                  width: '100%', background: '#FFFFFF', borderRadius: '12px', 
-                  padding: '14px 18px', border: '1px solid #E5E7EB',
-                  fontSize: '15px', lineHeight: 1.6, color: '#111827',
+                  width: '100%', background: '#FFFFFF', borderRadius: '8px', 
+                  padding: '8px 12px', border: '1px solid #E5E7EB',
+                  fontSize: '12px', lineHeight: 1.4, color: '#111827',
                   resize: 'vertical', outline: 'none', boxSizing: 'border-box',
                   fontFamily: "'Inter', sans-serif",
-                  transition: 'border-color 200ms ease',
                 }}
                 onFocus={(e) => { e.target.style.borderColor = '#3B82F6'; }}
                 onBlur={(e) => { e.target.style.borderColor = '#E5E7EB'; }}
               />
-            </div>
-
-            {/* ── Footer ── */}
-            <div style={{ 
-              padding: '20px 32px', 
-              borderTop: '1px solid #E5E7EB',
-              display: 'flex', 
-              gap: '10px', 
-              justifyContent: 'flex-end'
-            }}>
-              {selectedLeave.status === 'pending' ? (
-                <>
-                  <button 
-                    onClick={() => setSelectedLeave(null)}
-                    style={{
-                      padding: '10px 22px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                      background: '#FFFFFF', color: '#111827', border: '1px solid #E5E7EB',
-                      cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-                      transition: 'all 200ms ease'
+              <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                {selectedLeave.status === 'pending' && (
+                  <>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                    await handleDecide(selectedLeave.id, 'Rejected');
+                    setSelectedLeave(null);
+                      }}
+                      style={{
+                        padding: '6px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                        background: '#EF4444', color: '#FFFFFF', border: 'none',
+                        cursor: 'pointer', fontFamily: "'Inter', sans-serif"
+                      }}
+                    >
+                      Reject
+                    </button>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await handleDecide(selectedLeave.id, 'Approved');
+                        setSelectedLeave(null);
+                      }}
+                      style={{
+                        padding: '6px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                        background: '#16A34A', color: '#FFFFFF', border: 'none',
+                        cursor: 'pointer', fontFamily: "'Inter', sans-serif"
+                      }}
+                    >
+                      Approve
+                    </button>
+                  </>
+                )}
+                {selectedLeave.status === 'approved' && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await handleDecide(selectedLeave.id, 'Cancelled');
+                      setSelectedLeave(null);
                     }}
-                    onMouseEnter={(e) => { e.target.style.background = '#F5F7FA'; }}
-                    onMouseLeave={(e) => { e.target.style.background = '#FFFFFF'; }}
+                    style={{
+                      padding: '6px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                      background: '#F97316', color: '#FFFFFF', border: 'none',
+                      cursor: 'pointer', fontFamily: "'Inter', sans-serif"
+                    }}
                   >
-                    Cancel
+                    Cancel Approval
                   </button>
-                  <button 
-                    onClick={() => handleDecide(selectedLeave.id, 'Approved')}
-                    style={{
-                      padding: '10px 22px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                      background: '#16A34A', color: '#FFFFFF', border: 'none',
-                      cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-                      transition: 'all 200ms ease'
+                )}
+                {selectedLeave.status === 'rejected' && selectedLeave.admin_remark !== 'Cancelled' && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await handleDecide(selectedLeave.id, 'Approved');
+                      setSelectedLeave(null);
                     }}
-                    onMouseEnter={(e) => { e.target.style.background = '#15803D'; }}
-                    onMouseLeave={(e) => { e.target.style.background = '#16A34A'; }}
+                    style={{
+                      padding: '6px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                      background: '#16A34A', color: '#FFFFFF', border: 'none',
+                      cursor: 'pointer', fontFamily: "'Inter', sans-serif"
+                    }}
                   >
                     Approve
                   </button>
-                  <button 
-                    onClick={() => handleDecide(selectedLeave.id, 'Rejected')}
-                    style={{
-                      padding: '10px 22px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                      background: '#EF4444', color: '#FFFFFF', border: 'none',
-                      cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-                      transition: 'all 200ms ease'
-                    }}
-                    onMouseEnter={(e) => { e.target.style.background = '#DC2626'; }}
-                    onMouseLeave={(e) => { e.target.style.background = '#EF4444'; }}
-                  >
-                    Reject
-                  </button>
-                </>
-              ) : (
-                <button 
-                  onClick={() => setSelectedLeave(null)}
-                  style={{
-                    padding: '10px 22px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
-                    background: '#FFFFFF', color: '#111827', border: '1px solid #E5E7EB',
-                    cursor: 'pointer', fontFamily: "'Inter', sans-serif",
-                    transition: 'all 200ms ease'
-                  }}
-                  onMouseEnter={(e) => { e.target.style.background = '#F5F7FA'; }}
-                  onMouseLeave={(e) => { e.target.style.background = '#FFFFFF'; }}
-                >
-                  Close
-                </button>
-              )}
+                )}
+              </div>
             </div>
+
           </div>
         </div>
       )}
