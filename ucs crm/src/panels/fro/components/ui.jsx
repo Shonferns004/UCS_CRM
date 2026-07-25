@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 
 export function DatePicker({ value, onChange, placeholder, min }) {
   const [open, setOpen] = useState(false);
@@ -81,7 +80,7 @@ export function DatePicker({ value, onChange, placeholder, min }) {
         </svg>
         <span style={{ opacity: display ? 1 : 0.55 }}>{display || placeholder}</span>
       </button>
-      {open && createPortal(
+      {open && (
         <div className="dp-popup" style={{ position: 'fixed', zIndex: 10000, ...popupStyle }}>
           <div className="dp-header">
             {viewMode === 'month' ? (
@@ -108,8 +107,7 @@ export function DatePicker({ value, onChange, placeholder, min }) {
           ) : (
             <div className="dp-year-grid">{yearCells}</div>
           )}
-        </div>,
-        document.body
+        </div>
       )}
     </div>
   );

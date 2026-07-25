@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const MINUTE_STEPS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
@@ -164,7 +163,7 @@ export function TimePicker({ value, onChange, placeholder }) {
         </svg>
         <span style={{ opacity: disp ? 1 : 0.55 }}>{format12(disp) || (placeholder || 'Select time')}</span>
       </button>
-      {open && createPortal(
+      {open && (
         <div style={{
           position: 'fixed', zIndex: 10000,
           ...popupStyle,
@@ -313,8 +312,7 @@ export function TimePicker({ value, onChange, placeholder }) {
                 </div>
               </>
           )}
-        </div>,
-        document.body
+        </div>
       )}
     </div>
   );
