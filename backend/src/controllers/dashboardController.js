@@ -898,7 +898,8 @@ export const getFroWorkerDashboard = async (req, res) => {
       .select('donor_id, created_at, fro_assignments!inner(fro_worker_id)')
       .eq('fro_assignments.fro_worker_id', workerId)
       .eq('action', 'disposition')
-      .eq('disposition_detail', 'lead_done');
+      .eq('disposition_detail', 'lead_done')
+      .eq('accounts_status', 'verified');
 
     const earliestLead = {};
     for (const log of leadDoneData || []) {
