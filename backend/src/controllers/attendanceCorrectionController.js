@@ -222,8 +222,13 @@ export const approveTicket = async (req, res) => {
     } else {
       updates.punch_out_time = ticket.requested_time;
       const isEarly = await isHalfDayByEarlyPunchOut(ticket.requested_time, ticket.worker_id);
-      if (isEarly && attendance.status !== 'half-day' && attendance.status !== 'leave' && attendance.status !== 'absent') {
+      if (isEarly && attendance.status !== 'leave' && attendance.status !== 'absent') {
         updates.status = 'half-day';
+      } else if (!isEarly && attendance.status === 'half-day') {
+        updates.late_minutes = await calculateLateMinutes(attendance.punch_in_time, ticket.worker_id);
+        let recalcStatus = updates.late_minutes > 0 ? 'late' : 'present';
+        if (await isHalfDayByLatePunch(attendance.punch_in_time, ticket.worker_id)) recalcStatus = 'half-day';
+        updates.status = recalcStatus;
       }
     }
 

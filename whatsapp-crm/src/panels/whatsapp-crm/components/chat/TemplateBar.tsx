@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchConversation } from '../../lib/api';
 import { Button } from '../ui/Button';
 import { Loader2, LayoutTemplate, RefreshCw } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -149,7 +150,7 @@ export function TemplateBar({ conversationId, project, onSent }: TemplateBarProp
   const sendDirect = async (tpl: TemplateRecord) => {
     setSendingId(tpl.id);
     try {
-      const { data: conv } = await supabase.from('conversations').select('contact_id').eq('id', conversationId).maybeSingle();
+      const conv: any = await fetchConversation(conversationId).catch(() => null);
       if (!conv?.contact_id) { toast.error('Conversation not found'); return; }
       const ok = await sendWhatsAppTemplate(conversationId, conv.contact_id, tpl, {}, user?.id);
       if (ok) onSent();
@@ -165,7 +166,7 @@ export function TemplateBar({ conversationId, project, onSent }: TemplateBarProp
     const bodyParams = extractPlaceholders(bodyComp?.text || '');
     const headerParams = extractPlaceholders(headerComp?.text || '');
     if (bodyParams > 0 || headerParams > 0) {
-      const { data: conv } = await supabase.from('conversations').select('contact_id').eq('id', conversationId).maybeSingle();
+      const conv: any = await fetchConversation(conversationId).catch(() => null);
       if (!conv?.contact_id) { toast.error('Conversation not found'); return; }
       setParamModal({ template: tpl, contactId: conv.contact_id });
     } else {

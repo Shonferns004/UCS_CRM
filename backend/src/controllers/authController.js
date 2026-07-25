@@ -7,6 +7,11 @@ import { getHRByEmail } from '../models/hrModel.js';
 
 dotenv.config();
 
+function getTokenExpiry(req) {
+  const clientType = req.headers['x-client-type'] || 'web';
+  return clientType === 'flutter' ? '100y' : '24h';
+}
+
 export const adminLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -17,13 +22,13 @@ export const adminLogin = async (req, res) => {
       const token = jwt.sign(
         { id: 0, email, role: 'super_admin', name: 'Super Admin' },
         process.env.JWT_SECRET,
-        { expiresIn: '100y' }
+        { expiresIn: getTokenExpiry(req) }
       );
       return res.json({ token, role: 'super_admin', user: { name: 'Super Admin', email, role: 'super_admin' }, message: 'Login successful' });
     }
     return res.status(401).json({ message: 'Invalid admin credentials' });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: 'Login failed' });
   }
 };
 
@@ -35,6 +40,7 @@ export const unifiedLogin = async (req, res) => {
     }
 
     const isEmail = identifier.includes('@');
+    const expiry = getTokenExpiry(req);
 
     if (isEmail) {
       if (
@@ -44,7 +50,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: 0, email: identifier, role: 'super_admin', name: 'Super Admin' },
           process.env.JWT_SECRET,
-          { expiresIn: '100y' }
+          { expiresIn: expiry }
         );
         return res.json({ token, role: 'super_admin', user: { name: 'Super Admin', email: identifier, role: 'super_admin' }, message: 'Login successful' });
       }
@@ -56,13 +62,16 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: -1, email: identifier, role: 'user', name: 'User' },
           process.env.JWT_SECRET,
-          { expiresIn: '100y' }
+          { expiresIn: expiry }
         );
         return res.json({ token, role: 'user', user: { name: 'User', email: identifier, role: 'user' }, message: 'Login successful' });
       }
 
       const user = await getUserByEmail(identifier);
       if (user) {
+        if (user.is_active === false) {
+          return res.status(403).json({ message: 'Account is deactivated' });
+        }
         const isMatch = await bcrypt.compare(password, user.password_hash);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -70,7 +79,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: user.id, ngo_id: user.ngo_id, email: user.email, role: user.role, name: user.name },
           process.env.JWT_SECRET,
-          { expiresIn: '100y' }
+          { expiresIn: expiry }
         );
         const { password_hash, ...safeUser } = user;
         return res.json({ token, role: user.role, user: safeUser, message: 'Login successful' });
@@ -78,6 +87,9 @@ export const unifiedLogin = async (req, res) => {
 
       const hr = await getHRByEmail(identifier);
       if (hr) {
+        if (hr.is_active === false) {
+          return res.status(403).json({ message: 'Account is deactivated' });
+        }
         const isMatch = await bcrypt.compare(password, hr.password_hash);
         if (!isMatch) {
           return res.status(401).json({ message: 'Invalid password' });
@@ -85,7 +97,7 @@ export const unifiedLogin = async (req, res) => {
         const token = jwt.sign(
           { id: hr.id, ngo_id: hr.ngo_id, email: hr.email, role: 'hr', name: hr.name },
           process.env.JWT_SECRET,
-          { expiresIn: '100y' }
+          { expiresIn: expiry }
         );
         const { password_hash, ...safeHR } = hr;
         return res.json({ token, role: 'hr', user: safeHR, message: 'Login successful' });
@@ -96,6 +108,9 @@ export const unifiedLogin = async (req, res) => {
 
     const userFromName = await getUserByName(identifier);
     if (userFromName) {
+      if (userFromName.is_active === false) {
+        return res.status(403).json({ message: 'Account is deactivated' });
+      }
       const isMatch = await bcrypt.compare(password, userFromName.password_hash);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid password' });
@@ -103,7 +118,7 @@ export const unifiedLogin = async (req, res) => {
       const token = jwt.sign(
         { id: userFromName.id, ngo_id: userFromName.ngo_id, email: userFromName.email, role: userFromName.role, name: userFromName.name },
         process.env.JWT_SECRET,
-        { expiresIn: '100y' }
+        { expiresIn: expiry }
       );
       const { password_hash, ...safeUser } = userFromName;
       return res.json({ token, role: userFromName.role, user: safeUser, message: 'Login successful' });
@@ -112,6 +127,9 @@ export const unifiedLogin = async (req, res) => {
     const worker = await getWorkerByLoginId(identifier);
     if (!worker) {
       return res.status(401).json({ message: 'Invalid login ID' });
+    }
+    if (worker.is_active === false || worker.employment_status === 'terminated') {
+      return res.status(403).json({ message: 'Account is deactivated' });
     }
     const isMatch = await bcrypt.compare(password, worker.password);
     if (!isMatch) {
@@ -128,7 +146,7 @@ export const unifiedLogin = async (req, res) => {
     const token = jwt.sign(
       { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
       process.env.JWT_SECRET,
-      { expiresIn: '100y' }
+      { expiresIn: expiry }
     );
     return res.json({
       token,
@@ -137,6 +155,6 @@ export const unifiedLogin = async (req, res) => {
       message: 'Login successful',
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: 'Login failed' });
   }
 };

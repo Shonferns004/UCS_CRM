@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchMessageCounts, fetchConversationCounts } from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Building2, Users, MessageSquare, Activity } from 'lucide-react';
 
@@ -7,17 +8,17 @@ export function AdminDashboardPage() {
   const { data: stats } = useQuery({
     queryKey: ['admin-dashboard'],
     queryFn: async () => {
-      const [tenants, users, messages, conversations] = await Promise.all([
+      const [tenants, users, msgCounts, convCounts] = await Promise.all([
         supabase.from('tenants').select('*', { count: 'exact', head: true }),
         supabase.from('users').select('*', { count: 'exact', head: true }),
-        supabase.from('messages').select('*', { count: 'exact', head: true }),
-        supabase.from('conversations').select('*', { count: 'exact', head: true }),
+        fetchMessageCounts(),
+        fetchConversationCounts(),
       ]);
       return {
         tenants: tenants.count || 0,
         users: users.count || 0,
-        messages: messages.count || 0,
-        conversations: conversations.count || 0,
+        messages: msgCounts.total || 0,
+        conversations: convCounts.total || 0,
       };
     },
   });
