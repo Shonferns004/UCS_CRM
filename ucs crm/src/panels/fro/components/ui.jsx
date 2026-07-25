@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export function DatePicker({ value, onChange, placeholder, min }) {
   const [open, setOpen] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   const [viewMode, setViewMode] = useState('month');
+  const [popupStyle, setPopupStyle] = useState({});
   const ref = useRef(null);
 
   useEffect(() => {
@@ -19,6 +21,14 @@ export function DatePicker({ value, onChange, placeholder, min }) {
       setViewDate(new Date(+p[0], +p[1] - 1, 1));
     }
     setViewMode('month');
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setPopupStyle({
+        left: rect.left + rect.width / 2,
+        top: rect.bottom + 4,
+        transform: 'translateX(-50%)',
+      });
+    }
     setOpen(true);
   };
 
@@ -71,8 +81,8 @@ export function DatePicker({ value, onChange, placeholder, min }) {
         </svg>
         <span style={{ opacity: display ? 1 : 0.55 }}>{display || placeholder}</span>
       </button>
-      {open && (
-        <div className="dp-popup">
+      {open && createPortal(
+        <div className="dp-popup" style={{ position: 'fixed', zIndex: 10000, ...popupStyle }}>
           <div className="dp-header">
             {viewMode === 'month' ? (
               <>
@@ -98,7 +108,8 @@ export function DatePicker({ value, onChange, placeholder, min }) {
           ) : (
             <div className="dp-year-grid">{yearCells}</div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
