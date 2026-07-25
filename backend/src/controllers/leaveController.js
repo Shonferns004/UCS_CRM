@@ -173,14 +173,23 @@ export const updateStatus = async (req, res) => {
     const { id } = req.params;
     const { status, admin_remark } = req.body;
 
-    if (!['approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ message: 'Status must be approved or rejected' });
+    if (!['approved', 'rejected', 'cancelled'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be approved, rejected, or cancelled' });
     }
 
     const existing = await getLeaveById(id);
     if (!existing) {
       return res.status(404).json({ message: 'Leave application not found' });
     }
+
+    if (status === 'cancelled') {
+      if (existing.status !== 'approved') {
+        return res.status(400).json({ message: 'Only approved leaves can be cancelled' });
+      }
+      const result = await updateLeaveStatus(id, 'rejected', 'Cancelled');
+      return res.json({ message: 'Leave cancelled', leave: result });
+    }
+
     if (existing.status !== 'pending') {
       return res.status(400).json({ message: `Leave is already ${existing.status}` });
     }
