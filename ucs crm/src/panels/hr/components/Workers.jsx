@@ -104,6 +104,7 @@ export default function Workers({ onSelect, onOffboard }) {
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
   const [err, setErr] = useState('');
+  const [nameErr, setNameErr] = useState('');
   const [search, setSearch] = useState(load().search || '');
   const [roleFilter, setRoleFilter] = useState(load().roleFilter || '');
   const [statusFilter, setStatusFilter] = useState(load().statusFilter || 'active');
@@ -430,8 +431,9 @@ export default function Workers({ onSelect, onOffboard }) {
         <div className="card-pad">
           <div className="form-row">
             <label className="field">Full name
-              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Jane Doe"
+              <input value={name} onChange={e=>{ setName(e.target.value); setNameErr(/\d/.test(e.target.value) ? 'Invalid name' : ''); }} placeholder="Jane Doe"
                 onKeyDown={e=>e.key==='Enter'&&submit()} />
+              {nameErr && <span style={{ color:'var(--danger)', fontSize:12, marginTop:2, display:'block' }}>{nameErr}</span>}
             </label>
             <label className="field">Team
               <Dropdown value={dept} onChange={e=>{ setDept(e.target.value); setSelectedNgos([]); }} options={DEPTS} />
@@ -532,7 +534,7 @@ export default function Workers({ onSelect, onOffboard }) {
                     </span>
                   </td>
                   <td style={{ textAlign:'right' }}>
-                    <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee"><Trash width={16}/></button>
+                    <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee" style={{ color:'#dc2626' }}><Trash width={16}/></button>
                   </td>
                 </tr>
               );
@@ -542,13 +544,13 @@ export default function Workers({ onSelect, onOffboard }) {
         </table>
         {totalPages > 1 && (
           <div className="pagination">
-            <button className="btn btn-sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
+            <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
             <div className="pagination-dots">
               {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
                 <span key={p} className={`dot ${p === safePage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
               ))}
             </div>
-            <button className="btn btn-sm" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
+            <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
           </div>
         )}
       </div>
