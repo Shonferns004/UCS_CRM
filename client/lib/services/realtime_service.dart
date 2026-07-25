@@ -24,7 +24,7 @@ class RealtimeService extends ChangeNotifier {
 
   void init(String workerId) {
     if (_initialized && _workerId == workerId) return;
-    dispose();
+    _disconnect();
     _initialized = true;
     _workerId = workerId;
 
@@ -59,18 +59,22 @@ class RealtimeService extends ChangeNotifier {
   }
 
   void reset() {
-    dispose();
+    _disconnect();
     _lastEvent = null;
   }
 
-  @override
-  void dispose() {
+  void _disconnect() {
     if (_channel != null) {
       SupabaseService.client.removeChannel(_channel!);
       _channel = null;
     }
     _initialized = false;
     _workerId = null;
+  }
+
+  @override
+  void dispose() {
+    _disconnect();
     super.dispose();
   }
 }

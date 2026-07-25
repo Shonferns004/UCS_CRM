@@ -39,7 +39,8 @@ class _CorrectionTicketPageState extends State<CorrectionTicketPage> {
   }
 
   void _onRealtimeChange() {
-    if (RealtimeService.instance.lastEvent == RealtimeEvent.attendance) {
+    final event = RealtimeService.instance.lastEvent;
+    if (event == RealtimeEvent.attendance || event == RealtimeEvent.corrections) {
       _loadHistory();
     }
   }
@@ -162,6 +163,9 @@ class _CorrectionTicketPageState extends State<CorrectionTicketPage> {
                                           final dt = DateTime.parse(pi).toLocal();
                                           _correctedTime = TimeOfDay.fromDateTime(dt);
                                         }
+                                        if (v['status'] == 'absent') {
+                                          _field = 'punch_in';
+                                        }
                                       }
                                     });
                                   },
@@ -178,10 +182,14 @@ class _CorrectionTicketPageState extends State<CorrectionTicketPage> {
                                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                                     ),
-                                    items: const [
-                                      DropdownMenuItem(value: 'punch_in', child: Text('Punch In')),
-                                      DropdownMenuItem(value: 'punch_out', child: Text('Punch Out')),
-                                    ],
+                                    items: _selectedRecord?['status'] == 'absent'
+                                        ? const [
+                                            DropdownMenuItem(value: 'punch_in', child: Text('Punch In')),
+                                          ]
+                                        : const [
+                                            DropdownMenuItem(value: 'punch_in', child: Text('Punch In')),
+                                            DropdownMenuItem(value: 'punch_out', child: Text('Punch Out')),
+                                          ],
                                     onChanged: (v) {
                                       setState(() => _field = v!);
                                       if (_selectedRecord != null) {
