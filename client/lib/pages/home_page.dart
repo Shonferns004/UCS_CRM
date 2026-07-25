@@ -46,6 +46,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   String _officeEndTime = '19:00';
   List<Map<String, dynamic>> _notifications = [];
   int _unreadCount = 0;
+  List<dynamic> _pendingLoans = [];
+  bool _loadingLoans = false;
 
   @override
   void initState() {
@@ -233,6 +235,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             _unreadCount = unread;
           });
         }
+      }
+    } catch (_) {}
+
+    try {
+      final loans = await ApiService.getMyLoans();
+      if (mounted) {
+        setState(() {
+          _pendingLoans = loans.where((l) => l['status'] == 'approved' || l['status'] == 'pending').toList();
+        });
       }
     } catch (_) {}
   }
@@ -441,6 +452,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       case RealtimeEvent.attendance:
       case RealtimeEvent.notifications:
       case RealtimeEvent.corrections:
+      case RealtimeEvent.loans:
         _fetchStatus();
       default:
         break;
@@ -541,49 +553,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         },
       ),
     );
-  }
-
-  double get _attendanceRate {
-    final total = _present + _absent + _late + _leave;
-    if (total == 0) return 0;
-    return (_present + _late) / total;
-  }
-
-  int get _lateTier {
-    if (_lateUsed <= 180) return 0;
-    if (_lateUsed <= 240) return 1;
-    if (_lateUsed <= 480) return 2;
-    return 3;
-  }
-
-  Color get _lateTierColor {
-    switch (_lateTier) {
-      case 0: return const Color(0xFF2a6a4b);
-      case 1: return const Color(0xFFe67e22);
-      case 2: return const Color(0xFFd35400);
-      case 3: return const Color(0xFFba1a1a);
-      default: return const Color(0xFFc28228);
-    }
-  }
-
-  String get _lateTierLabel {
-    switch (_lateTier) {
-      case 0: return 'Within grace limit';
-      case 1: return 'Half-day deduction';
-      case 2: return 'One-day deduction';
-      case 3: return 'Proportional deduction';
-      default: return '';
-    }
-  }
-
-  double get _lateProgressMax {
-    switch (_lateTier) {
-      case 0: return 180;
-      case 1: return 240;
-      case 2: return 480;
-      case 3: return 480;
-      default: return 180;
-    }
   }
 
   @override
@@ -947,164 +916,50 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 24),
-                    IntrinsicHeight(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceListPage())),
-                              child: Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: sc.surface,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: colors.outline),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 36, height: 36,
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF2563eb).withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Icon(Icons.event_available, size: 20, color: const Color(0xFF2563eb)),
-                                        ),
-                                        const Spacer(),
-                                        Icon(Icons.chevron_right, size: 18, color: sc.onSurfaceVariant),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${(_attendanceRate * 100).toStringAsFixed(0)}%',
-                                          style: GoogleFonts.hankenGrotesk(
-                                            fontSize: 28, fontWeight: FontWeight.w800, color: sc.onSurface,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 4),
-                                          child: Text(
-                                            'Attendance',
-                                            style: TextStyle(
-                                              fontSize: 11, fontWeight: FontWeight.w500,
-                                              color: sc.outline,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(2),
-                                      child: LinearProgressIndicator(
-                                        value: _attendanceRate,
-                                        backgroundColor: const Color(0xFFe0e4ea),
-                                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2563eb)),
-                                        minHeight: 4,
-                                      ),
-                                    ),
-                                  ],
+            if (_pendingLoans.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: sc.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: colors.outline),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48, height: 48,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFfff3cd),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Icon(Icons.account_balance_wallet, size: 22, color: Color(0xFF856404)),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Pending Loans', style: GoogleFonts.hankenGrotesk(
+                                fontSize: 16, fontWeight: FontWeight.w600, color: sc.onSurface,
+                              )),
+                              Text(
+                                '${_pendingLoans.length} active \u00B7 \u20B9${_pendingLoans.fold<int>(0, (s, l) => s + ((l['remaining_amount'] ?? l['total_amount'] ?? 0) as int))}',
+                                style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w500,
+                                  color: sc.onSurfaceVariant,
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: sc.surface,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: colors.outline),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 36, height: 36,
-                                          decoration: BoxDecoration(
-                                            color: _lateTierColor.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Icon(Icons.access_time, size: 20, color: _lateTierColor),
-                                        ),
-                                        const Spacer(),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: _lateTierColor.withValues(alpha: 0.12),
-                                            borderRadius: BorderRadius.circular(3),
-                                          ),
-                                          child: Text(
-                                            _lateTierLabel,
-                                            style: TextStyle(
-                                              fontSize: 9, fontWeight: FontWeight.w700,
-                                              color: _lateTierColor,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${_lateUsed ~/ 60}:${(_lateUsed % 60).toString().padLeft(2, '0')}h',
-                                          style: GoogleFonts.hankenGrotesk(
-                                            fontSize: 28, fontWeight: FontWeight.w800, color: _lateTierColor,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 4),
-                                          child: Text(
-                                            'Late batch',
-                                            style: TextStyle(
-                                              fontSize: 11, fontWeight: FontWeight.w500,
-                                              color: sc.outline,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(2),
-                                      child: LinearProgressIndicator(
-                                        value: (_lateUsed / _lateProgressMax).clamp(0.0, 1.0),
-                                        backgroundColor: const Color(0xFFe0e4ea),
-                                        valueColor: AlwaysStoppedAnimation<Color>(_lateTierColor),
-                                        minHeight: 4,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 24, 16, 80),

@@ -51,6 +51,8 @@ import bulkAgentImportRoutes from './routes/bulkAgentImportRoutes.js';
 import agentTransferRoutes from './routes/agentTransferRoutes.js';
 import userSettingsRoutes from './routes/userSettingsRoutes.js';
 import ticketRoutes from './routes/ticketRoutes.js';
+import whatsappCrmRoutes from './routes/whatsappCrmRoutes.js';
+import whatsappCrmDataRoutes from './routes/whatsappCrmDataRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -61,13 +63,10 @@ const _log = console.log;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const allowedOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-  : ['*'];
 app.use(cors({
-  origin: allowedOrigins.length === 1 && allowedOrigins[0] === '*' ? '*' : allowedOrigins,
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Type'],
 }));
 app.use(express.json({
   limit: '10mb',
@@ -129,11 +128,24 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/whatsapp/agents', bulkAgentImportRoutes);
 app.use('/api/whatsapp/agents', agentTransferRoutes);
 app.use('/api/fro/whatsapp', froWhatsAppRoutes);
+app.use('/api/whatsapp-crm', whatsappCrmRoutes);
+app.use('/api/whatsapp-crm', whatsappCrmDataRoutes);
 
 import multer from 'multer';
 const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
-app.post('/api/upload', uploadApi.single('file'), async (req, res) => {
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'application/pdf',
+  'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav',
+  'video/mp4', 'video/quicktime',
+];
+app.post('/api/upload', authenticate, uploadApi.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file' });
+  if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype)) {
+    return res.status(400).json({ message: 'File type not allowed' });
+  }
   const ext = (req.file.mimetype || '').split('/')[1]?.split(';')[0] || 'bin';
   const fileName = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
   const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(fileName, req.file.buffer, {
@@ -327,7 +339,7 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
     } catch (e) { console.error('Meta send error:', e); }
 
     if (!metaDelivered) {
-      await supabase.from('messages').update({ status: 'sent', status_updated_at: new Date().toISOString() }).eq('id', messageId);
+      await supabase.from('messages').update({ status: 'failed', failure_reason: 'Meta send failed', status_updated_at: new Date().toISOString() }).eq('id', messageId);
     }
 
     await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
@@ -372,9 +384,15 @@ if (fs.existsSync(accountsDist)) {
   });
 }
 
-const CRON_API_KEY = process.env.CRON_API_KEY || null;
+const CRON_API_KEY = process.env.CRON_API_KEY;
+if (!CRON_API_KEY) {
+  console.warn('WARNING: CRON_API_KEY is not set. Cron endpoints will be inaccessible.');
+}
 const requireCronAuth = (req, res, next) => {
-  if (CRON_API_KEY && req.headers['x-api-key'] !== CRON_API_KEY) {
+  if (!CRON_API_KEY) {
+    return res.status(503).json({ message: 'Cron endpoints not configured' });
+  }
+  if (req.headers['x-api-key'] !== CRON_API_KEY) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
   next();
@@ -439,7 +457,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
-app.get('/api/debug', async (req, res) => {
+app.get('/api/debug', authenticate, async (req, res) => {
   const tables = ['rejected_lead_tickets', 'alerts', 'notification_log', 'fcm_tokens'];
   const results = {};
   for (const t of tables) {

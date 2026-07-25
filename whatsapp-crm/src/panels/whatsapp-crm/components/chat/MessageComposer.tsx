@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { supabase } from '../../lib/supabase';
+import { createMessage } from '../../lib/api';
 import { Loader2, Mic } from 'lucide-react';
 import { MediaUploadPreview } from './MediaPreview';
 import { AudioRecorder } from './AudioRecorder';
@@ -29,7 +29,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
         for (const file of selectedFiles) {
           const mimeType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document';
 
-          const { data: msg } = await supabase.from('messages').insert({
+          const msg = await createMessage({
             conversation_id: conversationId,
             contact_id: contactId,
             user_id: userId,
@@ -37,7 +37,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
             message_type: mimeType,
             body_text: text.trim() || null,
             status: 'queued',
-          }).select('id').maybeSingle();
+          });
 
           if (msg?.id) {
             const formData = new FormData();
@@ -50,7 +50,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           }
         }
       } else if (text.trim()) {
-        const { data: msg } = await supabase.from('messages').insert({
+        const msg = await createMessage({
           conversation_id: conversationId,
           contact_id: contactId,
           user_id: userId,
@@ -58,7 +58,7 @@ export function MessageComposer({ conversationId, tenantId, contactId, userId, o
           message_type: 'text',
           body_text: text.trim(),
           status: 'queued',
-        }).select('id').maybeSingle();
+        });
 
         if (msg?.id) {
           const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';

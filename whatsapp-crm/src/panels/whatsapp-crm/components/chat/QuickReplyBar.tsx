@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchConversation } from '../../lib/api';
 import { Button } from '../ui/Button';
 import { Loader2, QrCode, FileText, MessageSquare } from 'lucide-react';
 import { useState } from 'react';
@@ -33,12 +34,13 @@ export function QuickReplyBar({ conversationId, onSent }: QuickReplyBarProps) {
   const handleSend = async (reply: QuickReply) => {
     setSendingId(reply.id);
     try {
-      const { data: conv } = await supabase.from('conversations').select('contact_id').eq('id', conversationId).maybeSingle();
+      const conv: any = await fetchConversation(conversationId).catch(() => null);
       if (conv?.contact_id) {
         sendWhatsAppMessage(conversationId, conv.contact_id, reply.message_text || '', undefined, user?.id);
       }
       onSent();
-    } catch {
+    } catch (err) {
+      console.error('Failed to send quick reply:', err);
     } finally {
       setSendingId(null);
     }
