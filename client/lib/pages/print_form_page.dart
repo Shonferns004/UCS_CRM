@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -274,7 +275,7 @@ class _PrintFormPageState extends State<PrintFormPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+              Icon(LucideIcons.circleAlert, size: 48, color: Colors.red.shade300),
               const SizedBox(height: 16),
               Text('Failed to load data', style: GoogleFonts.hankenGrotesk(fontSize: 18, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),

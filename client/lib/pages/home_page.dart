@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,11 +10,13 @@ import '../services/realtime_service.dart';
 import '../services/geofence_service.dart';
 import '../widgets/skeleton_loader.dart';
 import '../main.dart';
+import '../utils/responsive.dart';
 
 import 'scanner_page.dart';
 import 'leave_page.dart';
 import 'attendance_list_page.dart';
 import 'advance_page.dart';
+import 'correction_ticket_page.dart';
 
 class HomePage extends StatefulWidget {
   final int tabChangeVersion;
@@ -37,7 +40,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   bool _loading = true;
   bool _isPressing = false;
   int _lateUsed = 0;
-  int _present = 0, _absent = 0, _late = 0, _leave = 0;
   String _workerName = '';
   String _workerId = '';
   String _officeStartTime = '10:00';
@@ -47,7 +49,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   List<Map<String, dynamic>> _notifications = [];
   int _unreadCount = 0;
   List<dynamic> _pendingLoans = [];
-  bool _loadingLoans = false;
 
   @override
   void initState() {
@@ -125,26 +126,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       RealtimeService.instance.removeListener(_onRealtimeChange);
       RealtimeService.instance.addListener(_onRealtimeChange);
 
-      // Load cached data instantly
       try {
         final cachedStatus = await ApiService.getCachedTodayStatus();
         if (cachedStatus != null) _applyTodayStatus(cachedStatus);
-      } catch (_) {}
-
-      try {
-        final cachedHistory = await ApiService.getCachedHistory();
-        if (cachedHistory != null) {
-          int p = 0, a = 0, l = 0, lv = 0;
-          for (final rec in cachedHistory) {
-            switch (rec['status']?.toString() ?? '') {
-              case 'present': p++; break;
-              case 'absent': a++; break;
-              case 'late': l++; p++; break;
-              case 'leave': lv++; break;
-            }
-          }
-          setState(() { _present = p; _absent = a; _late = l; _leave = lv; });
-        }
       } catch (_) {}
 
       try {
@@ -164,12 +148,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     if (mounted) setState(() => _loading = false);
 
     try {
-      final res = await Future.wait([
-        ApiService.getTodayStatus(),
-        ApiService.getHistory(),
-      ]);
-      final today = res[0] as Map<String, dynamic>;
-      final history = res[1] as List<dynamic>;
+      final today = await ApiService.getTodayStatus();
 
       _officeStartTime = (today['officeStartTime'] ?? '10:00') as String;
       _officeEndTime = (today['officeEndTime'] ?? '19:00') as String;
@@ -199,28 +178,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               _workedDisplay = '$h:$m:$s';
             }
           }
-        });
-      }
-      int p = 0, a = 0, l = 0, lv = 0;
-      for (final rec in history) {
-        final s = rec['status']?.toString() ?? '';
-        if (s == 'present') {
-          p++;
-        } else if (s == 'absent') {
-          a++;
-        } else if (s == 'late') {
-          l++;
-          p++;
-        } else if (s == 'leave') {
-          lv++;
-        }
-      }
-      if (mounted) {
-        setState(() {
-          _present = p;
-          _absent = a;
-          _late = l;
-          _leave = lv;
         });
       }
     } catch (_) {}
@@ -311,7 +268,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   Future<void> _punchIn() async {
     if (!await _requestLocationPermission()) return;
 
-    // Check connectivity first
     final online = await ApiService.checkConnectivity();
     if (!online && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -373,7 +329,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   Future<void> _punchOut() async {
     if (!await _requestLocationPermission()) return;
 
-    // Check connectivity first
     final online = await ApiService.checkConnectivity();
     if (!online && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -483,20 +438,41 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     return DateFormat('hh:mm a').format(t.toLocal());
   }
 
-  void _openLeaveSheet() {
-    final sc = Theme.of(context).colorScheme;
+  void _openRequestSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _RequestSheet(),
+    );
+  }
+
+  void _openLateBatchSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => SizedBox(
-        height: MediaQuery.of(context).size.height * 0.85,
+        height: MediaQuery.of(context).size.height * 0.90,
         child: Container(
           decoration: BoxDecoration(
-            color: sc.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
-          child: LeavePage(),
+          child: Column(
+            children: [
+              SizedBox(height: Responsive.pad(context, 12)),
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              SizedBox(height: Responsive.pad(context, 12)),
+              Expanded(child: AttendanceListPage()),
+            ],
+          ),
         ),
       ),
     );
@@ -555,6 +531,33 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     );
   }
 
+  int get _lateTier {
+    if (_lateUsed <= 180) return 0;
+    if (_lateUsed <= 240) return 1;
+    if (_lateUsed <= 480) return 2;
+    return 3;
+  }
+
+  Color get _lateTierColor {
+    switch (_lateTier) {
+      case 0: return const Color(0xFF2a6a4b);
+      case 1: return const Color(0xFFe67e22);
+      case 2: return const Color(0xFFd35400);
+      case 3: return const Color(0xFFba1a1a);
+      default: return const Color(0xFFc28228);
+    }
+  }
+
+  String get _lateTierLabel {
+    switch (_lateTier) {
+      case 0: return 'Within grace limit';
+      case 1: return 'Half-day deduction';
+      case 2: return 'One-day deduction';
+      case 3: return 'Proportional deduction';
+      default: return '';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const HomeSkeleton();
@@ -564,6 +567,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     final clockStr = DateFormat('hh:mm a').format(_now);
     final firstName = _workerName.split(' ').first;
+    final displayName = firstName.isNotEmpty
+        ? '${firstName[0].toUpperCase()}${firstName.substring(1).toLowerCase()}'
+        : 'there';
 
     return Scaffold(
       backgroundColor: sc.surface,
@@ -573,7 +579,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 0)),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -584,15 +590,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           Text(
                             'HELLO THERE',
                             style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.05,
+                              fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w600, letterSpacing: 0.05,
                               color: const Color(0xFF00152a),
                             ),
                           ),
-                          const SizedBox(height: 2),
+                          SizedBox(height: Responsive.pad(context, 2)),
                           Text(
-                            firstName.isNotEmpty ? firstName : 'there',
+                            displayName,
                             style: GoogleFonts.hankenGrotesk(
-                              fontSize: 24,
+                              fontSize: Responsive.sp(context, 24),
                               fontWeight: FontWeight.w700,
                               height: 32 / 24,
                               color: sc.onSurface,
@@ -604,16 +610,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     Stack(
                       children: [
                         Container(
-                          width: 48,
-                          height: 48,
+                          width: Responsive.sp(context, 48),
+                          height: Responsive.sp(context, 48),
                           decoration: BoxDecoration(
                             color: colors.surfaceContainerLow,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: colors.outline),
                           ),
                           child: IconButton(
-                            icon: const Icon(Icons.notifications_outlined),
-                            iconSize: 22,
+                            icon: Icon(LucideIcons.bell),
+                            iconSize: Responsive.sp(context, 22),
                             color: sc.onSurfaceVariant,
                             onPressed: _openNotificationSheet,
                           ),
@@ -623,27 +629,27 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                             top: 4,
                             right: 4,
                             child: Container(
-                              padding: const EdgeInsets.all(4),
+                              padding: EdgeInsets.all(Responsive.pad(context, 4)),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFba1a1a),
                                 shape: BoxShape.circle,
                               ),
-                              constraints: const BoxConstraints(
-                                minWidth: 18,
-                                minHeight: 18,
+                              constraints: BoxConstraints(
+                                minWidth: Responsive.sp(context, 18),
+                                minHeight: Responsive.sp(context, 18),
                               ),
                               child: Text(
                                 '$_unreadCount',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 10,
+                                  fontSize: Responsive.sp(context, 10),
                                   fontWeight: FontWeight.w700,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
                             ),
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: Responsive.pad(context, 16)),
                   ],
                     ),
                   ],
@@ -652,13 +658,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 0), Responsive.pad(context, 16), Responsive.pad(context, 0)),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const SizedBox(height: 16),
+                    SizedBox(height: Responsive.pad(context, 16)),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 12), vertical: Responsive.pad(context, 8)),
                       decoration: BoxDecoration(
                         color: sc.surface,
                         borderRadius: BorderRadius.circular(4),
@@ -670,35 +676,35 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           Text(
                             'SHIFT',
                             style: TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.05,
+                              fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, letterSpacing: 0.05,
                               color: sc.outline,
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: Responsive.pad(context, 8)),
                           Text(
                             '$_officeStartTime – $_officeEndTime',
                             style: TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w600,
+                              fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600,
                               color: sc.onSurface,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 32),
+                    SizedBox(height: Responsive.pad(context, 32)),
                     Text(
                       clockStr,
                       style: GoogleFonts.hankenGrotesk(
-                        fontSize: 64,
+                        fontSize: Responsive.sp(context, 64),
                         fontWeight: FontWeight.w800,
                         height: 64 / 64,
                         letterSpacing: -1.5,
                         color: sc.onSurface,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: Responsive.pad(context, 12)),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
                       decoration: BoxDecoration(
                         color: const Color(0xFFbfdbfe).withValues(alpha: 0.3),
                         borderRadius: BorderRadius.circular(12),
@@ -706,12 +712,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.access_time, size: 18, color: const Color(0xFF1d4ed8)),
-                          const SizedBox(width: 6),
+                          Icon(LucideIcons.clock, size: Responsive.sp(context, 18), color: const Color(0xFF1d4ed8)),
+                          SizedBox(width: Responsive.pad(context, 6)),
                           Text(
                             '$_workedDisplay',
                             style: TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w500,
+                              fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w500,
                               color: const Color(0xFF1d4ed8),
                             ),
                           ),
@@ -719,9 +725,9 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                       ),
                     ),
                     if (_geofence.isOutside) ...[
-                      const SizedBox(height: 12),
+                      SizedBox(height: Responsive.pad(context, 12)),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 10)),
                         decoration: BoxDecoration(
                           color: const Color(0xFFf59e0b).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
@@ -730,14 +736,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFd97706)),
-                            const SizedBox(width: 8),
+                            Icon(LucideIcons.triangleAlert, size: Responsive.sp(context, 18), color: Color(0xFFd97706)),
+                            SizedBox(width: Responsive.pad(context, 8)),
                             Text(
                               _geofence.remainingHours != null
                                   ? 'Outside work area · ${_geofence.remainingHours!.toStringAsFixed(1)}h until auto punch-out'
                                   : 'Outside work area',
                               style: GoogleFonts.manrope(
-                                fontSize: 13, fontWeight: FontWeight.w600,
+                                fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600,
                                 color: const Color(0xFF92400e),
                               ),
                             ),
@@ -745,14 +751,14 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ),
                       ),
                     ],
-                      const SizedBox(height: 40),
+                      SizedBox(height: Responsive.pad(context, 40)),
                     if (_isPunchedOut)
                       Column(
                         children: [
-                          Icon(Icons.check_circle, size: 72, color: const Color(0xFF2563eb)),
-                          const SizedBox(height: 12),
+                          Icon(LucideIcons.circleCheck, size: Responsive.sp(context, 72), color: const Color(0xFF2563eb)),
+                          SizedBox(height: Responsive.pad(context, 12)),
                           Text('Today completed', style: GoogleFonts.hankenGrotesk(
-                            fontSize: 18, fontWeight: FontWeight.w600, color: sc.onSurface,
+                            fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: sc.onSurface,
                           )),
                         ],
                       )
@@ -811,7 +817,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                         ? [const Color(0xFF2563eb), const Color(0xFF1e40af)]
                                         : [const Color(0xFF00152a), const Color(0xFF102a43)],
                                   ),
-                                  borderRadius: BorderRadius.circular(100),
+                                  shape: BoxShape.circle,
                                   boxShadow: [
                                     BoxShadow(
                                       color: _isPunchedIn
@@ -826,15 +832,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      _isPunchedIn ? Icons.exit_to_app : Icons.qr_code_scanner,
-                                      size: 48,
+                                      _isPunchedIn ? LucideIcons.power : LucideIcons.scanLine,
+                                      size: Responsive.sp(context, 48),
                                       color: Colors.white,
                                     ),
-                                    const SizedBox(height: 8),
+                                    SizedBox(height: Responsive.pad(context, 8)),
                                     Text(
                                       _isPunchedIn ? 'Punch Out' : 'Punch In',
-                                      style: const TextStyle(
-                                        fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.5,
+                                      style: TextStyle(
+                                        fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w700, letterSpacing: 1.5,
                                         color: Colors.white,
                                       ),
                                     ),
@@ -846,12 +852,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           ],
                         ),
                       ),
-                    const SizedBox(height: 40),
+                    SizedBox(height: Responsive.pad(context, 40)),
                     Row(
                       children: [
                         Expanded(
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                            padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 20), horizontal: Responsive.pad(context, 16)),
                             decoration: BoxDecoration(
                               color: sc.surface,
                               borderRadius: BorderRadius.circular(8),
@@ -862,15 +868,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                 Text(
                                   'IN',
                                   style: TextStyle(
-                                    fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0,
+                                    fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, letterSpacing: 1.0,
                                     color: sc.outline,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
+                                SizedBox(height: Responsive.pad(context, 6)),
                                 Text(
                                   _fmtTime(_punchInTime),
                                   style: GoogleFonts.hankenGrotesk(
-                                    fontSize: 20,
+                                    fontSize: Responsive.sp(context, 20),
                                     fontWeight: FontWeight.w700,
                                     color: sc.onSurface,
                                   ),
@@ -879,10 +885,10 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        SizedBox(width: Responsive.pad(context, 12)),
                         Expanded(
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                            padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 20), horizontal: Responsive.pad(context, 16)),
                             decoration: BoxDecoration(
                               color: sc.surface,
                               borderRadius: BorderRadius.circular(8),
@@ -893,15 +899,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                 Text(
                                   'OUT',
                                   style: TextStyle(
-                                    fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0,
+                                    fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, letterSpacing: 1.0,
                                     color: sc.outline,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
+                                SizedBox(height: Responsive.pad(context, 6)),
                                 Text(
                                   _fmtTime(_punchOutTime),
                                   style: GoogleFonts.hankenGrotesk(
-                                    fontSize: 20,
+                                    fontSize: Responsive.sp(context, 20),
                                     fontWeight: FontWeight.w700,
                                     color: sc.onSurface,
                                   ),
@@ -916,12 +922,157 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 0)),
+                child: GestureDetector(
+                  onTap: _openLateBatchSheet,
+                  child: Container(
+                    padding: EdgeInsets.all(Responsive.pad(context, 16)),
+                    decoration: BoxDecoration(
+                      color: sc.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: colors.outline),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+                          decoration: BoxDecoration(
+                            color: _lateTierColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Icon(LucideIcons.clock, size: Responsive.sp(context, 22), color: _lateTierColor),
+                        ),
+                        SizedBox(width: Responsive.pad(context, 16)),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Late Batch', style: GoogleFonts.hankenGrotesk(
+                                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                              )),
+                              SizedBox(height: Responsive.pad(context, 2)),
+                              Text(
+                                '${_lateUsed ~/ 60}:${(_lateUsed % 60).toString().padLeft(2, '0')}h used',
+                                style: TextStyle(
+                                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                                  color: sc.onSurfaceVariant,
+                                ),
+                              ),
+                              SizedBox(height: Responsive.pad(context, 8)),
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  const batch1End = 180;
+                                  const batch2End = 240;
+                                  final totalWidth = constraints.maxWidth;
+                                  final pct1 = (_lateUsed / batch1End).clamp(0.0, 1.0);
+                                  final pct2 = _lateUsed > batch1End
+                                      ? ((_lateUsed - batch1End) / (batch2End - batch1End)).clamp(0.0, 1.0)
+                                      : 0.0;
+                                  final batch1Width = totalWidth * 0.6;
+                                  final batch2Width = totalWidth * 0.4;
+
+                                  return Column(
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            flex: _lateUsed > 180 ? 6 : 10,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                ClipRRect(
+                                                  borderRadius: BorderRadius.circular(3),
+                                                  child: Stack(
+                                                    children: [
+                                                      Container(height: 6, color: colors.outlineVariant),
+                                                      Positioned(
+                                                        left: 0, top: 0, bottom: 0,
+                                                        child: Container(
+                                                          width: batch1Width * pct1,
+                                                          decoration: BoxDecoration(
+                                                            color: const Color(0xFF2a6a4b),
+                                                            borderRadius: BorderRadius.circular(3),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                SizedBox(height: 2),
+                                                Text('0–180m', style: TextStyle(fontSize: 8, color: sc.outline)),
+                                              ],
+                                            ),
+                                          ),
+                                          if (_lateUsed > batch1End) ...[
+                                            SizedBox(width: 6),
+                                            Expanded(
+                                              flex: 4,
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  ClipRRect(
+                                                    borderRadius: BorderRadius.circular(3),
+                                                    child: Stack(
+                                                      children: [
+                                                        Container(height: 6, color: colors.outlineVariant),
+                                                        Positioned(
+                                                          left: 0, top: 0, bottom: 0,
+                                                          child: Container(
+                                                            width: batch2Width * pct2,
+                                                            decoration: BoxDecoration(
+                                                              color: const Color(0xFFe67e22),
+                                                              borderRadius: BorderRadius.circular(3),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  SizedBox(height: 2),
+                                                  Text('181–240m', style: TextStyle(fontSize: 8, color: sc.outline)),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
+                          decoration: BoxDecoration(
+                            color: _lateTierColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            _lateTierLabel,
+                            style: TextStyle(
+                              fontSize: Responsive.sp(context, 9), fontWeight: FontWeight.w700,
+                              color: _lateTierColor,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: Responsive.pad(context, 8)),
+                        Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             if (_pendingLoans.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 0)),
                   child: Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.all(Responsive.pad(context, 16)),
                     decoration: BoxDecoration(
                       color: sc.surface,
                       borderRadius: BorderRadius.circular(8),
@@ -930,25 +1081,25 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     child: Row(
                       children: [
                         Container(
-                          width: 48, height: 48,
+                          width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
                           decoration: BoxDecoration(
                             color: const Color(0xFFfff3cd),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Icon(Icons.account_balance_wallet, size: 22, color: Color(0xFF856404)),
+                          child: Icon(LucideIcons.wallet, size: Responsive.sp(context, 22), color: Color(0xFF856404)),
                         ),
-                        const SizedBox(width: 16),
+                        SizedBox(width: Responsive.pad(context, 16)),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('Pending Loans', style: GoogleFonts.hankenGrotesk(
-                                fontSize: 16, fontWeight: FontWeight.w600, color: sc.onSurface,
+                                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
                               )),
                               Text(
                                 '${_pendingLoans.length} active \u00B7 \u20B9${_pendingLoans.fold<int>(0, (s, l) => s + ((l['remaining_amount'] ?? l['total_amount'] ?? 0) as int))}',
                                 style: TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.w500,
+                                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
                                   color: sc.onSurfaceVariant,
                                 ),
                               ),
@@ -962,105 +1113,146 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 80),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: sc.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: colors.outline),
-                      ),
-                      child: InkWell(
-                        onTap: _openLeaveSheet,
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 48, height: 48,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFd1e4ff),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Icon(Icons.auto_awesome, size: 22, color: Color(0xFF00152a)),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('New Request', style: GoogleFonts.hankenGrotesk(
-                                    fontSize: 16, fontWeight: FontWeight.w600, color: sc.onSurface,
-                                  )),
-                                  Text('Take a break or leave', style: TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w500,
-                                    color: sc.onSurfaceVariant,
-                                  )),
-                                ],
-                              ),
-                            ),
-                            Icon(Icons.chevron_right, size: 20, color: sc.outline),
+                padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                child: Container(
+                  padding: EdgeInsets.all(Responsive.pad(context, 16)),
+                  decoration: BoxDecoration(
+                    color: sc.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: colors.outline),
+                  ),
+                  child: InkWell(
+                    onTap: _openRequestSheet,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFd1e4ff),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Icon(LucideIcons.sparkles, size: Responsive.sp(context, 22), color: Color(0xFF00152a)),
+                        ),
+                        SizedBox(width: Responsive.pad(context, 16)),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('New Request', style: GoogleFonts.hankenGrotesk(
+                                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                              )),
+                              Text('Leave, advance, or loan', style: TextStyle(
+                                fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                                color: sc.onSurfaceVariant,
+                              )),
                             ],
-                           ),
                           ),
                         ),
-                      const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: sc.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: colors.outline),
-                      ),
-                      child: InkWell(
-                        onTap: () => showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (_) => SizedBox(
-                            height: MediaQuery.of(context).size.height * 0.85,
-                            child: Container(
-                                decoration: BoxDecoration(
-                                  color: sc.surface,
-                                  borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
-                                ),
-                                child: AdvancePage(),
-                              ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 48, height: 48,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFbfdbfe),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Icon(Icons.account_balance_wallet, size: 22, color: Color(0xFF2563eb)),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Apply for Advance / Loan', style: GoogleFonts.hankenGrotesk(
-                                    fontSize: 16, fontWeight: FontWeight.w600, color: sc.onSurface,
-                                  )),
-                                  Text('Request salary advance or loan', style: TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w500,
-                                    color: sc.onSurfaceVariant,
-                                  )),
-                                ],
-                              ),
-                            ),
-                            Icon(Icons.chevron_right, size: 20, color: sc.outline),
-                          ],
-                        ),
-                      ),
+                        Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
+                      ],
                     ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestSheet extends StatefulWidget {
+  const _RequestSheet();
+
+  @override
+  State<_RequestSheet> createState() => _RequestSheetState();
+}
+
+class _RequestSheetState extends State<_RequestSheet> with SingleTickerProviderStateMixin {
+  late final TabController _tabCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sc = Theme.of(context).colorScheme;
+    final colors = Theme.of(context).extension<AppColors>()!;
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.90,
+      child: Container(
+        decoration: BoxDecoration(
+          color: sc.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: Column(
+          children: [
+            SizedBox(height: Responsive.pad(context, 12)),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: sc.outlineVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(height: Responsive.pad(context, 8)),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+              child: Container(
+                height: Responsive.sp(context, 40),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: TabBar(
+                  controller: _tabCtrl,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  indicatorPadding: EdgeInsets.zero,
+                  indicator: BoxDecoration(
+                    color: sc.surface,
+                    borderRadius: BorderRadius.circular(7),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  dividerColor: Colors.transparent,
+                  labelColor: sc.onSurface,
+                  unselectedLabelColor: sc.onSurfaceVariant,
+                  labelStyle: GoogleFonts.hankenGrotesk(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600),
+                  unselectedLabelStyle: GoogleFonts.hankenGrotesk(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w500),
+                  splashBorderRadius: BorderRadius.circular(7),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  tabs: const [
+                    Tab(text: 'Leave'),
+                    Tab(text: 'Advance'),
+                    Tab(text: 'Ticket'),
                   ],
                 ),
+              ),
+            ),
+            SizedBox(height: Responsive.pad(context, 8)),
+            Expanded(
+              child: TabBarView(
+                controller: _tabCtrl,
+                children: [
+                  LeavePage(),
+                  AdvancePage(),
+                  const CorrectionTicketPage(),
+                ],
               ),
             ),
           ],
@@ -1073,15 +1265,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 IconData _notifIcon(String? type) {
   switch (type) {
     case 'birthday':
-      return Icons.cake;
+      return LucideIcons.cake;
     case 'event':
-      return Icons.event;
+      return LucideIcons.calendar;
     case 'notice':
-      return Icons.campaign;
+      return LucideIcons.megaphone;
     case 'achievement':
-      return Icons.emoji_events;
+      return LucideIcons.trophy;
     default:
-      return Icons.notifications;
+      return LucideIcons.bell;
   }
 }
 
@@ -1145,13 +1337,13 @@ class _NotificationSheetState extends State<_NotificationSheet> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
         ),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 16), Responsive.pad(context, 32)),
           children: [
             Center(
               child: Container(
                 width: 40,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 24),
+                margin: EdgeInsets.only(bottom: Responsive.pad(context, 24)),
                 decoration: BoxDecoration(
                   color: const Color(0xFFdfe3e7),
                   borderRadius: BorderRadius.circular(2),
@@ -1161,19 +1353,19 @@ class _NotificationSheetState extends State<_NotificationSheet> {
             Row(
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: Responsive.sp(context, 44),
+                  height: Responsive.sp(context, 44),
                   decoration: BoxDecoration(
                     color: const Color(0xFFd1e4ff),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Icon(Icons.notifications_active, color: Color(0xFF00152a), size: 22),
+                  child: Icon(LucideIcons.bellRing, color: Color(0xFF00152a), size: Responsive.sp(context, 22)),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: Responsive.pad(context, 16)),
                 Text(
                   'Notifications',
                   style: GoogleFonts.hankenGrotesk(
-                    fontSize: 20,
+                    fontSize: Responsive.sp(context, 20),
                     fontWeight: FontWeight.w600,
                     color: sc.onSurface,
                   ),
@@ -1183,23 +1375,23 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                   Text(
                     '${widget.unreadCount} unread',
                     style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600,
+                      fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w600,
                       color: sc.onSurfaceVariant,
                     ),
                   ),
               ],
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: Responsive.pad(context, 24)),
             if (_items.isEmpty)
               Padding(
-                padding: const EdgeInsets.only(top: 40),
+                padding: EdgeInsets.only(top: Responsive.pad(context, 40)),
                 child: Center(
                   child: Column(
                     children: [
-                      Icon(Icons.notifications_off, size: 48, color: sc.outline.withValues(alpha: 0.3)),
-                      const SizedBox(height: 12),
+                      Icon(LucideIcons.bellOff, size: Responsive.sp(context, 48), color: sc.outline.withValues(alpha: 0.3)),
+                      SizedBox(height: Responsive.pad(context, 12)),
                       Text('No notifications yet', style: TextStyle(
-                        fontSize: 14, color: sc.outline.withValues(alpha: 0.6),
+                        fontSize: Responsive.sp(context, 14), color: sc.outline.withValues(alpha: 0.6),
                       )),
                     ],
                   ),
@@ -1218,32 +1410,32 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                       direction: DismissDirection.horizontal,
                       background: Container(
                         alignment: Alignment.centerLeft,
-                        padding: const EdgeInsets.only(left: 16),
+                        padding: EdgeInsets.only(left: Responsive.pad(context, 16)),
                         decoration: BoxDecoration(
                           color: const Color(0xFF2563eb),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.done_all, color: Colors.white, size: 20),
-                            SizedBox(width: 8),
-                            Text('Read', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                            Icon(LucideIcons.checkCheck, color: Colors.white, size: Responsive.sp(context, 20)),
+                            SizedBox(width: Responsive.pad(context, 8)),
+                            Text('Read', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: Responsive.sp(context, 13))),
                           ],
                         ),
                       ),
                       secondaryBackground: Container(
                         alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 16),
+                        padding: EdgeInsets.only(right: Responsive.pad(context, 16)),
                         decoration: BoxDecoration(
                           color: const Color(0xFFba1a1a),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                            SizedBox(width: 8),
-                            Icon(Icons.delete_outline, color: Colors.white, size: 20),
+                            Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: Responsive.sp(context, 13))),
+                            SizedBox(width: Responsive.pad(context, 8)),
+                            Icon(LucideIcons.trash2, color: Colors.white, size: Responsive.sp(context, 20)),
                           ],
                         ),
                       ),
@@ -1261,7 +1453,7 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                       child: Opacity(
                         opacity: isRead ? 0.5 : 1,
                         child: Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: EdgeInsets.all(Responsive.pad(context, 16)),
                           decoration: BoxDecoration(
                             color: !isRead
                                 ? colors.surfaceContainerHigh
@@ -1273,10 +1465,10 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                             children: [
                               Icon(
                                 _notifIcon(n['type']?.toString()),
-                                size: 20,
+                                size: Responsive.sp(context, 20),
                                 color: _notifColor(n['type']?.toString(), sc),
                               ),
-                              const SizedBox(width: 14),
+                              SizedBox(width: Responsive.pad(context, 14)),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1284,15 +1476,15 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                                     Text(
                                       n['title'] ?? '',
                                       style: TextStyle(
-                                        fontSize: 14, fontWeight: FontWeight.w600,
+                                        fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600,
                                         color: sc.onSurface,
                                       ),
                                     ),
-                                    const SizedBox(height: 2),
+                                    SizedBox(height: Responsive.pad(context, 2)),
                                     Text(
                                       n['body'] ?? '',
                                       style: TextStyle(
-                                        fontSize: 12,
+                                        fontSize: Responsive.sp(context, 12),
                                         color: sc.outline,
                                       ),
                                     ),
@@ -1304,14 +1496,14 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                          ),
                         ),
                       ),
-                      if (!isLast) const SizedBox(height: 12),
+                      if (!isLast) SizedBox(height: Responsive.pad(context, 12)),
                     ],
                   );
               }),
-            const SizedBox(height: 8),
+            SizedBox(height: Responsive.pad(context, 8)),
             SizedBox(
               width: double.infinity,
-              height: 48,
+              height: Responsive.sp(context, 48),
               child: ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(),
                 style: ElevatedButton.styleFrom(
@@ -1323,7 +1515,7 @@ class _NotificationSheetState extends State<_NotificationSheet> {
                   ),
                 ),
                 child: Text('Close', style: GoogleFonts.hankenGrotesk(
-                  fontSize: 14, fontWeight: FontWeight.w700,
+                  fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w700,
                 )),
               ),
             ),
