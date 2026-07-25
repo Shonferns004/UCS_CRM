@@ -103,6 +103,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _fetchLoans();
       case RealtimeEvent.corrections:
         _fetchTickets();
+        _refreshHistoryFromNetwork();
       default:
         break;
     }

@@ -49,7 +49,8 @@ class _AttendanceListPageState extends State<AttendanceListPage> with WidgetsBin
   }
 
   void _onRealtimeChange() {
-    if (RealtimeService.instance.lastEvent == RealtimeEvent.attendance) {
+    final event = RealtimeService.instance.lastEvent;
+    if (event == RealtimeEvent.attendance || event == RealtimeEvent.corrections) {
       _load();
     }
   }
