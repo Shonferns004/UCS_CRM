@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { loadMetaCredentials, getCachedToken, getCachedWabaId, hasCachedCredentials } from '../lib/metaCredentials';
+import { fetchMessageCounts, fetchConversationCounts } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { MessageSquare, Users, Clock, CheckCircle, TrendingUp, Megaphone, DollarSign, Smartphone, Activity, BarChart3, AlertCircle, Settings } from 'lucide-react';
@@ -39,8 +40,6 @@ async function safeMetaGet(path: string): Promise<{ data: any; error: string | n
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const today = new Date().toISOString().split('T')[0];
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['dashboard-stats'],
@@ -49,23 +48,17 @@ export function DashboardPage() {
       const wabaId = getCachedWabaId();
 
       const [
-        conversations, contacts, openConversations, closedToday, messagesToday,
-        msgCategoryToday, msgCategoryMonth, dbPhones,
+        convCounts, contacts, msgCounts, dbPhones,
       ] = await Promise.all([
-        supabase.from('conversations').select('*', { count: 'exact', head: true }),
+        fetchConversationCounts(),
         supabase.from('contacts').select('*', { count: 'exact', head: true }),
-        supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('status', 'open'),
-        supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('status', 'closed'),
-        supabase.from('messages').select('*', { count: 'exact', head: true }).gte('created_at', today),
-        Promise.all(CATEGORIES.map((cat) => supabase.from('messages').select('*', { count: 'exact', head: true }).eq('message_category', cat).gte('created_at', today))),
-        Promise.all(CATEGORIES.map((cat) => supabase.from('messages').select('*', { count: 'exact', head: true }).eq('message_category', cat).gte('created_at', monthStart))),
+        fetchMessageCounts(),
         supabase.from('whatsapp_accounts').select('*').order('is_default', { ascending: false }).limit(5),
       ]);
 
-      const todayCounts: Record<string, number> = {};
-      const monthCounts: Record<string, number> = {};
-      CATEGORIES.forEach((cat, i) => { todayCounts[cat] = msgCategoryToday[i].count || 0; monthCounts[cat] = msgCategoryMonth[i].count || 0; });
-      const monthTotal = Object.values(monthCounts).reduce((a, b) => a + b, 0);
+      const todayCounts = msgCounts.dailyCounts || {};
+      const monthCounts = msgCounts.monthlyCounts || {};
+      const monthTotal = Object.values(monthCounts).reduce((a: number, b: any) => a + (b || 0), 0);
       let totalCost = 0;
       CATEGORIES.forEach((cat) => { totalCost += calculateCost(monthCounts[cat], CATEGORY_CONFIG[cat].rate); });
 
@@ -97,11 +90,11 @@ export function DashboardPage() {
       }
 
       return {
-        totalConversations: conversations.count || 0,
+        totalConversations: convCounts.total || 0,
         totalContacts: contacts.count || 0,
-        openConversations: openConversations.count || 0,
-        closedToday: closedToday.count || 0,
-        messagesToday: messagesToday.count || 0,
+        openConversations: convCounts.open || 0,
+        closedToday: convCounts.closed || 0,
+        messagesToday: msgCounts.totalToday || 0,
         todayCounts, monthCounts, monthTotal, totalCost,
         phoneNumbers: phones,
         metaPhone: phoneData,

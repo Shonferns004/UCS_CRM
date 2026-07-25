@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import {
   createWorker,
   createWorkers,
@@ -26,6 +27,10 @@ const generateLoginId = async (name) => {
   const base = surnameInitial ? `${firstName}${surnameInitial}` : firstName;
   const count = await getWorkerCount();
   return `${base}_ufs_${String(count + 1).padStart(2, '0')}`;
+};
+
+const generateRandomPassword = () => {
+  return crypto.randomBytes(8).toString('base64url').slice(0, 12);
 };
 
 function validateAllocations(allocations, salary) {
@@ -60,7 +65,7 @@ export const addWorker = async (req, res) => {
       finalAllocations = [{ ngo_id, salary_portion: 0 }];
     }
 
-    const tempPassword = '123456';
+    const tempPassword = generateRandomPassword();
     const login_id = await generateLoginId(name);
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(tempPassword, salt);
@@ -112,7 +117,7 @@ export const bulkAddWorkers = async (req, res) => {
       return res.status(400).json({ message: 'Workers array is required' });
     }
     const count = await getWorkerCount();
-    const tempPassword = '123456';
+    const tempPassword = generateRandomPassword();
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(tempPassword, salt);
     const prepared = workers.map((w, i) => {

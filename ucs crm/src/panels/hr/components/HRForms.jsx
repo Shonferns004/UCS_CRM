@@ -1,763 +1,623 @@
 import { useState, useEffect } from 'react';
 import { useHR } from '../store';
-import { Dropdown } from './ui';
-import { Plus, Trash } from '../icons';
+import { initials as initialsFn } from '../store';
 import PrintForms from './forms/PrintForms';
 
-const GENDERS = ['Male', 'Female', 'Other'];
-const MARITAL_STATUSES = ['Single', 'Married', 'Divorced', 'Widowed'];
-const SECTIONS = ['Personal Details', 'Education', 'Previous Organizations', 'Family', 'References', 'Bank Details', 'Declaration'];
+const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
 
-function Field({ label, type = 'text', value, onChange, placeholder, required, ...rest }) {
+const PALETTE = ['#5B6B4E', '#B5603A', '#C08A2E', '#4F6472', '#7A5C7E', '#88693D'];
+const avatarColorLocal = (name) => {
+  let h = 0;
+  for (const c of name) h = c.charCodeAt(0) + ((h << 5) - h);
+  return PALETTE[Math.abs(h) % PALETTE.length];
+};
+const tint = (hex) => hex + '22';
+
+function MiniFormPreview({ worker }) {
+  const w = worker;
+  const name = w.name || '';
+  const dept = w.department || '';
+  const phone = w.phone || '';
+  const email = w.email || '';
+  const gender = w.gender || '';
+  const dob = w.dob ? new Date(w.dob).toLocaleDateString('en-IN') : '';
+  const joinDate = w.date_of_joining ? new Date(w.date_of_joining).toLocaleDateString('en-IN') : '';
+  const photo = w.photo_url || '';
+
   return (
-    <label className="field">
-      {label}{required && ' *'}
-      {type === 'textarea' ? (
-        <textarea value={value} onChange={onChange} placeholder={placeholder} rows={3} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)',resize:'vertical',width:'100%',boxSizing:'border-box'}} {...rest} />
-      ) : type === 'select' ? (
-        <Dropdown value={value} onChange={onChange} options={rest.options || []} />
-      ) : (
-        <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)',width:'100%',boxSizing:'border-box'}} {...rest} />
-      )}
+    <div style={{
+      width: '595px',
+      height: '842px',
+      background: '#fff',
+      border: '6px double #000',
+      padding: '10px 12px',
+      fontFamily: 'Arial, Helvetica, sans-serif',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      position: 'absolute',
+      top: 0,
+      left: 0,
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: 'center', marginBottom: 2 }}>
+        <div style={{ fontSize: 26, fontFamily: 'Georgia, serif', fontWeight: 700, margin: 0 }}>Being Sevak Charitable Trust</div>
+        <div style={{ borderTop: '3px solid #7d1e1e', margin: '3px 0' }} />
+        <div style={{ fontSize: 8 }}>Public Charitable Trust (Reg.) E-31948 No, Income Tax Exempted Under 80G</div>
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, textDecoration: 'underline', marginBottom: 8 }}>VOLUNTEER JOINING FORM</div>
+
+      {/* Personal Details */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+        <tbody>
+          <tr><td colSpan="3" style={{ background: '#d8d8d8', fontWeight: 700, fontSize: 13, border: '1px solid #666', padding: '6px 8px' }}>PERSONAL DETAILS</td></tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700, width: '25%', whiteSpace: 'nowrap' }}>Name :</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 600 }}>{titleCase(name)}</td>
+            <td rowSpan="4" style={{ border: '1px solid #666', padding: 6, textAlign: 'center', verticalAlign: 'middle', width: 100, fontWeight: 700, fontSize: 20, height: 140 }}>
+              {photo ? <img src={photo} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} /> : 'PHOTOGRAPH'}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>Father's / Husband Name :</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}>{titleCase(w.father_husband_name || '')}</td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>Address :</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', whiteSpace: 'pre-wrap' }}>{titleCase(w.address || '')}</td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>Permanent Address :</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', whiteSpace: 'pre-wrap' }}>{titleCase(w.permanent_address || w.address || '')}</td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Mobile :</strong> {phone}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Email :</strong> {email}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Gender :</strong> {titleCase(gender)}</td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Date of Birth :</strong> {dob}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Marital Status :</strong> {titleCase(w.marital_status || '')}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Date of Joining :</strong> {joinDate}</td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>PAN :</strong> {w.pan_number || ''}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Aadhaar :</strong> {w.aadhar_number || ''}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}><strong>Dept :</strong> {dept}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Education */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, marginTop: 4 }}>
+        <tbody>
+          <tr><td colSpan="5" style={{ background: '#d8d8d8', fontWeight: 700, fontSize: 13, border: '1px solid #666', padding: '6px 8px' }}>EDUCATIONAL DETAILS</td></tr>
+          <tr>
+            {[<th key="1" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Degree</th>, <th key="2" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>University / Institute</th>, <th key="3" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Year</th>, <th key="4" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>%</th>]}
+          </tr>
+          {[...Array(2)].map((_, i) => (
+            <tr key={i}>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', height: 28 }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px' }}></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Organizations */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, marginTop: 4 }}>
+        <tbody>
+          <tr><td colSpan="5" style={{ background: '#d8d8d8', fontWeight: 700, fontSize: 13, border: '1px solid #666', padding: '6px 8px' }}>PREVIOUS ORGANISATIONS</td></tr>
+          <tr>
+            {[<th key="1" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9, width: '6%' }}>Sr</th>, <th key="2" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Organisation</th>, <th key="3" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Role</th>, <th key="4" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9, width: '12%' }}>From</th>, <th key="5" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9, width: '12%' }}>To</th>]}
+          </tr>
+          {[...Array(2)].map((_, i) => (
+            <tr key={i}>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center', height: 28 }}>{i + 1}</td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center' }}></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Family */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, marginTop: 4 }}>
+        <tbody>
+          <tr><td colSpan="5" style={{ background: '#d8d8d8', fontWeight: 700, fontSize: 13, border: '1px solid #666', padding: '6px 8px' }}>FAMILY DETAILS</td></tr>
+          <tr>
+            {[<th key="1" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9, width: '6%' }}>S.No</th>, <th key="2" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Name</th>, <th key="3" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Relation</th>, <th key="4" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Occupation</th>, <th key="5" style={{ border: '1px solid #666', padding: '4px 6px', fontSize: 9 }}>Mobile</th>]}
+          </tr>
+          {[...Array(2)].map((_, i) => (
+            <tr key={i}>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center', height: 28 }}>{i + 1}</td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center' }}></td>
+              <td style={{ border: '1px solid #666', padding: '4px 6px', textAlign: 'center' }}></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Bank */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, marginTop: 4 }}>
+        <tbody>
+          <tr><td colSpan="4" style={{ background: '#d8d8d8', fontWeight: 700, fontSize: 13, border: '1px solid #666', padding: '6px 8px' }}>BANK DETAILS</td></tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>Bank Name</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}>{w.bank_name || ''}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>A/C No</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}>{w.account_number || ''}</td>
+          </tr>
+          <tr>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>IFSC</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}>{w.ifsc_code || ''}</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px', fontWeight: 700 }}>Holder Name</td>
+            <td style={{ border: '1px solid #666', padding: '6px 8px' }}>{w.account_holder_name || ''}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Footer */}
+      <div style={{ marginTop: 'auto', borderTop: '2px solid #7b2020', paddingTop: 4, textAlign: 'center', fontSize: 7, lineHeight: 1.3 }}>
+        Reg. Add.: Office No. 402, 4th Floor, 'A' Wing, New Delite Apartment, Near Chandavarkar Lane, Borivali (West), Mumbai.<br />
+        Contact: 8879035035 / 8879034034 | E-mail: being.sevak@gmail.com
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value }) {
+  return (
+    <label className="field" style={{ marginBottom: 8 }}>
+      <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: 14, color: 'var(--ink)' }}>{value || '—'}</span>
     </label>
   );
 }
 
-function EducationEntry({ entry, index, onChange, onRemove }) {
-  return (
-    <div className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 12 }}>
-        <strong>Entry {index + 1}</strong>
-        {onRemove && <button className="btn" onClick={onRemove} style={{ color:'#dc2626', padding:'4px 8px' }}><Trash width={14} /></button>}
-      </div>
-      <div className="form-row">
-        <Field label="Degree" required value={entry.degree} onChange={e => onChange(index, 'degree', e.target.value)} placeholder="e.g., B.Sc, B.Com, MBA" />
-        <Field label="Institution" required value={entry.institution} onChange={e => onChange(index, 'institution', e.target.value)} placeholder="College / School name" />
-      </div>
-      <div className="form-row">
-        <Field label="University" value={entry.university} onChange={e => onChange(index, 'university', e.target.value)} placeholder="University name" />
-        <Field label="Year" value={entry.year} onChange={e => onChange(index, 'year', e.target.value)} placeholder="e.g., 2020" />
-      </div>
-      <div className="form-row">
-        <Field label="From Year" value={entry.fromYear} onChange={e => onChange(index, 'fromYear', e.target.value)} placeholder="e.g., 2018" />
-        <Field label="To Year" value={entry.toYear} onChange={e => onChange(index, 'toYear', e.target.value)} placeholder="e.g., 2022" />
-      </div>
-      <Field label="Percentage / Grade" value={entry.percentage} onChange={e => onChange(index, 'percentage', e.target.value)} placeholder="e.g., 85% or A+" />
-    </div>
-  );
-}
-
-function OrganizationEntry({ entry, index, onChange, onRemove }) {
-  return (
-    <div className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 12 }}>
-        <strong>Organization {index + 1}</strong>
-        {onRemove && <button className="btn" onClick={onRemove} style={{ color:'#dc2626', padding:'4px 8px' }}><Trash width={14} /></button>}
-      </div>
-      <div className="form-row">
-        <Field label="Organization Name" required value={entry.name} onChange={e => onChange(index, 'name', e.target.value)} placeholder="Company / Organization name" />
-        <Field label="Role / Designation" value={entry.role} onChange={e => onChange(index, 'role', e.target.value)} placeholder="Your job title" />
-      </div>
-      <div className="form-row">
-        <Field label="From Year" value={entry.fromYear} onChange={e => onChange(index, 'fromYear', e.target.value)} placeholder="e.g., 2020" />
-        <Field label="To Year" value={entry.toYear} onChange={e => onChange(index, 'toYear', e.target.value)} placeholder="e.g., 2023" />
-      </div>
-    </div>
-  );
-}
-
-function FamilyEntry({ entry, index, onChange, onRemove }) {
-  return (
-    <div className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 12 }}>
-        <strong>Member {index + 1}</strong>
-        {onRemove && <button className="btn" onClick={onRemove} style={{ color:'#dc2626', padding:'4px 8px' }}><Trash width={14} /></button>}
-      </div>
-      <div className="form-row">
-        <Field label="Name" required value={entry.name} onChange={e => onChange(index, 'name', e.target.value)} placeholder="Full name" />
-        <Field label="Relationship" required value={entry.relationship} onChange={e => onChange(index, 'relationship', e.target.value)} placeholder="e.g., Father, Mother" />
-      </div>
-      <div className="form-row">
-        <Field label="Occupation" value={entry.occupation} onChange={e => onChange(index, 'occupation', e.target.value)} placeholder="Optional" />
-        <Field label="Phone" value={entry.phone} onChange={e => onChange(index, 'phone', e.target.value)} placeholder="Optional" />
-      </div>
-      <Field label="Date of Birth" type="date" value={entry.dob} onChange={e => onChange(index, 'dob', e.target.value)} />
-    </div>
-  );
-}
-
-function ReferenceEntry({ entry, index, onChange, onRemove }) {
-  return (
-    <div className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 12 }}>
-        <strong>Reference {index + 1}</strong>
-        {onRemove && <button className="btn" onClick={onRemove} style={{ color:'#dc2626', padding:'4px 8px' }}><Trash width={14} /></button>}
-      </div>
-      <div className="form-row">
-        <Field label="Name" required value={entry.name} onChange={e => onChange(index, 'name', e.target.value)} placeholder="Full name" />
-        <Field label="Designation" value={entry.designation} onChange={e => onChange(index, 'designation', e.target.value)} placeholder="Job title" />
-      </div>
-      <div className="form-row">
-        <Field label="Organization" value={entry.organization} onChange={e => onChange(index, 'organization', e.target.value)} placeholder="Company name" />
-        <Field label="Phone" value={entry.phone} onChange={e => onChange(index, 'phone', e.target.value)} placeholder="Contact number" />
-      </div>
-    </div>
-  );
-}
-
-const PALETTE = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D'];
-const avatarColor = (name) => {
-  let h = 0; for (const c of name) h = c.charCodeAt(0) + ((h << 5) - h);
-  return PALETTE[Math.abs(h) % PALETTE.length];
-};
-const tint = (hex) => hex + '22';
-const initials = (n) => n.trim().split(/\s+/).map(w => w[0]).slice(0,2).join('').toUpperCase();
-
 export default function HRForms() {
   const { fetchWorkers, fetchWorkerById } = useHR();
-  const [section, setSection] = useState(SECTIONS[0]);
   const [workers, setWorkers] = useState([]);
-  const [filteredWorkers, setFilteredWorkers] = useState([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [workerPhotoUrl, setWorkerPhotoUrl] = useState('');
-  const [workerPhotoErr, setWorkerPhotoErr] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectedWorker, setSelectedWorker] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
 
   useEffect(() => {
-    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
+    fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message));
   }, []);
 
-  const handleSearchChange = (value) => {
-    setSearch(value);
-    if (value.trim()) {
-      const filtered = workers.filter(w =>
-        w.name.toLowerCase().includes(value.toLowerCase())
-      );
-      setFilteredWorkers(filtered);
-      setShowDropdown(true);
-    } else {
-      setFilteredWorkers([]);
-      setShowDropdown(false);
-    }
-  };
+  const filtered = workers.filter((w) =>
+    w.name?.toLowerCase().includes(search.toLowerCase()) ||
+    w.email?.toLowerCase().includes(search.toLowerCase()) ||
+    w.department?.toLowerCase().includes(search.toLowerCase())
+  );
 
-  const handleSelectWorker = async (worker) => {
-    setSearch(worker.name);
-    setShowDropdown(false);
-    setWorkerPhotoErr(false);
+  const handleCardClick = async (worker) => {
+    setSelectedWorker(worker);
+    setLoadingPreview(true);
     try {
       const data = await fetchWorkerById(worker.id);
-      setWorkerPhotoUrl(data.photo_url || '');
-      setPersonal({
-        fullName: data.name || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        altPhone: data.alternate_phone || '',
-        fatherHusband: data.father_husband_name || '',
-        gender: data.gender || 'Male',
-        dob: data.dob ? data.dob.slice(0, 10) : '',
-        maritalStatus: data.marital_status || 'Single',
-        address: data.address || '',
-        city: data.city || '',
-        state: data.state || '',
-        pincode: data.pincode || '',
-        panNumber: data.pan_number || '',
-        aadhaarNumber: data.aadhar_number || '',
-        permanentAddress: data.permanent_address || '',
-        corrAddress: data.correspondence?.address || '',
-        corrCity: data.correspondence?.city || '',
-        corrState: data.correspondence?.state || '',
-        corrPincode: data.correspondence?.pincode || '',
-      });
-      setBank({
-        bankName: data.bank_name || '',
-        accountHolder: data.account_holder_name || '',
-        ifsc: data.ifsc_code || '',
-        accountNo: data.account_number || '',
-      });
-      if (data.previous_organizations && Array.isArray(data.previous_organizations)) {
-        setOrganizations(data.previous_organizations.map(o => ({
-          name: o.organization_name || o.name || '',
-          role: o.role || o.designation || '',
-          fromYear: o.from_year?.toString() || '',
-          toYear: o.to_year?.toString() || '',
-        })));
-      } else {
-        setOrganizations([]);
-      }
-      if (data.education && Array.isArray(data.education)) {
-        setEducation(data.education.map(e => ({
-          degree: e.degree || '',
-          institution: e.institution || '',
-          university: e.university || '',
-          year: (e.year_of_passing || e.year)?.toString() || '',
-          percentage: e.percentage?.toString() || '',
-        })));
-      } else {
-        setEducation([]);
-      }
-      if (data.family && Array.isArray(data.family)) {
-        setFamily(data.family.map(f => ({
-          name: f.name || '',
-          relationship: f.relationship || '',
-          occupation: f.occupation || '',
-          phone: f.phone || '',
-          dob: f.dob ? f.dob.slice(0, 10) : '',
-        })));
-      } else {
-        setFamily([]);
-      }
-      if (data.references && Array.isArray(data.references)) {
-        setReferences(data.references.map(r => ({
-          name: r.name || '',
-          designation: r.designation || '',
-          organization: r.organization || '',
-          phone: r.phone || '',
-        })));
-      } else {
-        setReferences([]);
-      }
-      setDeclarationDate(data.declaration_date ? data.declaration_date.slice(0, 10) : (data.created_at ? data.created_at.slice(0, 10) : ''));
-      setPlace(data.declaration_place || 'Mumbai');
-      setSignatureUrl(data.signature_url || '');
-    } catch (e) { console.error('Error:', e.message); }
-  };
-
-  const [personal, setPersonal] = useState({
-    fullName: '', email: '', phone: '', altPhone: '', fatherHusband: '',
-    gender: 'Male', dob: '', maritalStatus: 'Single',
-    address: '', city: '', state: '', pincode: '',
-    panNumber: '', aadhaarNumber: '', permanentAddress: '',
-    corrAddress: '', corrCity: '', corrState: '', corrPincode: '',
-  });
-
-  const [education, setEducation] = useState([]);
-  const [organizations, setOrganizations] = useState([]);
-  const [family, setFamily] = useState([]);
-  const [references, setReferences] = useState([]);
-
-  const [bank, setBank] = useState({
-    bankName: '', accountHolder: '', ifsc: '', accountNo: '',
-  });
-
-  const [saved, setSaved] = useState(false);
-  const [search, setSearch] = useState('');
-  const [showPreview, setShowPreview] = useState(false);
-  const [showPrint, setShowPrint] = useState(false);
-  const [place, setPlace] = useState('');
-  const [declarationDate, setDeclarationDate] = useState('');
-  const [signatureUrl, setSignatureUrl] = useState('');
-
-  const handlePersonalChange = (field, value) => {
-    setPersonal(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleEducationChange = (index, field, value) => {
-    setEducation(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e));
-  };
-
-  const handleOrganizationChange = (index, field, value) => {
-    setOrganizations(prev => prev.map((o, i) => i === index ? { ...o, [field]: value } : o));
-  };
-
-  const handleFamilyChange = (index, field, value) => {
-    setFamily(prev => prev.map((f, i) => i === index ? { ...f, [field]: value } : f));
-  };
-
-  const handleReferenceChange = (index, field, value) => {
-    setReferences(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
-  };
-
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const renderSection = () => {
-    switch (section) {
-      case 'Personal Details':
-        return (
-          <>
-            <div className="card-head"><h3>Basic Information</h3>
-              {workerPhotoUrl && !workerPhotoErr && (
-                <img src={workerPhotoUrl} alt=""
-                  style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }}
-                  onError={() => setWorkerPhotoErr(true)} />
-              )}
-              <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
-                {showDropdown && filteredWorkers.length > 0 && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
-                    {filteredWorkers.map(w => (
-                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
-                        {w.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="card-pad">
-              <div className="form-row">
-                <Field label="Full Name" required value={personal.fullName} onChange={e => handlePersonalChange('fullName', e.target.value)} placeholder="Enter full name" />
-                <Field label="Email" required type="email" value={personal.email} onChange={e => handlePersonalChange('email', e.target.value)} placeholder="Enter email" />
-              </div>
-              <div className="form-row">
-                <Field label="Phone" required value={personal.phone} onChange={e => handlePersonalChange('phone', e.target.value)} placeholder="10-digit number" />
-                <Field label="Alt. Phone" value={personal.altPhone} onChange={e => handlePersonalChange('altPhone', e.target.value)} placeholder="Optional" />
-              </div>
-              <Field label="Father / Husband Name" value={personal.fatherHusband} onChange={e => handlePersonalChange('fatherHusband', e.target.value)} placeholder="Enter father or husband name" />
-            </div>
-
-            <div className="card-head"><h3>Personal Info</h3></div>
-            <div className="card-pad">
-              <div className="form-row">
-                <Field label="Gender" type="select" value={personal.gender} onChange={e => handlePersonalChange('gender', e.target.value)} options={GENDERS.map(g => ({ value: g, label: g }))} />
-                <Field label="Date of Birth" type="date" value={personal.dob} onChange={e => handlePersonalChange('dob', e.target.value)} />
-              </div>
-              <Field label="Marital Status" type="select" value={personal.maritalStatus} onChange={e => handlePersonalChange('maritalStatus', e.target.value)} options={MARITAL_STATUSES.map(m => ({ value: m, label: m }))} />
-            </div>
-
-            <div className="card-head"><h3>Address</h3></div>
-            <div className="card-pad">
-              <Field label="Address" value={personal.address} onChange={e => handlePersonalChange('address', e.target.value)} placeholder="Street, area, landmark" />
-              <div className="form-row">
-                <Field label="City" value={personal.city} onChange={e => handlePersonalChange('city', e.target.value)} placeholder="City" />
-                <Field label="State" value={personal.state} onChange={e => handlePersonalChange('state', e.target.value)} placeholder="State" />
-              </div>
-              <Field label="Pincode" value={personal.pincode} onChange={e => handlePersonalChange('pincode', e.target.value)} placeholder="6-digit pincode" />
-            </div>
-
-            <div className="card-head"><h3>Identity Numbers</h3></div>
-            <div className="card-pad">
-              <div className="form-row">
-                <Field label="PAN Number" value={personal.panNumber} onChange={e => handlePersonalChange('panNumber', e.target.value)} placeholder="e.g., ABCDE1234F" />
-                <Field label="Aadhaar Number" value={personal.aadhaarNumber} onChange={e => handlePersonalChange('aadhaarNumber', e.target.value)} placeholder="12-digit number" />
-              </div>
-              <Field label="Permanent Address" value={personal.permanentAddress} onChange={e => handlePersonalChange('permanentAddress', e.target.value)} placeholder="If different from current address" />
-            </div>
-
-            <div className="card-head"><h3>Correspondence Address</h3></div>
-            <div className="card-pad">
-              <Field label="Address" type="textarea" rows={3} value={personal.corrAddress || ''} onChange={e => {
-                const raw = e.target.value.replace(/\n/g, '');
-                const lines = [];
-                for (let i = 0; i < raw.length; i += 25) {
-                  lines.push(raw.substring(i, i + 25));
-                }
-                handlePersonalChange('corrAddress', lines.join('\n'));
-              }} placeholder="Street, area, landmark" />
-              <div className="form-row">
-                <Field label="City" value={personal.corrCity || ''} onChange={e => handlePersonalChange('corrCity', e.target.value)} placeholder="City" />
-                <Field label="State" value={personal.corrState || ''} onChange={e => handlePersonalChange('corrState', e.target.value)} placeholder="State" />
-              </div>
-              <Field label="Pincode" value={personal.corrPincode || ''} onChange={e => handlePersonalChange('corrPincode', e.target.value)} placeholder="6-digit pincode" />
-            </div>
-
-
-          </>
-        );
-
-      case 'Education':
-        return (
-          <>
-            <div className="card-head"><h3>Educational Qualifications</h3>
-              <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
-                {showDropdown && filteredWorkers.length > 0 && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
-                    {filteredWorkers.map(w => (
-                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
-                        {w.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="card-pad">
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your educational background</p>
-              {education.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-soft)' }}>
-                  <p>No education entries added yet</p>
-                </div>
-              )}
-              {education.map((entry, i) => (
-                <EducationEntry key={i} entry={entry} index={i} onChange={handleEducationChange} onRemove={education.length > 1 ? () => setEducation(prev => prev.filter((_, idx) => idx !== i)) : undefined} />
-              ))}
-              <div style={{ textAlign: 'center', marginTop: 8 }}>
-                <button className="btn" onClick={() => setEducation(prev => [...prev, { degree: '', institution: '', university: '', year: '', fromYear: '', toYear: '', percentage: '' }])} style={{ gap: 6 }}>
-                  <Plus width={14} /> Add Education
-                </button>
-              </div>
-            </div>
-          </>
-        );
-
-      case 'Previous Organizations':
-        return (
-          <>
-            <div className="card-head"><h3>Previous Organizations</h3>
-              <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
-                {showDropdown && filteredWorkers.length > 0 && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
-                    {filteredWorkers.map(w => (
-                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
-                        {w.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="card-pad">
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your previous work experience (if any)</p>
-              {organizations.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-soft)' }}>
-                  <p>No previous organizations added</p>
-                </div>
-              )}
-              {organizations.map((entry, i) => (
-                <OrganizationEntry key={i} entry={entry} index={i} onChange={handleOrganizationChange} onRemove={() => setOrganizations(prev => prev.filter((_, idx) => idx !== i))} />
-              ))}
-              <div style={{ textAlign: 'center', marginTop: 8 }}>
-                <button className="btn" onClick={() => setOrganizations(prev => [...prev, { name: '', role: '', fromYear: '', toYear: '' }])} style={{ gap: 6 }}>
-                  <Plus width={14} /> Add Organization
-                </button>
-              </div>
-            </div>
-          </>
-        );
-
-      case 'Family':
-        return (
-          <>
-            <div className="card-head"><h3>Family Details</h3>
-              <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
-                {showDropdown && filteredWorkers.length > 0 && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
-                    {filteredWorkers.map(w => (
-                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
-                        {w.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="card-pad">
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add your family members</p>
-              {family.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-soft)' }}>
-                  <p>No family members added yet</p>
-                </div>
-              )}
-              {family.map((entry, i) => (
-                <FamilyEntry key={i} entry={entry} index={i} onChange={handleFamilyChange} onRemove={() => setFamily(prev => prev.filter((_, idx) => idx !== i))} />
-              ))}
-              <div style={{ textAlign: 'center', marginTop: 8 }}>
-                <button className="btn" onClick={() => setFamily(prev => [...prev, { name: '', relationship: '', occupation: '', phone: '', dob: '' }])} style={{ gap: 6 }}>
-                  <Plus width={14} /> Add Family Member
-                </button>
-              </div>
-            </div>
-          </>
-        );
-
-      case 'References':
-        return (
-          <>
-            <div className="card-head"><h3>Professional References</h3>
-              <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
-                {showDropdown && filteredWorkers.length > 0 && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
-                    {filteredWorkers.map(w => (
-                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
-                        {w.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="card-pad">
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>Add professional references</p>
-              {references.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-soft)' }}>
-                  <p>No references added yet</p>
-                </div>
-              )}
-              {references.map((entry, i) => (
-                <ReferenceEntry key={i} entry={entry} index={i} onChange={handleReferenceChange} onRemove={() => setReferences(prev => prev.filter((_, idx) => idx !== i))} />
-              ))}
-              <div style={{ textAlign: 'center', marginTop: 8 }}>
-                <button className="btn" onClick={() => setReferences(prev => [...prev, { name: '', designation: '', organization: '', phone: '' }])} style={{ gap: 6 }}>
-                  <Plus width={14} /> Add Reference
-                </button>
-              </div>
-            </div>
-          </>
-        );
-
-      case 'Bank Details':
-        return (
-          <>
-            <div className="card-head"><h3>Bank Account Details</h3>
-              <div style={{ position:'relative' }}>
-                <input type="text" value={search} onChange={e => handleSearchChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && showDropdown && filteredWorkers.length > 0) { e.preventDefault(); handleSelectWorker(filteredWorkers[0]); } }} placeholder="Search employee..." style={{ padding:'5px 9px', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', fontSize:13, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', width:200 }} />
-                {showDropdown && filteredWorkers.length > 0 && (
-                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:100, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', maxHeight:200, overflowY:'auto' }}>
-                    {filteredWorkers.map(w => (
-                      <div key={w.id} onClick={() => handleSelectWorker(w)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, borderBottom:'1px solid var(--line)' }}>
-                        {w.name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="card-pad">
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--ink-soft)' }}>These details will be used for salary disbursement</p>
-              <div className="form-row">
-                <Field label="Bank Name" required value={bank.bankName} onChange={e => setBank(prev => ({ ...prev, bankName: e.target.value }))} placeholder="e.g., State Bank of India" />
-                <Field label="Account Holder Name" required value={bank.accountHolder} onChange={e => setBank(prev => ({ ...prev, accountHolder: e.target.value }))} placeholder="As per bank records" />
-              </div>
-              <div className="form-row">
-                <Field label="IFSC Code" required value={bank.ifsc} onChange={e => setBank(prev => ({ ...prev, ifsc: e.target.value }))} placeholder="e.g., SBIN0001234" />
-                <Field label="Account Number" required value={bank.accountNo} onChange={e => setBank(prev => ({ ...prev, accountNo: e.target.value }))} placeholder="Your bank account number" />
-              </div>
-            </div>
-          </>
-        );
-
-      case 'Declaration':
-        return (
-          <>
-            <div className="card-head"><h4>Declaration</h4></div>
-            <div className="card-pad">
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.8, marginBottom: 24, cursor: 'pointer' }}>
-                <input type="checkbox" style={{ marginTop: 5, transform: 'scale(1.1)' }} />
-                <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</span>
-              </label>
-              <div className="form-row">
-                <div style={{ flex: 1 }}>
-                  <label className="form-label">Date</label>
-                  <input type="date" value={declarationDate} onChange={e => setDeclarationDate(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
-                </div>
-                <Field label="Place" placeholder="____________" readOnly={false} value={place} onChange={e => setPlace(e.target.value)} />
-              </div>
-              <div className="form-row">
-                <div style={{ flex: 1 }}>
-                  <label className="form-label">Sign</label>
-                  {signatureUrl ? (
-                    <img src={signatureUrl} alt="Digital signature" style={{ maxWidth: 300, maxHeight: 80, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }} />
-                  ) : (
-                    <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        );
-
-      default:
-        return null;
+      setPreviewData(data);
+    } catch (e) {
+      console.error('Error fetching worker:', e.message);
+    } finally {
+      setLoadingPreview(false);
     }
   };
+
+  const handleBack = () => {
+    setSelectedWorker(null);
+    setPreviewData(null);
+  };
+
+  const d = previewData;
 
   return (
     <>
-    <div className="card">
-      <div className="print-header">EMPLOYEE ONBOARDING FORM <small>UFS HR Department</small></div>
-      <div className="card-head no-print"><h3>HR Forms</h3><span className="sub">Employee onboarding form</span></div>
-      <div className="card-pad">
-        <div className="no-print" style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
-          {SECTIONS.map(s => (
-            <button key={s} className={`btn ${section === s ? 'btn-primary' : ''}`} onClick={() => { setSection(s); setShowPreview(false); }} style={{ fontSize: 13 }}>
-              {s}
-            </button>
-          ))}
-          <button className={`btn ${showPreview ? 'btn-primary' : ''}`} onClick={() => setShowPreview(!showPreview)} style={{ fontSize: 13 }}>Preview</button>
-          <button className="btn" onClick={() => setShowPrint(true)} style={{ fontSize: 13, background: 'red', color: '#fff' }}>Print All Forms</button>
-        </div>
-
-        {showPreview ? (
-          <div className="card-pad" style={{ maxHeight: 500, overflowY: 'auto' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
-              {workerPhotoUrl && !workerPhotoErr ? (
-                <img src={workerPhotoUrl} alt=""
-                  style={{ width:60, height:60, borderRadius:12, objectFit:'cover', flexShrink:0 }}
-                  onError={() => setWorkerPhotoErr(true)} />
-              ) : workerPhotoUrl ? (
-                <div style={{ width:60, height:60, borderRadius:12, background:tint(avatarColor(personal.fullName)), color:avatarColor(personal.fullName), display:'flex', alignItems:'center', justifyContent:'center', fontWeight:600, fontSize:20, flexShrink:0 }}>
-                  {initials(personal.fullName)}
-                </div>
-              ) : null}
-              <h3 style={{ margin:0 }}>Personal Details</h3>
-            </div>
-            <div className="form-row">
-              <Field label="Full Name" value={personal.fullName} readOnly />
-              <Field label="Email" value={personal.email} readOnly />
-            </div>
-            <div className="form-row">
-              <Field label="Phone" value={personal.phone} readOnly />
-              <Field label="Alt. Phone" value={personal.altPhone} readOnly />
-            </div>
-            <Field label="Father / Husband Name" value={personal.fatherHusband} readOnly />
-            <div className="form-row">
-              <Field label="Gender" value={personal.gender} readOnly />
-              <Field label="Date of Birth" value={personal.dob} readOnly />
-            </div>
-            <Field label="Marital Status" value={personal.maritalStatus} readOnly />
-            <Field label="Address" value={personal.address} readOnly />
-            <div className="form-row">
-              <Field label="City" value={personal.city} readOnly />
-              <Field label="State" value={personal.state} readOnly />
-            </div>
-            <Field label="Pincode" value={personal.pincode} readOnly />
-            <div className="form-row">
-              <Field label="PAN Number" value={personal.panNumber} readOnly />
-              <Field label="Aadhaar Number" value={personal.aadhaarNumber} readOnly />
-            </div>
-            <Field label="Permanent Address" value={personal.permanentAddress} readOnly />
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Correspondence Address</h3>
-            <Field label="Address" value={personal.corrAddress} readOnly />
-            <div className="form-row">
-              <Field label="City" value={personal.corrCity} readOnly />
-              <Field label="State" value={personal.corrState} readOnly />
-            </div>
-            <Field label="Pincode" value={personal.corrPincode} readOnly />
-
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Education</h3>
-            {education.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p> : education.map((e, i) => (
-              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-                <strong>Entry {i + 1}</strong>
-                <div className="form-row" style={{ marginTop: 8 }}>
-                  <Field label="Degree" value={e.degree} readOnly />
-                  <Field label="Institution" value={e.institution} readOnly />
-                </div>
-                <div className="form-row">
-                  <Field label="University" value={e.university} readOnly />
-                  <Field label="Year" value={e.year} readOnly />
-                </div>
-                <div className="form-row">
-                  <Field label="From Year" value={e.fromYear} readOnly />
-                  <Field label="To Year" value={e.toYear} readOnly />
-                </div>
-                <Field label="Percentage / Grade" value={e.percentage} readOnly />
-              </div>
-            ))}
-
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Previous Organizations</h3>
-            {organizations.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No previous organizations</p> : organizations.map((o, i) => (
-              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-                <strong>Organization {i + 1}</strong>
-                <div className="form-row" style={{ marginTop: 8 }}>
-                  <Field label="Organization Name" value={o.name} readOnly />
-                  <Field label="Role / Designation" value={o.role} readOnly />
-                </div>
-                <div className="form-row">
-                  <Field label="From Year" value={o.fromYear} readOnly />
-                  <Field label="To Year" value={o.toYear} readOnly />
-                </div>
-              </div>
-            ))}
-
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Family</h3>
-            {family.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No family members</p> : family.map((f, i) => (
-              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-                <strong>Member {i + 1}</strong>
-                <div className="form-row" style={{ marginTop: 8 }}>
-                  <Field label="Name" value={f.name} readOnly />
-                  <Field label="Relationship" value={f.relationship} readOnly />
-                </div>
-                <div className="form-row">
-                  <Field label="Occupation" value={f.occupation} readOnly />
-                  <Field label="Phone" value={f.phone} readOnly />
-                </div>
-                <Field label="Date of Birth" value={f.dob} readOnly />
-              </div>
-            ))}
-
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>References</h3>
-            {references.length === 0 ? <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No references</p> : references.map((r, i) => (
-              <div key={i} className="card" style={{ padding: 16, marginBottom: 12, boxShadow: 'none', border: '1px solid var(--line)' }}>
-                <strong>Reference {i + 1}</strong>
-                <div className="form-row" style={{ marginTop: 8 }}>
-                  <Field label="Name" value={r.name} readOnly />
-                  <Field label="Designation" value={r.designation} readOnly />
-                </div>
-                <div className="form-row">
-                  <Field label="Organization" value={r.organization} readOnly />
-                  <Field label="Phone" value={r.phone} readOnly />
-                </div>
-              </div>
-            ))}
-
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Bank Details</h3>
-            <div className="form-row">
-              <Field label="Bank Name" value={bank.bankName} readOnly />
-              <Field label="Account Holder" value={bank.accountHolder} readOnly />
-            </div>
-            <div className="form-row">
-              <Field label="IFSC Code" value={bank.ifsc} readOnly />
-              <Field label="Account Number" value={bank.accountNo} readOnly />
+      {/* ── BOX GRID VIEW ── */}
+      {!selectedWorker && (
+        <div className="card">
+          <div className="card-head">
+            <h3>HR Forms</h3>
+            <span className="sub">Employee onboarding forms</span>
+          </div>
+          <div className="card-pad">
+            <div style={{ marginBottom: 20 }}>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name, email, or department..."
+                style={{
+                  padding: '8px 14px',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                  outline: 'none',
+                  background: 'var(--paper)',
+                  color: 'var(--ink)',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              />
             </div>
 
-            <h3 style={{ marginTop: 24, marginBottom: 16 }}>Declaration</h3>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.8, marginBottom: 16, cursor: 'pointer' }}>
-              <input type="checkbox" style={{ marginTop: 5, transform: 'scale(1.1)' }} />
-              <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief. In the event of any information being found false or incorrect at any stage, my services are liable to be terminated without notice.</span>
-            </label>
-            <div className="form-row">
-              <div style={{ flex: 1 }}>
-                <label className="form-label">Date</label>
-                <input type="date" readOnly value={declarationDate} style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 14 }} />
-              </div>
-              <Field label="Place" value={place} readOnly />
-            </div>
-            <div className="form-row">
-              <div style={{ flex: 1 }}>
-                <label className="form-label">Sign</label>
-                {signatureUrl ? (
-                  <img src={signatureUrl} alt="Digital signature" style={{ maxWidth: 300, maxHeight: 80, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }} />
-                ) : (
-                  <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4, marginTop: 4 }}></div>
-                )}
-              </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                gap: 24,
+              }}
+            >
+              {filtered.map((w) => {
+                const name = w.name || 'Unknown';
+                const color = avatarColorLocal(name);
+                const age = w.dob ? Math.floor((Date.now() - new Date(w.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
+                return (
+                  <div
+                    key={w.id}
+                    onClick={() => handleCardClick(w)}
+                    style={{
+                      borderRadius: 16,
+                      overflow: 'hidden',
+                      background: '#fff',
+                      boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
+                      cursor: 'pointer',
+                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 14px 40px rgba(0,0,0,0.14)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.08)';
+                    }}
+                  >
+                    {/* Form preview section */}
+                    <div style={{ position: 'relative', height: 280, overflow: 'hidden' }}>
+                      <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        transform: 'scale(0.42)',
+                        transformOrigin: 'top left',
+                        pointerEvents: 'none',
+                      }}>
+                        <MiniFormPreview worker={w} />
+                      </div>
+                      {/* Dark overlay */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          background: 'rgba(0,0,0,0.38)',
+                          backdropFilter: 'blur(0.5px)',
+                        }}
+                      />
+                      {/* Status badge */}
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: 12,
+                          right: 12,
+                          padding: '3px 10px',
+                          borderRadius: 10,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          textTransform: 'capitalize',
+                          background: w.employment_status === 'active' || w.is_active ? 'rgba(22,101,52,0.85)' : w.employment_status === 'absconded' ? 'rgba(153,27,27,0.85)' : 'rgba(55,65,81,0.85)',
+                          color: '#fff',
+                          backdropFilter: 'blur(4px)',
+                        }}
+                      >
+                        {w.employment_status || (w.is_active ? 'Active' : 'Inactive')}
+                      </span>
+                    </div>
+
+                    {/* Bottom info section */}
+                    <div style={{ padding: 20, borderTop: '1px solid #E5E7EB' }}>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', lineHeight: 1.2, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {name}
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 500, color: '#6B7280' }}>
+                        {age !== null ? `Age: ${age}` : w.department || ''}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {filtered.length === 0 && (
+                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 0', color: 'var(--ink-soft)' }}>
+                  No employees found
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          renderSection()
-        )}
-
-        <div className="no-print" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button className="btn btn-primary" onClick={handleSave} style={{ gap: 6 }}>
-            {saved ? 'Saved!' : 'Save Form'}
-          </button>
         </div>
-      </div>
-    </div>
+      )}
 
-      {showPrint && (
+      {/* ── FORM PREVIEW VIEW ── */}
+      {selectedWorker && (
+        <div className="card">
+          <div className="card-head" style={{ justifyContent: 'flex-start', gap: 12 }}>
+            <button className="btn" onClick={handleBack} style={{ fontSize: 13 }}>
+              ← Back
+            </button>
+            <h3 style={{ margin: 0 }}>Employee Form Preview</h3>
+            <button
+              className="btn"
+              onClick={() => setShowPrint(true)}
+              style={{ fontSize: 13, marginLeft: 'auto', background: '#dc2626', color: '#fff' }}
+            >
+              Print All Forms
+            </button>
+          </div>
+          <div className="card-pad" style={{ maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }}>
+            {loadingPreview ? (
+              <div style={{ textAlign: 'center', padding: 48, color: 'var(--ink-soft)' }}>Loading...</div>
+            ) : d ? (
+              <>
+                {/* Header with photo */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+                  {d.photo_url ? (
+                    <img
+                      src={d.photo_url}
+                      alt=""
+                      style={{ width: 72, height: 72, borderRadius: 14, objectFit: 'cover', flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: 14,
+                        background: tint(avatarColorLocal(d.name || '')),
+                        color: avatarColorLocal(d.name || ''),
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        fontSize: 24,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {initialsFn(d.name || '')}
+                    </div>
+                  )}
+                  <div>
+                    <h3 style={{ margin: 0 }}>{d.name}</h3>
+                    <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{d.department || '—'}</div>
+                  </div>
+                </div>
+
+                {/* Personal Details */}
+                <h3 style={{ marginTop: 0, marginBottom: 16 }}>Personal Details</h3>
+                <div className="form-row">
+                  <Field label="Full Name" value={d.name} />
+                  <Field label="Email" value={d.email} />
+                </div>
+                <div className="form-row">
+                  <Field label="Phone" value={d.phone} />
+                  <Field label="Alt. Phone" value={d.alternate_phone} />
+                </div>
+                <Field label="Father / Husband Name" value={d.father_husband_name} />
+                <div className="form-row">
+                  <Field label="Gender" value={d.gender} />
+                  <Field label="Date of Birth" value={d.dob ? new Date(d.dob).toLocaleDateString('en-IN') : ''} />
+                </div>
+                <Field label="Marital Status" value={d.marital_status} />
+                <Field label="Address" value={d.address} />
+                <div className="form-row">
+                  <Field label="City" value={d.city} />
+                  <Field label="State" value={d.state} />
+                </div>
+                <Field label="Pincode" value={d.pincode} />
+                <div className="form-row">
+                  <Field label="PAN Number" value={d.pan_number} />
+                  <Field label="Aadhaar Number" value={d.aadhar_number} />
+                </div>
+                <Field label="Permanent Address" value={d.permanent_address} />
+
+                {d.correspondence && (
+                  <>
+                    <h3 style={{ marginTop: 24, marginBottom: 16 }}>Correspondence Address</h3>
+                    <Field label="Address" value={d.correspondence.address} />
+                    <div className="form-row">
+                      <Field label="City" value={d.correspondence.city} />
+                      <Field label="State" value={d.correspondence.state} />
+                    </div>
+                    <Field label="Pincode" value={d.correspondence.pincode} />
+                  </>
+                )}
+
+                {/* Education */}
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Education</h3>
+                {!d.education || d.education.length === 0 ? (
+                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p>
+                ) : d.education.map((e, i) => (
+                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
+                    <strong>Entry {i + 1}</strong>
+                    <div className="form-row" style={{ marginTop: 8 }}>
+                      <Field label="Degree" value={e.degree} />
+                      <Field label="Institution" value={e.institution} />
+                    </div>
+                    <div className="form-row">
+                      <Field label="University" value={e.university} />
+                      <Field label="Year" value={e.year_of_passing || e.year} />
+                    </div>
+                    <div className="form-row">
+                      <Field label="From Year" value={e.from_year} />
+                      <Field label="To Year" value={e.to_year} />
+                    </div>
+                    <Field label="Percentage / Grade" value={e.percentage} />
+                  </div>
+                ))}
+
+                {/* Previous Organizations */}
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Previous Organizations</h3>
+                {!d.previous_organizations || d.previous_organizations.length === 0 ? (
+                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No previous organizations</p>
+                ) : d.previous_organizations.map((o, i) => (
+                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
+                    <strong>Organization {i + 1}</strong>
+                    <div className="form-row" style={{ marginTop: 8 }}>
+                      <Field label="Organization Name" value={o.organization_name || o.name} />
+                      <Field label="Role / Designation" value={o.role || o.designation} />
+                    </div>
+                    <div className="form-row">
+                      <Field label="From Year" value={o.from_year} />
+                      <Field label="To Year" value={o.to_year} />
+                    </div>
+                  </div>
+                ))}
+
+                {/* Family */}
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Family</h3>
+                {!d.family || d.family.length === 0 ? (
+                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No family members</p>
+                ) : d.family.map((f, i) => (
+                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
+                    <strong>Member {i + 1}</strong>
+                    <div className="form-row" style={{ marginTop: 8 }}>
+                      <Field label="Name" value={f.name} />
+                      <Field label="Relationship" value={f.relationship} />
+                    </div>
+                    <div className="form-row">
+                      <Field label="Occupation" value={f.occupation} />
+                      <Field label="Phone" value={f.phone} />
+                    </div>
+                    <Field label="Date of Birth" value={f.dob ? new Date(f.dob).toLocaleDateString('en-IN') : ''} />
+                  </div>
+                ))}
+
+                {/* References */}
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>References</h3>
+                {!d.references || d.references.length === 0 ? (
+                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No references</p>
+                ) : d.references.map((r, i) => (
+                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
+                    <strong>Reference {i + 1}</strong>
+                    <div className="form-row" style={{ marginTop: 8 }}>
+                      <Field label="Name" value={r.name} />
+                      <Field label="Designation" value={r.designation} />
+                    </div>
+                    <div className="form-row">
+                      <Field label="Organization" value={r.organization} />
+                      <Field label="Phone" value={r.phone} />
+                    </div>
+                  </div>
+                ))}
+
+                {/* Bank Details */}
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Bank Details</h3>
+                <div className="form-row">
+                  <Field label="Bank Name" value={d.bank_name} />
+                  <Field label="Account Holder" value={d.account_holder_name} />
+                </div>
+                <div className="form-row">
+                  <Field label="IFSC Code" value={d.ifsc_code} />
+                  <Field label="Account Number" value={d.account_number} />
+                </div>
+
+                {/* Declaration */}
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Declaration</h3>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.8, marginBottom: 16 }}>
+                  <input type="checkbox" style={{ marginTop: 5, transform: 'scale(1.1)' }} readOnly />
+                  <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief.</span>
+                </label>
+                <div className="form-row">
+                  <Field label="Date" value={d.declaration_date ? new Date(d.declaration_date).toLocaleDateString('en-IN') : d.created_at ? new Date(d.created_at).toLocaleDateString('en-IN') : ''} />
+                  <Field label="Place" value={d.declaration_place || 'Mumbai'} />
+                </div>
+                <div className="form-row">
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, display: 'block', marginBottom: 4 }}>Sign</label>
+                    {d.signature_url ? (
+                      <img src={d.signature_url} alt="Signature" style={{ maxWidth: 300, maxHeight: 80, border: '1px solid #ccc', borderRadius: 4 }} />
+                    ) : (
+                      <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4 }}></div>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* ── PRINT OVERLAY ── */}
+      {showPrint && previewData && (
         <PrintForms
           data={{
-            personal,
-            education,
-            organizations,
-            family,
-            references,
-            bank,
-            declarationDate,
-            place,
-            photo_url: workerPhotoUrl,
-            signature_url: signatureUrl,
+            personal: {
+              fullName: previewData.name || '',
+              email: previewData.email || '',
+              phone: previewData.phone || '',
+              altPhone: previewData.alternate_phone || '',
+              fatherHusband: previewData.father_husband_name || '',
+              gender: previewData.gender || '',
+              dob: previewData.dob ? previewData.dob.slice(0, 10) : '',
+              maritalStatus: previewData.marital_status || '',
+              address: previewData.address || '',
+              city: previewData.city || '',
+              state: previewData.state || '',
+              pincode: previewData.pincode || '',
+              panNumber: previewData.pan_number || '',
+              aadhaarNumber: previewData.aadhar_number || '',
+              permanentAddress: previewData.permanent_address || '',
+              corrAddress: previewData.correspondence?.address || '',
+              corrCity: previewData.correspondence?.city || '',
+              corrState: previewData.correspondence?.state || '',
+              corrPincode: previewData.correspondence?.pincode || '',
+            },
+            education: (previewData.education || []).map((e) => ({
+              degree: e.degree || '',
+              institution: e.institution || '',
+              university: e.university || '',
+              year: (e.year_of_passing || e.year)?.toString() || '',
+              percentage: e.percentage?.toString() || '',
+            })),
+            organizations: (previewData.previous_organizations || []).map((o) => ({
+              name: o.organization_name || o.name || '',
+              role: o.role || o.designation || '',
+              fromYear: o.from_year?.toString() || '',
+              toYear: o.to_year?.toString() || '',
+            })),
+            family: (previewData.family || []).map((f) => ({
+              name: f.name || '',
+              relationship: f.relationship || '',
+              occupation: f.occupation || '',
+              phone: f.phone || '',
+              dob: f.dob ? f.dob.slice(0, 10) : '',
+            })),
+            references: (previewData.references || []).map((r) => ({
+              name: r.name || '',
+              designation: r.designation || '',
+              organization: r.organization || '',
+              phone: r.phone || '',
+            })),
+            bank: {
+              bankName: previewData.bank_name || '',
+              accountHolder: previewData.account_holder_name || '',
+              ifsc: previewData.ifsc_code || '',
+              accountNo: previewData.account_number || '',
+            },
+            declarationDate: previewData.declaration_date ? previewData.declaration_date.slice(0, 10) : previewData.created_at ? previewData.created_at.slice(0, 10) : '',
+            place: previewData.declaration_place || 'Mumbai',
+            photo_url: previewData.photo_url || '',
+            signature_url: previewData.signature_url || '',
           }}
           onClose={() => setShowPrint(false)}
         />
