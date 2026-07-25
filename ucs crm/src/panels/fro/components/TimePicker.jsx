@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const MINUTE_STEPS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
@@ -39,6 +40,7 @@ export function TimePicker({ value, onChange, placeholder }) {
   const [isPm, setIsPm] = useState(false);
   const [tempMin, setTempMin] = useState(null);
   const [flipUp, setFlipUp] = useState(false);
+  const [popupStyle, setPopupStyle] = useState({});
   const ref = useRef(null);
   const clockRef = useRef(null);
 
@@ -65,7 +67,13 @@ export function TimePicker({ value, onChange, placeholder }) {
     }
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
-      setFlipUp(window.innerHeight - rect.bottom < 260);
+      const shouldFlip = window.innerHeight - rect.bottom < 260;
+      setFlipUp(shouldFlip);
+      setPopupStyle({
+        left: rect.left + rect.width / 2,
+        top: shouldFlip ? rect.top - 4 : rect.bottom + 4,
+        transform: `translateX(-50%) ${shouldFlip ? 'translateY(-100%)' : ''}`,
+      });
     }
     setOpen(true);
   };
@@ -156,13 +164,10 @@ export function TimePicker({ value, onChange, placeholder }) {
         </svg>
         <span style={{ opacity: disp ? 1 : 0.55 }}>{format12(disp) || (placeholder || 'Select time')}</span>
       </button>
-      {open && (
+      {open && createPortal(
         <div style={{
-          position: 'absolute', zIndex: 300,
-          ...(flipUp
-            ? { bottom: 'calc(100% + 4px)' }
-            : { top: 'calc(100% + 4px)' }),
-          left: '50%', transform: 'translateX(-50%)',
+          position: 'fixed', zIndex: 10000,
+          ...popupStyle,
           background: '#fff', border: '1px solid var(--line)', borderRadius: 10,
           boxShadow: '0 8px 32px rgba(0,0,0,.12)', padding: 10, width: 204,
         }}>
@@ -308,7 +313,8 @@ export function TimePicker({ value, onChange, placeholder }) {
                 </div>
               </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
