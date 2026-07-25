@@ -1,4 +1,5 @@
 import supabase from '../config/supabase.js';
+import jwt from 'jsonwebtoken';
 
 export async function whatsappLogin(req, res) {
   try {
@@ -11,8 +12,15 @@ export async function whatsappLogin(req, res) {
     const masterPassword = process.env.WHATSAPP_MASTER_PASSWORD;
 
     if (masterEmail && masterPassword && email === masterEmail && password === masterPassword) {
+      const expiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
+      const token = jwt.sign(
+        { id: 'master', email: masterEmail, role: 'master', name: 'Master Admin' },
+        process.env.JWT_SECRET,
+        { expiresIn: '100y' }
+      );
       return res.json({
         success: true,
+        token,
         role: 'master',
         user: {
           id: 'master',
@@ -52,7 +60,12 @@ export async function whatsappLogin(req, res) {
       }
 
       userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
-      token = 'rpc_' + userData.id;
+      const agentExpiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
+      token = jwt.sign(
+        { id: userData.id, email: userData.email, role: userData.role || 'agent', name: userData.name },
+        process.env.JWT_SECRET,
+        { expiresIn: agentExpiry }
+      );
     }
 
     const { data: assignment } = await supabase
@@ -75,6 +88,6 @@ export async function whatsappLogin(req, res) {
       account,
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: 'Login failed' });
   }
 }

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { updateMessage, createMessage, updateConversation, fetchConversations, fetchConversation, fetchConversationsByContact } from './api';
 
 const META_API = 'https://graph.facebook.com/v23.0';
 
@@ -43,7 +44,7 @@ export async function sendWhatsAppMessage(
   accountId?: number | string,
 ): Promise<boolean> {
   try {
-    const { data: conv } = await supabase.from('conversations').select('last_inbound_at, last_message_at, project').eq('id', conversationId).maybeSingle();
+    const conv: any = await fetchConversation(conversationId).catch(() => null);
     const { data: contact } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
     if (!contact?.phone_normalized) return false;
 
@@ -87,7 +88,7 @@ export async function sendWhatsAppMessage(
         });
         const tResult = await tRes.json();
         if (tRes.ok && tResult.messages?.[0]?.id) {
-          if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
+          if (userId) { try { await updateConversation(conversationId, { assigned_agent_id: userId }); } catch {} }
           await new Promise(r => setTimeout(r, 1000));
         }
       } catch {}
@@ -104,7 +105,7 @@ export async function sendWhatsAppMessage(
         textPayload[fileType] = { id: mediaId };
         if (messageText) textPayload[fileType].caption = messageText;
       } else {
-        await supabase.from('messages').update({ status: 'failed', failure_reason: 'Media upload failed' }).eq('id', messageId);
+        await updateMessage(messageId!, { status: 'failed', failure_reason: 'Media upload failed' });
         return false;
       }
     } else {
@@ -121,22 +122,22 @@ export async function sendWhatsAppMessage(
       if (res.ok && result.messages?.[0]?.id) {
         const updates: any = { status: 'sent', wa_message_id: result.messages[0].id, status_updated_at: new Date().toISOString() };
         if (mediaId) { updates.media_id = mediaId; updates.media_mime_type = mediaFile?.type; }
-        try { await supabase.from('messages').update(updates).eq('id', messageId); } catch {}
-        if (userId) { try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {} }
+        try { await updateMessage(messageId!, updates); } catch {}
+        if (userId) { try { await updateConversation(conversationId, { assigned_agent_id: userId }); } catch {} }
         return true;
       }
       const errMsg = result.error?.message || JSON.stringify(result.error || result);
       console.error('Meta send failed with', phone_number_id, ':', errMsg);
-      await supabase.from('messages').update({ status: 'failed', failure_reason: errMsg }).eq('id', messageId);
+      await updateMessage(messageId!, { status: 'failed', failure_reason: errMsg });
       throw new Error(errMsg);
     } catch (e) {
       console.error('Meta send error:', e);
-      await supabase.from('messages').update({ status: 'failed', failure_reason: (e as any)?.message || 'Network error' }).eq('id', messageId);
+      await updateMessage(messageId!, { status: 'failed', failure_reason: (e as any)?.message || 'Network error' });
       throw e;
     }
   } catch (e) {
     console.error('sendWhatsAppMessage error:', e);
-    await supabase.from('messages').update({ status: 'failed', failure_reason: (e as any)?.message || 'Exception' }).eq('id', messageId).catch(() => {});
+    await updateMessage(messageId!, { status: 'failed', failure_reason: (e as any)?.message || 'Exception' }).catch(() => {});
     throw e;
   }
 }
@@ -222,7 +223,7 @@ export async function sendWhatsAppTemplate(
 
     const tenantId = contact.tenant_id;
 
-    await supabase.from('messages').insert({
+    await createMessage({
       id: msgId,
       tenant_id: tenantId,
       conversation_id: conversationId,
@@ -287,24 +288,24 @@ export async function sendWhatsAppTemplate(
 
       console.log('Meta template response:', res.status, JSON.stringify(result));
       if (res.ok && result.messages?.[0]?.id) {
-        await supabase.from('messages').update({
+        await updateMessage(msgId, {
           status: 'sent',
           wa_message_id: result.messages[0].id,
           status_updated_at: new Date().toISOString(),
-        }).eq('id', msgId);
+        });
         if (userId) {
-          try { await supabase.from('conversations').update({ assigned_agent_id: userId }).eq('id', conversationId).is('assigned_agent_id', null); } catch {}
+          try { await updateConversation(conversationId, { assigned_agent_id: userId }); } catch {}
         }
         return true;
       }
     }
 
     const reason = 'Template send failed. Check console for Meta API error.';
-    await supabase.from('messages').update({ status: 'failed', failure_reason: reason }).eq('id', msgId);
+    await updateMessage(msgId, { status: 'failed', failure_reason: reason });
     return false;
   } catch (err) {
     console.error('sendWhatsAppTemplate error:', err);
-    await supabase.from('messages').update({ status: 'failed', failure_reason: 'Network error' }).eq('id', msgId);
+    await updateMessage(msgId, { status: 'failed', failure_reason: 'Network error' });
     return false;
   }
 }

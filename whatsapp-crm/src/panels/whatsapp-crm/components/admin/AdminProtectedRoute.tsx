@@ -21,7 +21,7 @@ export function AdminProtectedRoute() {
     return <Navigate to="/auth/login" replace />;
   }
 
-  if (user.role !== 'super_admin' && user.role !== 'tenant_admin') {
+  if (user.role !== 'master' && user.role !== 'super_admin' && user.role !== 'tenant_admin') {
     return <Navigate to="/" replace />;
   }
 
