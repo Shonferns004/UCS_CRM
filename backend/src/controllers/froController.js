@@ -461,12 +461,69 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    const DONOR_LIMIT = 500;
-    query = query.limit(DONOR_LIMIT);
+    // Run count query first (with same filters, no limit)
+    let countQuery = supabase
+      .from('fro_assignments')
+      .select('id', { count: 'exact', head: true })
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
+
+    if (req.query.station) {
+      countQuery = countQuery.eq('station', req.query.station);
+    }
+    if (statusGroup === 'not_connected') {
+      countQuery = countQuery.in('status', NOT_CONNECTED_STATUSES);
+    } else if (statusGroup === 'connected') {
+      countQuery = countQuery.in('status', CONNECTED_STATUSES);
+    } else if (statusFilter) {
+      countQuery = countQuery.eq('status', statusFilter);
+    }
+    if (req.query.new_only === 'true') {
+      const batchIds = [];
+      for (const s of stationNames) {
+        try {
+          const { data: lb } = await supabase
+            .from('fro_assignments')
+            .select('batch_id')
+            .eq('station', s)
+            .eq('batch_type', 'new_data')
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb?.batch_id) batchIds.push(lb.batch_id);
+        } catch (e) { console.error(`getMyDonors batch query error ${s}:`, e.message); }
+      }
+      if (batchIds.length > 0) countQuery = countQuery.in('batch_id', [...new Set(batchIds)]);
+      else countQuery = countQuery.eq('batch_type', 'new_data');
+    } else if (req.query.old_only === 'true') {
+      const batchIds = [];
+      for (const s of stationNames) {
+        try {
+          const { data: lb } = await supabase
+            .from('fro_assignments')
+            .select('batch_id')
+            .eq('station', s)
+            .eq('batch_type', 'old_data')
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lb?.batch_id) batchIds.push(lb.batch_id);
+        } catch (e) { console.error(`getMyDonors batch query error ${s}:`, e.message); }
+      }
+      if (batchIds.length > 0) countQuery = countQuery.in('batch_id', [...new Set(batchIds)]);
+      else countQuery = countQuery.eq('batch_type', 'old_data');
+    }
+    const { count: totalDonors, error: countErr } = await countQuery;
+    if (countErr) console.error('getMyDonors count error:', countErr);
+
+    const DONOR_LIMIT = 10000;
+    query = query.order('assigned_at', { ascending: false }).limit(DONOR_LIMIT);
     let { data: assignments, error: qErr } = await query;
     if (qErr) {
       console.error('getMyDonors main query error:', qErr);
-      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', stationNames).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', stationNames).not('status', 'eq', 'reassigned').order('assigned_at', { ascending: false }).limit(DONOR_LIMIT);
       if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
       else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
       const { data: retry } = await query;
@@ -708,7 +765,7 @@ export const getMyDonors = async (req, res) => {
       return dateA - dateB;
     });
 
-    return res.json(filtered);
+    return res.json({ donors: filtered, total: totalDonors || filtered.length });
   } catch (error) {
     console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
     return res.status(500).json({ message: error.message });

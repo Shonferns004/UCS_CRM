@@ -10,5 +10,5 @@ export async function api(path, options = {}) {
   return baseApi(path, { ...options, _prefix: 'ucs' })
 }
 export async function login(identifier, password) {
-  return baseApi('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }), _prefix: 'ucs' })
+  return api('/auth/login', { method: 'POST', body: JSON.stringify({ identifier, password }) })
 }

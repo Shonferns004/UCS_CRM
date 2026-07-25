@@ -127,8 +127,10 @@ export default function FROPanel() {
   const [statsData, setStatsData] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [showTarget, setShowTarget] = useState(false);
-  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]'); } catch { /* corrupted */ }
-  const seenNotifIds = useRef(new Set(_initSeenNotifs));
+  const seenNotifIds = useRef(null);
+  if (!seenNotifIds.current) {
+    try { seenNotifIds.current = new Set(JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]')); } catch { seenNotifIds.current = new Set(); }
+  }
   const notifRef = useRef(null);
   const pollRef = useRef(null);
   const poppedIds = useRef(new Set());
@@ -252,7 +254,7 @@ export default function FROPanel() {
       (callbacks || []).forEach(d => { if (!seen.has(d.id)) { seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at || null, assignment_id: d.assignment_id, type: 'callback' }); } });
       (scheduled || []).forEach(d => {
         if (d.scheduled_at && d.scheduled_at.slice(0, 10) === todayStr && !seen.has(d.id)) {
-          seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, assignment_id: d.assignment_id, type: 'callback' });
+          seen.add(d.id); items.push({ id: d.id, ngo_id: d.ngo_id, donor_name: d.donor_name, donor_mobile: d.donor_mobile, scheduled_at: d.scheduled_at, assignment_id: d.assignment_id, type: 'scheduled' });
         }
       });
       setRows(items);

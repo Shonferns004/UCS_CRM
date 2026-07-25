@@ -19,6 +19,12 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
 
+// Backend returns { donors: [...], total: N }
+export function unwrapDonors(response) {
+  if (Array.isArray(response)) return { donors: response, total: response.length }
+  return { donors: response?.donors || [], total: response?.total || 0 }
+}
+
 export async function getDonorDetail(donorId, ngoId) {
   const params = ngoId ? `?ngo_id=${ngoId}` : ''
   return api(`/fro/donors/${donorId}/logs${params}`, { _prefix: 'ucs' })
