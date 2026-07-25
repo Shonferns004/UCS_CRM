@@ -35,6 +35,7 @@ export const adminLogin = async (req, res) => {
 export const unifiedLogin = async (req, res) => {
   try {
     const { identifier, password } = req.body;
+    console.log('[LOGIN] identifier:', JSON.stringify(identifier), 'endsWith @ufs:', identifier?.endsWith('@ufs'));
     if (!identifier || !password) {
       return res.status(400).json({ message: 'Identifier and password are required' });
     }

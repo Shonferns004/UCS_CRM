@@ -29,6 +29,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loadingTickets = false;
   List<dynamic> _loans = [];
   List<dynamic> _profileRequests = [];
+  final Set<String> _expandedCards = {};
 
   int _present = 0, _absent = 0, _late = 0, _leave = 0, _lateUsed = 0;
   Map<String, String> _statusByDate = {};
@@ -244,7 +245,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
     if (_loading) return const ProfileSkeleton();
 
-    final name = _worker?['name'] ?? 'Worker';
+    final rawName = _worker?['name'] ?? 'Worker';
+    final name = rawName.split(' ').map((w) => w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}' : '').join(' ');
     final loginId = _worker?['login_id'] ?? '';
     final role = _worker?['role'] ?? _worker?['designation'] ?? '';
     final total = _present + _absent + _late + _leave;
@@ -792,6 +794,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _ticketStatusCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
+    final expanded = _expandedCards.contains('ticket');
+    final pendingTickets = _tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').toList();
     return Container(
       padding: EdgeInsets.all(Responsive.pad(context, 16)),
       decoration: BoxDecoration(
@@ -802,39 +806,60 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(LucideIcons.ticket, size: Responsive.sp(context, 18), color: scheme.primary),
-              SizedBox(width: Responsive.pad(context, 8)),
-              Text('Ticket Status',
-                style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+          GestureDetector(
+            onTap: () => setState(() {
+              if (expanded) { _expandedCards.remove('ticket'); } else { _expandedCards.add('ticket'); }
+            }),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Icon(LucideIcons.ticket, size: Responsive.sp(context, 18), color: scheme.primary),
+                SizedBox(width: Responsive.pad(context, 8)),
+                Expanded(
+                  child: Text('Ticket Status',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (pendingTickets.isNotEmpty)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFc28228).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('${pendingTickets.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
+                  ),
+                SizedBox(width: Responsive.pad(context, 8)),
+                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
+              ],
+            ),
+          ),
+          if (expanded) ...[
+            SizedBox(height: Responsive.pad(context, 16)),
+            if (_loadingTickets)
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
+                child: Center(child: SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2))),
+              )
+            else if (pendingTickets.isEmpty)
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
+                child: Center(
+                  child: Text('No pending tickets', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
+                ),
+              )
+            else
+              ...pendingTickets.take(3).map((t) => _ticketItem(t, scheme, colors)),
+            if (pendingTickets.length > 3)
+              Padding(
+                padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
+                child: Center(
+                  child: Text('+${pendingTickets.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
                 ),
               ),
-            ],
-          ),
-          SizedBox(height: Responsive.pad(context, 16)),
-          if (_loadingTickets)
-            Padding(
-              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-              child: Center(child: SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2))),
-            )
-          else if (_tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').isEmpty)
-            Padding(
-              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-              child: Center(
-                child: Text('No pending tickets', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
-              ),
-            )
-          else
-            ..._tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').take(3).map((t) => _ticketItem(t, scheme, colors)),
-          if (_tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').length > 3)
-            Padding(
-              padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
-              child: Center(
-                child: Text('+${_tickets.where((t) => t['status'] == 'pending' || t['status'] == 'hr_verified').length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-              ),
-            ),
+          ],
         ],
       ),
     );
@@ -894,6 +919,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _loanStatusCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
+    final expanded = _expandedCards.contains('loan');
     final activeLoans = _loans.where((l) => l['status'] == 'approved' || l['status'] == 'pending').toList();
     return Container(
       padding: EdgeInsets.all(Responsive.pad(context, 16)),
@@ -905,34 +931,55 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(LucideIcons.wallet, size: Responsive.sp(context, 18), color: scheme.primary),
-              SizedBox(width: Responsive.pad(context, 8)),
-              Text('Loan Status',
-                style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+          GestureDetector(
+            onTap: () => setState(() {
+              if (expanded) { _expandedCards.remove('loan'); } else { _expandedCards.add('loan'); }
+            }),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Icon(LucideIcons.wallet, size: Responsive.sp(context, 18), color: scheme.primary),
+                SizedBox(width: Responsive.pad(context, 8)),
+                Expanded(
+                  child: Text('Loan Status',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (activeLoans.isNotEmpty)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFc28228).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('${activeLoans.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
+                  ),
+                SizedBox(width: Responsive.pad(context, 8)),
+                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
+              ],
+            ),
+          ),
+          if (expanded) ...[
+            SizedBox(height: Responsive.pad(context, 16)),
+            if (activeLoans.isEmpty)
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
+                child: Center(
+                  child: Text('No active loans', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
+                ),
+              )
+            else
+              ...activeLoans.take(3).map((l) => _loanItem(l, scheme, colors)),
+            if (activeLoans.length > 3)
+              Padding(
+                padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
+                child: Center(
+                  child: Text('+${activeLoans.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
                 ),
               ),
-            ],
-          ),
-          SizedBox(height: Responsive.pad(context, 16)),
-          if (activeLoans.isEmpty)
-            Padding(
-              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-              child: Center(
-                child: Text('No active loans', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
-              ),
-            )
-          else
-            ...activeLoans.take(3).map((l) => _loanItem(l, scheme, colors)),
-          if (activeLoans.length > 3)
-            Padding(
-              padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
-              child: Center(
-                child: Text('+${activeLoans.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-              ),
-            ),
+          ],
         ],
       ),
     );
@@ -989,6 +1036,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _profileRequestCard(AppColors colors, ColorScheme scheme, TextTheme tt) {
+    final expanded = _expandedCards.contains('profile_req');
+    final pendingReqs = _profileRequests.where((r) => r['status'] == 'pending').toList();
     return Container(
       padding: EdgeInsets.all(Responsive.pad(context, 16)),
       decoration: BoxDecoration(
@@ -999,34 +1048,55 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(LucideIcons.clipboardCheck, size: Responsive.sp(context, 18), color: scheme.primary),
-              SizedBox(width: Responsive.pad(context, 8)),
-              Text('Profile Update Requests',
-                style: GoogleFonts.hankenGrotesk(
-                  fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+          GestureDetector(
+            onTap: () => setState(() {
+              if (expanded) { _expandedCards.remove('profile_req'); } else { _expandedCards.add('profile_req'); }
+            }),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Icon(LucideIcons.clipboardCheck, size: Responsive.sp(context, 18), color: scheme.primary),
+                SizedBox(width: Responsive.pad(context, 8)),
+                Expanded(
+                  child: Text('Profile Update Requests',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: Responsive.sp(context, 18), fontWeight: FontWeight.w600, color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (pendingReqs.isNotEmpty)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFc28228).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('${pendingReqs.length}', style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w700, color: const Color(0xFFc28228))),
+                  ),
+                SizedBox(width: Responsive.pad(context, 8)),
+                Icon(expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
+              ],
+            ),
+          ),
+          if (expanded) ...[
+            SizedBox(height: Responsive.pad(context, 16)),
+            if (_profileRequests.isEmpty)
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
+                child: Center(
+                  child: Text('No requests yet', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
+                ),
+              )
+            else
+              ..._profileRequests.take(3).map((r) => _profileRequestItem(r, scheme, colors)),
+            if (_profileRequests.length > 3)
+              Padding(
+                padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
+                child: Center(
+                  child: Text('+${_profileRequests.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
                 ),
               ),
-            ],
-          ),
-          SizedBox(height: Responsive.pad(context, 16)),
-          if (_profileRequests.isEmpty)
-            Padding(
-              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-              child: Center(
-                child: Text('No requests yet', style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
-              ),
-            )
-          else
-            ..._profileRequests.take(3).map((r) => _profileRequestItem(r, scheme, colors)),
-          if (_profileRequests.length > 3)
-            Padding(
-              padding: EdgeInsets.only(top: Responsive.pad(context, 8)),
-              child: Center(
-                child: Text('+${_profileRequests.length - 3} more', style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
-              ),
-            ),
+          ],
         ],
       ),
     );

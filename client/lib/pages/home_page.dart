@@ -949,9 +949,28 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Late Batch', style: GoogleFonts.hankenGrotesk(
-                                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
-                              )),
+                              Row(
+                                children: [
+                                  Text('Late Batch', style: GoogleFonts.hankenGrotesk(
+                                    fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                                  )),
+                                  SizedBox(width: Responsive.pad(context, 8)),
+                                  Container(
+                                    padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
+                                    decoration: BoxDecoration(
+                                      color: _lateTierColor.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: Text(
+                                      _lateTierLabel,
+                                      style: TextStyle(
+                                        fontSize: Responsive.sp(context, 9), fontWeight: FontWeight.w700,
+                                        color: _lateTierColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                               SizedBox(height: Responsive.pad(context, 2)),
                               Text(
                                 '${_lateUsed ~/ 60}:${(_lateUsed % 60).toString().padLeft(2, '0')}h used',
@@ -1045,21 +1064,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                             ],
                           ),
                         ),
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 2)),
-                          decoration: BoxDecoration(
-                            color: _lateTierColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                          child: Text(
-                            _lateTierLabel,
-                            style: TextStyle(
-                              fontSize: Responsive.sp(context, 9), fontWeight: FontWeight.w700,
-                              color: _lateTierColor,
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: Responsive.pad(context, 8)),
                         Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
                       ],
                     ),
@@ -1235,7 +1239,6 @@ class _RequestSheetState extends State<_RequestSheet> with SingleTickerProviderS
                   labelStyle: GoogleFonts.hankenGrotesk(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600),
                   unselectedLabelStyle: GoogleFonts.hankenGrotesk(fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w500),
                   splashBorderRadius: BorderRadius.circular(7),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   tabs: const [
                     Tab(text: 'Leave'),
                     Tab(text: 'Advance'),
