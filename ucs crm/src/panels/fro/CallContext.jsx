@@ -149,17 +149,6 @@ export function CallProvider({ children, userId }) {
     setIsInDonorView(false)
   }, [userId])
 
-  const startCall = useCallback((donor) => {
-    if (onBreak) toggleBreak()
-    donorViewStartRef.current = null
-    setActiveCall({
-      donorId: donor.id || donor.donorId,
-      donorName: donor.donor_name || donor.donorName,
-      donorMobile: donor.donor_mobile || donor.donorMobile,
-      startTime: Date.now(),
-    })
-  }, [onBreak, toggleBreak])
-
   const endCall = useCallback(() => {
     if (activeCall) {
       const duration = Math.floor((Date.now() - activeCall.startTime) / 1000)
@@ -186,6 +175,17 @@ export function CallProvider({ children, userId }) {
       setBreakElapsed(0)
     }
   }, [onBreak, breakElapsed, userId])
+
+  const startCall = useCallback((donor) => {
+    if (onBreak) toggleBreak()
+    donorViewStartRef.current = null
+    setActiveCall({
+      donorId: donor.id || donor.donorId,
+      donorName: donor.donor_name || donor.donorName,
+      donorMobile: donor.donor_mobile || donor.donorMobile,
+      startTime: Date.now(),
+    })
+  }, [onBreak, toggleBreak])
 
   return (
     <CallContext.Provider value={{
