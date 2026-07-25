@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/api_service.dart';
 import '../main.dart';
+import '../utils/responsive.dart';
 
 class AdvancePage extends StatefulWidget {
   final ScrollController? scrollController;
@@ -68,29 +70,20 @@ class _AdvancePageState extends State<AdvancePage> {
       body: SafeArea(child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Advance Request', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.primary)),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: 40, height: 40,
-                    alignment: Alignment.center,
-                    child: Icon(Icons.close, color: scheme.onSurfaceVariant),
-                  ),
-                ),
               ],
             ),
           ),
           Expanded(
             child: ListView(
               controller: widget.scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+              padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 80)),
               children: [
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: EdgeInsets.all(Responsive.pad(context, 20)),
                   decoration: BoxDecoration(
                     color: colors.surfaceContainerLowest,
                     borderRadius: BorderRadius.circular(12),
@@ -109,12 +102,12 @@ class _AdvancePageState extends State<AdvancePage> {
   Widget _buildSuccess(ColorScheme scheme, TextTheme tt) {
     return Column(
       children: [
-        Icon(Icons.check_circle, size: 48, color: const Color(0xFF1D7A4F)),
-        const SizedBox(height: 8),
+        Icon(LucideIcons.circleCheck, size: Responsive.sp(context, 48), color: const Color(0xFF1D7A4F)),
+        SizedBox(height: Responsive.pad(context, 8)),
         Text('Request Submitted', style: tt.headlineSmall?.copyWith(color: const Color(0xFF0D5535))),
-        const SizedBox(height: 4),
+        SizedBox(height: Responsive.pad(context, 4)),
         Text('Your ${_selectedType == 'loan' ? 'loan' : 'advance'} request has been sent for approval.', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-        const SizedBox(height: 12),
+        SizedBox(height: Responsive.pad(context, 12)),
         OutlinedButton(
           onPressed: _resetForm,
           style: OutlinedButton.styleFrom(
@@ -133,20 +126,20 @@ class _AdvancePageState extends State<AdvancePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _label(tt, 'Type', colors),
-        const SizedBox(height: 8),
+        SizedBox(height: Responsive.pad(context, 8)),
         _typeDropdown(scheme, colors),
-        const SizedBox(height: 16),
+        SizedBox(height: Responsive.pad(context, 16)),
         _label(tt, 'Request Amount', colors),
-        const SizedBox(height: 8),
+        SizedBox(height: Responsive.pad(context, 8)),
         _amountField(scheme, colors),
-        const SizedBox(height: 16),
+        SizedBox(height: Responsive.pad(context, 16)),
         _label(tt, 'Reason', colors),
-        const SizedBox(height: 8),
+        SizedBox(height: Responsive.pad(context, 8)),
         _reasonField(scheme, colors),
-        const SizedBox(height: 24),
+        SizedBox(height: Responsive.pad(context, 24)),
         SizedBox(
           width: double.infinity,
-          height: 44,
+          height: Responsive.pad(context, 44),
           child: ElevatedButton(
             onPressed: _submitting ? null : _submit,
             style: ElevatedButton.styleFrom(
@@ -156,8 +149,8 @@ class _AdvancePageState extends State<AdvancePage> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             child: _submitting
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : Text('Submit Request', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
+                ? SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text('Submit Request', style: TextStyle(fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600, color: Colors.white)),
           ),
         ),
       ],
@@ -166,8 +159,8 @@ class _AdvancePageState extends State<AdvancePage> {
 
   Widget _typeDropdown(ColorScheme scheme, AppColors colors) {
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: Responsive.pad(context, 48),
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(10),
@@ -177,8 +170,8 @@ class _AdvancePageState extends State<AdvancePage> {
         child: DropdownButton<String>(
           value: _selectedType,
           isExpanded: true,
-          icon: Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
-          style: TextStyle(fontSize: 14, color: scheme.onSurface),
+          icon: Icon(LucideIcons.chevronDown, color: scheme.onSurfaceVariant),
+          style: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurface),
           items: const [
             DropdownMenuItem(value: 'advance', child: Text('Advance (repay from salary)')),
             DropdownMenuItem(value: 'loan', child: Text('Loan (monthly deduction)')),
@@ -197,8 +190,8 @@ class _AdvancePageState extends State<AdvancePage> {
 
   Widget _amountField(ColorScheme scheme, AppColors colors) {
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: Responsive.pad(context, 48),
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(10),
@@ -206,7 +199,7 @@ class _AdvancePageState extends State<AdvancePage> {
       ),
       child: Row(
         children: [
-          Text('₹ ', style: TextStyle(fontSize: 14, color: scheme.onSurface)),
+          Text('₹ ', style: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurface)),
           Expanded(
             child: TextField(
               controller: _amountCtrl,
@@ -217,7 +210,7 @@ class _AdvancePageState extends State<AdvancePage> {
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
               ),
-              style: TextStyle(fontSize: 14, color: scheme.onSurface),
+              style: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurface),
             ),
           ),
         ],
@@ -227,7 +220,7 @@ class _AdvancePageState extends State<AdvancePage> {
 
   Widget _reasonField(ColorScheme scheme, AppColors colors) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(Responsive.pad(context, 16)),
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(10),
@@ -242,7 +235,7 @@ class _AdvancePageState extends State<AdvancePage> {
           isDense: true,
           contentPadding: EdgeInsets.zero,
         ),
-        style: TextStyle(fontSize: 14, color: scheme.onSurface),
+        style: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurface),
       ),
     );
   }

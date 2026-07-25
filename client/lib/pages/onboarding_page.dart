@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../main.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class OnboardingPage extends StatefulWidget {
   final VoidCallback onComplete;
@@ -451,7 +452,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     border: _currentStep > 0 ? Border.all(color: colors.outline) : null,
                   ),
                   child: Icon(
-                    Icons.arrow_back_ios_new_rounded,
+                    LucideIcons.arrowLeft,
                     color: _currentStep > 0 ? sc.onSurfaceVariant : Colors.transparent,
                     size: 18,
                   ),
@@ -541,7 +542,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               : Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.check_circle_rounded, size: 20),
+                    const Icon(LucideIcons.circleCheck, size: 20),
                     const SizedBox(width: 8),
                     Text('Complete Setup', style: GoogleFonts.hankenGrotesk(
                       fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.2,
@@ -565,17 +566,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
         children: [
           _sectionTitle('Basic Information'),
           const SizedBox(height: 14),
-          _textField(_nameCtrl, 'Full Name *', Icons.person, 'Enter your full name'),
+          _textField(_nameCtrl, 'Full Name *', LucideIcons.user, 'Enter your full name'),
           const SizedBox(height: 12),
-          _textField(_fatherNameCtrl, 'Father / Husband Name', Icons.person_outline, "Father's or husband's name"),
+          _textField(_fatherNameCtrl, 'Father / Husband Name', LucideIcons.user, "Father's or husband's name"),
           const SizedBox(height: 12),
-          _textField(_emailCtrl, 'Email *', Icons.email, 'Enter your email'),
+          _textField(_emailCtrl, 'Email *', LucideIcons.mail, 'Enter your email'),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _textField(_phoneCtrl, 'Phone *', Icons.phone, '10-digit number', keyboardType: TextInputType.phone)),
+              Expanded(child: _textField(_phoneCtrl, 'Phone *', LucideIcons.phone, '10-digit number', keyboardType: TextInputType.phone)),
               const SizedBox(width: 12),
-              Expanded(child: _textField(_altPhoneCtrl, 'Alt. Phone', Icons.phone, 'Optional', keyboardType: TextInputType.phone)),
+              Expanded(child: _textField(_altPhoneCtrl, 'Alt. Phone', LucideIcons.phone, 'Optional', keyboardType: TextInputType.phone)),
             ],
           ),
           const SizedBox(height: 16),
@@ -608,7 +609,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.calendar_today, size: 19, color: sc.onSurfaceVariant),
+                        Icon(LucideIcons.calendarDays, size: 19, color: sc.onSurfaceVariant),
                         const SizedBox(width: 10),
                         Text(
                           _dob != null ? '${_dob!.day}/${_dob!.month}/${_dob!.year}' : 'Date of Birth',
@@ -626,24 +627,24 @@ class _OnboardingPageState extends State<OnboardingPage> {
           const SizedBox(height: 16),
           _sectionTitle('Permanent Address'),
           const SizedBox(height: 12),
-          _textField(_addressCtrl, 'Address *', Icons.home, 'Street, area, landmark'),
+          _textField(_addressCtrl, 'Address *', LucideIcons.house, 'Street, area, landmark'),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _textField(_cityCtrl, 'City *', Icons.location_city, 'City')),
+              Expanded(child: _textField(_cityCtrl, 'City *', LucideIcons.building, 'City')),
               const SizedBox(width: 12),
-              Expanded(child: _textField(_stateCtrl, 'State *', Icons.map, 'State')),
+              Expanded(child: _textField(_stateCtrl, 'State *', LucideIcons.map, 'State')),
             ],
           ),
           const SizedBox(height: 12),
-          _textField(_pincodeCtrl, 'Pincode *', Icons.pin, '6-digit pincode', keyboardType: TextInputType.number, maxLength: 6),
+          _textField(_pincodeCtrl, 'Pincode *', LucideIcons.mapPin, '6-digit pincode', keyboardType: TextInputType.number, maxLength: 6),
           const SizedBox(height: 12),
           GestureDetector(
             onTap: () => setState(() => _hasCorrespondenceAddress = !_hasCorrespondenceAddress),
             child: Row(
               children: [
                 Icon(
-                  _hasCorrespondenceAddress ? Icons.check_box : Icons.check_box_outline_blank,
+                  _hasCorrespondenceAddress ? LucideIcons.squareCheck : LucideIcons.square,
                   size: 22,
                   color: sc.secondary,
                 ),
@@ -661,38 +662,38 @@ class _OnboardingPageState extends State<OnboardingPage> {
             const SizedBox(height: 12),
             _sectionTitle('Correspondence Address'),
             const SizedBox(height: 12),
-            _textField(_corrAddressCtrl, 'Address', Icons.mail_outline, 'Street, area, landmark'),
+            _textField(_corrAddressCtrl, 'Address', LucideIcons.mail, 'Street, area, landmark'),
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _textField(_corrCityCtrl, 'City', Icons.location_city, 'City')),
+                Expanded(child: _textField(_corrCityCtrl, 'City', LucideIcons.building, 'City')),
                 const SizedBox(width: 12),
-                Expanded(child: _textField(_corrStateCtrl, 'State', Icons.map, 'State')),
+                Expanded(child: _textField(_corrStateCtrl, 'State', LucideIcons.map, 'State')),
               ],
             ),
             const SizedBox(height: 12),
-            _textField(_corrPincodeCtrl, 'Pincode', Icons.pin, '6-digit pincode', keyboardType: TextInputType.number, maxLength: 6),
+            _textField(_corrPincodeCtrl, 'Pincode', LucideIcons.mapPin, '6-digit pincode', keyboardType: TextInputType.number, maxLength: 6),
           ],
           const SizedBox(height: 16),
           _sectionTitle('Identity Numbers'),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _textField(_panNumberCtrl, 'PAN Number', Icons.assignment, 'e.g., ABCDE1234F')),
+              Expanded(child: _textField(_panNumberCtrl, 'PAN Number', LucideIcons.fileText, 'e.g., ABCDE1234F')),
               const SizedBox(width: 12),
-              Expanded(child: _textField(_aadharNumberCtrl, 'Aadhaar Number', Icons.credit_card, '12-digit number', keyboardType: TextInputType.number, maxLength: 12)),
+              Expanded(child: _textField(_aadharNumberCtrl, 'Aadhaar Number', LucideIcons.creditCard, '12-digit number', keyboardType: TextInputType.number, maxLength: 12)),
             ],
           ),
           const SizedBox(height: 16),
           _sectionTitle('Bank Account Details'),
           const SizedBox(height: 12),
-          _textField(_bankNameCtrl, 'Bank Name *', Icons.account_balance, 'e.g., State Bank of India'),
+          _textField(_bankNameCtrl, 'Bank Name *', LucideIcons.landmark, 'e.g., State Bank of India'),
           const SizedBox(height: 12),
-          _textField(_accountHolderCtrl, 'Account Holder Name *', Icons.person, 'As per bank records'),
+          _textField(_accountHolderCtrl, 'Account Holder Name *', LucideIcons.user, 'As per bank records'),
           const SizedBox(height: 12),
-          _textField(_ifscCtrl, 'IFSC Code *', Icons.code, 'e.g., SBIN0001234'),
+          _textField(_ifscCtrl, 'IFSC Code *', LucideIcons.code, 'e.g., SBIN0001234'),
           const SizedBox(height: 12),
-          _textField(_accountNoCtrl, 'Account Number *', Icons.pin, 'Your bank account number', keyboardType: TextInputType.number),
+          _textField(_accountNoCtrl, 'Account Number *', LucideIcons.mapPin, 'Your bank account number', keyboardType: TextInputType.number),
           const SizedBox(height: 8),
           Text('These details will be used for salary disbursement',
             style: TextStyle(fontSize: 12, color: sc.outline)),
@@ -714,25 +715,25 @@ class _OnboardingPageState extends State<OnboardingPage> {
           const SizedBox(height: 4),
           Text('Enter your highest educational qualification', style: TextStyle(fontSize: 13, color: sc.onSurfaceVariant)),
           const SizedBox(height: 12),
-          _textField(_degreeCtrl, 'Degree / Qualification *', Icons.school, 'e.g., B.Sc, B.Com, MBA, 12th'),
+          _textField(_degreeCtrl, 'Degree / Qualification *', LucideIcons.graduationCap, 'e.g., B.Sc, B.Com, MBA, 12th'),
           const SizedBox(height: 12),
-          _textField(_institutionCtrl, 'Institution *', Icons.business, 'College / School name'),
+          _textField(_institutionCtrl, 'Institution *', LucideIcons.building2, 'College / School name'),
           const SizedBox(height: 12),
-          _textField(_universityCtrl, 'University', Icons.account_balance, 'University name'),
+          _textField(_universityCtrl, 'University', LucideIcons.landmark, 'University name'),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _textField(_fromYearCtrl, 'From Year', Icons.calendar_today, 'e.g., 2018', keyboardType: TextInputType.number)),
+              Expanded(child: _textField(_fromYearCtrl, 'From Year', LucideIcons.calendarDays, 'e.g., 2018', keyboardType: TextInputType.number)),
               const SizedBox(width: 12),
-              Expanded(child: _textField(_toYearCtrl, 'To Year', Icons.calendar_today, 'e.g., 2022', keyboardType: TextInputType.number)),
+              Expanded(child: _textField(_toYearCtrl, 'To Year', LucideIcons.calendarDays, 'e.g., 2022', keyboardType: TextInputType.number)),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _textField(_yearCtrl, 'Year of Passing', Icons.calendar_today, 'e.g., 2022', keyboardType: TextInputType.number)),
+              Expanded(child: _textField(_yearCtrl, 'Year of Passing', LucideIcons.calendarDays, 'e.g., 2022', keyboardType: TextInputType.number)),
               const SizedBox(width: 12),
-              Expanded(child: _textField(_percentageCtrl, 'Percentage / Grade', Icons.percent, 'e.g., 85% or A+')),
+              Expanded(child: _textField(_percentageCtrl, 'Percentage / Grade', LucideIcons.percent, 'e.g., 85% or A+')),
             ],
           ),
         ],
@@ -765,7 +766,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               ),
               child: Column(
                 children: [
-                  Icon(Icons.work_history_outlined, size: 40, color: sc.outline),
+                  Icon(LucideIcons.briefcase, size: 40, color: sc.outline),
                   const SizedBox(height: 10),
                   Text('No previous organization added', style: TextStyle(fontSize: 13, color: sc.onSurfaceVariant)),
                 ],
@@ -794,7 +795,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                             color: sc.secondary.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(7),
                           ),
-                          child: Icon(Icons.business_center, size: 15, color: sc.secondary),
+                          child: Icon(LucideIcons.briefcase, size: 15, color: sc.secondary),
                         ),
                         const SizedBox(width: 8),
                         Text('Organization', style: GoogleFonts.hankenGrotesk(
@@ -818,15 +819,15 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _textField(o.nameCtrl, 'Organization Name *', Icons.business, 'Company / Organization name'),
+                    _textField(o.nameCtrl, 'Organization Name *', LucideIcons.building2, 'Company / Organization name'),
                     const SizedBox(height: 10),
-                    _textField(o.roleCtrl, 'Role / Designation', Icons.badge, 'Your job title'),
+                    _textField(o.roleCtrl, 'Role / Designation', LucideIcons.idCard, 'Your job title'),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: _textField(o.fromYearCtrl, 'From Year', Icons.calendar_today, 'e.g., 2020', keyboardType: TextInputType.number)),
+                        Expanded(child: _textField(o.fromYearCtrl, 'From Year', LucideIcons.calendarDays, 'e.g., 2020', keyboardType: TextInputType.number)),
                         const SizedBox(width: 10),
-                        Expanded(child: _textField(o.toYearCtrl, 'To Year', Icons.calendar_today, 'e.g., 2023', keyboardType: TextInputType.number)),
+                        Expanded(child: _textField(o.toYearCtrl, 'To Year', LucideIcons.calendarDays, 'e.g., 2023', keyboardType: TextInputType.number)),
                       ],
                     ),
                   ],
@@ -837,7 +838,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             Center(
               child: TextButton.icon(
                 onPressed: () => setState(() => _organizationList.add(_OrganizationEntry())),
-                icon: Icon(Icons.add_circle_outline, color: sc.secondary),
+                icon: Icon(LucideIcons.circlePlus, color: sc.secondary),
                 label: Text('Add Previous Organization',
                   style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600, color: sc.secondary)),
               ),
@@ -872,7 +873,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               ),
               child: Column(
                 children: [
-                  Icon(Icons.family_restroom_outlined, size: 40, color: sc.outline),
+                  Icon(LucideIcons.users, size: 40, color: sc.outline),
                   const SizedBox(height: 10),
                   Text('No entries added yet', style: TextStyle(fontSize: 13, color: sc.onSurfaceVariant)),
                 ],
@@ -901,7 +902,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                             color: sc.secondary.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(7),
                           ),
-                          child: Icon(Icons.person_outline_rounded, size: 15, color: sc.secondary),
+                          child: Icon(LucideIcons.user, size: 15, color: sc.secondary),
                         ),
                         const SizedBox(width: 8),
                         Text('Entry ${i + 1}', style: GoogleFonts.hankenGrotesk(
@@ -925,17 +926,17 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _textField(p.nameCtrl, 'Name *', Icons.person, 'Full name'),
+                    _textField(p.nameCtrl, 'Name *', LucideIcons.user, 'Full name'),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: _textField(p.roleCtrl, 'Relationship', Icons.people, 'e.g., Father, Manager')),
+                        Expanded(child: _textField(p.roleCtrl, 'Relationship', LucideIcons.users, 'e.g., Father, Manager')),
                         const SizedBox(width: 10),
-                        Expanded(child: _textField(p.orgCtrl, 'Occupation', Icons.work, 'Optional')),
+                        Expanded(child: _textField(p.orgCtrl, 'Occupation', LucideIcons.briefcase, 'Optional')),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    _textField(p.phoneCtrl, 'Phone', Icons.phone, 'Optional', keyboardType: TextInputType.phone),
+                    _textField(p.phoneCtrl, 'Phone', LucideIcons.phone, 'Optional', keyboardType: TextInputType.phone),
                   ],
                 ),
               );
@@ -944,7 +945,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             Center(
               child: TextButton.icon(
                 onPressed: () => setState(() => _personList.add(_PersonEntry())),
-                icon: Icon(Icons.add_circle_outline, color: sc.secondary),
+                icon: Icon(LucideIcons.circlePlus, color: sc.secondary),
                 label: Text('Add Entry (${_personList.length}/3)',
                   style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600, color: sc.secondary)),
               ),
@@ -1004,7 +1005,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               onPressed: _photoUploading ? null : _pickPhoto,
               icon: _photoUploading
                   ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: sc.secondary))
-                  : Icon(Icons.camera_alt_rounded, color: sc.onSurfaceVariant),
+                  : Icon(LucideIcons.camera, color: sc.onSurfaceVariant),
               label: Text(
                 _photoUploading ? 'Uploading...' : (_uploadedPhotoUrl != null ? 'Retake Photo' : 'Tap to Take Photo'),
                 style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w600, color: sc.onSurfaceVariant),
@@ -1022,7 +1023,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.person_outline_rounded, size: 52, color: sc.outline),
+          Icon(LucideIcons.user, size: 52, color: sc.outline),
           const SizedBox(height: 4),
           Text('Photo', style: TextStyle(fontSize: 12, color: sc.outline)),
         ],
@@ -1043,7 +1044,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           const SizedBox(height: 4),
           Text('Please verify everything before submitting', style: TextStyle(fontSize: 13, color: sc.onSurfaceVariant)),
           const SizedBox(height: 16),
-          _reviewCard('Personal Details', Icons.person, [
+          _reviewCard('Personal Details', LucideIcons.user, [
             _reviewItem('Name', _nameCtrl.text),
             if (_fatherNameCtrl.text.isNotEmpty) _reviewItem('Father/Husband', _fatherNameCtrl.text),
             _reviewItem('Email', _emailCtrl.text),
@@ -1064,7 +1065,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             if (_hasCorrespondenceAddress && _corrPincodeCtrl.text.isNotEmpty) _reviewItem('Corr. Pincode', _corrPincodeCtrl.text),
           ]),
           const SizedBox(height: 12),
-          _reviewCard('Bank Details', Icons.account_balance, [
+          _reviewCard('Bank Details', LucideIcons.landmark, [
             if (_bankNameCtrl.text.isNotEmpty) _reviewItem('Bank Name', _bankNameCtrl.text),
             if (_accountHolderCtrl.text.isNotEmpty) _reviewItem('Account Holder', _accountHolderCtrl.text),
             if (_ifscCtrl.text.isNotEmpty) _reviewItem('IFSC', _ifscCtrl.text),
@@ -1072,7 +1073,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           ]),
           const SizedBox(height: 12),
           if (_degreeCtrl.text.isNotEmpty)
-            _reviewCard('Education', Icons.school, [
+            _reviewCard('Education', LucideIcons.graduationCap, [
               _reviewItem(
                 _degreeCtrl.text,
                 '${_institutionCtrl.text}${_yearCtrl.text.isNotEmpty ? ' (${_yearCtrl.text})' : ''}',
@@ -1080,7 +1081,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             ]),
           const SizedBox(height: 12),
           if (_organizationList.any((o) => o.nameCtrl.text.isNotEmpty))
-            _reviewCard('Previous Organizations', Icons.work_history,
+            _reviewCard('Previous Organizations', LucideIcons.briefcase,
               _organizationList.where((o) => o.nameCtrl.text.isNotEmpty).map((o) => _reviewItem(
                 o.nameCtrl.text,
                 '${o.roleCtrl.text.isNotEmpty ? '${o.roleCtrl.text} · ' : ''}${o.fromYearCtrl.text.isNotEmpty ? '${o.fromYearCtrl.text}' : ''}${o.toYearCtrl.text.isNotEmpty ? ' - ${o.toYearCtrl.text}' : ''}',
@@ -1088,14 +1089,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
             ),
           const SizedBox(height: 12),
           if (_personList.any((p) => p.nameCtrl.text.isNotEmpty))
-            _reviewCard('Family / References', Icons.family_restroom,
+            _reviewCard('Family / References', LucideIcons.users,
               _personList.where((p) => p.nameCtrl.text.isNotEmpty).map((p) => _reviewItem(
                 p.nameCtrl.text,
                 '${p.roleCtrl.text}${p.orgCtrl.text.isNotEmpty ? ' · ${p.orgCtrl.text}' : ''}',
               )).toList(),
             ),
           const SizedBox(height: 12),
-          _reviewCard('Photo', Icons.check_circle, [
+          _reviewCard('Photo', LucideIcons.circleCheck, [
             _reviewItem('Photo', _uploadedPhotoUrl != null ? 'Uploaded' : 'Not uploaded'),
           ]),
         ],
@@ -1122,7 +1123,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               shape: BoxShape.circle,
               border: Border.all(color: const Color(0xFF22c55e), width: 3),
             ),
-            child: const Icon(Icons.check_circle_rounded, size: 60, color: Color(0xFF22c55e)),
+            child: const Icon(LucideIcons.circleCheck, size: 60, color: Color(0xFF22c55e)),
           ),
           const SizedBox(height: 28),
           Text('Onboarding Complete!',

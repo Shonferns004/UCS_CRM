@@ -53,6 +53,7 @@ import userSettingsRoutes from './routes/userSettingsRoutes.js';
 import ticketRoutes from './routes/ticketRoutes.js';
 import whatsappCrmRoutes from './routes/whatsappCrmRoutes.js';
 import whatsappCrmDataRoutes from './routes/whatsappCrmDataRoutes.js';
+import profileUpdateRequestRoutes from './routes/profileUpdateRequestRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -130,6 +131,7 @@ app.use('/api/whatsapp/agents', agentTransferRoutes);
 app.use('/api/fro/whatsapp', froWhatsAppRoutes);
 app.use('/api/whatsapp-crm', whatsappCrmRoutes);
 app.use('/api/whatsapp-crm', whatsappCrmDataRoutes);
+app.use('/api/profile-update-requests', profileUpdateRequestRoutes);
 
 import multer from 'multer';
 const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });

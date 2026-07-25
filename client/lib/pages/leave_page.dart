@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
 import '../main.dart';
+import '../widgets/skeleton_loader.dart';
+import '../utils/responsive.dart';
 
 class LeavePage extends StatefulWidget {
   final ScrollController? scrollController;
@@ -175,7 +178,7 @@ class _LeavePageState extends State<LeavePage> {
     if (_selectedType == 'full_day') return today.add(const Duration(days: 2));
     if (_selectedType == 'half_day') return today.add(const Duration(days: 1));
     if (_selectedType == 'vacational') return today.add(const Duration(days: 30));
-    return today; // emergency and others can be immediate
+    return today;
   }
 
   Future<void> _pickDate(TextEditingController ctrl, {DateTime? minDate}) async {
@@ -268,33 +271,24 @@ class _LeavePageState extends State<LeavePage> {
     return Scaffold(
       body: SafeArea(child: Column(
         children: [
-          const SizedBox(height: 12),
-          Container(width: 48, height: 4,
+          SizedBox(height: Responsive.pad(context, 12)),
+          Container(width: Responsive.pad(context, 48), height: Responsive.pad(context, 4),
             decoration: BoxDecoration(color: colors.surfaceContainerHighest, borderRadius: BorderRadius.circular(4))),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Attendance', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.primary)),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: 40, height: 40,
-                    alignment: Alignment.center,
-                    child: Icon(Icons.close, color: scheme.onSurfaceVariant),
-                  ),
-                ),
               ],
             ),
           ),
           Expanded(
             child: ListView(
               controller: widget.scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+              padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 80)),
               children: [
                 _buildForm(colors, scheme, tt),
-                const SizedBox(height: 16),
+                SizedBox(height: Responsive.pad(context, 16)),
                 _buildHistory(colors, scheme, tt),
               ],
             ),
@@ -306,7 +300,7 @@ class _LeavePageState extends State<LeavePage> {
 
   Widget _buildForm(AppColors colors, ColorScheme scheme, TextTheme tt) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(Responsive.pad(context, 20)),
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(12),
@@ -319,12 +313,12 @@ class _LeavePageState extends State<LeavePage> {
   Widget _buildSuccess(AppColors colors, ColorScheme scheme, TextTheme tt) {
     return Column(
       children: [
-        Icon(Icons.check_circle, size: 48, color: const Color(0xFF1D7A4F)),
-        const SizedBox(height: 8),
+        Icon(LucideIcons.circleCheck, size: Responsive.sp(context, 48), color: const Color(0xFF1D7A4F)),
+        SizedBox(height: Responsive.pad(context, 8)),
         Text('Application Submitted', style: tt.headlineSmall?.copyWith(color: const Color(0xFF0D5535))),
-        const SizedBox(height: 4),
+        SizedBox(height: Responsive.pad(context, 4)),
         Text('Your manager will review and respond.', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
-        const SizedBox(height: 12),
+        SizedBox(height: Responsive.pad(context, 12)),
         OutlinedButton(
           onPressed: _resetForm,
           style: OutlinedButton.styleFrom(
@@ -343,17 +337,17 @@ class _LeavePageState extends State<LeavePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Apply for leave', style: tt.headlineSmall?.copyWith(color: scheme.onSurface)),
-        const SizedBox(height: 24),
+        SizedBox(height: Responsive.pad(context, 24)),
         _label(tt, 'Leave type', colors),
-        const SizedBox(height: 8),
+        SizedBox(height: Responsive.pad(context, 8)),
         DropdownButtonFormField<String>(
           value: _selectedType,
           decoration: InputDecoration(
             hintText: 'Select type...',
-            hintStyle: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant),
+            hintStyle: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurfaceVariant),
             filled: true,
             fillColor: colors.surfaceContainerLowest,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 14)),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: const Color(0xFFDDDDDD)),
@@ -366,11 +360,11 @@ class _LeavePageState extends State<LeavePage> {
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: scheme.primary, width: 1.5),
             ),
-            suffixIcon: Icon(Icons.expand_more, color: scheme.onSurfaceVariant),
+            suffixIcon: Icon(LucideIcons.chevronDown, color: scheme.onSurfaceVariant),
           ),
           items: ['full_day', 'half_day', 'vacational', 'emergency'].map((t) => DropdownMenuItem(
             value: t,
-            child: Text(_typeLabels[t]!, style: TextStyle(fontSize: 14, color: scheme.onSurface)),
+            child: Text(_typeLabels[t]!, style: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurface)),
           )).toList(),
           onChanged: (v) => setState(() {
             _selectedType = v;
@@ -385,66 +379,66 @@ class _LeavePageState extends State<LeavePage> {
           }),
         ),
         if (_selectedType == 'full_day') ...[
-          const SizedBox(height: 16), _label(tt, 'Leave date', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'Leave date', colors), SizedBox(height: Responsive.pad(context, 8)),
           _dateField(_leaveDateCtrl, colors, scheme),
           Padding(
-            padding: const EdgeInsets.only(top: 4),
+            padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
             child: Text('Must be 2 days prior and applied after 12 PM',
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+              style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
           ),
         ],
         if (_selectedType == 'half_day') ...[
-          const SizedBox(height: 16), _label(tt, 'Leave date', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'Leave date', colors), SizedBox(height: Responsive.pad(context, 8)),
           _dateField(_leaveDateCtrl, colors, scheme),
-          const SizedBox(height: 16), _label(tt, 'Start time', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'Start time', colors), SizedBox(height: Responsive.pad(context, 8)),
           _timeField(colors, scheme, _halfStartTime, true),
-          const SizedBox(height: 16), _label(tt, 'End time', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'End time', colors), SizedBox(height: Responsive.pad(context, 8)),
           _timeField(colors, scheme, _halfEndTime, false),
           Padding(
-            padding: const EdgeInsets.only(top: 4),
+            padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
             child: Text('Must be at least 1 day prior',
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+              style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
           ),
         ],
         if (_selectedType == 'vacational') ...[
-          const SizedBox(height: 16), _label(tt, 'From date', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'From date', colors), SizedBox(height: Responsive.pad(context, 8)),
           _dateField(_startDateCtrl, colors, scheme),
-          const SizedBox(height: 16), _label(tt, 'To date', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'To date', colors), SizedBox(height: Responsive.pad(context, 8)),
           _dateField(_endDateCtrl, colors, scheme, minDate: _startDateCtrl.text.isNotEmpty
               ? DateTime.tryParse(_startDateCtrl.text) : null),
           Padding(
-            padding: const EdgeInsets.only(top: 4),
+            padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
             child: Text('Must be applied at least 1 month prior',
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+              style: TextStyle(fontSize: Responsive.sp(context, 11), color: scheme.onSurfaceVariant)),
           ),
         ],
         if (_selectedType == 'emergency') ...[
-          const SizedBox(height: 16), _label(tt, 'Leave date', colors), const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 16)), _label(tt, 'Leave date', colors), SizedBox(height: Responsive.pad(context, 8)),
           _dateField(_leaveDateCtrl, colors, scheme),
           Padding(
-            padding: const EdgeInsets.only(top: 4),
+            padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
             child: Text('Immediate emergency leave — no prior notice required',
-              style: TextStyle(fontSize: 11, color: const Color(0xFFC0392B))),
+              style: TextStyle(fontSize: Responsive.sp(context, 11), color: const Color(0xFFC0392B))),
           ),
         ],
         if (_selectedType != null && _selectedType != 'half_day') ...[
-          const SizedBox(height: 16),
+          SizedBox(height: Responsive.pad(context, 16)),
           _label(tt, 'Proof (optional)', colors),
-          const SizedBox(height: 8),
+          SizedBox(height: Responsive.pad(context, 8)),
           _buildProofUploader(colors, scheme),
         ],
-        const SizedBox(height: 16),
+        SizedBox(height: Responsive.pad(context, 16)),
         _label(tt, 'Reason', colors),
-        const SizedBox(height: 8),
+        SizedBox(height: Responsive.pad(context, 8)),
         TextField(
           controller: _reasonCtrl,
           maxLines: 4,
           decoration: InputDecoration(
             hintText: 'Briefly describe the reason for your leave...',
-            hintStyle: TextStyle(fontSize: 14, color: scheme.onSurfaceVariant.withValues(alpha: 0.6)),
+            hintStyle: TextStyle(fontSize: Responsive.sp(context, 14), color: scheme.onSurfaceVariant.withValues(alpha: 0.6)),
             filled: true,
             fillColor: colors.surfaceContainerLowest,
-            contentPadding: const EdgeInsets.all(16),
+            contentPadding: EdgeInsets.all(Responsive.pad(context, 16)),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: const Color(0xFFDDDDDD)),
@@ -459,10 +453,10 @@ class _LeavePageState extends State<LeavePage> {
             ),
           ),
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: Responsive.pad(context, 24)),
         SizedBox(
           width: double.infinity,
-          height: 48,
+          height: Responsive.pad(context, 48),
           child: ElevatedButton(
             onPressed: _submitting ? null : _submitLeave,
             style: ElevatedButton.styleFrom(
@@ -472,8 +466,8 @@ class _LeavePageState extends State<LeavePage> {
               elevation: 1,
             ),
             child: _submitting
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : Text('Submit Application', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
+                ? SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text('Submit Application', style: TextStyle(fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600, color: Colors.white)),
           ),
         ),
       ],
@@ -488,8 +482,8 @@ class _LeavePageState extends State<LeavePage> {
     return GestureDetector(
       onTap: () => _pickDate(ctrl, minDate: minDate),
       child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        height: Responsive.pad(context, 48),
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
         decoration: BoxDecoration(
           color: colors.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(10),
@@ -500,11 +494,11 @@ class _LeavePageState extends State<LeavePage> {
             Expanded(
               child: Text(
                 ctrl.text.isEmpty ? 'Select date' : ctrl.text,
-                style: TextStyle(fontSize: 14, color: ctrl.text.isEmpty ? scheme.onSurfaceVariant.withValues(alpha: 0.6) : scheme.onSurface),
+                style: TextStyle(fontSize: Responsive.sp(context, 14), color: ctrl.text.isEmpty ? scheme.onSurfaceVariant.withValues(alpha: 0.6) : scheme.onSurface),
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.calendar_today, size: 18, color: scheme.onSurfaceVariant),
+            SizedBox(width: Responsive.pad(context, 8)),
+            Icon(LucideIcons.calendarDays, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
           ],
         ),
       ),
@@ -515,8 +509,8 @@ class _LeavePageState extends State<LeavePage> {
     return GestureDetector(
       onTap: () => _pickTime(time, isStart),
       child: Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        height: Responsive.pad(context, 48),
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
         decoration: BoxDecoration(
           color: colors.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(10),
@@ -527,11 +521,11 @@ class _LeavePageState extends State<LeavePage> {
             Expanded(
               child: Text(
                 time != null ? time.format(context) : 'Select time',
-                style: TextStyle(fontSize: 14, color: time != null ? scheme.onSurface : scheme.onSurfaceVariant.withValues(alpha: 0.6)),
+                style: TextStyle(fontSize: Responsive.sp(context, 14), color: time != null ? scheme.onSurface : scheme.onSurfaceVariant.withValues(alpha: 0.6)),
               ),
             ),
-            const SizedBox(width: 8),
-            Icon(Icons.access_time, size: 18, color: scheme.onSurfaceVariant),
+            SizedBox(width: Responsive.pad(context, 8)),
+            Icon(LucideIcons.clock, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
           ],
         ),
       ),
@@ -541,7 +535,7 @@ class _LeavePageState extends State<LeavePage> {
   Widget _buildProofUploader(AppColors colors, ColorScheme scheme) {
     return _proofBase64 != null
         ? Container(
-            padding: const EdgeInsets.all(8),
+            padding: EdgeInsets.all(Responsive.pad(context, 8)),
             decoration: BoxDecoration(
               color: colors.surfaceContainerLowest,
               borderRadius: BorderRadius.circular(10),
@@ -553,25 +547,25 @@ class _LeavePageState extends State<LeavePage> {
                   borderRadius: BorderRadius.circular(6),
                   child: Image.memory(
                     base64Decode(_proofBase64!),
-                    height: 140,
+                    height: Responsive.pad(context, 140),
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox(height: 140,
-                      child: Center(child: Text('Failed to load preview'))),
+                    errorBuilder: (_, __, ___) => SizedBox(height: Responsive.pad(context, 140),
+                      child: const Center(child: Text('Failed to load preview'))),
                   ),
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: Responsive.pad(context, 6)),
                 Row(
                   children: [
                     Expanded(
                       child: Text(_proofFileName ?? 'Proof attached',
-                        style: TextStyle(fontSize: 13, color: scheme.onSurface), overflow: TextOverflow.ellipsis),
+                        style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurface), overflow: TextOverflow.ellipsis),
                     ),
                     GestureDetector(
                       onTap: _removeProof,
                       child: Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: Icon(Icons.close, size: 18, color: scheme.onSurfaceVariant),
+                        padding: EdgeInsets.only(left: Responsive.pad(context, 8)),
+                        child: Icon(LucideIcons.x, size: Responsive.sp(context, 18), color: scheme.onSurfaceVariant),
                       ),
                     ),
                   ],
@@ -582,7 +576,7 @@ class _LeavePageState extends State<LeavePage> {
         : GestureDetector(
             onTap: _pickProof,
             child: Container(
-              height: 48,
+              height: Responsive.pad(context, 48),
               decoration: BoxDecoration(
                 color: colors.surfaceContainerLowest,
                 borderRadius: BorderRadius.circular(10),
@@ -590,11 +584,11 @@ class _LeavePageState extends State<LeavePage> {
               ),
               child: Row(
                 children: [
-                  const SizedBox(width: 12),
-                  Icon(Icons.upload_file, size: 20, color: scheme.onSurfaceVariant),
-                  const SizedBox(width: 8),
+                  SizedBox(width: Responsive.pad(context, 12)),
+                  Icon(LucideIcons.fileUp, size: Responsive.sp(context, 20), color: scheme.onSurfaceVariant),
+                  SizedBox(width: Responsive.pad(context, 8)),
                   Text('Upload proof (image)',
-                    style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+                    style: TextStyle(fontSize: Responsive.sp(context, 13), color: scheme.onSurfaceVariant)),
                 ],
               ),
             ),
@@ -603,7 +597,7 @@ class _LeavePageState extends State<LeavePage> {
 
   Widget _buildHistory(AppColors colors, ColorScheme scheme, TextTheme tt) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(Responsive.pad(context, 20)),
       decoration: BoxDecoration(
         color: colors.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(12),
@@ -613,9 +607,30 @@ class _LeavePageState extends State<LeavePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('LEAVE HISTORY', style: tt.labelMedium?.copyWith(color: scheme.onSurfaceVariant, letterSpacing: 1.0)),
-          const SizedBox(height: 16),
+          SizedBox(height: Responsive.pad(context, 16)),
           if (_loadingLeaves)
-            const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+            SkeletonLoader(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: List.generate(3, (_) => Padding(
+                  padding: EdgeInsets.only(bottom: Responsive.pad(context, 16)),
+                  child: Row(
+                    children: [
+                      SkeletonBlock(width: Responsive.pad(context, 36), height: Responsive.pad(context, 36), borderRadius: 10),
+                      SizedBox(width: Responsive.pad(context, 12)),
+                      Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SkeletonBlock(height: Responsive.pad(context, 14), width: Responsive.pad(context, 120)),
+                          SizedBox(height: Responsive.pad(context, 6)),
+                          SkeletonBlock(height: Responsive.pad(context, 10), width: Responsive.pad(context, 200)),
+                        ],
+                      )),
+                    ],
+                  ),
+                )),
+              ),
+            )
           else if (_leaves.isEmpty)
             _buildEmptyState(colors, scheme, tt)
           else
@@ -629,11 +644,11 @@ class _LeavePageState extends State<LeavePage> {
     return SizedBox(
       width: double.infinity,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
+        padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 24)),
         child: Column(
           children: [
-            Icon(Icons.history, size: 48, color: scheme.onSurfaceVariant.withValues(alpha: 0.5)),
-            const SizedBox(height: 8),
+            Icon(LucideIcons.history, size: Responsive.sp(context, 48), color: scheme.onSurfaceVariant.withValues(alpha: 0.5)),
+            SizedBox(height: Responsive.pad(context, 8)),
             Text('No leave applications yet', style: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
           ],
         ),
@@ -653,46 +668,46 @@ class _LeavePageState extends State<LeavePage> {
     Color iconBg;
     switch (type) {
       case 'vacational':
-        icon = Icons.flight; iconColor = scheme.primary; iconBg = colors.primaryFixed; break;
+        icon = LucideIcons.plane; iconColor = scheme.primary; iconBg = colors.primaryFixed; break;
       case 'half_day':
-        icon = Icons.access_time; iconColor = colors.onTertiaryFixedVariant; iconBg = colors.tertiaryFixed; break;
+        icon = LucideIcons.clock; iconColor = colors.onTertiaryFixedVariant; iconBg = colors.tertiaryFixed; break;
       case 'emergency':
-        icon = Icons.warning_amber; iconColor = const Color(0xFFC0392B); iconBg = const Color(0xFFFDEAEA); break;
+        icon = LucideIcons.triangleAlert; iconColor = const Color(0xFFC0392B); iconBg = const Color(0xFFFDEAEA); break;
       default:
-        icon = Icons.event; iconColor = scheme.primary; iconBg = colors.primaryFixed; break;
+        icon = LucideIcons.calendar; iconColor = scheme.primary; iconBg = colors.primaryFixed; break;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 12)),
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: colors.surfaceVariant))),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 36, height: 36,
+            width: Responsive.pad(context, 36), height: Responsive.pad(context, 36),
             decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, size: 18, color: iconColor),
+            child: Icon(icon, size: Responsive.sp(context, 18), color: iconColor),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: Responsive.pad(context, 12)),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(typeLabel, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: scheme.onSurface)),
-                const SizedBox(height: 2),
+                Text(typeLabel, style: TextStyle(fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w500, color: scheme.onSurface)),
+                SizedBox(height: Responsive.pad(context, 2)),
                 Text('${_leaveDates(l)} · $days day${days > 1 ? 's' : ''}',
-                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                if (reason.isNotEmpty) const SizedBox(height: 2),
+                  style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
+                if (reason.isNotEmpty) SizedBox(height: Responsive.pad(context, 2)),
                 if (reason.isNotEmpty) Text(reason,
-                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                  style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
               ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
             decoration: BoxDecoration(color: _statusBg(status), borderRadius: BorderRadius.circular(20)),
             child: Text('${status[0].toUpperCase()}${status.substring(1)}',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: _statusColor(status))),
+              style: TextStyle(fontSize: Responsive.sp(context, 11), fontWeight: FontWeight.w500, color: _statusColor(status))),
           ),
         ],
       ),
