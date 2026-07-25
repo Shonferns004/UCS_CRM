@@ -43,6 +43,19 @@ const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
 const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
+const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected']);
+const DISPOSITION_ORDER = {};
+NOT_CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1; });
+CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1 + NOT_CONNECTED.length; });
+function filterAndSortDonors(list) {
+  return list
+    .filter(d => !HIDDEN_STATUSES.has(d.status))
+    .sort((a, b) => {
+      const oa = a.status === 'pending' ? 0 : (DISPOSITION_ORDER[a.status] ?? 99);
+      const ob = b.status === 'pending' ? 0 : (DISPOSITION_ORDER[b.status] ?? 99);
+      return oa - ob;
+    });
+}
 function useTomorrowStr() {
   const t = new Date();
   t.setDate(t.getDate() + 1);
@@ -149,7 +162,8 @@ export default function MyDonors() {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
-        setDonors(r);
+        const sortedDonors = filterAndSortDonors(r);
+        setDonors(sortedDonors);
         setMessage(null);
         let restored = false;
 
@@ -157,10 +171,10 @@ export default function MyDonors() {
         if (savedSnapshot) {
           const { id, idx } = savedSnapshot;
           if (id) {
-            const found = r.findIndex(d => d.id === id);
+            const found = sortedDonors.findIndex(d => d.id === id);
             if (found >= 0) { setIndex(found); restored = true; }
           }
-          if (!restored && typeof idx === 'number' && idx < r.length) {
+          if (!restored && typeof idx === 'number' && idx < sortedDonors.length) {
             setIndex(idx); restored = true;
           }
         }
@@ -173,12 +187,12 @@ export default function MyDonors() {
             if (progressStation === (selectedStation !== 'all' ? selectedStation : 'all')) {
               const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
               if (savedId) {
-                const found = r.findIndex(d => d.id === savedId);
+                const found = sortedDonors.findIndex(d => d.id === savedId);
                 if (found >= 0) { setIndex(found); restored = true; }
               }
               if (!restored) {
                 const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
-                if (savedIndex != null && savedIndex < r.length) {
+                if (savedIndex != null && savedIndex < sortedDonors.length) {
                   setIndex(savedIndex); restored = true;
                 }
                 }
@@ -245,7 +259,7 @@ export default function MyDonors() {
   };
 
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch((err) => { console.error('API error:', err.message); });
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(filterAndSortDonors(r)); }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation]);
 
   const debouncedReload = useCallback(() => {
@@ -289,11 +303,28 @@ export default function MyDonors() {
   const progressRef = useRef({ donor, index, dataTab });
   progressRef.current = { donor, index, dataTab };
   useEffect(() => {
+    const handleBeforeUnload = () => {
+      const p = progressRef.current;
+      if (p.donor) {
+        try {
+          localStorage.setItem(`${p.dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: p.donor.id, idx: p.index }));
+          const body = { data_tab: p.dataTab, station: selectedStation !== 'all' ? selectedStation : null };
+          if (p.dataTab === 'new') { body.new_donor_id = p.donor.id; body.new_donor_index = p.index; }
+          else { body.old_donor_id = p.donor.id; body.old_donor_index = p.index; }
+          navigator.sendBeacon && navigator.sendBeacon(
+            (import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/progress',
+            JSON.stringify(body)
+          );
+        } catch (e) { /* silent */ }
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       const p = progressRef.current;
       if (p.donor) saveProgress(p.dataTab, p.donor.id, p.index);
     };
-  }, []);
+  }, [stationKey, selectedStation]);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
@@ -447,7 +478,8 @@ export default function MyDonors() {
       if (selected) endCall();
 
       if (returnToDonor) {
-        const newDonors = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+        const newDonors = filterAndSortDonors(refreshed);
         setDonors(newDonors);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
@@ -457,9 +489,12 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const nextIdx = findNextDonorIndex(donors, donor.id);
+        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+        const newDonors = filterAndSortDonors(refreshed);
+        setDonors(newDonors);
+        const nextIdx = findNextDonorIndex(newDonors, donor.id);
         setIndex(nextIdx);
-        const nextDonor = donors[nextIdx];
+        const nextDonor = newDonors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
       setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
@@ -1095,7 +1130,7 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0} onClick={() => { endDonorView(isOnCall && activeCall?.donorId === donor.id); setIndex(i => i - 1) }}>
+      <button className="btn-prev" disabled={index === 0} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); setIndex(i => i - 1) }}>
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
