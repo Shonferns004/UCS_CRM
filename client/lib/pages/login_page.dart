@@ -163,8 +163,9 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                         TextField(
                           controller: _loginCtrl,
                           decoration: InputDecoration(
-                            labelText: 'Email',
+                            labelText: 'Login ID',
                             hintText: 'name.lastname@ufs',
+                            keyboardType: TextInputType.text,
                             hintStyle: GoogleFonts.manrope(color: const Color(0xFF9ca3af)),
                             labelStyle: GoogleFonts.manrope(color: const Color(0xFF43474d)),
                             prefixIcon: Icon(LucideIcons.user, color: const Color(0xFF74777e)),
