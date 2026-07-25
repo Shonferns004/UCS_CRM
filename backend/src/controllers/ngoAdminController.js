@@ -297,9 +297,9 @@ export const getAssignments = async (req, res) => {
 
 export const setTarget = async (req, res) => {
   try {
-    const { fro_worker_id, month, target_amount } = req.body;
+    const { fro_worker_id, month, target_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngoIds[0];
+    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
 
     if (!fro_worker_id || !month || target_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and target_amount are required' });
@@ -349,11 +349,15 @@ export const setTarget = async (req, res) => {
 export const getTargets = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
-    const { month } = req.query;
+    const { month, ngo_id } = req.query;
     const targetMonth = month ? month + '-01' : new Date().toISOString().slice(0, 7) + '-01';
 
+    const filterNgoIds = ngo_id && ngoIds.includes(Number(ngo_id))
+      ? [Number(ngo_id)]
+      : ngoIds;
+
     const allWorkers = [];
-    for (const ngoId of ngoIds) {
+    for (const ngoId of filterNgoIds) {
       const workers = await getFroWorkersByNgo(ngoId);
       allWorkers.push(...workers);
     }
@@ -361,7 +365,7 @@ export const getTargets = async (req, res) => {
     const froWorkers = allWorkers.filter(w => { const k = w.id; if (seen.has(k)) return false; seen.add(k); return true; });
 
     const allManualTargets = [];
-    for (const ngoId of ngoIds) {
+    for (const ngoId of filterNgoIds) {
       const targets = await getTargetsByNgo(ngoId, targetMonth);
       allManualTargets.push(...targets);
     }
@@ -904,9 +908,9 @@ export const getFroPerformance = async (req, res) => {
 
 export const setAchievedTarget = async (req, res) => {
   try {
-    const { fro_worker_id, month, achieved_amount } = req.body;
+    const { fro_worker_id, month, achieved_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngoIds[0];
+    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
 
     if (!fro_worker_id || !month || achieved_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and achieved_amount are required' });
@@ -925,9 +929,9 @@ export const setAchievedTarget = async (req, res) => {
 
 export const setIncentive = async (req, res) => {
   try {
-    const { fro_worker_id, month, incentive_amount } = req.body;
+    const { fro_worker_id, month, incentive_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngoIds[0];
+    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
 
     if (!fro_worker_id || !month) {
       return res.status(400).json({ message: 'fro_worker_id and month are required' });

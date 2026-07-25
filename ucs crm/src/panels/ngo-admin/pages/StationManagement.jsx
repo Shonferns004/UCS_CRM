@@ -359,7 +359,8 @@ export default function StationManagement() {
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('fetchData transfers error:', err));
-    apiGet('/ngo-admin/targets?month=' + m).then(t => {
+    const ngoParam = selectedNgoId !== 'all' ? '&ngo_id=' + selectedNgoId : '';
+    apiGet('/ngo-admin/targets?month=' + m + ngoParam).then(t => {
       if (Array.isArray(t)) setTargets(t);
     }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
@@ -370,7 +371,8 @@ export default function StationManagement() {
 
   const loadTargets = (month) => {
     const m = month || selectedMonth;
-    apiGet('/ngo-admin/targets?month=' + m).then(t => {
+    const ngoParam = selectedNgoId !== 'all' ? '&ngo_id=' + selectedNgoId : '';
+    apiGet('/ngo-admin/targets?month=' + m + ngoParam).then(t => {
       if (Array.isArray(t)) setTargets(t);
     }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
@@ -695,7 +697,7 @@ export default function StationManagement() {
                           const t = targets.find(tg => tg.id === w.id);
                           if (!t || t?.months_employed >= 3) {
                             return (
-                              <button className="btn btn-sm btn-outline" onClick={() => { setEditTarget(w); setTargetAmount(String(t?.target || '')); }}>
+                              <button className="btn btn-sm btn-outline" onClick={() => { setEditTarget({ ...w, ngo_id: s.ngos?.[0]?.ngo_id || null }); setTargetAmount(String(t?.target || '')); }}>
                                 {t?.target_source === 'manual' ? 'Edit' : 'Set'}
                               </button>
                             );
@@ -707,7 +709,7 @@ export default function StationManagement() {
                           if (!w) return null;
                           const t = targets.find(tg => tg.id === w.id);
                           return (
-                            <button className="btn btn-sm btn-outline" onClick={() => { setEditAchieved(w); setAchievedAmount(String(t?.achieved_target || '')); }}>
+                            <button className="btn btn-sm btn-outline" onClick={() => { setEditAchieved({ ...w, ngo_id: s.ngos?.[0]?.ngo_id || null }); setAchievedAmount(String(t?.achieved_target || '')); }}>
                               {t?.achieved_target != null && t.achieved_target > 0 ? 'Edit Achv' : 'Set Achv'}
                             </button>
                           );
@@ -720,7 +722,7 @@ export default function StationManagement() {
                           const autoVal = inc?.hasTarget ? inc.totalIncentive : 0;
                           return (
                             <button className="btn btn-sm btn-outline" onClick={() => {
-                              setEditIncentive(w);
+                              setEditIncentive({ ...w, ngo_id: s.ngos?.[0]?.ngo_id || null });
                               setIncentiveAmount(String(t?.incentive != null ? t.incentive : autoVal || ''));
                             }} style={{ color: '#7c3aed' }}>
                               {t?.incentive != null ? 'Edit Incent' : 'Set Incent'}
@@ -773,6 +775,7 @@ export default function StationManagement() {
                       fro_worker_id: editTarget.id,
                       month,
                       target_amount: parseFloat(targetAmount),
+                      ngo_id: editTarget.ngo_id,
                     });
                     setEditTarget(null);
                     loadTargets();
