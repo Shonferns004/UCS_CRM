@@ -440,6 +440,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     switch (event) {
       case RealtimeEvent.attendance:
       case RealtimeEvent.notifications:
+      case RealtimeEvent.corrections:
         _fetchStatus();
       default:
         break;
