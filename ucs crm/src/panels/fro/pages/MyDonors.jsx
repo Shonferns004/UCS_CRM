@@ -829,13 +829,13 @@ export default function MyDonors() {
           {/* Station Tabs */}
           {stations.length > 1 && (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
-              <button onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation('all') }}
+              <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
                 className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
                 style={{ fontSize: 10 }}>
                 All Stations
               </button>
               {stations.map(s => (
-                <button key={s} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation(s) }}
+                <button key={s} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation(s) }}
                   className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
                   style={{ fontSize: 10 }}>
                   <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: selectedStation === s ? '#16a34a' : '#94a3b8', marginRight: 4, verticalAlign: 'middle' }} />
