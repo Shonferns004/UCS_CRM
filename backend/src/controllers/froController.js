@@ -35,6 +35,25 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   const { data: existing } = await query.maybeSingle();
   if (existing) return existing;
 
+  // Fallback: claim unassigned lead (fro_worker_id is null) in this FRO's station
+  if (ngoId) {
+    const { data: unassigned } = await supabase
+      .from('fro_assignments')
+      .select('id, station')
+      .eq('donor_id', donorId)
+      .is('fro_worker_id', null)
+      .eq('ngo_id', ngoId)
+      .not('status', 'eq', 'reassigned')
+      .maybeSingle();
+    if (unassigned) {
+      await supabase
+        .from('fro_assignments')
+        .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
+        .eq('id', unassigned.id);
+      return unassigned;
+    }
+  }
+
   if (!ngoId) {
     const { data: donor } = await supabase
       .from('donor_profiles')
