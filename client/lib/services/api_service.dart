@@ -183,6 +183,16 @@ class ApiService {
     for (final k in keys) await prefs.remove(k);
   }
 
+  static Future<void> saveLastLoginId(String loginId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_login_id', loginId);
+  }
+
+  static Future<String?> getLastLoginId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('last_login_id');
+  }
+
   static Future<Map<String, String>> _headers() async {
     final token = await getToken();
     return {
@@ -372,6 +382,26 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) throw Exception(body['message'] ?? 'Failed to update profile');
     return body;
+  }
+
+  static Future<Map<String, dynamic>> submitProfileUpdateRequest(Map<String, dynamic> changes) async {
+    final res = await _post(
+      Uri.parse('$baseUrl/profile-update-requests'),
+      headers: await _headers(),
+      body: jsonEncode({'changes': changes}),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 201) throw Exception(body['message'] ?? 'Failed to submit request');
+    return body;
+  }
+
+  static Future<List<dynamic>> getMyProfileUpdateRequests() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/profile-update-requests/my'),
+      headers: await _headers(),
+    );
+    if (res.statusCode != 200) throw Exception('Failed to get requests');
+    return jsonDecode(res.body);
   }
 
   static Future<Map<String, dynamic>> updateMyEducation(List<Map<String, dynamic>> education) async {

@@ -39,8 +39,42 @@ export const unifiedLogin = async (req, res) => {
       return res.status(400).json({ message: 'Identifier and password are required' });
     }
 
-    const isEmail = identifier.includes('@');
+    const isUfsLogin = identifier.endsWith('@ufs');
+    const isEmail = !isUfsLogin && identifier.includes('@');
     const expiry = getTokenExpiry(req);
+
+    if (isUfsLogin) {
+      const worker = await getWorkerByLoginId(identifier);
+      if (!worker) {
+        return res.status(401).json({ message: 'Invalid login ID' });
+      }
+      if (worker.is_active === false || worker.employment_status === 'terminated') {
+        return res.status(403).json({ message: 'Account is deactivated' });
+      }
+      const isMatch = await bcrypt.compare(password, worker.password);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid password' });
+      }
+      const dept = (worker.department || '').toLowerCase().trim();
+      let role;
+      if (dept === 'hr') role = 'hr';
+      else if (dept.includes('recruit')) role = 'recruiter';
+      else if (dept === 'admin') role = 'accounts';
+      else if (dept === 'fro') role = 'fro';
+      else if (dept === 'ngo admin') role = 'admin';
+      else role = 'worker';
+      const token = jwt.sign(
+        { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
+        process.env.JWT_SECRET,
+        { expiresIn: expiry }
+      );
+      return res.json({
+        token,
+        role,
+        user: { id: worker.id, name: worker.name, email: worker.email, login_id: worker.login_id, ngo_id: worker.ngo_id, gender: worker.gender, dob: worker.dob, department: worker.department },
+        message: 'Login successful',
+      });
+    }
 
     if (isEmail) {
       if (

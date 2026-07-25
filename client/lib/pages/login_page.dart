@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/api_service.dart';
 
 class LoginPage extends StatefulWidget {
@@ -24,6 +25,14 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     _animCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 8));
     _anim = Tween<double>(begin: 0, end: 1).animate(_animCtrl);
     _animCtrl.repeat(reverse: true);
+    _loadSavedLogin();
+  }
+
+  Future<void> _loadSavedLogin() async {
+    final saved = await ApiService.getLastLoginId();
+    if (saved != null && saved.isNotEmpty && mounted) {
+      _loginCtrl.text = saved;
+    }
   }
 
   @override
@@ -40,6 +49,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       final data = await ApiService.login(_loginCtrl.text.trim(), _passCtrl.text);
       await ApiService.saveToken(data['token']);
       await ApiService.saveWorkerData(data['user']);
+      await ApiService.saveLastLoginId(_loginCtrl.text.trim());
       if (mounted) widget.onLogin();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -153,9 +163,11 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                         TextField(
                           controller: _loginCtrl,
                           decoration: InputDecoration(
-                            labelText: 'Login ID',
+                            labelText: 'Email',
+                            hintText: 'name.lastname@ufs',
+                            hintStyle: GoogleFonts.manrope(color: const Color(0xFF9ca3af)),
                             labelStyle: GoogleFonts.manrope(color: const Color(0xFF43474d)),
-                            prefixIcon: Icon(Icons.person_outline, color: const Color(0xFF74777e)),
+                            prefixIcon: Icon(LucideIcons.user, color: const Color(0xFF74777e)),
                             filled: true,
                             fillColor: const Color(0xFFf0f4f8),
                             border: OutlineInputBorder(
@@ -171,7 +183,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                           decoration: InputDecoration(
                             labelText: 'Password',
                             labelStyle: GoogleFonts.manrope(color: const Color(0xFF43474d)),
-                            prefixIcon: Icon(Icons.lock_outline, color: const Color(0xFF74777e)),
+                            prefixIcon: Icon(LucideIcons.lock, color: const Color(0xFF74777e)),
                             filled: true,
                             fillColor: const Color(0xFFf0f4f8),
                             border: OutlineInputBorder(
