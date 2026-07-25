@@ -119,6 +119,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
+    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
     setSaving(true);
     try {
       const logPayload = {
