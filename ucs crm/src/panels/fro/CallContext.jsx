@@ -57,7 +57,6 @@ export function CallProvider({ children, userId }) {
   const [todayStats, setTodayStats] = useState(() => loadStats(userId))
   const donorViewStartRef = useRef(null)
   const lastDonorIdRef = useRef(null)
-  const [isInDonorView, setIsInDonorView] = useState(false)
   const [onBreak, setOnBreak] = useState(false)
   const [breakElapsed, setBreakElapsed] = useState(0)
   const breakTimerRef = useRef(null)
@@ -69,7 +68,7 @@ export function CallProvider({ children, userId }) {
   const isBreakOvertime = totalBreakWithCurrent > BREAK_LIMIT
 
   const syncAllStats = useCallback((extra = {}) => {
-    const status = onBreak ? 'break' : (activeCall ? 'on_call' : (isInDonorView ? 'online' : 'idle'))
+    const status = onBreak ? 'break' : (activeCall ? 'on_call' : (todayStats.idleSeconds > 0 ? 'idle' : 'online'))
     api('/fro/status', {
       method: 'PUT',
       body: JSON.stringify({
@@ -85,20 +84,12 @@ export function CallProvider({ children, userId }) {
         ...extra,
       }),
     }).catch((err) => { console.error('Error:', err.message); })
-  }, [activeCall, onBreak, todayStats, isInDonorView])
+  }, [activeCall, onBreak, todayStats])
 
   useEffect(() => {
     syncAllStats()
-    return () => {
-      const offlineBody = JSON.stringify({ status: 'offline' });
-      try {
-        navigator.sendBeacon && navigator.sendBeacon(
-          (import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/status',
-          new Blob([offlineBody], { type: 'application/json' })
-        );
-      } catch (e) { /* sendBeacon fails silently */ }
-    }
-  }, [syncAllStats])
+    return () => { api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch((err) => { console.error('Error:', err.message); }) }
+  }, [])
 
   useEffect(() => {
     if (activeCall) {
@@ -127,7 +118,6 @@ export function CallProvider({ children, userId }) {
   const startDonorView = useCallback((donorId) => {
     donorViewStartRef.current = Date.now()
     lastDonorIdRef.current = donorId
-    setIsInDonorView(true)
   }, [])
 
   const endDonorView = useCallback((wasCalled) => {
@@ -146,7 +136,6 @@ export function CallProvider({ children, userId }) {
       })
     }
     donorViewStartRef.current = null
-    setIsInDonorView(false)
   }, [userId])
 
   const startCall = useCallback((donor) => {
@@ -158,7 +147,7 @@ export function CallProvider({ children, userId }) {
       donorMobile: donor.donor_mobile || donor.donorMobile,
       startTime: Date.now(),
     })
-  }, [onBreak, toggleBreak])
+  }, [onBreak])
 
   const endCall = useCallback(() => {
     if (activeCall) {
