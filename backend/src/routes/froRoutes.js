@@ -31,6 +31,7 @@ import {
   getLiveStatuses,
   getMyProgress,
   saveMyProgress,
+  getReactivatedDonors,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -49,6 +50,7 @@ router.use(requireFro);
 
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
+router.get('/reactivated-donors', getReactivatedDonors);
 router.get('/donors', getMyDonors);
 router.get('/transferred-leads', getTransferredLeads);
 router.put('/donors/:id/status', updateDonorStatus);

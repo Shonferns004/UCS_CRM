@@ -231,9 +231,9 @@ export const getDashboard = async (req, res) => {
           supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'),
           supabase.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'),
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'),
-          supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)').gte('created_at', fyStart.toISOString()),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)').gte('created_at', monthStart).lte('created_at', monthEnd),
+          supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()),
+          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
+          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd),
         ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
@@ -295,7 +295,7 @@ export const getDashboard = async (req, res) => {
         .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
         .in('fro_assignments.station', stationNames)
         .eq('fro_assignments.fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
         .gte('created_at', todayStart.toISOString())
         .lte('created_at', todayEnd.toISOString());
 
@@ -304,7 +304,7 @@ export const getDashboard = async (req, res) => {
         .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
         .in('fro_assignments.station', stationNames)
         .eq('fro_assignments.fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
         .gte('created_at', monthStart)
         .lte('created_at', monthEnd);
 
@@ -313,7 +313,7 @@ export const getDashboard = async (req, res) => {
         .select('donor_id, created_at, fro_assignments!inner(station, fro_worker_id)')
         .in('fro_assignments.station', stationNames)
         .eq('fro_assignments.fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
         .gte('created_at', fyStart.toISOString());
 
       const todayStr = todayStart.toISOString();
@@ -408,6 +408,64 @@ export const getDashboard = async (req, res) => {
         unused: dataUnused,
       },
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getReactivatedDonors = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const period = req.query.period === 'month' ? 'month' : 'today';
+    const stationNames = await getMyStationNames(workerId);
+    if (stationNames.length === 0) return res.json([]);
+
+    const nowUtc = new Date();
+    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
+    const fyYear = nowUtc.getMonth() < 3 ? nowUtc.getUTCFullYear() - 1 : nowUtc.getUTCFullYear();
+    const fyStart = new Date(Date.UTC(fyYear, 3, 1));
+    const monthStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+    const periodStart = period === 'month' ? monthStart.toISOString() : todayStart.toISOString();
+    const periodEnd = period === 'month' ? monthEnd.toISOString() : todayEnd.toISOString();
+    const fyBeforeEnd = period === 'month' ? monthStart.toISOString() : todayStart.toISOString();
+
+    const [periodDonorsRes, fyDonorsRes] = await Promise.all([
+      supabase.from('fro_donor_logs')
+        .select('donor_id, amount_collected, created_at, donor_profiles!inner(name, mobile_number), fro_assignments!inner(station)')
+        .in('fro_assignments.station', stationNames)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', periodStart).lte('created_at', periodEnd),
+      supabase.from('fro_donor_logs')
+        .select('donor_id, created_at, fro_assignments!inner(station)')
+        .in('fro_assignments.station', stationNames)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', fyStart.toISOString()),
+    ]);
+
+    const fyBeforePeriodDonors = new Set();
+    for (const log of fyDonorsRes.data || []) {
+      if (log.created_at < fyBeforeEnd) fyBeforePeriodDonors.add(log.donor_id);
+    }
+
+    const seen = new Set();
+    const donors = [];
+    for (const log of periodDonorsRes.data || []) {
+      if (!log.donor_id || fyBeforePeriodDonors.has(log.donor_id) || seen.has(log.donor_id)) continue;
+      seen.add(log.donor_id);
+      donors.push({
+        donor_id: log.donor_id,
+        donor_name: log.donor_profiles?.name || 'Unknown',
+        donor_mobile: log.donor_profiles?.mobile_number || '',
+        amount: parseFloat(log.amount_collected || 0),
+        date: log.created_at,
+      });
+    }
+
+    donors.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return res.json({ donors, count: donors.length, period });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

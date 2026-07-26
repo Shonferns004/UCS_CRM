@@ -11,6 +11,7 @@ import RecruiterPanel from './panels/recruiter/RecruiterPanel'
 import EventHeadPanel from './panels/event-head/EventHeadPanel'
 import DocumentationPanel from './panels/documentation/DocumentationPanel'
 import WhatsAppPanel from './panels/whatsapp/WhatsAppPanel'
+import DevPanel from './panels/dev-panel/DevPanel'
 
 const ROLE_PATHS = {
   super_admin: '/sa',
@@ -24,6 +25,8 @@ const ROLE_PATHS = {
   event_manager: '/event-head',
   'Event Manager': '/event-head',
   'Event Head': '/event-head',
+  digital: '/dev-panel',
+  developers: '/dev-panel',
 }
 
 const ROLE_PANELS = {
@@ -37,6 +40,8 @@ const ROLE_PANELS = {
   event_manager: { panel: EventHeadPanel, cls: 'panel-event-head' },
   'Event Manager': { panel: EventHeadPanel, cls: 'panel-event-head' },
   'Event Head': { panel: EventHeadPanel, cls: 'panel-event-head' },
+  digital: { panel: DevPanel, cls: 'panel-dev' },
+  developers: { panel: DevPanel, cls: 'panel-dev' },
 }
 
 function ProtectedRoute({ role, children }) {
@@ -161,6 +166,11 @@ export default function App() {
         <Route path="/event-head/*" element={
           <ProtectedRoute role={['event_head', 'Event Head', 'Event Manager']}>
             <PanelWrapper roleKey="event_head" />
+          </ProtectedRoute>
+        } />
+        <Route path="/dev-panel/*" element={
+          <ProtectedRoute role={['digital', 'developers', 'super_admin']}>
+            <PanelWrapper roleKey="digital" />
           </ProtectedRoute>
         } />
 
