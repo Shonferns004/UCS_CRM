@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, MessageSquare, Users, MessageCircle, Kanban, Bot, BarChart3, FileText, Settings, Headphones, MoreVertical, LogOut, User, Mail, Shield, Phone, UserCog } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
 
-const navigation = [
+const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
-  { name: 'Inbox', href: '/inbox', icon: MessageSquare },
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Team', href: '/team', icon: UserCog },
   { name: 'Pipeline', href: '/pipeline', icon: Kanban },
@@ -17,6 +16,13 @@ const navigation = [
   { name: 'Phone Numbers', href: '/phone-numbers', icon: Headphones },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
+
+interface WhatsAppAccount {
+  id: number;
+  name: string;
+  project: string;
+  phone_number_id: string;
+}
 
 function ProfileModal({ onClose }: { onClose: () => void }) {
   const { user } = useAuthStore();
@@ -67,9 +73,37 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
 
 export function Sidebar() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('whatsapp_accounts')
+      .select('id, name, project, phone_number_id')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        if (data) setAccounts(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const currentAccountId = searchParams.get('account');
+
+  const navigation = [
+    ...baseNavigation.slice(0, 1),
+    ...accounts.map(acc => ({
+      name: accounts.length === 1 ? 'Inbox' : `Inbox - ${acc.name}`,
+      href: `/inbox?account=${acc.id}`,
+      icon: MessageSquare,
+      accountId: acc.id,
+    })),
+    ...(accounts.length === 0 ? [{ name: 'Inbox', href: '/inbox', icon: MessageSquare, accountId: null as number | null }] : []),
+    ...baseNavigation.slice(1),
+  ];
 
   return (
     <>
@@ -79,24 +113,30 @@ export function Sidebar() {
           <span className="text-lg font-semibold max-md:hidden">WhatsApp CRM</span>
         </div>
         <nav className="flex-1 space-y-1 p-4">
-          {navigation.map((item) => (
-            <NavLink
-              key={item.name}
-              to={item.href}
-              end={item.end}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                )
-              }
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              <span className="max-md:hidden">{item.name}</span>
-            </NavLink>
-          ))}
+          {navigation.map((item) => {
+            const isAccountInbox = 'accountId' in item && item.accountId !== null;
+            return (
+              <NavLink
+                key={isAccountInbox ? `inbox-${item.accountId}` : item.name}
+                to={item.href}
+                end={item.end || isAccountInbox}
+                className={({ isActive }) => {
+                  const active = isAccountInbox
+                    ? currentAccountId === String(item.accountId)
+                    : isActive;
+                  return cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                  );
+                }}
+              >
+                <item.icon className="h-5 w-5 shrink-0" />
+                <span className="max-md:hidden">{item.name}</span>
+              </NavLink>
+            );
+          })}
         </nav>
         <div className="relative border-t p-3">
           <button onClick={() => setMenuOpen(!menuOpen)} className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-muted-foreground hover:bg-accent">

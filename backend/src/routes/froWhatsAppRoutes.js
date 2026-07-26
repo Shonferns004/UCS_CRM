@@ -2,7 +2,12 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/authMiddleware.js';
 import multer from 'multer';
 import {
+  whatsappAutoLogin,
+} from '../controllers/froWhatsAppAuthController.js';
+import {
   listConversations,
+  listAgentConversations,
+  agentUnreadCount,
   listMessages,
   sendMessage,
   sendDirect,
@@ -26,6 +31,19 @@ const requireFro = (req, res, next) => {
   if (req.user.department && req.user.department.toLowerCase().trim() === 'fro') return next();
   return res.status(403).json({ message: 'FRO worker access required' });
 };
+
+const requireFroOrAgent = (req, res, next) => {
+  if (req.user.role === 'fro' || req.user.role === 'agent') return next();
+  if (req.user.department && req.user.department.toLowerCase().trim() === 'fro') return next();
+  return res.status(403).json({ message: 'FRO or Agent access required' });
+};
+
+router.get('/auto-login', whatsappAutoLogin);
+
+router.use(requireFroOrAgent);
+
+router.get('/agent-conversations', listAgentConversations);
+router.get('/agent-conversations/unread-count', agentUnreadCount);
 
 router.use(requireFro);
 

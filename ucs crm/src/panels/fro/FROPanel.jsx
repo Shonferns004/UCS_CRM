@@ -25,7 +25,7 @@ import History from './pages/History'
 import WhatsAppChat from './pages/WhatsAppChat'
 import FroTickets from './pages/Tickets'
 
-const NAV = [
+const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Up / Callback', icon: 'calendar_month' },
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', icon: 'group' },
@@ -33,7 +33,6 @@ const NAV = [
   { id: 'donors', path: '/fro/donors', label: 'Donors', icon: 'card_giftcard' },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', icon: 'heart_broken' },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', icon: 'confirmation_number' },
-  { id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp Chat', icon: 'chat' },
 ]
 
 const MAX_DROPDOWN = 4
@@ -57,8 +56,19 @@ function loadTodayStats() {
   } catch { return null; }
 }
 
-function Sidebar({ open, onClose, waUnreadCount }) {
+function Sidebar({ open, onClose, waUnreadCounts }) {
   const location = useLocation()
+  const nav = [...NAV_BASE]
+  const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+  if (waAgents.length === 1) {
+    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: 'WhatsApp Chat', icon: 'chat' })
+  } else if (waAgents.length > 1) {
+    waAgents.forEach(a => {
+      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `WhatsApp - ${a.accountName || a.project}`, icon: 'chat' })
+    })
+  } else {
+    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp Chat', icon: 'chat' })
+  }
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
@@ -68,16 +78,21 @@ function Sidebar({ open, onClose, waUnreadCount }) {
           <div><h1>UFS</h1><span>FRO Panel</span></div>
         </div>
         <nav className="sidebar-nav">
-          {NAV.map(n => (
+          {nav.map(n => (
             <NavLink key={n.id} to={n.path}
-              className={`snav-item ${location.pathname === n.path ? 'active' : ''}`}
+              className={`snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
               onClick={() => onClose?.()}>
             <span className="ico material-symbols-outlined" style={{ fontSize: 18 }}>{n.icon}</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>{n.label}</span>
-              {n.id === 'whatsapp-chat' && waUnreadCount > 0 && (
+              {n.id.startsWith('whatsapp') && waUnreadCounts?.[n.id] > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
-                  {waUnreadCount > 9 ? '9+' : waUnreadCount}
+                  {waUnreadCounts[n.id] > 9 ? '9+' : waUnreadCounts[n.id]}
+                </span>
+              )}
+              {n.id === 'whatsapp-chat' && waUnreadCounts?.total > 0 && !waAgents.length && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
+                  {waUnreadCounts.total > 9 ? '9+' : waUnreadCounts.total}
                 </span>
               )}
             </span>
@@ -95,7 +110,7 @@ export default function FROPanel() {
   const [showMenu, setShowMenu] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [waUnreadCount, setWaUnreadCount] = useState(0)
+  const [waUnreadCounts, setWaUnreadCounts] = useState({ total: 0 })
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
 
@@ -217,13 +232,60 @@ export default function FROPanel() {
       try {
         const token = localStorage.getItem('ucs_token')
         if (!token) return
-        const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/whatsapp/conversations/unread-count', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setWaUnreadCount(data?.count || 0)
+        const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+
+        // Try auto-login first if no agents stored
+        const storedAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+        if (storedAgents.length === 0 && user?.id) {
+          try {
+            const loginRes = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (loginRes.ok) {
+              const loginData = await loginRes.json()
+              if (loginData.sessions?.length) {
+                const agents = loginData.sessions.map(s => ({
+                  agentUserId: s.agent_user_id,
+                  accountName: s.account_name,
+                  project: s.project,
+                  whatsappUserId: s.whatsapp_user_id,
+                  token: s.token,
+                }))
+                localStorage.setItem('wa_agents', JSON.stringify(agents))
+              }
+            }
+          } catch { /* silent */ }
         }
+
+        // Fetch unread counts for each agent
+        const agents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+        const counts = { total: 0 }
+        for (const agent of agents) {
+          try {
+            const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
+              headers: { Authorization: `Bearer ${agent.token}` },
+            })
+            if (res.ok) {
+              const data = await res.json()
+              const key = `whatsapp-${agent.project}`
+              counts[key] = data?.count || 0
+              counts.total += data?.count || 0
+            }
+          } catch { /* skip */ }
+        }
+        // Fallback: try the FRO token for a single count
+        if (agents.length === 0) {
+          try {
+            const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+              const data = await res.json()
+              counts.total = data?.count || 0
+            }
+          } catch { /* skip */ }
+        }
+        setWaUnreadCounts(counts)
       } catch (e) { console.error('Error:', e.message); }
     }
     fetchWaUnread()
@@ -305,7 +367,7 @@ export default function FROPanel() {
   return (
     <CallProvider userId={user?.id}>
     <div className="app">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCount={waUnreadCount} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCounts={waUnreadCounts} />
       <div className="main">
         <header className="topbar">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -522,6 +584,7 @@ export default function FROPanel() {
             <Route path="incentive-info" element={<IncentiveInfo />} />
             <Route path="tickets" element={<FroTickets />} />
             <Route path="whatsapp-chat" element={<WhatsAppChat />} />
+            <Route path="whatsapp-chat/:project" element={<WhatsAppChat />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
