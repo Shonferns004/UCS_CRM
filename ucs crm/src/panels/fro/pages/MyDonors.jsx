@@ -145,7 +145,6 @@ export default function MyDonors() {
   const searchRef = useRef(null);
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
-  const stationsFetchedRef = useRef(false);
   const [stations, setStations] = useState([]);
   const [selectedStation, setSelectedStation] = useState('all');
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
@@ -233,7 +232,7 @@ export default function MyDonors() {
   }, [donors.length]);
 
   useEffect(() => {
-    if (message) {
+    if (message && message.type !== 'error') {
       const t = setTimeout(() => setMessage(null), 4000);
       return () => clearTimeout(t);
     }
@@ -247,8 +246,6 @@ export default function MyDonors() {
   }, [index, donors, endDonorView, startDonorView]);
 
   useEffect(() => {
-    if (stationsFetchedRef.current) return;
-    stationsFetchedRef.current = true;
     getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
@@ -328,6 +325,14 @@ export default function MyDonors() {
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
+
+  const resetFormState = () => {
+    setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime('');
+    setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError('');
+    setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
+    setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
+    setMessage(null);
+  };
 
   const cancelledRef = useRef(false);
   const loadDetail = useCallback(() => {
@@ -445,7 +450,7 @@ export default function MyDonors() {
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
     if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
     if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
-    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
+    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10 || !PAN_REGEX.test(leadPan))) { setMessage({ type: 'error', text: 'Enter a valid PAN (format: ABCDE1234F)' }); return; }
     if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
     if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
 
@@ -480,7 +485,7 @@ export default function MyDonors() {
         logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
       await addDonorLog(donor.id, logData);
-      if (selected) endCall();
+      if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       if (returnToDonor) {
         const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
@@ -502,13 +507,13 @@ export default function MyDonors() {
         const nextDonor = newDonors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
-      setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
+      resetFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally { setSaving(false); }
   };
 
-  const handleSearch = useCallback((q) => {
+  const handleSearch = (q) => {
     setSearchQuery(q);
     if (!q || q.trim().length < 2) {
       setSearchResults([]);
@@ -522,7 +527,7 @@ export default function MyDonors() {
     );
     setSearchResults(filtered);
     setShowSearchDropdown(filtered.length > 0 || term.length >= 2);
-  }, [donors]);
+  };
 
   const handleSelectSearchResult = (resultIdx) => {
     const r = searchResults[resultIdx];
@@ -855,13 +860,13 @@ export default function MyDonors() {
               className={`fro-tab-btn ${dataTab === 'new' ? 'fro-tab-active-new' : ''}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 13 }}>fiber_new</span>
               New Data
-              <span className="fro-tab-count">{donors.length > 0 && dataTab === 'new' ? donors.length : ''}</span>
+              <span className="fro-tab-count">{dataTab === 'new' ? donors.length : ''}</span>
             </button>
             <button onClick={() => switchTab('old')}
               className={`fro-tab-btn ${dataTab === 'old' ? 'fro-tab-active-old' : ''}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
               Old Data
-              <span className="fro-tab-count">{donors.length > 0 && dataTab === 'old' ? donors.length : ''}</span>
+              <span className="fro-tab-count">{dataTab === 'old' ? donors.length : ''}</span>
             </button>
           </div>
           {/* Search donor by mobile */}
@@ -1135,7 +1140,7 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); setIndex(i => i - 1) }}>
+      <button className="btn-prev" disabled={index === 0} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); resetFormState(); setIndex(i => i - 1) }}>
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
@@ -1210,7 +1215,7 @@ export default function MyDonors() {
             )}
           </div>
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
-            Total: ₹{donations.reduce((s, d) => s + Number(d.amount || 0), 0).toLocaleString('en-IN')}
+            Total: ₹{Math.round(donations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
           </div>
         </div>
       </div>
