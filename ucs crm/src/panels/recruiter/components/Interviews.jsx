@@ -10,7 +10,7 @@ const formatDT = (ts) => {
 
 export default function Interviews() {
   const { leads } = useRec();
-  const scheduled = leads.filter(l => l.scheduled_date);
+  const scheduled = leads.filter(l => l.status === 'scheduled');
 
   return (
     <div className="card">
