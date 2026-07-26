@@ -113,7 +113,7 @@ function LoginForm({ onLogin }) {
 function WhatsAppChatInner() {
   const [waUser, setWaUser] = useState(() => {
     const stored = localStorage.getItem('wa_user')
-    return stored ? JSON.parse(stored) : null
+    try { return stored ? JSON.parse(stored) : null } catch { return null }
   })
 
   const isMaster = waUser?.role === 'master'

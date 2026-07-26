@@ -97,7 +97,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     setLoading(true);
     let cancelled = false;
     Promise.all([
-      fetchWorkerById(worker.id).catch(() => null),
+      fetchWorkerById(worker.id).catch((err) => { console.error('Error:', err.message); }),
       fetchWorkerLetters(worker.id),
       fetchWorkerSalaries(worker.id).catch(() => []),
       fetchWorkerAllocations(worker.id).catch(() => []),
@@ -116,19 +116,19 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
         const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         fetchWorkerTargetForMonth(worker.id, month)
           .then(t => setCurrentTarget(t?.target_amount || null))
-          .catch(() => {});
+          .catch((err) => { console.error('API error:', err.message); });
         fetchWorkerAchievements(worker.id, month)
           .then(a => setWorkerAchs(Array.isArray(a) ? a : []))
-          .catch(() => {});
+          .catch((err) => { console.error('API error:', err.message); });
         fetchIncentiveSummary(worker.id, month)
           .then(s => setIncSummary(s?.hasIncentive ? s : null))
-          .catch(() => {});
+          .catch((err) => { console.error('API error:', err.message); });
       }
     });
-    fetchAttendance().then(setAttendance).catch(() => {});
-    fetchLeaves().then(setLeaves).catch(() => {});
-    fetchNGOs().then(setNgos).catch(() => {});
-    fetchHolidays().then(setHolidays).catch(() => {});
+    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
+    fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
+    fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
+    fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); });
     return () => { cancelled = true; };
   }, [worker.id]);
 
@@ -139,16 +139,16 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       const month = monthKey + '-01';
       fetchWorkerSalaryAllocations(worker.id, month)
         .then(r => setSundayBonus(r?.sundayBonus || null))
-        .catch(() => {});
+        .catch((err) => { console.error('API error:', err.message); });
       fetchWorkerTargetForMonth(worker.id, month)
         .then(t => setCurrentTarget(t?.target_amount || null))
-        .catch(() => {});
+        .catch((err) => { console.error('API error:', err.message); });
       fetchWorkerAchievements(worker.id, month)
         .then(a => setWorkerAchs(Array.isArray(a) ? a : []))
-        .catch(() => {});
+        .catch((err) => { console.error('API error:', err.message); });
       fetchIncentiveSummary(worker.id, month)
         .then(s => setIncSummary(s?.hasIncentive ? s : null))
-        .catch(() => {});
+        .catch((err) => { console.error('API error:', err.message); });
     }
   }, [viewingMonthKey, worker.id, data?.department]);
 
@@ -210,7 +210,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       if (form.department === 'NGO Admin' && editNgoAllocations.length > 0) {
         try {
           await setWorkerAllocations(worker.id, editNgoAllocations.map(id => ({ ngo_id: id, salary_portion: 0 })), 0);
-        } catch {}
+        } catch (e) { console.error('Error:', e.message); }
       }
       const fresh = await fetchWorkerById(worker.id);
       setData(fresh); setEditing(false); setEditNgoAllocations([]);
@@ -1882,7 +1882,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
           )}
 
           {tab === 'settings' && (
-            <ShiftSettings workerId={data?.id} currentShift={{ start: data?.shift_start_time, end: data?.shift_end_time }} onSave={() => fetchWorkerById(worker.id).then(d => setData(d)).catch(() => {})} />
+            <ShiftSettings workerId={data?.id} currentShift={{ start: data?.shift_start_time, end: data?.shift_end_time }} onSave={() => fetchWorkerById(worker.id).then(d => setData(d)).catch((err) => { console.error('Error:', err.message); })} />
           )}
 
         </div>

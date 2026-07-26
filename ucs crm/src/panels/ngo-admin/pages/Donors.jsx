@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiGet, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 
 function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
   const [selectedWorker, setSelectedWorker] = useState('');
@@ -13,7 +14,7 @@ function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
       await apiPost('/ngo-admin/assignments', { donor_ids: ids, fro_worker_id: selectedWorker });
       onAssigned();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -67,7 +68,7 @@ export default function Donors({ onSelect }) {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const load = () => {
@@ -79,7 +80,7 @@ export default function Donors({ onSelect }) {
     ]).then(([d, f]) => {
       setDonors(d);
       setFroWorkers(f);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false));
   };
 
   useEffect(load, [selectedNgoId]);

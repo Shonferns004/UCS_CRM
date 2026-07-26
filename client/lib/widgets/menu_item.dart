@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class MenuItem extends StatelessWidget {
   final IconData icon;
@@ -47,7 +48,7 @@ class MenuItem extends StatelessWidget {
               ),
             ),
             Icon(
-              Icons.chevron_right,
+              LucideIcons.chevronRight,
               size: 20,
               color: sc.outlineVariant,
             ),

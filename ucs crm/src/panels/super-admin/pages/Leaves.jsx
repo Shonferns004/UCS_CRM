@@ -9,7 +9,7 @@ export default function Leaves() {
 
   const load = () => {
     api('/leaves').then(setLeaves).catch(e => setErr(e.message))
-    api('/workers').then(setWorkers).catch(() => {})
+    api('/workers').then(setWorkers).catch((err) => { console.error('Error:', err.message); })
   }
   useEffect(load, [])
 

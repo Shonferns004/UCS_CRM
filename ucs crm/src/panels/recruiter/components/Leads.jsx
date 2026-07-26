@@ -13,7 +13,7 @@ const calcAge = (dob) => {
 const getJobRole = (lead) => {
   if (lead.job_role) return lead.job_role;
   let notes = [];
-  try { notes = JSON.parse(lead.notes || '[]'); } catch {}
+  try { notes = JSON.parse(lead.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
   const meta = notes.find(n => n.__meta === true && n.type === 'job_role');
   return meta ? meta.value : null;
 };
@@ -62,9 +62,24 @@ export default function Leads() {
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [searchInput, setSearchInput] = useState(leadFilters.search || '');
   const [tab, setTab] = useState('leads');
+  const [nameError, setNameError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  const handleNameChange = (val) => {
+    if (/\d/.test(val)) { setNameError('Name cannot contain numbers'); setTimeout(() => setNameError(''), 3000); }
+    setName(val.replace(/[^a-zA-Z\s'-]/g,''));
+  };
+  const handlePhoneChange = (val) => {
+    const digits = val.replace(/[^0-9]/g,'');
+    if (/[a-zA-Z]/.test(val)) { setPhoneError('Phone number must be digits only'); setTimeout(() => setPhoneError(''), 3000); }
+    else if (digits.length > 10) { setPhoneError('Phone number must be 10 digits only'); setTimeout(() => setPhoneError(''), 3000); }
+    setPhone(digits.slice(0,10));
+  };
 
   const handleDelete = async (id) => {
     setDeleting(true);
@@ -91,7 +106,7 @@ export default function Leads() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) return;
+    if (!formValid) { setFormError('Mandatory field validation is missing.'); setTimeout(() => setFormError(''), 3000); return; }
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
       const finalStatus = connectedOption === 'follow_up' ? 'followed_up' : connectedOption === 'call_back' ? 'call_back' : connectedOption === 'schedule' ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption;
@@ -102,7 +117,10 @@ export default function Leads() {
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
+      if (dob) payload.scheduled_date = dob;
       await addLead(payload);
+      setSuccessMsg('Lead created successfully.');
+      setTimeout(() => setSuccessMsg(''), 3000);
       setLeadFilters(p => ({ ...p, status: '', source: '' }));
       setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
     } catch (err) { alert(err.message); }
@@ -134,6 +152,7 @@ export default function Leads() {
 
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
+  const formValid = name.trim() && phone.trim() && dob && source && connectedOption && notConnectedOption && selectedJobRole;
 
 
   if (selectedLead) {
@@ -144,14 +163,15 @@ export default function Leads() {
           <form className="card-pad" onSubmit={handleSubmit}>
             <div className="form-row">
               <label className="field">Name
-                <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Arun Sharma" required />
+                <input value={name} onChange={e=>handleNameChange(e.target.value)} placeholder="e.g. Arun Sharma" style={nameError ? {borderColor:'#dc2626'} : undefined} required />
+                {nameError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{nameError}</span>}
               </label>
               <label className="field">Phone
-                <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="e.g. 9876543210" required />
+                <input value={phone} onChange={e=>handlePhoneChange(e.target.value)} placeholder="e.g. 9876543210" style={phoneError ? {borderColor:'#dc2626'} : undefined} required />
+                {phoneError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{phoneError}</span>}
               </label>
-              <label className="field">DOB
+              <label className="field">Date
                 <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
-                <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{age !== null ? `Age: ${age}` : ''}</div>
               </label>
               <label className="field">Source
                 <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
@@ -192,9 +212,10 @@ export default function Leads() {
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
                   <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={[{value:'',label:'Select a role'},{value:'Web Developer',label:'Web Developer'},{value:'Calling',label:'Calling'},{value:'Digital Marketing',label:'Digital Marketing'},{value:'HR',label:'HR'},{value:'Graphic Designer',label:'Graphic Designer'},{value:'Content Writer',label:'Content Writer'},{value:'SEO Specialist',label:'SEO Specialist'},{value:'Sales Executive',label:'Sales Executive'},{value:'Business Analyst',label:'Business Analyst'},{value:'Data Entry',label:'Data Entry'},{value:'Accountant',label:'Accountant'},{value:'Social Media Manager',label:'Social Media Manager'},{value:'Video Editor',label:'Video Editor'},{value:'Other',label:'Other'}]} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
                 </div>
-                <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
+                <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
+                  {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
                   <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
+                  <button type="submit" className="btn btn-primary" disabled={!formValid} style={!formValid ? {opacity:.5,cursor:'not-allowed'} : undefined}><Plus width={15}/> Create lead</button>
                 </div>
               </div>
             </div>
@@ -213,14 +234,15 @@ export default function Leads() {
         <form className="card-pad" onSubmit={handleSubmit}>
           <div className="form-row">
             <label className="field">Name
-              <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Arun Sharma" required />
+              <input value={name} onChange={e=>handleNameChange(e.target.value)} placeholder="e.g. Arun Sharma" style={nameError ? {borderColor:'#dc2626'} : undefined} required />
+              {nameError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{nameError}</span>}
             </label>
             <label className="field">Phone
-              <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="e.g. 9876543210" required />
+              <input value={phone} onChange={e=>handlePhoneChange(e.target.value)} placeholder="e.g. 9876543210" style={phoneError ? {borderColor:'#dc2626'} : undefined} required />
+              {phoneError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{phoneError}</span>}
             </label>
-            <label className="field">DOB
+            <label className="field">Date
               <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
-              <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{age !== null ? `Age: ${age}` : ''}</div>
             </label>
             <label className="field">Source
               <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
@@ -261,8 +283,9 @@ export default function Leads() {
                 <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
                 <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={[{value:'',label:'Select a role'},{value:'Web Developer',label:'Web Developer'},{value:'Calling',label:'Calling'},{value:'Digital Marketing',label:'Digital Marketing'},{value:'HR',label:'HR'},{value:'Graphic Designer',label:'Graphic Designer'},{value:'Content Writer',label:'Content Writer'},{value:'SEO Specialist',label:'SEO Specialist'},{value:'Sales Executive',label:'Sales Executive'},{value:'Business Analyst',label:'Business Analyst'},{value:'Data Entry',label:'Data Entry'},{value:'Accountant',label:'Accountant'},{value:'Social Media Manager',label:'Social Media Manager'},{value:'Video Editor',label:'Video Editor'},{value:'Other',label:'Other'}]} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
               </div>
-              <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end'}}>
-                <button type="submit" className="btn btn-primary"><Plus width={15}/> Create lead</button>
+              <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
+                {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
+                <button type="submit" className="btn btn-primary" disabled={!formValid} style={!formValid ? {opacity:.5,cursor:'not-allowed'} : undefined}><Plus width={15}/> Create lead</button>
               </div>
             </div>
           </div>
@@ -288,7 +311,7 @@ export default function Leads() {
             <h3>Leads</h3>
             <div style={{display:'flex',alignItems:'center',gap:12}}>
               <span className="sub">{leadsLoading ? '…' : filteredLeads.length + ' leads'}</span>
-              <button className="btn btn-sm" onClick={refreshLeads} title="Refresh"><RefreshCw width={13}/></button>
+              <button className="btn btn-sm" onClick={refreshLeads} title="Refresh" style={{color:'var(--sage)',borderColor:'var(--sage)'}}><RefreshCw width={13}/></button>
             </div>
           </div>
           <div className="card-pad" style={{paddingTop:0,paddingBottom:0}}>
@@ -320,7 +343,7 @@ export default function Leads() {
                 {filteredLeads.map(l => {
                   const isOwner = myId && l.created_by === myId;
                   let parsed = [];
-                  try { parsed = JSON.parse(l.notes || '[]'); } catch {}
+                  try { parsed = JSON.parse(l.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
                   const displayAge = l.dob ? calcAge(l.dob) : l.age;
                   return (
                     <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>
@@ -332,7 +355,9 @@ export default function Leads() {
                       ) : statusPill(l.status)}</td>
                       <td style={{color:'var(--ink-soft)'}}>{getJobRole(l) || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
-                        <span onClick={() => setDeleteConfirm(l)} style={{cursor:'pointer',color:'var(--danger)',fontSize:13,display:'inline-flex',alignItems:'center'}}><Trash width={16}/></span>
+                      <button className="btn btn-icon" onClick={() => setDeleteConfirm(l)} title="Delete" style={{color:'#dc2626'}}>
+                        <Trash width={13} />
+                      </button>
                       </td>
                     </tr>
                   );
@@ -385,13 +410,52 @@ export default function Leads() {
         </div>
       )}
 
+      {successMsg && (
+        <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:'var(--radius)',boxShadow:'var(--shadow)',padding:'10px 20px',fontSize:14,zIndex:1000,display:'flex',alignItems:'center',gap:10,color:'#166534'}}>
+          <span>{successMsg}</span>
+          <button className="btn btn-sm" onClick={() => setSuccessMsg('')} style={{padding:'2px 6px',lineHeight:1,color:'#166534'}}><X width={12}/></button>
+        </div>
+      )}
+
       {deleteConfirm && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.35)',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={() => setDeleteConfirm(null)}>
-          <div style={{background:'var(--paper)',borderRadius:'var(--radius)',boxShadow:'0 8px 32px rgba(0,0,0,.2)',padding:24,minWidth:320}} onClick={e => e.stopPropagation()}>
-            <p style={{margin:'0 0 16px',fontSize:14,fontWeight:500}}>Are you sure you want to delete this lead?</p>
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-              <button className="btn" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="btn" style={{background:'var(--danger)',color:'#fff',borderColor:'var(--danger)'}} onClick={() => handleDelete(deleteConfirm.id)} disabled={deleting}>{deleting ? <><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/> Deleting...</> : 'Delete'}</button>
+        <div onClick={() => setDeleteConfirm(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100, padding: '20px'
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#FFFFFF', width: '100%', maxWidth: '400px',
+            borderRadius: '16px', boxShadow: '0 25px 60px rgba(0,0,0,0.15), 0 4px 20px rgba(0,0,0,0.08)',
+            overflow: 'hidden'
+          }}>
+            <div style={{ padding: '28px 28px 20px', textAlign: 'center' }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '50%', background: '#FEE2E2',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}>
+                <Trash width={22} />
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: 700, color: '#111827' }}>
+                Delete Lead?
+              </h3>
+              <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', lineHeight: 1.5 }}>
+                Are you sure you want to delete <strong style={{ color: '#111827' }}>"{deleteConfirm.name}"</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div style={{
+              padding: '16px 28px 24px', display: 'flex', gap: '10px', justifyContent: 'center'
+            }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{
+                padding: '10px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
+                background: '#FFFFFF', color: '#111827', border: '1px solid #E5E7EB',
+                cursor: 'pointer', flex: 1
+              }}>Cancel</button>
+              <button onClick={() => handleDelete(deleteConfirm.id)} disabled={deleting} style={{
+                padding: '10px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: 600,
+                background: '#EF4444', color: '#FFFFFF', border: 'none',
+                cursor: 'pointer', flex: 1
+              }}>{deleting ? 'Deleting...' : 'Delete'}</button>
             </div>
           </div>
         </div>

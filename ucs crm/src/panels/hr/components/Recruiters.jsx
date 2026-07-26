@@ -52,11 +52,12 @@ export default function Recruiters() {
   const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
   const [newNote, setNewNote] = useState('');
   const [tab, setTab] = useState('all');
+  const [formErrors, setFormErrors] = useState({ name: '', phone: '' });
 
   useEffect(() => {
     setLeadsLoading(true);
-    fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
-    fetchRecruiters().then(setRecruiters).catch(() => {});
+    fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
+    fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const filteredLeads = leads.filter(l => {
@@ -147,7 +148,7 @@ export default function Recruiters() {
         setShowForm(false);
         setEditingLead(null);
         setLeadsLoading(true);
-        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch(() => setLeadsLoading(false));
+        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
       } else {
         const temp = { ...payload, id: -Date.now(), created_at: new Date().toISOString(), name: form.name.trim() };
         setLeads(p => [temp, ...p]);
@@ -159,7 +160,7 @@ export default function Recruiters() {
           setLeads(p => p.filter(l => l.id !== temp.id));
         }
       }
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
   };
 
   const formAge = form.dob ? calcAge(form.dob) : null;
@@ -216,7 +217,6 @@ export default function Recruiters() {
               <Dropdown className="filter-select" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{ width: '100%', maxWidth: 130 }}
                 options={[{value:'',label:'All sources'}, ...SOURCES.map(s => ({value:s, label:s}))]} />
               <input className="filter-select" placeholder="Search name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
-              <button className="btn btn-primary" onClick={() => openForm(null)}><Plus width={16} /> Add Lead</button>
             </div>
           </div>
           <div className="table-wrap">
@@ -343,12 +343,14 @@ export default function Recruiters() {
             <div className="modal-body">
 
               <label className="field">Name *
-                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" autoFocus />
+                <input value={form.name} onChange={e => { const v = e.target.value; if (/\d/.test(v)) { setFormErrors(ef => ({ ...ef, name: 'Name cannot contain numbers' })); return; } setFormErrors(ef => ({ ...ef, name: '' })); setForm(f => ({ ...f, name: v })); }} placeholder="Full name" autoFocus />
+                {formErrors.name && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{formErrors.name}</div>}
               </label>
 
               <div className="form-row">
                 <label className="field">Phone number
-                  <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number" />
+                  <input value={form.phone} onChange={e => { const v = e.target.value; if (/[a-zA-Z]/.test(v)) { setFormErrors(ef => ({ ...ef, phone: 'Phone number cannot contain characters' })); return; } setFormErrors(ef => ({ ...ef, phone: '' })); setForm(f => ({ ...f, phone: v })); }} placeholder="Phone number" />
+                  {formErrors.phone && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{formErrors.phone}</div>}
                 </label>
                 <label className="field">DOB
                   <DatePicker value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />

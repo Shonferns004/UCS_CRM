@@ -20,7 +20,7 @@ export default function FroLiveStatus() {
   const [loadingExtra, setLoadingExtra] = useState(false)
 
   useEffect(() => {
-    api('/ngo-admin/ngos', { _prefix: 'ucs' }).then(setAccessibleNgos).catch(() => {});
+    api('/ngo-admin/ngos', { _prefix: 'ucs' }).then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const loadStatuses = async () => {

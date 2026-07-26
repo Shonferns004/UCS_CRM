@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchNotifs, markNotifRead, deleteNotif } from '../store'
 import { useUcs } from '../../../store'
 
-const clearedIds = new Set(JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]'))
+let _initClearedNotifs = []; try { _initClearedNotifs = JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]'); } catch { /* corrupted */ }
+const clearedIds = new Set(_initClearedNotifs)
 
 export default function Notifications() {
   const { user } = useUcs()

@@ -83,7 +83,7 @@ export default function TransferredLeads() {
           const found = r.findIndex(d => d.id === id && d.ngo_id === (ngo_id ?? null));
           setIndex(found >= 0 ? found : 0);
           return;
-        } catch {}
+        } catch (e) { console.error('Error:', e.message); }
       }
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
@@ -164,7 +164,7 @@ export default function TransferredLeads() {
         }
         if (amount && !leadAmount) setLeadAmount(amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);
@@ -197,6 +197,11 @@ export default function TransferredLeads() {
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && !scheduledAt) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
+    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
+    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
+    if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
+    if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
 
     setSaving(true); setMessage(null);
     try {

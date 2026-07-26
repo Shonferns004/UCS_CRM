@@ -52,7 +52,7 @@ export default function Scheduled() {
         }
       });
       setRows(items);
-    }).catch(() => setRows([]))
+    }).catch((err) => { console.error('API error:', err.message); setRows([]); })
     .finally(() => setLoading(false));
   };
 

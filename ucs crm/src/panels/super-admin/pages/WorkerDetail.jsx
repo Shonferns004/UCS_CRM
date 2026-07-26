@@ -14,7 +14,7 @@ export default function WorkerDetail({ workerId, onBack }) {
     Promise.all([
       api(`/workers/${workerId}`),
       api(`/workers/${workerId}/allocations`),
-      api(`/salary/worker/${workerId}/allocations`).catch(() => null),
+      api(`/salary/worker/${workerId}/allocations`).catch((err) => { console.error('Error:', err.message); }),
     ]).then(([w, a, s]) => {
       setWorker(w); setAllocations(a || []); setSalary(s)
     }).catch(e => setErr(e.message))
@@ -22,8 +22,8 @@ export default function WorkerDetail({ workerId, onBack }) {
 
   useEffect(() => {
     if (worker?.department?.toLowerCase() === 'fro') {
-      api(`/dashboard/fro-worker/${workerId}`).then(setFroStats).catch(() => {})
-      api('/ngos').then(setNgos).catch(() => {})
+      api(`/dashboard/fro-worker/${workerId}`).then(setFroStats).catch((err) => { console.error('Error:', err.message); })
+      api('/ngos').then(setNgos).catch((err) => { console.error('Error:', err.message); })
     }
   }, [workerId, worker?.department])
 

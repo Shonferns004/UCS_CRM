@@ -52,7 +52,15 @@ export const AKI_RANGES = {
 };
 
 export function getDayName(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') {
+    console.warn('getDayName: invalid dateStr', dateStr);
+    return '';
+  }
   const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) {
+    console.warn('getDayName: could not parse date', dateStr);
+    return '';
+  }
   return DAY_NAMES[new Date(y, m - 1, d).getDay()];
 }
 

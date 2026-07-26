@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { UcsProvider, useUcs } from './store'
+import { Component } from 'react'
 import Login from './pages/Login'
 import SuperAdminPanel from './panels/super-admin/SuperAdminPanel'
 import HRPanel from './panels/hr/HRPanel'
@@ -43,7 +44,7 @@ function ProtectedRoute({ role, children }) {
   const allowedRoles = Array.isArray(role) ? role : [role]
   if (!user) return <Navigate to="/login" replace />
   if (allowedRoles.includes('*')) return children
-  if (user.role === 'super_admin') return children
+  if (user.role === 'super_admin' && (allowedRoles.includes('super_admin') || allowedRoles.includes('*'))) return children
   if (!allowedRoles.includes(user.role) && !allowedRoles.includes(user.department)) {
     return <AccessDenied />
   }
@@ -95,12 +96,33 @@ function LoginWrapper() {
   }
   return <Login onLogin={(role) => {
     const path = ROLE_PATHS[role]
-    if (path) navigate(path, { replace: true })
+    navigate(path || '/login', { replace: true })
   }} />
+}
+
+class ErrorBoundary extends Component {
+  state = { hasError: false, error: null }
+  static getDerivedStateFromError(error) { return { hasError: true, error } }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center', fontFamily: 'sans-serif' }}>
+          <h2>Something went wrong</h2>
+          <p style={{ color: '#666', marginBottom: 16 }}>{this.state.error?.message}</p>
+          <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload() }}
+            style={{ padding: '8px 20px', cursor: 'pointer' }}>
+            Reload Page
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <UcsProvider>
       <Routes>
         <Route path="/login" element={<LoginWrapper />} />
@@ -156,5 +178,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </UcsProvider>
+    </ErrorBoundary>
   )
 }

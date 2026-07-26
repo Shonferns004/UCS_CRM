@@ -50,11 +50,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      getMyDashboard().catch(() => null),
-      getMyTarget().catch(() => null),
-      getFollowUps().catch(() => []),
-      getLeadStats(monthStr).catch(() => null),
-      isMonthlyPopupSeason ? getMonthlyDonors(monthStr).catch(() => []) : Promise.resolve([]),
+      getMyDashboard().catch((err) => { console.error('API error:', err.message); return null; }),
+      getMyTarget().catch((err) => { console.error('API error:', err.message); return null; }),
+      getFollowUps().catch((err) => { console.error('API error:', err.message); return []; }),
+      getLeadStats(monthStr).catch((err) => { console.error('API error:', err.message); return null; }),
+      isMonthlyPopupSeason ? getMonthlyDonors(monthStr).catch((err) => { console.error('API error:', err.message); return []; }) : Promise.resolve([]),
     ]).then(([d, t, f, ls, md]) => {
       setDashData(d)
       setTargetData(t)

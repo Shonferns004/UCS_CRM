@@ -53,19 +53,26 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
 
     // Build FRO name → station map (from workers table)
     const froNameToStation = {};
-    for (const sa of stationAssigns) {
-      if (sa.fro_worker_id && sa.workers) {
-        const name = (sa.workers.name || '').toLowerCase().trim();
-        if (name) froNameToStation[name] = sa.station;
-      } else if (sa.fro_worker_id) {
-        const { data: worker } = await supabase
-          .from('workers')
-          .select('name')
-          .eq('id', sa.fro_worker_id)
-          .single();
-        if (worker) {
-          froNameToStation[worker.name.toLowerCase().trim()] = sa.station;
+    const missingWorkerIds = stationAssigns
+      .filter(sa => sa.fro_worker_id && !sa.workers)
+      .map(sa => sa.fro_worker_id);
+    const workerNameMap = {};
+    if (missingWorkerIds.length > 0) {
+      const { data: workers } = await supabase
+        .from('workers')
+        .select('id, name')
+        .in('id', missingWorkerIds);
+      if (workers) {
+        for (const w of workers) {
+          workerNameMap[w.id] = w.name || '';
         }
+      }
+    }
+    for (const sa of stationAssigns) {
+      if (!sa.fro_worker_id) continue;
+      const workerName = sa.workers?.name || workerNameMap[sa.fro_worker_id] || '';
+      if (workerName) {
+        froNameToStation[workerName.toLowerCase().trim()] = sa.station;
       }
     }
 

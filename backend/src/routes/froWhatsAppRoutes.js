@@ -22,10 +22,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 router.use(authenticate);
 
 const requireFro = (req, res, next) => {
-  if (!req.user.department || req.user.department.toLowerCase().trim() !== 'fro') {
-    return res.status(403).json({ message: 'FRO worker access required' });
-  }
-  next();
+  if (req.user.role === 'fro') return next();
+  if (req.user.department && req.user.department.toLowerCase().trim() === 'fro') return next();
+  return res.status(403).json({ message: 'FRO worker access required' });
 };
 
 router.use(requireFro);

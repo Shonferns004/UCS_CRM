@@ -74,7 +74,7 @@ export default function TemplateBar({ conversationId, contactId, project, userId
     setLoading(true)
     getTemplates(project)
       .then(data => setTemplates(data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false))
   }, [open, project])
 

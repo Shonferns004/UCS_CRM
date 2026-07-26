@@ -1,3 +1,15 @@
+const PROJECT_LABELS = {
+  bsct: 'Being Sevak',
+  aflf: 'Ashray Life',
+  maan: 'Mann Care',
+}
+
+const PROJECT_BADGES = {
+  bsct: { bg: '#dbeafe', text: '#1d4ed8' },
+  aflf: { bg: '#dcfce7', text: '#16a34a' },
+  maan: { bg: '#fce7f3', text: '#db2777' },
+}
+
 export default function ConversationList({ conversations = [], activeId, onSelect, loading, searchQuery }) {
   if (loading) {
     return (
@@ -33,6 +45,9 @@ export default function ConversationList({ conversations = [], activeId, onSelec
         const lastMsg = conv.last_message_at
           ? new Date(conv.last_message_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
           : ''
+        const project = conv.project || contact.project || ''
+        const badge = PROJECT_BADGES[project] || null
+        const projectLabel = PROJECT_LABELS[project] || project.toUpperCase()
 
         return (
           <div
@@ -74,8 +89,19 @@ export default function ConversationList({ conversations = [], activeId, onSelec
                   )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                  <div style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-                    {contact.phone || ''}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 11, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>
+                      {contact.phone || ''}
+                    </span>
+                    {badge && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, borderRadius: 4,
+                        padding: '1px 5px', flexShrink: 0,
+                        background: badge.bg, color: badge.text,
+                      }}>
+                        {projectLabel}
+                      </span>
+                    )}
                   </div>
                   {unread > 0 && (
                     <div style={{

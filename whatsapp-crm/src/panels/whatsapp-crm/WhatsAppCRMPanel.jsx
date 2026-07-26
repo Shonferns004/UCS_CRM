@@ -20,6 +20,8 @@ import { FlowBuilderPage } from './pages/FlowBuilderPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PhoneNumbersPage } from './pages/PhoneNumbersPage'
+import { TeamPage } from './pages/TeamPage'
+import { TeamMemberPage } from './pages/TeamMemberPage'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { TemplateEditorPage } from './pages/TemplateEditorPage'
 
@@ -66,6 +68,8 @@ export default function WhatsAppCRMPanel() {
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="phone-numbers" element={<PhoneNumbersPage />} />
+              <Route path="team" element={<TeamPage />} />
+              <Route path="team/:workerId" element={<TeamMemberPage />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="templates/new" element={<TemplateEditorPage />} />
               <Route path="templates/:id" element={<TemplateEditorPage />} />

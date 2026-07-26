@@ -43,9 +43,24 @@ const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
 const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
-const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
-const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected']);
+const DISPOSITION_ORDER = {};
+NOT_CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1; });
+CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1 + NOT_CONNECTED.length; });
+function filterAndSortDonors(list) {
+  return list
+    .filter(d => !HIDDEN_STATUSES.has(d.status))
+    .sort((a, b) => {
+      const oa = a.status === 'pending' ? 0 : (DISPOSITION_ORDER[a.status] ?? 99);
+      const ob = b.status === 'pending' ? 0 : (DISPOSITION_ORDER[b.status] ?? 99);
+      return oa - ob;
+    });
+}
+function useTomorrowStr() {
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
 
 const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
@@ -147,7 +162,8 @@ export default function MyDonors() {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
-        setDonors(r);
+        const sortedDonors = filterAndSortDonors(r);
+        setDonors(sortedDonors);
         setMessage(null);
         let restored = false;
 
@@ -155,10 +171,10 @@ export default function MyDonors() {
         if (savedSnapshot) {
           const { id, idx } = savedSnapshot;
           if (id) {
-            const found = r.findIndex(d => d.id === id);
+            const found = sortedDonors.findIndex(d => d.id === id);
             if (found >= 0) { setIndex(found); restored = true; }
           }
-          if (!restored && typeof idx === 'number' && idx < r.length) {
+          if (!restored && typeof idx === 'number' && idx < sortedDonors.length) {
             setIndex(idx); restored = true;
           }
         }
@@ -171,17 +187,17 @@ export default function MyDonors() {
             if (progressStation === (selectedStation !== 'all' ? selectedStation : 'all')) {
               const savedId = tab === 'new' ? progress?.new_donor_id : progress?.old_donor_id;
               if (savedId) {
-                const found = r.findIndex(d => d.id === savedId);
+                const found = sortedDonors.findIndex(d => d.id === savedId);
                 if (found >= 0) { setIndex(found); restored = true; }
               }
               if (!restored) {
                 const savedIndex = tab === 'new' ? progress?.new_donor_index : progress?.old_donor_index;
-                if (savedIndex != null && savedIndex < r.length) {
+                if (savedIndex != null && savedIndex < sortedDonors.length) {
                   setIndex(savedIndex); restored = true;
                 }
+                }
               }
-            }
-          } catch {}
+            } catch (e) { console.error('Error:', e.message); }
         }
 
         if (!restored) setIndex(0);
@@ -202,7 +218,7 @@ export default function MyDonors() {
             setDataTab(progress.data_tab);
             return;
           }
-        } catch {}
+        } catch (e) { console.error('Error:', e.message); }
       }
       load(dataTab);
     })();
@@ -228,12 +244,12 @@ export default function MyDonors() {
       endDonorView(false)
       startDonorView(donors[index].id)
     }
-  }, [index]);
+  }, [index, donors, endDonorView, startDonorView]);
 
   useEffect(() => {
     if (stationsFetchedRef.current) return;
     stationsFetchedRef.current = true;
-    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch(() => {});
+    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stationOpts = (tab, station) => {
@@ -243,7 +259,7 @@ export default function MyDonors() {
   };
 
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(r); }).catch(() => {});
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(filterAndSortDonors(r)); }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation]);
 
   const debouncedReload = useCallback(() => {
@@ -263,7 +279,7 @@ export default function MyDonors() {
       body.old_donor_id = donorId;
       body.old_donor_index = donorIndex;
     }
-    api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch(() => {});
+    api('/fro/progress', { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }).catch((err) => { console.error('API error:', err.message); });
   }, [selectedStation]);
 
   const stationKey = selectedStation !== 'all' ? selectedStation : 'all';
@@ -284,27 +300,55 @@ export default function MyDonors() {
     localStorage.setItem(`mydonors_current_donor_${stationKey}`, JSON.stringify({ id: donor.id, ngo_id: donor.ngo_id, idx: index }));
   }, [donor?.id, donor?.ngo_id, index, stationKey]);
 
+  const progressRef = useRef({ donor, index, dataTab });
+  progressRef.current = { donor, index, dataTab };
   useEffect(() => {
-    return () => {
-      if (donor) saveProgress(dataTab, donor.id, index);
+    const handleBeforeUnload = () => {
+      const p = progressRef.current;
+      if (p.donor) {
+        try {
+          localStorage.setItem(`${p.dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: p.donor.id, idx: p.index }));
+          const body = { data_tab: p.dataTab, station: selectedStation !== 'all' ? selectedStation : null };
+          if (p.dataTab === 'new') { body.new_donor_id = p.donor.id; body.new_donor_index = p.index; }
+          else { body.old_donor_id = p.donor.id; body.old_donor_index = p.index; }
+          navigator.sendBeacon && navigator.sendBeacon(
+            (import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/progress',
+            JSON.stringify(body)
+          );
+        } catch (e) { /* silent */ }
+      }
     };
-  }, [donor?.id, dataTab, selectedStation]);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      const p = progressRef.current;
+      if (p.donor) saveProgress(p.dataTab, p.donor.id, p.index);
+    };
+  }, [stationKey, selectedStation]);
   const logs = detail?.logs || [];
   const totalCollected = detail?.total_collected || 0;
   const nextSchedule = detail?.next_schedule;
 
+  const cancelledRef = useRef(false);
   const loadDetail = useCallback(() => {
     if (!donor) return;
+    cancelledRef.current = false;
+    const id = donor.id;
+    const ngoId = donor.ngo_id;
     setDetailLoading(true);
     if (donor.is_new) {
-      markDonorSeen(donor.id, donor.ngo_id).then(() => {
-        setDonors(prev => prev.map(d =>
-          d.id === donor.id && d.ngo_id === donor.ngo_id ? { ...d, is_new: false } : d
-        ));
+      markDonorSeen(id, ngoId).then(() => {
+        if (!cancelledRef.current) {
+          setDonors(prev => prev.map(d =>
+            d.id === id && d.ngo_id === ngoId ? { ...d, is_new: false } : d
+          ));
+        }
       }).catch(err => console.error('markDonorSeen error:', err));
     }
-    getDonorDetail(donor.id, donor.ngo_id).then(d => { setDetail(d); setShowAllLogs(false); }).catch(err => console.error('getDonorDetail error:', err)).finally(() => setDetailLoading(false));
+    getDonorDetail(id, ngoId).then(d => { if (!cancelledRef.current) { setDetail(d); setShowAllLogs(false); } }).catch(err => console.error('getDonorDetail error:', err)).finally(() => { if (!cancelledRef.current) setDetailLoading(false); });
   }, [donor?.id, donor?.ngo_id]);
+
+  useEffect(() => { return () => { cancelledRef.current = true; }; }, [loadDetail]);
 
   useEffect(() => { loadDetail(); }, [loadDetail]);
 
@@ -363,9 +407,9 @@ export default function MyDonors() {
             setTransactionDatetime(dt.toISOString().slice(0, 16));
           }
         }
-        if (amount && !leadAmount) setLeadAmount(amount);
+        if (amount) setLeadAmount(prev => prev || amount);
         if (fromName) setOcrFromName(fromName);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       setOcrLoading(false);
     };
     reader.readAsDataURL(file);
@@ -399,6 +443,11 @@ export default function MyDonors() {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
+    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
+    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
+    if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
+    if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
 
     setSaving(true); setMessage(null);
     try {
@@ -434,7 +483,8 @@ export default function MyDonors() {
       if (selected) endCall();
 
       if (returnToDonor) {
-        const newDonors = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+        const newDonors = filterAndSortDonors(refreshed);
         setDonors(newDonors);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
@@ -444,9 +494,12 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const nextIdx = findNextDonorIndex(donors, donor.id);
+        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+        const newDonors = filterAndSortDonors(refreshed);
+        setDonors(newDonors);
+        const nextIdx = findNextDonorIndex(newDonors, donor.id);
         setIndex(nextIdx);
-        const nextDonor = donors[nextIdx];
+        const nextDonor = newDonors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
       setSelected(null); setNotes(''); setScheduledDate(''); setScheduledTime(''); setCallbackTime(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
@@ -523,8 +576,13 @@ export default function MyDonors() {
       setReturnToDonor(null);
       return;
     }
-    const nextIdx = findNextDonorIndex(donors, donor.id); setIndex(nextIdx); const nextDonor = donors[nextIdx]; if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx); return;
-    setMessage({ type: 'error', text: 'No more donors' });
+    const nextIdx = findNextDonorIndex(donors, donor.id);
+    if (nextIdx === index || !donors[nextIdx]) {
+      setMessage({ type: 'error', text: 'No more donors' });
+      return;
+    }
+    setIndex(nextIdx);
+    saveProgress(dataTab, donors[nextIdx].id, nextIdx);
   };
 
   const fmt = callFmt
@@ -693,7 +751,7 @@ export default function MyDonors() {
                   </button>
                 )}
               </div>
-              <button onClick={(e) => { e.stopPropagation(); navigate(`/fro/whatsapp-chat?phone=${donor.donor_mobile || ''}`) }}
+              <button onClick={(e) => { e.stopPropagation(); navigate(`/fro/whatsapp-chat?phone=${donor.donor_mobile || ''}&project=${donor.donor_project || ''}`) }}
                 style={{ width: 48, border: 'none', borderRadius: 10, background: 'linear-gradient(135deg, #25D366 0%, #1da851 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
               </button>
@@ -776,13 +834,13 @@ export default function MyDonors() {
           {/* Station Tabs */}
           {stations.length > 1 && (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
-              <button onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation('all') }}
+              <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
                 className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
                 style={{ fontSize: 10 }}>
                 All Stations
               </button>
               {stations.map(s => (
-                <button key={s} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); setSelectedStation(s) }}
+                <button key={s} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation(s) }}
                   className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
                   style={{ fontSize: 10 }}>
                   <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: selectedStation === s ? '#16a34a' : '#94a3b8', marginRight: 4, verticalAlign: 'middle' }} />
@@ -883,7 +941,7 @@ export default function MyDonors() {
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Follow Up Date</label>
-                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={tomorrowStr} />
+                        <DatePicker value={scheduledDate} onChange={e => { setScheduledDate(e.target.value); setDateConfirmed(true); }} placeholder="Select date" min={(() => { const t = new Date(); t.setDate(t.getDate() + 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; })()} />
                     </div>
                   </div>
                   {dateConfirmed && (
@@ -1077,7 +1135,7 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0} onClick={() => { endDonorView(isOnCall && activeCall?.donorId === donor.id); setIndex(i => i - 1) }}>
+      <button className="btn-prev" disabled={index === 0} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); setIndex(i => i - 1) }}>
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 

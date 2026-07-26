@@ -103,7 +103,7 @@ export default function ReceiptHistory() {
     setLoading(true);
     apiGet('/accounts/receipts')
       .then(setReceipts)
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
   };
 
@@ -208,7 +208,7 @@ export default function ReceiptHistory() {
         donorName: preview.receipt.donor_name,
         amount: preview.receipt.amount,
       });
-      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch {}
+      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch (e) { console.error('Error:', e.message); }
       setWaResult({ success: true, message: 'Receipt sent via WhatsApp!' });
     } catch (err) {
       setWaResult({ success: false, message: 'Failed: ' + err.message });

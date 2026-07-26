@@ -130,8 +130,8 @@ export default function Attendance() {
     const d = new Date();
     const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     setMonthFilter(m);
-    fetchAttendance().then(setAttendance).catch(() => {});
-    fetchWorkers().then(setWorkers).catch(() => {});
+    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
+    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   useEffect(() => {
@@ -141,20 +141,22 @@ export default function Attendance() {
     }
   }, [attendance, selectedWorker]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
+    window.location.reload();
+  };
+
+  const refreshData = async () => {
     setRefreshing(true);
     try {
       const [a, w] = await Promise.all([fetchAttendance(), fetchWorkers()]);
-      setAttendance(a); setWorkers(w);
+      setAttendance(Array.isArray(a) ? a : []);
+      setWorkers(Array.isArray(w) ? w : []);
     } catch (e) {
       console.error('Refresh failed:', e);
+      alert('Failed to refresh data. Please try again.');
     } finally {
       setRefreshing(false);
     }
-  };
-
-  const refreshData = () => {
-    fetchAttendance().then(setAttendance).catch(() => {});
   };
 
   const historyRecords = attendance.filter(r => {
@@ -356,9 +358,9 @@ export default function Attendance() {
                   </div>
                   <div className="filter-group" style={{ flex: 0 }}>
                     <label>&nbsp;</label>
-                    <button className="btn btn-primary" onClick={refreshData} style={{ whiteSpace: 'nowrap' }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
-                      Refresh
+                    <button className="btn btn-primary" onClick={refreshData} style={{ whiteSpace: 'nowrap' }} disabled={refreshing}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: refreshing ? 'spin .6s linear infinite' : 'none' }}><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>
+                      {refreshing ? ' Refreshing...' : ' Refresh'}
                     </button>
                   </div>
                 </div>
@@ -476,7 +478,7 @@ export default function Attendance() {
                     const err = await res.json().catch(() => ({ message: 'Failed to create' }));
                     throw new Error(err.message || 'Creation failed');
                   }
-                  fetchAttendance().then(setAttendance).catch(() => {});
+                  fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
                   setAddingRecord(false);
                 } catch (err) {
                   alert(err.message);

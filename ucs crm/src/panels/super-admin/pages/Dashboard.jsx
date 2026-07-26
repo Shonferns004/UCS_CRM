@@ -422,7 +422,7 @@ function PanelSummaryModal({ panel, onClose, dashboardData }) {
     }
 
     const fetcher = fetchers[panel]
-    if (fetcher) fetcher().then(setData).catch(() => setData({})) .finally(() => setLoading(false))
+    if (fetcher) fetcher().then(setData).catch((err) => { console.error('API error:', err.message); setData({}) }) .finally(() => setLoading(false))
   }, [panel])
 
   useEffect(() => {
@@ -848,8 +848,8 @@ function NgoStationModal({ ngoName, onClose }) {
       )).then(results => {
         const combined = results.flatMap(r => Array.isArray(r) ? r : [])
         setAllDonors(combined)
-      }).catch(() => {}).finally(() => setLoading(false))
-    }).catch(() => { setLoading(false) })
+      }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false))
+    }).catch((err) => { console.error('API error:', err.message); setLoading(false) })
   }, [ngoName])
 
   const allStatuses = stats ? Object.entries(stats).filter(([, v]) => v > 0) : []
@@ -1075,7 +1075,7 @@ function ActionCenterModal({ type, onClose }) {
         })
         setItems(list)
       })
-      .catch(() => setItems([]))
+      .catch((err) => { console.error('API error:', err.message); setItems([]) })
       .finally(() => setLoading(false))
   }, [type])
 
@@ -1194,14 +1194,14 @@ export default function Dashboard() {
   useEffect(() => {
     getUsers().then(d => {
       setAllUserList(Array.isArray(d) ? d : d?.data || d || [])
-    }).catch(() => {})
+    }).catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   useEffect(() => { const t = setTimeout(() => setAnimated(true), 150); return () => clearTimeout(t) }, [])
 
   useEffect(() => {
     setTargetsLoading(true)
-    getNgoAdminTargets().then(d => { setAdminTargets(Array.isArray(d) ? d : []); setTargetsLoading(false) }).catch(() => setTargetsLoading(false))
+    getNgoAdminTargets().then(d => { setAdminTargets(Array.isArray(d) ? d : []); setTargetsLoading(false) }).catch((err) => { console.error('API error:', err.message); setTargetsLoading(false) })
   }, [])
 
   /* Main dashboard data — refresh every 30s */
@@ -1219,14 +1219,14 @@ export default function Dashboard() {
   /* Attendance heatmap data — independent 60s poll */
   const fetchAttendanceHeatmap = useCallback(() => {
     Promise.all([
-      getAttendance().catch(() => []),
-      getHolidays().catch(() => []),
+      getAttendance().catch((err) => { console.error('API error:', err.message); return []; }),
+      getHolidays().catch((err) => { console.error('API error:', err.message); return []; }),
     ]).then(([att, hol]) => {
       const attArr = Array.isArray(att) ? att : att?.data || []
       const holArr = Array.isArray(hol) ? hol : hol?.data || []
       setAttendanceData(attArr)
       setHolidaysData(holArr)
-    }).catch(() => {})
+    }).catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   useEffect(() => {
@@ -1237,7 +1237,7 @@ export default function Dashboard() {
 
   /* FRO live data on dashboard — independent 30s poll */
   const fetchFroLiveInline = useCallback(() => {
-    api('/fro/status', { _prefix: 'ucs' }).then(d => setFroLiveData(Array.isArray(d) ? d : [])).catch(() => {})
+    api('/fro/status', { _prefix: 'ucs' }).then(d => setFroLiveData(Array.isArray(d) ? d : [])).catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   useEffect(() => {
@@ -1251,7 +1251,7 @@ export default function Dashboard() {
     getDashboard(performerPeriod).then(d => {
       setPerformerFros(d?.topFros || [])
       setPerformerRecruiters(d?.topRecruiters || [])
-    }).catch(() => {})
+    }).catch((err) => { console.error('API error:', err.message); })
   }, [performerPeriod])
 
   /* Action Center — pending items across all panels */
@@ -1285,7 +1285,7 @@ export default function Dashboard() {
         submittedEvents,
         recruiterPipeline: pipelineLeads,
       })
-    }).catch(() => {})
+    }).catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   useEffect(() => {
@@ -1298,7 +1298,7 @@ export default function Dashboard() {
   const fetchAlerts = useCallback(() => {
     getSuperAdminAlerts()
       .then(d => setAlertsData(d || { alerts: [], summary: { critical: 0, warning: 0, info: 0 } }))
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
   }, [])
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiGet, apiPost } from '../api/auth'
 import { api } from '../../../api/auth'
+import { toast } from '../../../components/Toast'
 import * as XLSX from 'xlsx'
 
 const PAGE_SIZES = [100, 500, 1000]
@@ -33,7 +34,7 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoId }) {
       const res = await apiPost('/ngo-admin/new-data/distribute', body)
       onDistribute(res)
     } catch (err) {
-      alert(err.message)
+      toast(err.message, 'error')
     } finally {
       setLoading(false)
     }
@@ -219,7 +220,7 @@ export default function NewData() {
       setAccessibleNgos(list);
       const ngo = (list || []).find(n => NGO_TABS.includes(n.name));
       if (ngo) setSelectedNgoId(ngo.id);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -239,13 +240,13 @@ export default function NewData() {
       setDonors(Array.isArray(d) ? d : d?.unassigned || [])
       setTotal(d?.total || 0)
       setStations(Array.isArray(s) ? s : [])
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false))
   }
 
   useEffect(() => { setPage(1) }, [selectedNgoId])
   useEffect(load, [selectedNgoId, page, perPage])
 
-  useEffect(() => { if (tab === 'new') load() }, [tab])
+  useEffect(() => { if (tab === 'new') { setPage(1); load() } }, [tab])
 
   const handleDistributeAll = async () => {
     const count = total
@@ -265,7 +266,7 @@ export default function NewData() {
       setResult(res)
       load()
     } catch (err) {
-      alert(err.message)
+      toast(err.message, 'error')
     } finally {
       setDistributing(false)
     }

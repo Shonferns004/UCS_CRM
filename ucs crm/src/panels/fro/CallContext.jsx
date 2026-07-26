@@ -38,7 +38,7 @@ function saveStats(userId, stats) {
       breakSeconds: stats.breakSeconds,
       breakCount: stats.breakCount,
     }))
-  } catch {}
+  } catch (e) { console.error('Error:', e.message); }
 }
 
 function fmt(seconds) {
@@ -83,12 +83,12 @@ export function CallProvider({ children, userId }) {
         on_break: onBreak,
         ...extra,
       }),
-    }).catch(() => {})
+    }).catch((err) => { console.error('Error:', err.message); })
   }, [activeCall, onBreak, todayStats])
 
   useEffect(() => {
     syncAllStats()
-    return () => { api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch(() => {}) }
+    return () => { api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch((err) => { console.error('Error:', err.message); }) }
   }, [])
 
   useEffect(() => {

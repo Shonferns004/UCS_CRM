@@ -55,13 +55,6 @@ export async function createAccount({ name, key_id, key_secret, webhook_secret, 
     throw new Error('name, key_id, key_secret are required');
   }
 
-  if (is_default) {
-    await supabase
-      .from('razorpay_accounts')
-      .update({ is_default: false })
-      .eq('is_default', true);
-  }
-
   const { data, error } = await supabase
     .from('razorpay_accounts')
     .insert({
@@ -75,6 +68,15 @@ export async function createAccount({ name, key_id, key_secret, webhook_secret, 
     .select()
     .single();
   if (error) throw error;
+
+  if (is_default && data.id) {
+    await supabase
+      .from('razorpay_accounts')
+      .update({ is_default: false })
+      .eq('is_default', true)
+      .neq('id', data.id);
+  }
+
   return mask(data);
 }
 
@@ -89,6 +91,14 @@ export async function updateAccount(id, updates) {
 
   if (Object.keys(allowed).length === 0) throw new Error('No fields to update');
 
+  const { data, error } = await supabase
+    .from('razorpay_accounts')
+    .update(allowed)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+
   if (allowed.is_default) {
     await supabase
       .from('razorpay_accounts')
@@ -97,13 +107,6 @@ export async function updateAccount(id, updates) {
       .neq('id', id);
   }
 
-  const { data, error } = await supabase
-    .from('razorpay_accounts')
-    .update(allowed)
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
   return mask(data);
 }
 

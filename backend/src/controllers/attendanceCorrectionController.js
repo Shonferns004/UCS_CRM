@@ -8,7 +8,7 @@ import {
   updateTicket,
   getPendingTicketCount,
 } from '../models/attendanceCorrectionModel.js';
-import { getAttendanceById, updateAttendance } from '../models/attendanceModel.js';
+import { getAttendanceById, updateAttendance, createAttendance } from '../models/attendanceModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getSetting } from '../models/settingsModel.js';
 import { getApprovedHalfDayLeave } from '../models/leaveModel.js';
@@ -96,28 +96,41 @@ async function isHalfDayByEarlyPunchOut(punchOutTime, workerId) {
 
 export const raiseTicket = async (req, res) => {
   try {
-    const { attendance_id, date, field, requested_time, reason } = req.body;
-    if (!attendance_id || !date || !field || !requested_time || !reason) {
-      return res.status(400).json({ message: 'attendance_id, date, field, requested_time, and reason are required' });
+    const { attendance_id: rawAttendanceId, date, field, requested_time, reason } = req.body;
+    if (!date || !field || !requested_time || !reason) {
+      return res.status(400).json({ message: 'date, field, requested_time, and reason are required' });
     }
     if (!['punch_in', 'punch_out'].includes(field)) {
       return res.status(400).json({ message: 'field must be "punch_in" or "punch_out"' });
     }
-    const existing = await getAttendanceById(attendance_id);
-    if (!existing) {
-      return res.status(404).json({ message: 'Attendance record not found' });
+
+    let attendanceId = rawAttendanceId;
+
+    if (!attendanceId) {
+      const newRecord = await createAttendance({
+        worker_id: req.user.id,
+        date,
+        status: 'absent',
+      });
+      attendanceId = newRecord.id;
+    } else {
+      const existing = await getAttendanceById(attendanceId);
+      if (!existing) {
+        return res.status(404).json({ message: 'Attendance record not found' });
+      }
+      if (existing.worker_id !== req.user.id) {
+        return res.status(403).json({ message: 'You can only raise tickets for your own attendance' });
+      }
     }
-    if (existing.worker_id !== req.user.id) {
-      return res.status(403).json({ message: 'You can only raise tickets for your own attendance' });
-    }
+
     const openTickets = await getWorkerTickets(req.user.id);
-    const hasPending = openTickets.some(t => t.attendance_id === attendance_id && t.field === field && t.status === 'pending');
+    const hasPending = openTickets.some(t => t.attendance_id === attendanceId && t.field === field && t.status === 'pending');
     if (hasPending) {
       return res.status(400).json({ message: 'You already have a pending ticket for this attendance record and field' });
     }
     const ticket = await createTicket({
       worker_id: req.user.id,
-      attendance_id,
+      attendance_id: attendanceId,
       date,
       field,
       requested_time,
@@ -208,9 +221,15 @@ export const approveTicket = async (req, res) => {
       updates.status = status;
     } else {
       updates.punch_out_time = ticket.requested_time;
-      const isEarly = await isHalfDayByEarlyPunchOut(ticket.requested_time, ticket.worker_id);
-      if (isEarly && attendance.status !== 'half-day' && attendance.status !== 'leave' && attendance.status !== 'absent') {
-        updates.status = 'half-day';
+      if (attendance.status !== 'leave' && attendance.status !== 'absent') {
+        const punchInTime = attendance.punch_in_time;
+        updates.late_minutes = await calculateLateMinutes(punchInTime, ticket.worker_id);
+        let recalcStatus = updates.late_minutes > 0 ? 'late' : 'present';
+        if (await isHalfDayByLatePunch(punchInTime, ticket.worker_id)) recalcStatus = 'half-day';
+        if (await isHalfDayByEarlyPunchOut(ticket.requested_time, ticket.worker_id)) {
+          recalcStatus = 'half-day';
+        }
+        updates.status = recalcStatus;
       }
     }
 

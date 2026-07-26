@@ -14,7 +14,7 @@ export default function Attendance() {
 
   useEffect(() => {
     api('/attendance/all').then(setRecords).catch(e => setErr(e.message))
-    api('/workers').then(setWorkers).catch(() => {})
+    api('/workers').then(setWorkers).catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const [year, m] = month.split('-')

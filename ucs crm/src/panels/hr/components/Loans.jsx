@@ -31,9 +31,13 @@ export default function Loans() {
   const [hrRemark, setHrRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => { fetchLoans().then(setLoans).catch(() => {}); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetchLoans().then(data => { if (!cancelled) setLoans(data); }).catch((err) => { console.error('API error:', err.message); });
+    return () => { cancelled = true; };
+  }, []);
 
-  const refresh = () => fetchLoans().then(setLoans).catch(() => {});
+  const refresh = () => fetchLoans().then(setLoans).catch((err) => { console.error('API error:', err.message); });
 
   const handleDecide = async (id, status) => {
     if (status === 'approved') {

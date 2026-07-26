@@ -27,7 +27,7 @@ export default function ReceiptTemplateManncar({ donor, index }) {
         <div style={{ width:'50%', lineHeight:'1.6', fontSize:'16px' }}>
           <b>Receipt No.:</b> {donor['Receipt No.']}<br /><br />
           Dated : {formattedDate}<br /><br />
-          <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name'].toUpperCase()}</span><br />
+          <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name']?.toUpperCase() || 'Unknown'}</span><br />
           Address. - {hasRealAddr ? <>{donor['Address 1']}<br />{hasLocation ? <>{cityState}{cityState && pin ? ' - ' : ''}{pin}<br /></> : null}</> : <>NA<br /></>}
           PAN No. - {donor['PAN No.']}<br />
           Email - {donor['Email ID']}
@@ -43,7 +43,7 @@ export default function ReceiptTemplateManncar({ donor, index }) {
       </div>
       <hr style={{ margin:'25px 0 20px', border:'none', borderTop:'1px solid #999' }} />
       <div style={{ textAlign:'center', fontSize:'32px', fontWeight:'bold', marginBottom:'25px' }}>DONATION RECEIPT</div>
-      <div style={{ fontSize:'20px', textAlign:'center', marginBottom:'25px' }}>We confirm the receipt of donation from Mr/Ms/Mrs <strong>{donor['Donor Name'].toUpperCase()}</strong> as per details below:-</div>
+      <div style={{ fontSize:'20px', textAlign:'center', marginBottom:'25px' }}>We confirm the receipt of donation from Mr/Ms/Mrs <strong>{donor['Donor Name']?.toUpperCase() || 'Unknown'}</strong> as per details below:-</div>
       <table style={{ width:'80%', margin:'0 auto 30px', borderCollapse:'collapse', fontSize:'18px' }}>
         <tbody>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Donation Date</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formattedDate}</td></tr>
@@ -57,7 +57,7 @@ export default function ReceiptTemplateManncar({ donor, index }) {
         </tbody>
       </table>
       <div style={{ marginTop:'35px', lineHeight:'1.7', fontSize:'18px' }}>
-        Dear <strong>{donor['Donor Name'].toUpperCase()}</strong><br /><br />
+        Dear <strong>{donor['Donor Name']?.toUpperCase() || 'Unknown'}</strong><br /><br />
         Thank You for Your Generous Support {formatIndianCurrency(amount)} On behalf of Mann Care Foundation, we sincerely thank you for your valuable contribution. Your generosity helps us continue our mission of supporting those in need and creating a positive impact in the community. Thank you for being a part of this noble cause and helping us make a difference.<br />
         Please keep this written acknowledgement of your donation for your tax records.
       </div>

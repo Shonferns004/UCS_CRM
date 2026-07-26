@@ -119,13 +119,13 @@ export default function NgoAttendance() {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   useEffect(() => {
     const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
     apiGet(`/attendance/all${ngoParam}`).then(setRecords).catch(e => setErr(e.message));
-    apiGet('/ngo-admin/fro-workers').then(setFroWorkers).catch(() => {});
+    apiGet('/ngo-admin/fro-workers').then(setFroWorkers).catch((err) => { console.error('Error:', err.message); });
   }, [selectedNgoId]);
 
   const froIds = new Set(froWorkers.map(w => w.id));

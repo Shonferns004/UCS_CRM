@@ -102,7 +102,7 @@ function MediaFromMeta({ mediaId, mimeType }) {
         if (cancelled || !dlRes.ok) { setLoading(false); return }
         const blob = await dlRes.blob()
         if (!cancelled) setBlobUrl(URL.createObjectURL(blob))
-      } catch {} finally { if (!cancelled) setLoading(false) }
+      } catch (e) { console.error('Error:', e.message); } finally { if (!cancelled) setLoading(false) }
     })()
     return () => { if (blobUrl) URL.revokeObjectURL(blobUrl) }
   }, [mediaId])

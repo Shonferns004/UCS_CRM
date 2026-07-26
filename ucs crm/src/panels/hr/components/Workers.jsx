@@ -10,7 +10,7 @@ function load() {
   try { return JSON.parse(sessionStorage.getItem('wrk') || '{}'); } catch { return {}; }
 }
 function save(v) {
-  try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch {}
+  try { const d = load(); sessionStorage.setItem('wrk', JSON.stringify({ ...d, ...v })); } catch (e) { console.error('Error:', e.message); }
 }
 
 function isComplete(w) {
@@ -104,6 +104,7 @@ export default function Workers({ onSelect, onOffboard }) {
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
   const [err, setErr] = useState('');
+  const [nameErr, setNameErr] = useState('');
   const [search, setSearch] = useState(load().search || '');
   const [roleFilter, setRoleFilter] = useState(load().roleFilter || '');
   const [statusFilter, setStatusFilter] = useState(load().statusFilter || 'active');
@@ -120,21 +121,21 @@ export default function Workers({ onSelect, onOffboard }) {
     fetchWorkers('all').then(list => {
       setWorkers(list);
       Promise.all((list || []).map(w =>
-        api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)
+        api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })
       )).then(details => {
         const map = {};
         for (const d of details) { if (d) map[d.id] = d; }
         setWorkerDetails(map);
       });
-    }).catch(() => {});
-    fetchNGOs().then(setNgos).catch(() => {});
+    }).catch((err) => { console.error('API error:', err.message); });
+    fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
     api('/salary/workers-summary', { _prefix: 'ucs' })
       .then(data => {
         const map = {};
         for (const w of data) map[w.id] = w;
         setSalaryMap(map);
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   }, []);
 
   const roles = [...new Set(workers.map(w => (w.department || 'Team Member')).filter(Boolean))].sort();
@@ -179,7 +180,7 @@ export default function Workers({ onSelect, onOffboard }) {
       setName('');
       setDept(DEPTS?.[0] || '');
       setSelectedNgos([]);
-      fetchWorkers('all').then(setWorkers).catch(() => {});
+      fetchWorkers('all').then(setWorkers).catch((err) => { console.error('API error:', err.message); });
     } catch (e) {
       setErr(e.message);
     }
@@ -291,7 +292,7 @@ export default function Workers({ onSelect, onOffboard }) {
     try {
       const list = await api('/workers', { _prefix: 'ucs' });
       if (!list || list.length === 0) { alert('No workers to export'); return; }
-      const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch(() => null)));
+      const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })));
       const data = full.filter(Boolean);
 
       const famKeys = ['name', 'relationship', 'occupation', 'phone'];
@@ -430,8 +431,9 @@ export default function Workers({ onSelect, onOffboard }) {
         <div className="card-pad">
           <div className="form-row">
             <label className="field">Full name
-              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Jane Doe"
+              <input value={name} onChange={e=>{ setName(e.target.value); setNameErr(/\d/.test(e.target.value) ? 'Invalid name' : ''); }} placeholder="Jane Doe"
                 onKeyDown={e=>e.key==='Enter'&&submit()} />
+              {nameErr && <span style={{ color:'var(--danger)', fontSize:12, marginTop:2, display:'block' }}>{nameErr}</span>}
             </label>
             <label className="field">Team
               <Dropdown value={dept} onChange={e=>{ setDept(e.target.value); setSelectedNgos([]); }} options={DEPTS} />
@@ -532,7 +534,7 @@ export default function Workers({ onSelect, onOffboard }) {
                     </span>
                   </td>
                   <td style={{ textAlign:'right' }}>
-                    <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee"><Trash width={16}/></button>
+                    <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee" style={{ color:'#dc2626' }}><Trash width={16}/></button>
                   </td>
                 </tr>
               );
@@ -542,13 +544,13 @@ export default function Workers({ onSelect, onOffboard }) {
         </table>
         {totalPages > 1 && (
           <div className="pagination">
-            <button className="btn btn-sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
+            <button className="btn btn-sm btn-primary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Prev</button>
             <div className="pagination-dots">
               {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
                 <span key={p} className={`dot ${p === safePage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
               ))}
             </div>
-            <button className="btn btn-sm" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
+            <button className="btn btn-sm btn-primary" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</button>
           </div>
         )}
       </div>

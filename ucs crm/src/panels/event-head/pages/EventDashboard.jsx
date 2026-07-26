@@ -13,8 +13,10 @@ export default function EventDashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([fetchEvents(), fetchEventDashboard().catch(() => null)])
+    let cancelled = false
+    Promise.all([fetchEvents(), fetchEventDashboard().catch((err) => { console.error('Error:', err.message); })])
       .then(([events, db]) => {
+        if (cancelled) return
         const now = new Date()
         const today = now.toISOString().slice(0, 10)
         setDash({
@@ -30,7 +32,8 @@ export default function EventDashboard() {
         })
       })
       .catch(e => console.error('EventDashboard fetchDashboard:', e))
-      .finally(() => setLoading(false))
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [])
 
   if (loading) return <div className="loading" style={{padding: 60, textAlign: 'center', color: 'var(--ink-soft)'}}>Loading dashboard...</div>

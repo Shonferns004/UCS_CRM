@@ -450,25 +450,31 @@ export default function Dashboard() {
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0,10);
 
   useEffect(() => {
-    apiGet('/ngo-admin/ngos').then(setAccessibleNgos).catch(() => {});
+    let cancelled = false;
+    apiGet('/ngo-admin/ngos').then(data => { if (!cancelled) setAccessibleNgos(data); }).catch((err) => { console.error('API error:', err.message); });
+    return () => { cancelled = true };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const ngoParam = selectedNgoId !== 'all' ? `&ngo_id=${selectedNgoId}` : '';
     apiGet(`/ngo-admin/fro-performance?period=${weakPeriod}${ngoParam}`)
-      .then(setWeakPerformers)
-      .catch(() => setWeakPerformers([]));
+      .then(data => { if (!cancelled) setWeakPerformers(data); })
+      .catch(() => { if (!cancelled) setWeakPerformers([]); });
+    return () => { cancelled = true };
   }, [selectedNgoId, weakPeriod]);
 
   useEffect(() => {
+    let cancelled = false;
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     const to = now.toISOString();
     const params = new URLSearchParams({ from, to });
     if (selectedNgoId !== 'all') params.set('ngo_id', selectedNgoId);
     apiGet(`/ngo-admin/call-analytics?${params}`)
-      .then(setCallAnalytics)
-      .catch(() => setCallAnalytics(null));
+      .then(data => { if (!cancelled) setCallAnalytics(data); })
+      .catch(() => { if (!cancelled) setCallAnalytics(null); });
+    return () => { cancelled = true };
   }, [selectedNgoId]);
 
   const fetchDashboard = useCallback(() => {

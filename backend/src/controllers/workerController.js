@@ -1,9 +1,11 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import {
   createWorker,
   createWorkers,
   getAllWorkers,
   getWorkerById,
+  getWorkerByLoginId,
   getWorkerCount,
   updateWorker,
   deleteWorker,
@@ -20,12 +22,22 @@ import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 const generateLoginId = async (name) => {
   const parts = name.trim().split(/\s+/);
   const firstName = parts[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-  const surnameInitial = parts.length > 1
-    ? parts[parts.length - 1].charAt(0).toLowerCase().replace(/[^a-z0-9]/g, '')
+  const surname = parts.length > 1
+    ? parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]/g, '')
     : '';
-  const base = surnameInitial ? `${firstName}${surnameInitial}` : firstName;
-  const count = await getWorkerCount();
-  return `${base}_ufs_${String(count + 1).padStart(2, '0')}`;
+  const base = surname ? `${firstName}.${surname}` : firstName;
+  let candidate = `${base}@ufs`;
+  let counter = 2;
+  while (true) {
+    const existing = await getWorkerByLoginId(candidate);
+    if (!existing) return candidate;
+    candidate = `${base}${counter}@ufs`;
+    counter++;
+  }
+};
+
+const generateRandomPassword = () => {
+  return crypto.randomBytes(8).toString('base64url').slice(0, 12);
 };
 
 function validateAllocations(allocations, salary) {
@@ -60,7 +72,7 @@ export const addWorker = async (req, res) => {
       finalAllocations = [{ ngo_id, salary_portion: 0 }];
     }
 
-    const tempPassword = '123456';
+    const tempPassword = generateRandomPassword();
     const login_id = await generateLoginId(name);
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(tempPassword, salt);
@@ -111,19 +123,14 @@ export const bulkAddWorkers = async (req, res) => {
     if (!workers || !Array.isArray(workers) || workers.length === 0) {
       return res.status(400).json({ message: 'Workers array is required' });
     }
-    const count = await getWorkerCount();
-    const tempPassword = '123456';
+    const tempPassword = generateRandomPassword();
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(tempPassword, salt);
-    const prepared = workers.map((w, i) => {
-      const parts = (w.name || '').trim().split(/\s+/);
-      const firstName = parts[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-      const surnameInitial = parts.length > 1
-        ? parts[parts.length - 1].charAt(0).toLowerCase().replace(/[^a-z0-9]/g, '')
-        : '';
-      const base = surnameInitial ? `${firstName}${surnameInitial}` : firstName;
-      const login_id = `${base}_ufs_${String(count + i + 1).padStart(2, '0')}`;
-      return {
+    const prepared = [];
+    for (let i = 0; i < workers.length; i++) {
+      const w = workers[i];
+      const login_id = await generateLoginId(w.name);
+      prepared.push({
         name: w.name,
         email: w.email,
         login_id,
@@ -132,8 +139,8 @@ export const bulkAddWorkers = async (req, res) => {
         dob: w.dob || null,
         ngo_id: w.ngo_id || (w.allocations?.[0]?.ngo_id) || req.user.ngo_id || null,
         created_by: req.user.id,
-      };
-    });
+      });
+    }
     const created = await createWorkers(prepared);
     // Create allocations if provided
     for (let i = 0; i < created.length; i++) {

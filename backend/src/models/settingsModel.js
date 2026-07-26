@@ -7,7 +7,7 @@ export const getSetting = async (key) => {
     .eq('key', key)
     .single();
   if (error && error.code !== 'PGRST116') throw error;
-  return data?.value || null;
+  return data?.value ?? null;
 };
 
 export const getAllSettings = async () => {

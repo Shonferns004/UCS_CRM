@@ -15,7 +15,10 @@ export default function VolunteerManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    await createVolunteer(form).then((res) => { setVolunteers([...volunteers, res]); setShowForm(false); setForm({name:'',mobile:'',email:'',duty:''}) }).catch(e => console.error('VolunteerManagement createVolunteer:', e))
+    try {
+      const res = await createVolunteer(form)
+      setVolunteers([...volunteers, res]); setShowForm(false); setForm({name:'',mobile:'',email:'',duty:''})
+    } catch (e) { console.error('VolunteerManagement createVolunteer:', e) }
   }
 
   const attended = volunteers.filter(v => v.attended).length

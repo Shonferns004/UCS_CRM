@@ -54,13 +54,12 @@ export const getBatchCount = async (batchId) => {
 };
 
 export const updateNewDataStatus = async (mobiles, ngoName, status) => {
+  if (!ngoName) throw new Error('ngoName is required for updateNewDataStatus');
   const query = supabase
     .from('new_data')
     .update({ status })
-    .in('mobile_number', mobiles);
-  if (ngoName) {
-    query.eq('ngo', ngoName);
-  }
+    .in('mobile_number', mobiles)
+    .eq('ngo', ngoName);
   const { data, error } = await query;
   if (error) throw error;
   return data;

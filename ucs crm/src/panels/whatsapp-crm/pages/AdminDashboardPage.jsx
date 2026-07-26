@@ -18,7 +18,7 @@ export default function AdminDashboardPage() {
         messages: msg.count || 0,
         templates: tpl.count || 0,
       })
-    }).catch(() => {}).finally(() => setLoading(false))
+    }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false))
   }, [])
 
   const cards = [

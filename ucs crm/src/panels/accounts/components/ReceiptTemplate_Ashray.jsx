@@ -405,7 +405,7 @@ export default function ReceiptTemplate_Ashray({ donor, index, signature, projec
         <br />
         Website: {org.website} | Email: {org.email}
         <br />
-        Helpline Number SEVAK: {org.helpline}
+        Helpline Number ASHRAY: {org.helpline}
       </div>
     </div>
   )

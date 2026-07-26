@@ -123,14 +123,18 @@ export const findLogsByDonorAndWorker = async (donorId, workerId) => {
     .eq('fro_worker_id', workerId)
     .order('created_at', { ascending: false });
   if (error) {
-    // fallback to assignment-based lookup
-    const { data: assignment } = await supabase
+    console.error('findLogsByDonorAndWorker query failed, trying fallback:', error.message);
+    const { data: assignment, error: asgnErr } = await supabase
       .from('fro_assignments')
       .select('id')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .not('status', 'eq', 'reassigned')
       .maybeSingle();
+    if (asgnErr) {
+      console.error('findLogsByDonorAndWorker fallback also failed:', asgnErr.message);
+      throw asgnErr;
+    }
     if (assignment) {
       return findLogsByAssignment(assignment.id);
     }
@@ -147,13 +151,18 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
     .eq('fro_worker_id', workerId)
     .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)');
   if (error) {
-    const { data: assignment } = await supabase
+    console.error('getTotalCollectedByDonorAndWorker failed, trying fallback:', error.message);
+    const { data: assignment, error: asgnErr } = await supabase
       .from('fro_assignments')
       .select('id')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .not('status', 'eq', 'reassigned')
       .maybeSingle();
+    if (asgnErr) {
+      console.error('getTotalCollectedByDonorAndWorker fallback also failed:', asgnErr.message);
+      throw asgnErr;
+    }
     if (assignment) {
       return getTotalCollectedByAssignment(assignment.id);
     }

@@ -21,7 +21,8 @@ export const getAllLeads = async (filters = {}) => {
   if (filters.source) query = query.eq('source', filters.source);
   if (filters.created_by) query = query.eq('created_by', filters.created_by);
   if (filters.search) {
-    query = query.or(`name.ilike.*${filters.search}*,email.ilike.*${filters.search}*,phone.ilike.*${filters.search}*`);
+    const escaped = filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '');
+    query = query.or(`name.ilike.*${escaped}*,email.ilike.*${escaped}*,phone.ilike.*${escaped}*`);
   }
 
   const { data, error } = await query;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { api } from '../../../api/auth';
+import { toast } from '../../../components/Toast';
 import * as XLSX from 'xlsx';
 
 const NGO_NAME_COLORS = {
@@ -28,7 +29,7 @@ function TransferDataModal({ station, sourceName, sourceCount, stations, onClose
       onClose();
       setTimeout(() => { if (onTransferred) onTransferred(); }, 600);
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -346,7 +347,7 @@ export default function StationManagement() {
   const fetchTransfers = () => {
     apiGet('/ngo-admin/transfers').then(r => {
       setTransfers(Array.isArray(r) ? r : []);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
 
   const fetchData = (successMsg, month) => {
@@ -358,23 +359,25 @@ export default function StationManagement() {
     apiGet('/ngo-admin/transfers').then(t => {
       setTransfers(Array.isArray(t) ? t : []);
     }).catch(err => console.error('fetchData transfers error:', err));
-    apiGet('/ngo-admin/targets?month=' + m).then(t => {
+    const ngoParam = selectedNgoId !== 'all' ? '&ngo_id=' + selectedNgoId : '';
+    apiGet('/ngo-admin/targets?month=' + m + ngoParam).then(t => {
       if (Array.isArray(t)) setTargets(t);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
       if (Array.isArray(r)) setIncentives(r);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     if (successMsg) setMsg(successMsg);
   };
 
   const loadTargets = (month) => {
     const m = month || selectedMonth;
-    apiGet('/ngo-admin/targets?month=' + m).then(t => {
+    const ngoParam = selectedNgoId !== 'all' ? '&ngo_id=' + selectedNgoId : '';
+    apiGet('/ngo-admin/targets?month=' + m + ngoParam).then(t => {
       if (Array.isArray(t)) setTargets(t);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
     apiGet('/ngo-admin/incentives').then(r => {
       if (Array.isArray(r)) setIncentives(r);
-    }).catch(() => {});
+    }).catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {
@@ -422,7 +425,7 @@ export default function StationManagement() {
         setNewStation(computeNextName(list));
       }
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setAdding(false);
     }
@@ -433,7 +436,7 @@ export default function StationManagement() {
       await apiPut(`/ngo-admin/stations/${encodeURIComponent(station)}/update-ngos`, { ngo_id: ngoId });
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -447,7 +450,7 @@ export default function StationManagement() {
       });
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -458,7 +461,7 @@ export default function StationManagement() {
       await apiPost(`/ngo-admin/transfers/${transferId}/return-early`);
       setTimeout(() => fetchData('Leads returned successfully'), 400);
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     } finally {
       setReturningId(null);
     }
@@ -470,7 +473,7 @@ export default function StationManagement() {
       await apiDelete(`/ngo-admin/stations/${encodeURIComponent(station)}`);
       fetchData();
     } catch (err) {
-      alert(err.message);
+      toast(err.message, 'error');
     }
   };
 
@@ -694,7 +697,7 @@ export default function StationManagement() {
                           const t = targets.find(tg => tg.id === w.id);
                           if (!t || t?.months_employed >= 3) {
                             return (
-                              <button className="btn btn-sm btn-outline" onClick={() => { setEditTarget(w); setTargetAmount(String(t?.target || '')); }}>
+                              <button className="btn btn-sm btn-outline" onClick={() => { setEditTarget({ ...w, ngo_id: s.ngos?.[0]?.ngo_id || null }); setTargetAmount(String(t?.target || '')); }}>
                                 {t?.target_source === 'manual' ? 'Edit' : 'Set'}
                               </button>
                             );
@@ -706,7 +709,7 @@ export default function StationManagement() {
                           if (!w) return null;
                           const t = targets.find(tg => tg.id === w.id);
                           return (
-                            <button className="btn btn-sm btn-outline" onClick={() => { setEditAchieved(w); setAchievedAmount(String(t?.achieved_target || '')); }}>
+                            <button className="btn btn-sm btn-outline" onClick={() => { setEditAchieved({ ...w, ngo_id: s.ngos?.[0]?.ngo_id || null }); setAchievedAmount(String(t?.achieved_target || '')); }}>
                               {t?.achieved_target != null && t.achieved_target > 0 ? 'Edit Achv' : 'Set Achv'}
                             </button>
                           );
@@ -719,7 +722,7 @@ export default function StationManagement() {
                           const autoVal = inc?.hasTarget ? inc.totalIncentive : 0;
                           return (
                             <button className="btn btn-sm btn-outline" onClick={() => {
-                              setEditIncentive(w);
+                              setEditIncentive({ ...w, ngo_id: s.ngos?.[0]?.ngo_id || null });
                               setIncentiveAmount(String(t?.incentive != null ? t.incentive : autoVal || ''));
                             }} style={{ color: '#7c3aed' }}>
                               {t?.incentive != null ? 'Edit Incent' : 'Set Incent'}
@@ -772,10 +775,11 @@ export default function StationManagement() {
                       fro_worker_id: editTarget.id,
                       month,
                       target_amount: parseFloat(targetAmount),
+                      ngo_id: editTarget.ngo_id,
                     });
                     setEditTarget(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }} disabled={!targetAmount}>Save</button>
               </div>
             </div>
@@ -807,7 +811,7 @@ export default function StationManagement() {
                     });
                     setEditAchieved(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Save</button>
               </div>
             </div>
@@ -848,7 +852,7 @@ export default function StationManagement() {
                     });
                     setEditIncentive(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Clear</button>
                 <button className="btn btn-outline" onClick={() => setEditIncentive(null)}>Cancel</button>
                 <button className="btn btn-primary" onClick={async () => {
@@ -861,7 +865,7 @@ export default function StationManagement() {
                     });
                     setEditIncentive(null);
                     loadTargets();
-                  } catch (err) { alert(err.message); }
+                  } catch (err) { toast(err.message, 'error'); }
                 }}>Save</button>
               </div>
             </div>

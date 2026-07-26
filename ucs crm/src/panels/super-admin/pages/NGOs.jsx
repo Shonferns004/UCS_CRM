@@ -15,7 +15,7 @@ export default function NGOs() {
   useEffect(() => {
     let mounted = true;
     api('/ngos').then(data => { if (mounted) setNgos(data); }).catch(e => { if (mounted) setErr(e.message); })
-    api('/users').then(data => { if (mounted) setUsers(data); }).catch(() => {})
+    api('/users').then(data => { if (mounted) setUsers(data); }).catch((err) => { console.error('Error:', err.message); })
     return () => { mounted = false; };
   }, [])
 

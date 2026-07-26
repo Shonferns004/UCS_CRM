@@ -2,30 +2,39 @@ import { useRec } from '../store';
 import { Who } from './ui';
 import { Cal } from '../icons';
 
-const SLOTS = [
-  { day:'Today',    time:'2:00 PM', name:'Meera Krishnan', role:'Senior Frontend Engineer', kind:'Technical round', who:'Sara Dsouza' },
-  { day:'Today',    time:'4:30 PM', name:'Tomás Rivera',   role:'Backend Engineer',         kind:'Final round',     who:'Aarav Sharma' },
-  { day:'Tomorrow', time:'11:00 AM',name:'Daniel Osei',    role:'Senior Frontend Engineer', kind:'Screening call',  who:'You' },
-  { day:'Wed',      time:'3:00 PM', name:'Ananya Reddy',   role:'Product Designer',         kind:'Portfolio review',who:'Priya Nair' },
-];
+const formatDT = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+};
 
 export default function Interviews() {
+  const { leads } = useRec();
+  const scheduled = leads.filter(l => l.status === 'scheduled');
+
   return (
     <div className="card">
-      <div className="card-head"><h3><Cal width={18} style={{color:'var(--sage)',verticalAlign:-3,marginRight:6}}/>Upcoming interviews</h3><span className="sub">{SLOTS.length} scheduled</span></div>
-      <table>
-        <thead><tr><th>When</th><th>Candidate</th><th>Round</th><th>Interviewer</th></tr></thead>
-        <tbody>
-          {SLOTS.map((s,i) => (
-            <tr key={i}>
-              <td><div style={{fontWeight:600}}>{s.day}</div><div style={{fontSize:12,color:'var(--ink-soft)'}}>{s.time}</div></td>
-              <td><Who name={s.name} role={s.role} /></td>
-              <td>{s.kind}</td>
-              <td style={{color:'var(--ink-soft)'}}>{s.who}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="card-head"><h3><Cal width={18} style={{color:'var(--sage)',verticalAlign:-3,marginRight:6}}/>Upcoming interviews</h3><span className="sub">{scheduled.length} scheduled</span></div>
+      {scheduled.length === 0 ? (
+        <div className="empty">No upcoming interviews.</div>
+      ) : (
+        <table>
+          <thead><tr><th>When</th><th>Candidate</th><th>Source</th><th>Phone</th></tr></thead>
+          <tbody>
+            {scheduled.map((l,i) => {
+              const dt = formatDT(l.scheduled_date);
+              return (
+                <tr key={l.id || i}>
+                  <td><div style={{fontWeight:600}}>{dt}</div></td>
+                  <td><Who name={l.name} role={l.job_role || '—'} /></td>
+                  <td>{l.source || '—'}</td>
+                  <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { inspectImport, uploadImport, listImportBatches, getImportBatch, exportB
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 router.post('/inspect', authenticateRole('super_admin'), upload.single('file'), inspectImport);
 router.post('/upload', authenticateRole('super_admin'), upload.single('file'), uploadImport);

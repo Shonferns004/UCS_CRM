@@ -17,7 +17,7 @@ export default function RejectedLeads() {
     if (showLoading) setLoading(true);
     getRejectedLeads()
       .then(d => setTickets(d || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => { if (showLoading) setLoading(false); });
   };
 
@@ -46,7 +46,7 @@ export default function RejectedLeads() {
   };
 
   const markRead = async (notifId) => {
-    try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); } catch {}
+    try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); } catch (e) { console.error('Error:', e.message); }
   };
 
   const handlePopDone = async () => {

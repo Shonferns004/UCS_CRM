@@ -142,7 +142,7 @@ export default function Tickets() {
 
   const load = useCallback(() => {
     loadTickets(statusFilter)
-    getPendingCount().then(d => setPendingCount(d?.count ?? 0)).catch(() => {})
+    getPendingCount().then(d => setPendingCount(d?.count ?? 0)).catch((err) => { console.error('Error:', err.message); })
   }, [loadTickets, statusFilter])
 
   useEffect(() => { load() }, [load])

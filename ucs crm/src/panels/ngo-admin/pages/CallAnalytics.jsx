@@ -45,8 +45,8 @@ export default function CallAnalytics() {
 
   useEffect(() => {
     import('../api/auth').then(({ apiGet }) => {
-      apiGet('/ngo-admin/ngos').then(setNgos).catch(() => {})
-      apiGet('/ngo-admin/stations').then(setStations).catch(() => {})
+      apiGet('/ngo-admin/ngos').then(setNgos).catch((err) => { console.error('Error:', err.message); })
+      apiGet('/ngo-admin/stations').then(setStations).catch((err) => { console.error('Error:', err.message); })
     })
   }, [])
 

@@ -16,6 +16,8 @@ import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
+let running = false;
+const cronJobs = [];
 
 function getDateString(date) {
   const y = date.getFullYear();
@@ -355,14 +357,51 @@ async function runNotificationCycle() {
   }
 }
 
-cron.schedule('30 10 * * *', () => runNotificationCycle());
-console.log('Scheduled: 10:30 AM notification check');
+function start() {
+  if (running) return;
+  running = true;
 
-cron.schedule('0 13 * * *', () => runNotificationCycle());
-console.log('Scheduled: 1:00 PM notification check');
+  cronJobs.push(cron.schedule('30 10 * * *', () => runNotificationCycle()));
+  console.log('Scheduled: 10:30 AM notification check');
 
-cron.schedule('0 18 * * *', () => runNotificationCycle());
-console.log('Scheduled: 6:00 PM notification check');
+  cronJobs.push(cron.schedule('0 13 * * *', () => runNotificationCycle()));
+  console.log('Scheduled: 1:00 PM notification check');
+
+  cronJobs.push(cron.schedule('0 18 * * *', () => runNotificationCycle()));
+  console.log('Scheduled: 6:00 PM notification check');
+
+  cronJobs.push(cron.schedule('* * * * *', () => sendScheduledNotifications()));
+  console.log('Scheduled: every-minute check for admin-scheduled notifications');
+
+  cronJobs.push(cron.schedule('* * * * *', () => sendPunchInReminders()));
+  console.log('Scheduled: every-minute check for punch-in reminders');
+
+  cronJobs.push(cron.schedule('* * * * *', () => sendPunchOutReminders()));
+  console.log('Scheduled: every-minute check for punch-out reminders');
+
+  if (!process.env.VERCEL) {
+    cronJobs.push(cron.schedule('0 0 * * *', () => resetCycledDonors()));
+    console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
+  }
+
+  cronJobs.push(cron.schedule('* * * * *', () => autoReportMissedSchedules()));
+  console.log('Scheduled: every-minute check for missed schedules (10 min overdue)');
+
+  cronJobs.push(cron.schedule('* * * * *', () => autoReturnTransfers()));
+  console.log('Scheduled: every-minute check for expired lead transfers');
+
+  const pollInterval = `*/${Math.max(1, emailConfig.pollIntervalMinutes)} * * * *`;
+  cronJobs.push(cron.schedule(pollInterval, () => {
+    pollEmailInbox().catch(err => console.error('[emailImporter] Cron error:', err.message));
+  }));
+  console.log(`Scheduled: email import every ${emailConfig.pollIntervalMinutes} minutes`);
+
+  const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
+  cronJobs.push(cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, () => {
+    syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
+  }));
+  console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
+}
 
 async function sendScheduledNotifications() {
   try {
@@ -510,15 +549,6 @@ async function sendPunchOutReminders() {
   }
 }
 
-cron.schedule('* * * * *', () => sendScheduledNotifications());
-console.log('Scheduled: every-minute check for admin-scheduled notifications');
-
-cron.schedule('* * * * *', () => sendPunchInReminders());
-console.log('Scheduled: every-minute check for punch-in reminders');
-
-cron.schedule('* * * * *', () => sendPunchOutReminders());
-console.log('Scheduled: every-minute check for punch-out reminders');
-
 async function autoReturnTransfers() {
   try {
     const { data: expired } = await supabase
@@ -567,11 +597,6 @@ async function resetCycledDonors() {
   } catch (error) {
     console.error('[resetCycledDonors] Error:', error.message);
   }
-}
-
-if (!process.env.VERCEL) {
-  cron.schedule('0 0 * * *', () => resetCycledDonors());
-  console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
 }
 
 async function autoReportMissedSchedules() {
@@ -638,22 +663,15 @@ async function autoReportMissedSchedules() {
   }
 }
 
-cron.schedule('* * * * *', () => autoReportMissedSchedules());
-console.log('Scheduled: every-minute check for missed schedules (10 min overdue)');
+function stop() {
+  for (const job of cronJobs) {
+    job.stop();
+  }
+  cronJobs.length = 0;
+  running = false;
+  console.log('Notification scheduler stopped');
+}
 
-cron.schedule('* * * * *', () => autoReturnTransfers());
-console.log('Scheduled: every-minute check for expired lead transfers');
+start();
 
-const pollInterval = `*/${Math.max(1, emailConfig.pollIntervalMinutes)} * * * *`;
-cron.schedule(pollInterval, () => {
-  pollEmailInbox().catch(err => console.error('[emailImporter] Cron error:', err.message));
-});
-console.log(`Scheduled: email import every ${emailConfig.pollIntervalMinutes} minutes`);
-
-const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
-cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, () => {
-  syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
-});
-console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
-
-export { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders };
+export { runNotificationCycle, sendScheduledNotifications, sendPunchInReminders, sendPunchOutReminders, start, stop };

@@ -28,14 +28,26 @@ export async function api(path, options = {}) {
   const timeoutController = new AbortController()
   const timeout = setTimeout(() => timeoutController.abort(), options.timeout || 120000)
   const externalSignal = options.signal || null
-  const combinedSignal = externalSignal
-    ? AbortSignal.any([timeoutController.signal, externalSignal])
-    : timeoutController.signal
+  let combinedSignal = timeoutController.signal
+  if (externalSignal) {
+    if (typeof AbortSignal.any === 'function') {
+      combinedSignal = AbortSignal.any([timeoutController.signal, externalSignal])
+    } else {
+      const controller = new AbortController()
+      const onAbort = () => controller.abort()
+      timeoutController.signal.addEventListener('abort', onAbort, { once: true })
+      externalSignal.addEventListener('abort', onAbort, { once: true })
+      combinedSignal = controller.signal
+    }
+  }
   try {
     const res = await fetch(`${BASE}${path}`, { ...options, headers, signal: combinedSignal })
     if (res.status === 401) {
-      clearSession(options._prefix || 'ucs')
-      throw new Error('Session expired. Please login again.')
+      const err = await res.json().catch(() => ({ message: res.statusText }))
+      if (token) {
+        clearSession(options._prefix || 'ucs')
+      }
+      throw new Error(err.message || (token ? 'Session expired. Please login again.' : 'Invalid credentials'))
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }))

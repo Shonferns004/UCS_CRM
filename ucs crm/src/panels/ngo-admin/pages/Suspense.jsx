@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPut } from '../api/auth';
+import { toast } from '../../../components/Toast';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -19,11 +20,23 @@ export default function Suspense() {
     try {
       const data = await apiGet('/ngo-admin/suspense');
       setEntries(data || []);
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const data = await apiGet('/ngo-admin/suspense');
+        if (!cancelled) setEntries(data || []);
+      } catch (err) { toast(err.message, 'error'); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSearch = (entryId, q) => {
     setSearchQuery(prev => ({ ...prev, [entryId]: q }));
@@ -52,7 +65,7 @@ export default function Suspense() {
       setShowDropdown(null);
       setSearchQuery(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       load();
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
     finally { setLinking(null); }
   };
 
@@ -64,7 +77,7 @@ export default function Suspense() {
       setShowDropdown(null);
       setSearchQuery(prev => { const n = { ...prev }; delete n[entryId]; return n; });
       load();
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast(err.message, 'error'); }
     finally { setLinking(null); }
   };
 

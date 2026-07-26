@@ -49,8 +49,9 @@ export function Header() {
           if (data.display_phone_number) {
             results.push({ name: acct.project.toUpperCase(), status: data.code_verification_status || 'verified', display_phone_number: data.display_phone_number, quality_rating: data.quality_rating });
           }
-        } catch {}
-      }
+        } catch (err) {
+          console.error('Failed to fetch phone number info:', err);
+        }      }
       setPhoneNumbers(results);
     })();
   }, []);

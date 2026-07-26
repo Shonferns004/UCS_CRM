@@ -96,6 +96,34 @@ export async function processPayment({
       senderName ? `- ${senderName}` : '',
     ].filter(Boolean).join(' ');
 
+    if (paymentId) {
+      const { data: duplicateCheck } = await supabase
+        .from('bank_audit_entries')
+        .select('id')
+        .eq('payment_id', paymentId)
+        .limit(1);
+      if (duplicateCheck && duplicateCheck.length > 0) {
+        await logWebhook({
+          gateway,
+          event_type: eventType || null,
+          payment_id: paymentId || null,
+          order_id: orderId || null,
+          amount,
+          gateway_source: gatewaySource || null,
+          sender_name: senderName || null,
+          sender_email: senderEmail || null,
+          sender_phone: senderPhone || null,
+          raw_payload: rawPayload || null,
+          bank_entry_id: duplicateCheck[0].id,
+          status: 'skipped_duplicate',
+          error_message: null,
+          account_id: accountId || null,
+          account_name: accountName || null,
+        });
+        return { success: true, skipped: true, entry: duplicateCheck[0] };
+      }
+    }
+
     const { data: entry, error: entryError } = await supabase
       .from('bank_audit_entries')
       .insert({
