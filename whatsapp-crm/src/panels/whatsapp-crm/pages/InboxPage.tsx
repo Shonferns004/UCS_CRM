@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+import { fetchConversations, fetchConversation, createConversation, updateConversation, createMessage, fetchConversationsByContact } from '../lib/api';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
@@ -325,14 +326,9 @@ export function InboxPage() {
   const { data: conversations, isLoading: loadingConvs } = useQuery({
     queryKey: ['conversations', user?.id],
     queryFn: async () => {
-      let query = supabase.from('conversations').select('*, contact:contacts(*)');
-
-      if (user?.role === 'agent') {
-        query = query.eq('assigned_agent_id', user.id);
-      }
-
-      const { data, error } = await query.order('last_message_at', { ascending: false, nullsFirst: false });
-      if (error) throw error;
+      const params: Record<string, string> = {};
+      if (user?.role === 'agent') params.assigned_agent_id = user.id;
+      const data = await fetchConversations(params);
       const seen = new Map<string, any>();
       for (const c of data || []) {
         const key = c.contact_id;
@@ -349,11 +345,9 @@ export function InboxPage() {
     queryKey: ['messages', conversationId],
     queryFn: async () => {
       if (!conversationId) return [];
-      const { data: conv } = await supabase.from('conversations').select('contact_id, project').eq('id', conversationId).maybeSingle();
+      const conv: any = await fetchConversation(conversationId).catch(() => null);
       if (!conv?.contact_id) return [];
-      let q = supabase.from('conversations').select('id').eq('contact_id', conv.contact_id);
-      if (conv.project) q = q.eq('project', conv.project);
-      const { data: allConvs } = await q;
+      const allConvs = await fetchConversationsByContact(conv.contact_id).catch(() => []);
       const ids = (allConvs || []).map((c: any) => c.id);
       if (ids.length === 0) return [];
       const { data, error } = await supabase
@@ -435,12 +429,13 @@ export function InboxPage() {
           .from('agent_phone_assignments')
           .select('account_id')
           .eq('user_id', user.id);
-        if (!assignments || assignments.length === 0) return [];
-        const accountIds = assignments.map((a: any) => a.account_id);
-        const { data } = await supabase.from('whatsapp_accounts').select('*').in('id', accountIds);
-        return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
+        if (assignments && assignments.length > 0) {
+          const accountIds = assignments.map((a: any) => a.account_id);
+          const { data } = await supabase.from('whatsapp_accounts').select('*').in('id', accountIds);
+          return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
+        }
       }
-      const { data } = await supabase.from('whatsapp_accounts').select('*');
+      const { data } = await supabase.from('whatsapp_accounts').select('*').eq('is_active', true);
       return (data || []).map((a: any) => ({ id: a.id, phone_number_id: a.phone_number_id, display_phone_number: a.phone_number_id, label: a.name, is_primary: a.is_default, status: a.is_active ? 'active' : 'inactive', tenant_id: '', verified_name: a.name, quality_rating: '', created_at: a.created_at })) as WhatsAppPhoneNumber[];
     },
     enabled: !!user,
@@ -498,7 +493,7 @@ export function InboxPage() {
         }
         navigate(`/inbox/${existingConv.id}`);
         if (newConvMessage.trim()) {
-          const { data: msg } = await supabase.from('messages').insert({
+          const msg = await createMessage({
             tenant_id: user?.tenant_id,
             conversation_id: existingConv.id,
             contact_id: contactId,
@@ -508,8 +503,14 @@ export function InboxPage() {
             body_text: newConvMessage.trim(),
             status: 'queued',
             message_category: 'service',
-          }).select('id').single();
-          if (msg) sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+          });
+          if (msg) {
+            try {
+              await sendWhatsAppMessage(existingConv.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id, pn.id);
+            } catch (err: any) {
+              toast.error('Send failed: ' + (err.message || 'Unknown error'));
+            }
+          }
         }
         setShowNewConv(false);
         setNewConvPhone('');
@@ -521,18 +522,19 @@ export function InboxPage() {
         return;
       }
 
-      const { data: conversation, error: convError } = await supabase.from('conversations').insert({
+      const conversation = await createConversation({
         tenant_id: user?.tenant_id,
         contact_id: contactId,
         status: 'open',
         project: project,
         assigned_agent_id: user?.id,
+        whatsapp_account_id: Number(newConvPhoneId),
         last_message_at: new Date().toISOString(),
-      }).select('*, contact:contacts(*)').single();
-      if (convError) throw convError;
+      });
+      if (!conversation) throw new Error('Failed to create conversation');
 
       if (newConvMessage.trim()) {
-        const { data: msg } = await supabase.from('messages').insert({
+        const msg = await createMessage({
           tenant_id: user?.tenant_id,
           conversation_id: conversation.id,
           contact_id: contactId,
@@ -542,8 +544,14 @@ export function InboxPage() {
           body_text: newConvMessage.trim(),
           status: 'queued',
           message_category: 'service',
-        }).select('id').single();
-        if (msg) sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id);
+        });
+        if (msg) {
+          try {
+            await sendWhatsAppMessage(conversation.id, contactId, newConvMessage.trim(), undefined, user?.id, msg.id, pn.id);
+          } catch (err: any) {
+            toast.error('Send failed: ' + (err.message || 'Unknown error'));
+          }
+        }
       }
 
       setShowNewConv(false);
@@ -564,7 +572,7 @@ export function InboxPage() {
     queryKey: ['current-conversation', conversationId],
     queryFn: async () => {
       if (!conversationId) return null;
-      const { data } = await supabase.from('conversations').select('*, contact:contacts(*)').eq('id', conversationId).maybeSingle();
+      const data = await fetchConversation(conversationId).catch(() => null);
       return data || null;
     },
     enabled: !!conversationId,

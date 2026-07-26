@@ -101,7 +101,8 @@ export default function AccountsPanel() {
   const menuRef = useRef(null)
   const notifRef = useRef(null)
   const pollRef = useRef(null)
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('accounts_seen_notifs') || '[]')))
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('accounts_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs))
   const location = useLocation()
 
   const loadNotifications = () => {
@@ -120,7 +121,7 @@ export default function AccountsPanel() {
           }
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {
@@ -148,7 +149,7 @@ export default function AccountsPanel() {
           const data = await res.json()
           setWaUnreadCount(data?.count || 0)
         }
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
     }
     fetchWaUnread()
     const interval = setInterval(fetchWaUnread, 15000)

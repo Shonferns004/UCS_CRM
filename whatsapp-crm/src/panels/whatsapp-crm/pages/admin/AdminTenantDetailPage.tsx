@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { fetchConversationCounts, fetchMessageCounts } from '../../lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { ArrowLeft, Users, MessageSquare, Smartphone, Activity } from 'lucide-react';
@@ -32,8 +33,8 @@ export function AdminTenantDetailPage() {
   const { data: tenantConversations } = useQuery({
     queryKey: ['admin-tenant-conversations', id],
     queryFn: async () => {
-      const { count } = await supabase.from('conversations').select('*', { count: 'exact', head: true }).eq('tenant_id', id);
-      return count || 0;
+      const counts = await fetchConversationCounts(id as string);
+      return counts.total || 0;
     },
     enabled: !!id,
   });
@@ -41,8 +42,8 @@ export function AdminTenantDetailPage() {
   const { data: tenantMessages } = useQuery({
     queryKey: ['admin-tenant-messages', id],
     queryFn: async () => {
-      const { count } = await supabase.from('messages').select('*', { count: 'exact', head: true }).eq('tenant_id', id);
-      return count || 0;
+      const counts = await fetchMessageCounts(id as string);
+      return counts.total || 0;
     },
     enabled: !!id,
   });

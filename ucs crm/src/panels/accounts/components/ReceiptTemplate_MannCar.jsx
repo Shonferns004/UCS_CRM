@@ -80,7 +80,7 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
          Dated : {formattedDate}
           <br /><br />
           <span style={{ fontWeight: 'bold' }}>
-           Name : - {donor['Donor Name'].toUpperCase()}
+           Name : - {donor['Donor Name']?.toUpperCase() || 'Unknown'}
           </span>
           <br />
         Address. - {donor['Address 1']}<br />
@@ -124,7 +124,7 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
       </div>
 
       <div style={{ fontSize: '20px', textAlign: 'center', marginBottom: '25px' }}>
-        We confirm the receipt of donation from Mr/Ms/Mrs <strong>{donor['Donor Name'].toUpperCase()}</strong> as per details below:-
+        We confirm the receipt of donation from Mr/Ms/Mrs <strong>{donor['Donor Name']?.toUpperCase() || 'Unknown'}</strong> as per details below:-
       </div>
 
       <table
@@ -171,7 +171,7 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
         </tbody>
       </table>
       <div style={{ marginTop: '35px', lineHeight: '1.7', fontSize: '18px' }}>
-        Dear <strong>{donor['Donor Name'].toUpperCase()}</strong>
+        Dear <strong>{donor['Donor Name']?.toUpperCase() || 'Unknown'}</strong>
         <br /><br />
         Thank You for Your Generous Support {formatIndianCurrency(amount)} On behalf of Mann Care Foundation, we sincerely thank you for your valuable contribution. Your generosity helps us continue our mission of supporting those in need and creating a positive impact in the community.
         Thank you for being a part of this noble cause and helping us make a difference.

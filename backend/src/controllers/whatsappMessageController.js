@@ -1,5 +1,4 @@
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+import supabase from '../config/supabase.js';
 
 export const sendMessage = async (req, res) => {
   try {
@@ -8,10 +7,16 @@ export const sendMessage = async (req, res) => {
       return res.status(400).json({ error: 'conversationId and messageText or mediaUrl required' });
     }
 
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/send-message`, {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+    if (!supabaseUrl || !serviceKey) {
+      return res.status(503).json({ message: 'Edge function not configured (missing SUPABASE_URL or SUPABASE_SERVICE_KEY)' });
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/send-message`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'Authorization': `Bearer ${serviceKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ conversationId, messageText, mediaUrl, mediaMimeType }),

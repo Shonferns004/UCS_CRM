@@ -83,7 +83,7 @@ export function RecProvider({ children }) {
       const qs = params.toString()
       const data = await api('/leads' + (qs ? '?' + qs : ''), { _prefix: 'ucs' })
       setLeads(data)
-    } catch {} finally { setLeadsLoading(false) }
+    } catch (e) { console.error('Error:', e.message); } finally { setLeadsLoading(false) }
   }, [token, leadFilters])
 
   const refreshLeads = useCallback(() => fetchLeads(false), [fetchLeads])
@@ -136,7 +136,7 @@ export function RecProvider({ children }) {
     try {
       const data = await api('/leads/dashboard', { _prefix: 'ucs' })
       if (data) setLeadStats(data)
-    } catch {}
+    } catch (e) { console.error('Error:', e.message); }
   }, [token])
 
   useEffect(() => { if (token) fetchLeadStats() }, [token, fetchLeadStats])

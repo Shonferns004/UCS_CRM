@@ -8,7 +8,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     supabase.from('whatsapp_accounts').select('*')
       .then(({ data }) => setAccounts(data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false))
   }, [])
 

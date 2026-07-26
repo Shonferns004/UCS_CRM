@@ -369,8 +369,6 @@ export const myHistory = async (req, res) => {
     const records = await getAttendanceHistory(req.user.id);
     const approvedLeaves = await getApprovedLeaves(req.user.id);
 
-    if (approvedLeaves.length === 0) return res.json(records);
-
     const leaveByDate = {};
     for (const leave of approvedLeaves) {
       for (const date of expandLeaveDates(leave)) {
@@ -382,7 +380,32 @@ export const myHistory = async (req, res) => {
     for (const [date, _] of Object.entries(leaveByDate)) {
       if (!recordDates.has(date)) {
         records.push({ date, status: 'leave', late_minutes: 0, hours_worked: null });
+        recordDates.add(date);
       }
+    }
+
+    const today = istDateStr();
+    let earliestDate = today;
+    for (const r of records) {
+      if (r.date && r.date < earliestDate) earliestDate = r.date;
+    }
+    if (records.length === 0) {
+      const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      earliestDate = istDateStr(threeMonthsAgo);
+    }
+
+    const d = new Date(earliestDate + 'T00:00:00+05:30');
+    const end = new Date(today + 'T00:00:00+05:30');
+    while (d <= end) {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${day}`;
+      const wd = d.getUTCDay();
+      if (wd !== 0 && dateStr < today && !recordDates.has(dateStr)) {
+        records.push({ date: dateStr, status: 'absent', late_minutes: 0, hours_worked: null });
+      }
+      d.setUTCDate(d.getUTCDate() + 1);
     }
 
     for (const r of records) {

@@ -24,6 +24,7 @@ export function useHR() {
 }
 
 import { api } from '../../api/auth'
+import { supabase } from '../../config/supabase'
 export const apiGet = (path) => api(path, { _prefix: 'ucs' })
 export const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
 export const apiDelete = (path) => api(path, { method: 'DELETE', _prefix: 'ucs' })
@@ -55,7 +56,21 @@ export const updateWorker = (id, updates) => apiPut('/workers/' + id, updates);
 export const bulkUpdateWorkers = (workers) => apiPut('/workers/bulk', { workers });
 export const fetchAttendance = () => apiGet('/attendance/all');
 export const fetchLeaves = () => apiGet('/leaves');
-export const decideLeave = (id, status) => apiPut('/leaves/' + id + '/status', { status: status === 'Approved' ? 'approved' : 'rejected' });
+export const decideLeave = (id, status) => {
+  if (status === 'Cancelled') {
+    return supabase.from('leaves').update({ status: 'rejected', admin_remark: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', id).select().single().then(({ data, error }) => {
+      if (error) throw error;
+      return data;
+    });
+  }
+  if (status === 'Approved') {
+    return supabase.from('leaves').update({ status: 'approved', admin_remark: null, updated_at: new Date().toISOString() }).eq('id', id).select().single().then(({ data, error }) => {
+      if (error) throw error;
+      return data;
+    });
+  }
+  return apiPut('/leaves/' + id + '/status', { status: 'rejected' });
+};
 export const fetchTemplates = () => apiGet('/letters/templates');
 export const generateLetter = (template_id, worker_id, variables = {}) => apiPost('/letters/generate', { template_id, worker_id, variables });
 export const fetchWorkerLetters = (workerId) => apiGet('/letters/generated/worker/' + workerId);

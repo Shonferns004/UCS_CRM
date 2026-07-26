@@ -67,6 +67,7 @@ export const getMonthlyLateMinutes = async (worker_id) => {
     .from('attendance')
     .select('late_minutes')
     .eq('worker_id', worker_id)
+    .not('status', 'in', '(absent,leave)')
     .gte('date', startOfMonth)
     .lte('date', endOfMonth);
   if (error) throw error;

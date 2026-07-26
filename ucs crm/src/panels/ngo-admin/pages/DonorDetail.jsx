@@ -9,7 +9,7 @@ export default function DonorDetail({ donor, onBack }) {
     setLoading(true);
     apiGet(`/ngo-admin/donors/${donor.mobile_number}`)
       .then(r => setData(r))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false));
   }, [donor.mobile_number]);
 

@@ -19,8 +19,9 @@ export async function generateDailyCodes() {
       code = random4Digit();
       attempts++;
     } while (used.has(code) && attempts < 50);
-    used.add(code);
+    if (!code) throw new Error('Failed to generate unique daily code after 50 attempts');
     await upsertDailyCode(qr.id, today, code);
+    used.add(code);
     generated.push({ qr_id: qr.id, code });
   }
 

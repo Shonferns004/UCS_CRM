@@ -30,14 +30,14 @@ export default function SuspensePage() {
     const url = statusFilter ? `/accounts/suspense?status=${statusFilter}` : '/accounts/suspense';
     apiGet(url)
       .then(setItems)
-      .catch(() => {})
+      .catch(err => console.error('SuspensePage error:', err))
       .finally(() => setLoading(false));
   }, [statusFilter]);
 
   useEffect(load, [load]);
 
   useEffect(() => {
-    apiGet('/workers').then(setWorkers).catch(() => {});
+    apiGet('/workers').then(setWorkers).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stats = useMemo(() => {

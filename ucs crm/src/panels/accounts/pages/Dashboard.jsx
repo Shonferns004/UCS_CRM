@@ -46,7 +46,7 @@ export default function Dashboard() {
       .then(([all, filtered]) => {
         if (mountedRef.current) { setAllLeads(all); setLeads(filtered); }
       })
-      .catch(() => {})
+      .catch((err) => { console.error('API error:', err.message); })
       .finally(() => { if (mountedRef.current) setLoading(false); });
   }, [statusFilter]);
 

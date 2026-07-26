@@ -11,14 +11,24 @@ export default function EventsPage() {
   const [events, setEvents] = useState([])
   const [filter, setFilter] = useState('')
 
-  useEffect(() => { fetchEvents().then(setEvents).catch(e => console.error('EventsPage fetchEvents:', e)) }, [])
+  useEffect(() => {
+    let cancelled = false
+    fetchEvents().then(data => { if (!cancelled) setEvents(data) }).catch(e => console.error('EventsPage fetchEvents:', e))
+    return () => { cancelled = true }
+  }, [])
 
   const handleStatus = async (id, status) => {
-    await updateEventStatus(id, status).then(() => setEvents(events.map(e => e.id === id ? {...e, status} : e))).catch(e => console.error('EventsPage updateEventStatus:', e))
+    try {
+      await updateEventStatus(id, status)
+      setEvents(events.map(e => e.id === id ? {...e, status} : e))
+    } catch (e) { console.error('EventsPage updateEventStatus:', e) }
   }
   const handleDelete = async (id) => {
     if (!confirm('Delete this event?')) return
-    await deleteEvent(id).then(() => setEvents(events.filter(e => e.id !== id))).catch(e => console.error('EventsPage deleteEvent:', e))
+    try {
+      await deleteEvent(id)
+      setEvents(events.filter(e => e.id !== id))
+    } catch (e) { console.error('EventsPage deleteEvent:', e) }
   }
 
   const filtered = filter ? events.filter(e => e.status === filter) : events

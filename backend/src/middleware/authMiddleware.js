@@ -31,5 +31,5 @@ export const authenticate = (req, res, next) => {
   } catch { return res.status(401).json({ message: 'Invalid token' }); }
 };
 
-export const authenticateAdmin = authenticateRole('super_admin');
+export const authenticateAdmin = authenticateRole('master', 'super_admin');
 export const authenticateWorker = authenticateRole('worker', 'fro');

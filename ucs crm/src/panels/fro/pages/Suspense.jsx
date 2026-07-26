@@ -42,7 +42,19 @@ export default function FroSuspense() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const data = await apiGet('/fro/suspense');
+        if (!cancelled) setEntries(data || []);
+      } catch (err) { alert(err.message); }
+      finally { if (!cancelled) setLoading(false); }
+    }
+    fetchData();
+    return () => { cancelled = true; };
+  }, []);
 
   useRealtime('bank_audit_entries', {
     event: '*',
@@ -66,7 +78,7 @@ export default function FroSuspense() {
       try {
         const data = await apiGet('/fro/suspense/search-dispositions?q=');
         setSearchResults(data || []);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
     }, 100);
   };
 
@@ -78,7 +90,7 @@ export default function FroSuspense() {
       try {
         const data = await apiGet('/fro/suspense/search-dispositions?q=' + (q ? encodeURIComponent(q) : ''));
         setSearchResults(data || []);
-      } catch {}
+      } catch (e) { console.error('Error:', e.message); }
       finally { setSearching(false); }
     }, q ? 300 : 0);
   };

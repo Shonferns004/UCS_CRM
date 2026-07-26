@@ -25,6 +25,7 @@ import Tickets from './components/Tickets'
 import PhoneNumbers from './components/PhoneNumbers'
 import SettingsPage from './components/Settings'
 import { fetchTicketCount } from './store'
+import ToastContainer from '../../components/Toast'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
@@ -79,7 +80,8 @@ function HRPageShell({ children }) {
   const menuRef = useRef(null)
   const notifRef = useRef(null)
   const pollRef = useRef(null)
-  const seenNotifIds = useRef(new Set(JSON.parse(localStorage.getItem('hr_seen_notifs') || '[]')))
+  let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('hr_seen_notifs') || '[]'); } catch { /* corrupted */ }
+  const seenNotifIds = useRef(new Set(_initSeenNotifs))
 
   const loadNotifications = () => {
     const uid = user?.id;
@@ -97,7 +99,7 @@ function HRPageShell({ children }) {
           }
         });
       })
-      .catch(() => {});
+      .catch((err) => { console.error('Error:', err.message); });
   };
 
   useEffect(() => {
@@ -116,7 +118,7 @@ function HRPageShell({ children }) {
   useEffect(() => { if (themes[themeName]) applyTheme(themes[themeName], '.panel-hr'); localStorage.setItem('hr_theme', themeName) }, [themeName])
 
   useEffect(() => {
-    const poll = async () => { try { const r = await fetchTicketCount(); setTicketCount(r?.count ?? 0) } catch {} }
+    const poll = async () => { try { const r = await fetchTicketCount(); setTicketCount(r?.count ?? 0) } catch (e) { console.error('Error:', e.message); } }
     poll(); const id = setInterval(poll, 30000); return () => clearInterval(id)
   }, [])
 
@@ -137,6 +139,7 @@ function HRPageShell({ children }) {
 
   return (
     <div className="app">
+      <ToastContainer />
       <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
       <div className="main">
         <div className="mobile-top">
@@ -152,7 +155,7 @@ function HRPageShell({ children }) {
             <h2>{meta?.label || 'Dashboard'}</h2>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <NavLink to="/hr/tickets" className="btn btn-icon" style={{position:'relative'}} title="Pending Tickets">
+            <NavLink to="/hr/tickets" className="btn btn-icon" style={{position:'relative', display:'none'}} title="Pending Tickets">
               <Bell size={19} />
               {ticketCount > 0 && <span className="badge badge-pending2" style={{position:'absolute',top:-6,right:-6,fontSize:10,padding:'1px 5px',lineHeight:'16px',minWidth:18,textAlign:'center'}}>{ticketCount > 99 ? '99+' : ticketCount}</span>}
             </NavLink>

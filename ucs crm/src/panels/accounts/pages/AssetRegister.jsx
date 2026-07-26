@@ -320,7 +320,7 @@ export default function AssetRegister() {
       .finally(() => setLoading(false))
     api('/workers')
       .then(list => setWorkers(Array.isArray(list) ? list : list?.data || []))
-      .catch(() => {})
+      .catch((err) => { console.error('Error:', err.message); })
   }, [])
 
   const selected = assets.find(a => a.id === selectedId) || null
@@ -395,7 +395,7 @@ export default function AssetRegister() {
       ? { ...a, ...changes, history: newHistory }
       : a))
     // Backend endpoint: PUT /assets/:id (history bhi saath save hoti hai)
-    api(`/assets/${id}`, { method: 'PUT', body: JSON.stringify({ ...changes, history: newHistory }) }).catch(() => {})
+    api(`/assets/${id}`, { method: 'PUT', body: JSON.stringify({ ...changes, history: newHistory }) }).catch(err => console.warn('Save failed (offline?):', err.message))
   }
 
   function doAction(changes, historyText) {

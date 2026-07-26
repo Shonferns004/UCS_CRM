@@ -1,4 +1,4 @@
-ï»¿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api/auth'
 
 export default function Users() {
@@ -16,8 +16,8 @@ export default function Users() {
   useEffect(() => {
     let mounted = true;
     api('/users').then(data => { if (mounted) setUsers(data); }).catch(e => { if (mounted) setErr(e.message); })
-    api('/hrs').then(data => { if (mounted) setHrs(data); }).catch(() => {})
-    api('/ngos').then(data => { if (mounted) setNgos(data); }).catch(() => {})
+    api('/hrs').then(data => { if (mounted) setHrs(data); }).catch((err) => { console.error('Error:', err.message); })
+    api('/ngos').then(data => { if (mounted) setNgos(data); }).catch((err) => { console.error('Error:', err.message); })
     return () => { mounted = false; };
   }, [])
 
@@ -158,7 +158,7 @@ export default function Users() {
               <label className="field">
                 <span>NGO</span>
                 <select value={form.ngo_ids[0] || ''} onChange={e => setForm({...form, ngo_ids: e.target.value ? [e.target.value] : []})}>
-                  <option value="">â€” None â€”</option>
+                  <option value="">— None —</option>
                   {ngos.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                 </select>
               </label>
@@ -197,7 +197,7 @@ export default function Users() {
                   <td>{u.name}</td>
                   <td>{u.email}</td>
                   <td><span className="sa-badge">{u.role}</span></td>
-                  <td className="sa-muted" style={{maxWidth:200}}>{u.role === 'admin' ? 'All NGOs' : (u.ngo_names || (u.ngo_id ? ngos.find(n => n.id === u.ngo_id)?.name || u.ngo_id : 'â€”'))}</td>
+                  <td className="sa-muted" style={{maxWidth:200}}>{u.role === 'admin' ? 'All NGOs' : (u.ngo_names || (u.ngo_id ? ngos.find(n => n.id === u.ngo_id)?.name || u.ngo_id : '—'))}</td>
                   <td><span className={`sa-badge ${u.is_active !== false ? 'active' : 'inactive'}`}>
                     {u.is_active !== false ? 'Active' : 'Inactive'}
                   </span></td>
@@ -225,7 +225,7 @@ export default function Users() {
                 <tr key={h.id}>
                   <td>{h.name}</td>
                   <td>{h.email}</td>
-                  <td className="sa-muted">{h.ngo_id ? ngos.find(n => n.id === h.ngo_id)?.name || h.ngo_id : 'â€”'}</td>
+                  <td className="sa-muted">{h.ngo_id ? ngos.find(n => n.id === h.ngo_id)?.name || h.ngo_id : '—'}</td>
                   <td><span className={`sa-badge ${h.is_active !== false ? 'active' : 'inactive'}`}>
                     {h.is_active !== false ? 'Active' : 'Inactive'}
                   </span></td>
