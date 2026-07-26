@@ -380,6 +380,58 @@ export async function markConversationRead(conversationId, froWorkerId) {
   if (error) throw error;
 }
 
+export async function getAgentConversations(agentUserId) {
+  const { data: assignments, error: assignErr } = await supabase
+    .from('agent_phone_assignments')
+    .select('account_id')
+    .eq('user_id', agentUserId);
+
+  if (assignErr) throw assignErr;
+  if (!assignments || assignments.length === 0) return [];
+
+  const accountIds = assignments.map(a => a.account_id);
+
+  const { data: accounts, error: accErr } = await supabase
+    .from('whatsapp_accounts')
+    .select('id, project')
+    .in('id', accountIds);
+
+  if (accErr) throw accErr;
+  if (!accounts || accounts.length === 0) return [];
+
+  const projects = [...new Set(accounts.map(a => a.project).filter(Boolean))];
+
+  const { data: conversations, error: convErr } = await supabase
+    .from('conversations')
+    .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+    .in('project', projects)
+    .order('last_message_at', { ascending: false });
+
+  if (convErr) {
+    if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
+    throw convErr;
+  }
+
+  const seen = new Map();
+  for (const c of conversations || []) {
+    const key = c.contact_id;
+    if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
+      seen.set(key, c);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+export async function getAgentUnreadCount(agentUserId) {
+  try {
+    const conversations = await getAgentConversations(agentUserId);
+    return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  } catch (err) {
+    console.error('[getAgentUnreadCount] error:', err.message);
+    return 0;
+  }
+}
+
 export async function getFroUnreadCount(froWorkerId) {
   try {
     const conversations = await getFroConversations(froWorkerId);

@@ -10,7 +10,7 @@ import {
   getUnreadCount,
   searchMessages,
   uploadMedia,
-} from '../../api/whatsappSupabase'
+} from '../../api/whatsappEnhanced'
 import { supabase } from '../../lib/supabase'
 import ConversationList from './ConversationList'
 import { MessageList } from './MessageBubble'
@@ -33,14 +33,14 @@ const PROJECT_TAB_COLORS = {
   maan: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
 }
 
-export default function WhatsAppInbox({ waUser, onLogout, compact }) {
+export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, activeProject }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const bottomRef = useRef(null)
 
   const [activeConv, setActiveConv] = useState(null)
-  const [activeTab, setActiveTab] = useState(searchParams.get('project') || 'all')
+  const [activeTab, setActiveTab] = useState(activeProject || searchParams.get('project') || 'all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewConv, setShowNewConv] = useState(false)
   const [newConvPhone, setNewConvPhone] = useState('')
@@ -55,8 +55,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
   const height = compact ? '100%' : 'calc(100vh - 180px)'
 
   const { data: conversations = [], isLoading: loadingConv } = useQuery({
-    queryKey: ['wa-conversations', waUser?.id],
-    queryFn: () => getConversations(waUser.id),
+    queryKey: ['wa-conversations', waUser?.id, activeProject],
+    queryFn: () => getConversations(waUser.id, agentToken),
     enabled: !!waUser?.id,
     refetchInterval: 15000,
   })
@@ -110,13 +110,26 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
 
   const { data: messages = null } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
-    queryFn: () => getMessages(activeConv.id),
+    queryFn: () => getMessages(activeConv.id, agentToken),
     enabled: !!activeConv?.id,
     refetchInterval: 5000,
   })
 
   useEffect(() => {
-    if (!waUser?.id) return
+    if (activeProject && conversations.length) {
+      setActiveTab(activeProject)
+    }
+  }, [activeProject, conversations])
+
+  useEffect(() => {
+    if (!waUser?.id && !agentToken) return
+    if (agentToken) {
+      getUnreadCount(waUser?.id, agentToken).then(d => setUnreadCount(d?.count || d || 0)).catch(() => {})
+      const interval = setInterval(() => {
+        getUnreadCount(waUser?.id, agentToken).then(d => setUnreadCount(d?.count || d || 0)).catch(() => {})
+      }, 15000)
+      return () => clearInterval(interval)
+    }
     ;(async () => {
       const { data: assigns } = await supabase
         .from('agent_phone_assignments')
@@ -131,12 +144,12 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
         if (data) setMyAccounts(data)
       }
     })()
-    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch((err) => { console.error('Error:', err.message); })
+    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
     const interval = setInterval(() => {
-      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch((err) => { console.error('Error:', err.message); })
+      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
     }, 15000)
     return () => clearInterval(interval)
-  }, [waUser?.id])
+  }, [waUser?.id, agentToken])
 
   useEffect(() => {
     if (bottomRef.current) {
@@ -147,16 +160,16 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
     setMediaFile(null)
-    try { await markRead(conv.id) } catch (e) { console.error('Error:', e.message); }
+    try { await markRead(conv.id, agentToken) } catch (e) { console.error('Error:', e.message); }
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [queryClient])
+  }, [queryClient, agentToken])
 
   const handleSend = useCallback(async (text) => {
     if (!activeConv) return
-    await sendMsgApi(activeConv.id, activeConv.contact_id, text, waUser?.id)
+    await sendMsgApi(activeConv.id, text, agentToken)
     queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [activeConv, waUser?.id, queryClient])
+  }, [activeConv, agentToken, queryClient])
 
   const handleSendMedia = useCallback(async (files) => {
     if (!activeConv || !waUser) return
@@ -165,7 +178,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     const phoneNumber = contact.phone_normalized || contact.phone || ''
     const mimeType = (f) => f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document'
     for (const f of fileArr) {
-      const r = await uploadMedia(waUser.id, f)
+      const r = await uploadMedia(f, agentToken)
       if (r?.file_url) {
         const { data: msg } = await supabase.from('messages').insert({
           conversation_id: activeConv.id,
@@ -180,7 +193,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
         if (msg && phoneNumber) {
           const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
           fetch(baseUrl + '/whatsapp/send', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...(agentToken ? { Authorization: `Bearer ${agentToken}` } : {}) },
             body: JSON.stringify({
               conversationId: activeConv.id,
               contactId: activeConv.contact_id,
@@ -197,13 +210,13 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     }
     queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [activeConv, waUser, queryClient])
+  }, [activeConv, waUser, agentToken, queryClient])
 
   const handleNewConv = useCallback(async () => {
     if (!newConvPhone.trim() || sendingNew || !waUser) return
     setSendingNew(true)
     try {
-      const result = await sendDirectMessage(waUser.id, newConvPhone.trim(), newConvText.trim() || 'Hello', newConvProject)
+      const result = await sendDirectMessage(newConvPhone.trim(), newConvText.trim() || 'Hello', agentToken)
       setShowNewConv(false)
       setNewConvPhone('')
       setNewConvText('')
@@ -214,15 +227,15 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     } finally {
       setSendingNew(false)
     }
-  }, [newConvPhone, newConvText, sendingNew, waUser, queryClient, handleSelect])
+  }, [newConvPhone, newConvText, sendingNew, waUser, agentToken, queryClient, handleSelect])
 
   const handleQuickReply = async (text) => { await handleSend(text) }
 
   const contact = activeConv?.contact || {}
   const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation'
-  const activeProject = activeConv?.project || contact.project || ''
-  const activeProjectLabel = PROJECT_TABS.find(t => t.id === activeProject)?.label || activeProject.toUpperCase()
-  const activeProjectColor = PROJECT_TAB_COLORS[activeProject] || null
+  const convProject = activeConv?.project || contact.project || ''
+  const activeProjectLabel = PROJECT_TABS.find(t => t.id === convProject)?.label || convProject.toUpperCase()
+  const activeProjectColor = PROJECT_TAB_COLORS[convProject] || null
   const activeContactId = activeConv?.contact_id || contact.id
 
   return (
@@ -303,7 +316,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
                   {activeProjectColor && (
                     <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: activeProjectColor.border?.replace('86efac', '#22c55e') || '#22c55e', flexShrink: 0 }} />
                   )}
-                  {activeProject ? activeProjectLabel : 'WhatsApp'}
+                  {convProject ? activeProjectLabel : 'WhatsApp'}
                 </div>
               </div>
             </div>
@@ -318,7 +331,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
               </div>
             )}
             <QuickReplyBar onSend={handleQuickReply} />
-            <TemplateBar conversationId={activeConv?.id} contactId={activeContactId} project={activeProject} userId={waUser?.id} onSent={() => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })} />
+            <TemplateBar conversationId={activeConv?.id} contactId={activeContactId} project={convProject} userId={waUser?.id} onSent={() => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })} />
             <MessageComposer onSend={handleSend} onSendMedia={handleSendMedia} />
           </>
         ) : (

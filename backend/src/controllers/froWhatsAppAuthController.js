@@ -1,6 +1,54 @@
 import supabase from '../config/supabase.js';
 import jwt from 'jsonwebtoken';
 
+export async function whatsappAutoLogin(req, res) {
+  try {
+    const workerId = req.user.id;
+    if (!workerId || workerId === 'master') {
+      return res.status(400).json({ message: 'Worker identity required' });
+    }
+
+    const { data: agentsRaw, error: agentsErr } = await supabase
+      .rpc('get_worker_agents', { p_worker_id: workerId });
+
+    if (agentsErr) {
+      console.error('[auto-login] get_worker_agents error:', agentsErr.message);
+      return res.status(500).json({ message: 'Failed to load agents' });
+    }
+
+    const agents = typeof agentsRaw === 'string' ? JSON.parse(agentsRaw) : (agentsRaw || []);
+
+    if (agents.length === 0) {
+      return res.json({ agents: [] });
+    }
+
+    const sessions = [];
+    for (const agent of agents) {
+      const token = jwt.sign(
+        { id: agent.id, email: agent.email, role: agent.role || 'agent', name: agent.name },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      const accounts = (agent.whatsapp_accounts || []).filter(a => a.is_active);
+      for (const account of accounts) {
+        sessions.push({
+          agentId: agent.id,
+          agentEmail: agent.email,
+          agentName: agent.name,
+          project: account.project,
+          account: { id: account.id, name: account.name, project: account.project, phone_number_id: account.phone_number_id },
+          token,
+        });
+      }
+    }
+
+    return res.json({ agents: sessions });
+  } catch (error) {
+    console.error('[auto-login] error:', error?.message);
+    return res.status(500).json({ message: 'Auto-login failed' });
+  }
+}
+
 export async function whatsappLogin(req, res) {
   try {
     const { email, password } = req.body;

@@ -1,5 +1,7 @@
 import {
   getFroConversations,
+  getAgentConversations,
+  getAgentUnreadCount,
   getConversationMessages,
   sendFroReply,
   sendDirectMessage,
@@ -12,6 +14,24 @@ import {
   updateConversationLabels,
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
+
+export async function listAgentConversations(req, res) {
+  try {
+    const conversations = await getAgentConversations(req.user.id);
+    return res.json(conversations);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function agentUnreadCount(req, res) {
+  try {
+    const count = await getAgentUnreadCount(req.user.id);
+    return res.json({ count });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
 
 export async function listConversations(req, res) {
   try {
