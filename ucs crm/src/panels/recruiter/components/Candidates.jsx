@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useRec } from '../store';
-import { Dropdown, Who, Score } from './ui';
+import { Dropdown, Who } from './ui';
 import { Search } from '../icons';
 
 export default function Candidates() {
@@ -27,7 +27,7 @@ export default function Candidates() {
         </div>
       </div>
       <table>
-        <thead><tr><th>Candidate</th><th>Stage</th><th>Experience</th><th>Source</th><th>Skills</th><th style={{textAlign:'right'}}>Score</th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Stage</th><th>Experience</th><th>Source</th><th>Skills</th></tr></thead>
         <tbody>
           {filtered.map(c => (
             <tr key={c.id}>
@@ -36,10 +36,9 @@ export default function Candidates() {
               <td style={{color:'var(--ink-soft)'}}>{c.exp}</td>
               <td style={{color:'var(--ink-soft)'}}>{c.source}</td>
               <td><div className="tags">{c.skills.slice(0,3).map(s=><span className="tag" key={s} style={{fontSize:11,padding:'3px 9px'}}>{s}</span>)}</div></td>
-              <td style={{textAlign:'right'}}><Score value={c.score} /></td>
             </tr>
           ))}
-          {!filtered.length && <tr><td colSpan={6}><div className="empty">No candidates match.</div></td></tr>}
+          {!filtered.length && <tr><td colSpan={5}><div className="empty">No candidates match.</div></td></tr>}
         </tbody>
       </table>
     </div>
