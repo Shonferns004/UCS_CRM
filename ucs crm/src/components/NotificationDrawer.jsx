@@ -61,20 +61,20 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
                   <div style={{
                     width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: section.type === 'rejected' ? '#fef2f2' : section.type === 'verified' ? '#f0fdf4' : '#f0fdf4',
-                    color: section.type === 'rejected' ? '#dc2626' : '#16a34a',
+                    background: section.type === 'rejected' ? '#fef2f2' : section.type === 'verified' ? '#f0fdf4' : '#eff6ff',
+                    color: section.type === 'rejected' ? '#dc2626' : section.type === 'verified' ? '#16a34a' : '#2563eb',
                   }}>
                     {section.type === 'rejected' ? (
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                     ) : section.type === 'verified' ? (
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                     ) : (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                     )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      {item.donor_name}
+                      {section.type === 'notifications' ? (item.title || 'Notification') : item.donor_name}
                       {section.type === 'rejected' && (
                         <span style={{ background: '#dc2626', color: '#fff', fontSize: 9, padding: '1px 5px', borderRadius: 4, fontWeight: 700, lineHeight: '14px' }}>REJECTED</span>
                       )}
@@ -87,8 +87,13 @@ export default function NotificationDrawer({ open, onClose, sections, onItemClic
                         {item.rejection_reason || item.body?.replace(/^Your lead for .+? was rejected\. /, '')?.replace(/Reason: /, '') || ''}
                       </div>
                     )}
+                    {section.type === 'notifications' && item.body && (
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {item.body}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#9ca3af' }}>
-                      {item.amount != null && <span style={{ color: '#5B6B4E', fontWeight: 600 }}>{currency(item.amount)}</span>}
+                      {section.type !== 'notifications' && item.amount != null && <span style={{ color: '#5B6B4E', fontWeight: 600 }}>{currency(item.amount)}</span>}
                       <span>{item.created_at || item.sent_at ? new Date(item.created_at || item.sent_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</span>
                     </div>
                   </div>
