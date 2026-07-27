@@ -733,8 +733,8 @@ export default function MyDonors() {
             <div style={{ margin: '10px 0', borderRadius: 10, overflow: 'hidden', display: 'flex', gap: 6 }}>
               <div style={{ flex: 1, borderRadius: 10, overflow: 'hidden' }}>
                 {isOnCall && activeCall?.donorId === donor.id ? (
-                  <button onClick={(e) => { e.stopPropagation(); endCall() }}
-                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
+                  <button onClick={(e) => { e.stopPropagation(); endCall() }} disabled={saving}
+                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .5 : 1, display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#fff' }}>call_end</span>
                     </div>
@@ -744,8 +744,8 @@ export default function MyDonors() {
                     </div>
                   </button>
                 ) : (
-                  <button onClick={(e) => { e.stopPropagation(); startCall(donor) }}
-                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
+                  <button onClick={(e) => { e.stopPropagation(); startCall(donor) }} disabled={saving}
+                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .5 : 1, display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#fff' }}>call</span>
                     </div>
@@ -1140,18 +1140,18 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); resetFormState(); setIndex(i => i - 1) }}>
+      <button className="btn-prev" disabled={index === 0 || saving} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); resetFormState(); setIndex(i => i - 1) }}>
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', paddingRight: 4 }}>
         {isOnCall && activeCall?.donorId === donor.id ? (
-          <button onClick={endCall} className="fro-btn-end-call">
+          <button onClick={endCall} disabled={saving} className="fro-btn-end-call" style={saving ? { opacity: .5, cursor: 'not-allowed' } : undefined}>
             <span className="fro-pulse-dot" />
             End Call
           </button>
         ) : (
-          <button onClick={() => startCall(donor)} className="fro-btn-call">
+          <button onClick={() => startCall(donor)} disabled={saving} className="fro-btn-call" style={saving ? { opacity: .5, cursor: 'not-allowed' } : undefined}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
             Call Now
           </button>
