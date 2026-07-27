@@ -77,7 +77,37 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 
   if (convErr || !conversation) throw new Error('Conversation not found');
 
-  const project = conversation.contact?.project || conversation.project || 'bsct';
+  if (!conversation.assigned_agent_id) {
+    await supabase
+      .from('conversations')
+      .update({ assigned_agent_id: froWorkerId })
+      .eq('id', conversationId);
+    conversation.assigned_agent_id = froWorkerId;
+  }
+
+  let project = conversation.project;
+
+  if (!project) {
+    const { data: workerAssignments } = await supabase
+      .from('worker_agent_assignments')
+      .select('account_id, whatsapp_accounts!inner(project)')
+      .eq('user_id', froWorkerId);
+    if (workerAssignments?.length) {
+      project = workerAssignments[0].whatsapp_accounts?.project;
+    }
+  }
+
+  if (!project) {
+    const { data: froAssignments } = await supabase
+      .from('fro_whatsapp_assignments')
+      .select('whatsapp_accounts!inner(project)')
+      .eq('fro_worker_id', froWorkerId)
+      .eq('is_active', true)
+      .maybeSingle();
+    project = froAssignments?.whatsapp_accounts?.project;
+  }
+
+  project = project || 'bsct';
   const recipientPhone = conversation.contact?.phone_normalized;
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
@@ -186,27 +216,34 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   return message;
 }
 
-export async function sendDirectMessage(froWorkerId, phone, messageText) {
+export async function sendDirectMessage(froWorkerId, phone, messageText, projectOverride) {
   const phoneNormalized = String(phone).replace(/[^0-9]/g, '');
 
   let contact = await findOrCreateContact(phoneNormalized);
-  let conversation = await findOrCreateConversation(contact, froWorkerId);
+  let conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
 
-  const { data: accountAssignment } = await supabase
-    .from('fro_whatsapp_assignments')
-    .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
-    .eq('fro_worker_id', froWorkerId)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  const project = conversation.project || accountAssignment?.whatsapp_accounts?.project || 'bsct';
+  const project = projectOverride || conversation.project || 'bsct';
   const recipientPhone = phoneNormalized;
 
-  let account;
-  if (accountAssignment) {
-    account = accountAssignment.whatsapp_accounts;
-  } else {
-    account = await getAccountByProject(project);
+  let account = await getAccountByProject(project);
+
+  if (!account) {
+    const { data: froAcct } = await supabase
+      .from('fro_whatsapp_assignments')
+      .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
+      .eq('fro_worker_id', froWorkerId)
+      .eq('is_active', true)
+      .maybeSingle();
+    account = froAcct?.whatsapp_accounts;
+  }
+
+  if (!account) {
+    const { data: workerAcct } = await supabase
+      .from('worker_agent_assignments')
+      .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
+      .eq('user_id', froWorkerId)
+      .maybeSingle();
+    account = workerAcct?.whatsapp_accounts;
   }
 
   const accessToken = account?.access_token || config.accessToken;
@@ -300,6 +337,13 @@ export async function sendDirectMessage(froWorkerId, phone, messageText) {
   return { message, conversation: fullConversation };
 }
 
+export async function createEmptyConversation(froWorkerId, phone, projectOverride) {
+  const phoneNormalized = String(phone).replace(/[^0-9]/g, '');
+  const contact = await findOrCreateContact(phoneNormalized);
+  const conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
+  return { conversation, contact };
+}
+
 async function findOrCreateContact(phoneNormalized) {
   const { data: existing } = await supabase
     .from('contacts')
@@ -334,15 +378,26 @@ async function findOrCreateContact(phoneNormalized) {
   }
 }
 
-async function findOrCreateConversation(contact, froWorkerId) {
-  const { data: existing } = await supabase
+async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
+  const projectFilter = projectOverride || contact.project || null;
+
+  let query = supabase
     .from('conversations')
     .select('*')
     .eq('contact_id', contact.id)
-    .eq('status', 'open')
-    .maybeSingle();
+    .eq('status', 'open');
 
-  if (existing) return existing;
+  if (projectFilter) {
+    query = query.eq('project', projectFilter);
+  } else {
+    query = query.is('project', null);
+  }
+
+  const { data: existing } = await query.maybeSingle();
+
+  if (existing) {
+    return existing;
+  }
 
   try {
     const { data: newConv, error } = await supabase
@@ -351,7 +406,8 @@ async function findOrCreateConversation(contact, froWorkerId) {
         contact_id: contact.id,
         status: 'open',
         last_message_at: new Date().toISOString(),
-        project: contact.project || null,
+        project: projectOverride || contact.project || null,
+        assigned_agent_id: froWorkerId,
       })
       .select()
       .single();
@@ -359,13 +415,17 @@ async function findOrCreateConversation(contact, froWorkerId) {
     if (error) throw error;
     return newConv;
   } catch (insertErr) {
-    // Handle race: another request inserted the same conversation concurrently
-    const { data: raceConv } = await supabase
+    let raceQuery = supabase
       .from('conversations')
       .select('*')
       .eq('contact_id', contact.id)
-      .eq('status', 'open')
-      .maybeSingle();
+      .eq('status', 'open');
+    if (projectFilter) {
+      raceQuery = raceQuery.eq('project', projectFilter);
+    } else {
+      raceQuery = raceQuery.is('project', null);
+    }
+    const { data: raceConv } = await raceQuery.maybeSingle();
     if (raceConv) return raceConv;
     throw insertErr;
   }
@@ -378,6 +438,51 @@ export async function markConversationRead(conversationId, froWorkerId) {
     .eq('id', conversationId);
 
   if (error) throw error;
+}
+
+export async function getAgentConversations(agentUserId, projectFilter, role) {
+  const isAdmin = ['admin', 'master', 'super_admin'].includes(role);
+
+  let query = supabase
+    .from('conversations')
+    .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
+    .order('last_message_at', { ascending: false });
+
+  if (isAdmin) {
+    query = query.or(`assigned_agent_id.eq.${agentUserId},assigned_agent_id.is.null`);
+  } else {
+    query = query.eq('assigned_agent_id', agentUserId);
+  }
+
+  if (projectFilter) {
+    query = query.eq('project', projectFilter);
+  }
+
+  const { data: conversations, error: convErr } = await query;
+
+  if (convErr) {
+    if (convErr.code === '42P01' || convErr.message?.includes('does not exist')) return [];
+    throw convErr;
+  }
+
+  const seen = new Map();
+  for (const c of conversations || []) {
+    const key = `${c.contact_id}__${c.project || 'none'}`;
+    if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
+      seen.set(key, c);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+export async function getAgentUnreadCount(agentUserId, role) {
+  try {
+    const conversations = await getAgentConversations(agentUserId, null, role);
+    return conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  } catch (err) {
+    console.error('[getAgentUnreadCount] error:', err.message);
+    return 0;
+  }
 }
 
 export async function getFroUnreadCount(froWorkerId) {
@@ -422,7 +527,10 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     .single();
   if (convErr || !conversation) throw new Error('Conversation not found');
 
-  const project = conversation.contact?.project || conversation.project || 'bsct';
+  let project = conversation.project;
+  if (!project) {
+    project = conversation.contact?.project || 'bsct';
+  }
   const recipientPhone = conversation.contact?.phone_normalized;
   if (!recipientPhone) throw new Error('Recipient phone not found');
 

@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { fetchConversations, fetchConversation, createConversation, updateConversation, createMessage, fetchConversationsByContact } from '../lib/api';
@@ -240,8 +240,22 @@ function MessageBubble({
 export function InboxPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
+
+  const accountId = searchParams.get('account');
+
+  const { data: accountProject } = useQuery({
+    queryKey: ['inbox-account-project', accountId],
+    queryFn: async () => {
+      if (!accountId) return null;
+      const { data } = await supabase.from('whatsapp_accounts').select('project, name').eq('id', accountId).single();
+      return data?.project ?? null;
+    },
+    enabled: !!accountId,
+  });
+
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -324,13 +338,16 @@ export function InboxPage() {
   };
 
   const { data: conversations, isLoading: loadingConvs } = useQuery({
-    queryKey: ['conversations', user?.id],
+    queryKey: ['conversations', user?.id, accountProject],
     queryFn: async () => {
       const params: Record<string, string> = {};
       if (user?.role === 'agent') params.assigned_agent_id = user.id;
       const data = await fetchConversations(params);
+      const filtered = accountProject
+        ? (data || []).filter((c: any) => c.project === accountProject)
+        : (data || []);
       const seen = new Map<string, any>();
-      for (const c of data || []) {
+      for (const c of filtered) {
         const key = c.contact_id;
         if (!seen.has(key) || new Date(c.last_message_at) > new Date(seen.get(key).last_message_at)) {
           seen.set(key, c);
