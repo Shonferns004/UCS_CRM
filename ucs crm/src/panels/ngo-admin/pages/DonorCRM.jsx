@@ -506,7 +506,7 @@ export default function DonorCRM() {
             </thead>
             <tbody>
               {donors.length === 0 ? (
-                <tr><td colSpan={7} className="empty-state">No donors found</td></tr>
+                <tr><td colSpan={7} className="empty-state">No verified donors found (only donors with verified payments are shown)</td></tr>
               ) : donors.map((d, idx) => (
                 <tr key={d.mobile_number || idx}>
                   <td><strong>{d.name}</strong></td>
