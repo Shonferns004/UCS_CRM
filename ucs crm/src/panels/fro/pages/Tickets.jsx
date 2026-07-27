@@ -51,8 +51,15 @@ export default function FroTickets() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiGet('/tickets/my');
-      setTickets(data || []);
+      const [regularTickets, devTickets] = await Promise.all([
+        apiGet('/tickets/my').catch(() => []),
+        apiGet('/developer-tickets/my').catch(() => []),
+      ]);
+      const allTickets = [
+        ...(regularTickets || []).map(t => ({ ...t, _source: 'regular' })),
+        ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setTickets(allTickets);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
@@ -62,8 +69,17 @@ export default function FroTickets() {
     async function fetchData() {
       setLoading(true);
       try {
-        const data = await apiGet('/tickets/my');
-        if (!cancelled) setTickets(data || []);
+        const [regularTickets, devTickets] = await Promise.all([
+          apiGet('/tickets/my').catch(() => []),
+          apiGet('/developer-tickets/my').catch(() => []),
+        ]);
+        if (!cancelled) {
+          const allTickets = [
+            ...(regularTickets || []).map(t => ({ ...t, _source: 'regular' })),
+            ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
+          ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          setTickets(allTickets);
+        }
       } catch (err) { console.error(err); }
       finally { if (!cancelled) setLoading(false); }
     }
@@ -75,7 +91,18 @@ export default function FroTickets() {
     if (!form.subject) { alert('Subject is required'); return; }
     setSubmitting(true);
     try {
-      await apiPost('/tickets', form);
+      if (form.department === 'developers') {
+        await apiPost('/developer-tickets', {
+          subject: form.subject,
+          description: form.description,
+          category: form.category,
+          priority: form.priority,
+          reference_id: form.reference_id,
+          raised_by_panel: 'fro',
+        });
+      } else {
+        await apiPost('/tickets', form);
+      }
       setShowRaise(false);
       setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium' });
       load();
@@ -85,8 +112,9 @@ export default function FroTickets() {
 
   const openDetail = async (ticket) => {
     try {
-      const data = await apiGet(`/tickets/${ticket.id}`);
-      setShowDetail(data);
+      const endpoint = ticket._source === 'developer' ? '/developer-tickets' : '/tickets';
+      const data = await apiGet(`${endpoint}/${ticket.id}`);
+      setShowDetail({ ...data, _source: ticket._source });
       setReplies(data.replies || []);
       setReplyText('');
     } catch (err) { alert(err.message); }
@@ -96,9 +124,10 @@ export default function FroTickets() {
     if (!replyText || !showDetail) return;
     setSendingReply(true);
     try {
-      await apiPost(`/tickets/${showDetail.id}/reply`, { message: replyText });
+      const endpoint = showDetail._source === 'developer' ? '/developer-tickets' : '/tickets';
+      await apiPost(`${endpoint}/${showDetail.id}/reply`, { message: replyText });
       setReplyText('');
-      const data = await apiGet(`/tickets/${showDetail.id}`);
+      const data = await apiGet(`${endpoint}/${showDetail.id}`);
       setReplies(data.replies || []);
     } catch (err) { alert(err.message); }
     finally { setSendingReply(false); }
@@ -136,7 +165,16 @@ export default function FroTickets() {
                 tickets.map(t => (
                   <tr key={t.id}>
                     <td><strong style={{ fontSize: 13 }}>{t.subject}</strong></td>
-                    <td><span className="pill" style={{ textTransform: 'capitalize' }}>{t.department}</span></td>
+                    <td>
+                      <span className="pill" style={{
+                        textTransform: 'capitalize',
+                        fontSize: 11,
+                        background: t._source === 'developer' ? '#eef2ff' : undefined,
+                        color: t._source === 'developer' ? '#4338ca' : undefined,
+                      }}>
+                        {t._source === 'developer' ? 'Dev' : t.department}
+                      </span>
+                    </td>
                     <td style={{ fontSize: 12, textTransform: 'capitalize' }}>{CATEGORIES.find(c => c.value === t.category)?.label || t.category}</td>
                     <td>
                       <span className={`pill ${t.priority === 'high' ? 'pill-red' : t.priority === 'medium' ? 'pill-yellow' : 'pill-gray'}`} style={{ textTransform: 'capitalize', fontSize: 11 }}>
