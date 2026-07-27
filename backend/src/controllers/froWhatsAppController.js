@@ -5,6 +5,7 @@ import {
   getConversationMessages,
   sendFroReply,
   sendDirectMessage,
+  createEmptyConversation,
   markConversationRead,
   getFroUnreadCount,
   getQuickReplies,
@@ -14,10 +15,12 @@ import {
   updateConversationLabels,
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
+import supabase from '../config/supabase.js';
 
 export async function listAgentConversations(req, res) {
   try {
-    const conversations = await getAgentConversations(req.user.id);
+    const { project } = req.query;
+    const conversations = await getAgentConversations(req.user.id, project || null, req.user.role);
     return res.json(conversations);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -26,7 +29,7 @@ export async function listAgentConversations(req, res) {
 
 export async function agentUnreadCount(req, res) {
   try {
-    const count = await getAgentUnreadCount(req.user.id);
+    const count = await getAgentUnreadCount(req.user.id, req.user.role);
     return res.json({ count });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -70,12 +73,26 @@ export async function sendMessage(req, res) {
 
 export async function sendDirect(req, res) {
   try {
-    const { phone, text } = req.body;
+    const { phone, text, project } = req.body;
     if (!phone || !text || !text.trim()) {
       return res.status(400).json({ message: 'Phone and text are required' });
     }
 
-    const result = await sendDirectMessage(req.user.id, phone, text.trim());
+    const result = await sendDirectMessage(req.user.id, phone, text.trim(), project);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function createConversation(req, res) {
+  try {
+    const { phone, project } = req.body;
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone is required' });
+    }
+
+    const result = await createEmptyConversation(req.user.id, phone, project || null);
     return res.json({ success: true, ...result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -167,6 +184,46 @@ export async function uploadMedia(req, res) {
     }
     const record = await uploadFroMedia(req.user.id, req.file);
     return res.json({ url: record.file_url, name: record.name, type: record.file_type });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
+
+export async function listMyAccounts(req, res) {
+  try {
+    const userId = req.user.id;
+    const { data: froAssignments } = await supabase
+      .from('fro_whatsapp_assignments')
+      .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
+      .eq('fro_worker_id', userId)
+      .eq('is_active', true);
+
+    const { data: crmAssignments } = await supabase
+      .from('agent_phone_assignments')
+      .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
+      .eq('user_id', userId);
+
+    const { data: workerAssignments } = await supabase
+      .from('worker_agent_assignments')
+      .select('account_id')
+      .eq('user_id', userId);
+
+    const workerAccountIds = (workerAssignments || []).map(a => a.account_id).filter(Boolean);
+    let workerAccounts = [];
+    if (workerAccountIds.length > 0) {
+      const { data } = await supabase
+        .from('whatsapp_accounts')
+        .select('id, name, phone_number_id, project')
+        .in('id', workerAccountIds);
+      workerAccounts = data || [];
+    }
+
+    const seen = new Map();
+    for (const a of [...(froAssignments || []), ...(crmAssignments || []), ...workerAccounts]) {
+      const acct = a.whatsapp_accounts || a;
+      if (acct?.id && !seen.has(acct.id)) seen.set(acct.id, acct);
+    }
+    return res.json(Array.from(seen.values()));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

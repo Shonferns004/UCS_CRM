@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getTemplates, sendTemplateMessage } from '../../api/whatsappSupabase'
+import { getTemplates as getTemplatesEnhanced, sendTemplateMessage as sendTemplateEnhanced } from '../../api/whatsappEnhanced'
+import { getTemplates as getTemplatesDirect, sendTemplateMessage as sendTemplateDirect } from '../../api/whatsappSupabase'
 
 function TemplateParamsModal({ template, onClose, onSend }) {
   const [values, setValues] = useState({})
@@ -62,7 +63,7 @@ function TemplateParamsModal({ template, onClose, onSend }) {
   )
 }
 
-export default function TemplateBar({ conversationId, contactId, project, userId, onSent }) {
+export default function TemplateBar({ conversationId, contactId, project, userId, onSent, agentToken }) {
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -72,17 +73,24 @@ export default function TemplateBar({ conversationId, contactId, project, userId
   useEffect(() => {
     if (!open) return
     setLoading(true)
-    getTemplates(project)
+    const fetchFn = agentToken
+      ? () => getTemplatesEnhanced(project, agentToken)
+      : () => getTemplatesDirect(project)
+    fetchFn()
       .then(data => setTemplates(data || []))
       .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false))
-  }, [open, project])
+  }, [open, project, agentToken])
 
   const handleSend = async (template, params) => {
     if (sending || !conversationId || !contactId || !userId) return
     setSending(true)
     try {
-      await sendTemplateMessage(conversationId, contactId, template, params || [], userId)
+      if (agentToken) {
+        await sendTemplateEnhanced(conversationId, template.name, params || [], agentToken)
+      } else {
+        await sendTemplateDirect(conversationId, contactId, template, params || [], userId)
+      }
       onSent?.()
     } catch (err) {
       alert('Failed to send template: ' + err.message)

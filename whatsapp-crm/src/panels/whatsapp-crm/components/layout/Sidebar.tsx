@@ -5,6 +5,8 @@ import { cn } from '../../lib/utils';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../stores/authStore';
 
+const INBOX_SHORT: Record<string, string> = { bsct: 'BSCT', aflf: 'AFLF', maan: 'MAAN' };
+
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
   { name: 'Contacts', href: '/contacts', icon: Users },
@@ -96,7 +98,7 @@ export function Sidebar() {
   const navigation = [
     ...baseNavigation.slice(0, 1),
     ...accounts.map(acc => ({
-      name: accounts.length === 1 ? 'Inbox' : `Inbox - ${acc.name}`,
+      name: accounts.length === 1 ? `Inbox ${INBOX_SHORT[acc.project] || acc.name}` : `Inbox ${INBOX_SHORT[acc.project] || acc.name}`,
       href: `/inbox?account=${acc.id}`,
       icon: MessageSquare,
       accountId: acc.id,

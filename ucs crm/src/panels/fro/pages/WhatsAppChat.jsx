@@ -99,6 +99,11 @@ function WhatsAppChatInner() {
   const [agent, setAgent] = useState(null)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    setAgent(null)
+    setError('')
+  }, [project])
+
   if (!agent && !error) {
     return (
       <AutoLoginLoader

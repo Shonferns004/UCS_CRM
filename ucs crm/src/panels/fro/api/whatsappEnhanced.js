@@ -2,7 +2,7 @@ import { api } from './auth'
 
 function agentApi(path, options = {}, agentToken) {
   if (agentToken) {
-    const headers = { ...(options.headers || {}), Authorization: `Bearer ${agentToken}` }
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), Authorization: `Bearer ${agentToken}` }
     const base = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
     return fetch(`${base}${path}`, { ...options, headers }).then(async r => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
@@ -12,8 +12,13 @@ function agentApi(path, options = {}, agentToken) {
   return api(path, options)
 }
 
-export async function getConversations(userId, agentToken) {
-  return agentApi('/fro/whatsapp/agent-conversations', {}, agentToken)
+export async function getMyAccounts(agentToken) {
+  return agentApi('/fro/whatsapp/my-accounts', {}, agentToken)
+}
+
+export async function getConversations(userId, agentToken, project) {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return agentApi(`/fro/whatsapp/agent-conversations${qs}`, {}, agentToken)
 }
 
 export async function getUnreadCount(userId, agentToken) {
@@ -31,10 +36,17 @@ export async function sendMessage(conversationId, text, agentToken) {
   }, agentToken)
 }
 
-export async function sendDirectMessage(phone, text, agentToken) {
+export async function sendDirectMessage(phone, text, agentToken, project) {
   return agentApi('/fro/whatsapp/send-direct', {
     method: 'POST',
-    body: JSON.stringify({ phone, text }),
+    body: JSON.stringify({ phone, text, project }),
+  }, agentToken)
+}
+
+export async function createConversation(phone, agentToken, project) {
+  return agentApi('/fro/whatsapp/create-conversation', {
+    method: 'POST',
+    body: JSON.stringify({ phone, project }),
   }, agentToken)
 }
 
