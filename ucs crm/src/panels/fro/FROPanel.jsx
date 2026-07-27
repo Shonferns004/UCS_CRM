@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { LayoutDashboard, CalendarClock, Users, ArrowLeftRight, Gift, HeartCrack, Ticket, MessageCircle } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -26,14 +27,16 @@ import WhatsAppChat from './pages/WhatsAppChat'
 import FroTickets from './pages/Tickets'
 
 const NAV_BASE = [
-  { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Up / Callback', icon: 'calendar_month' },
-  { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', icon: 'group' },
-  { id: 'transferred-leads', path: '/fro/transferred-leads', label: 'Transferred', icon: 'swap_horiz' },
-  { id: 'donors', path: '/fro/donors', label: 'Donors', icon: 'card_giftcard' },
-  { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', icon: 'heart_broken' },
-  { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', icon: 'confirmation_number' },
+  { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+  { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Up / Callback', Icon: CalendarClock },
+  { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
+  { id: 'transferred-leads', path: '/fro/transferred-leads', label: 'Transferred', Icon: ArrowLeftRight },
+  { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
+  { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', Icon: HeartCrack },
+  { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
 ]
+
+const INBOX_SHORT = { bsct: 'BSCT', aflf: 'AFLF', maan: 'MAAN' }
 
 const MAX_DROPDOWN = 4
 
@@ -61,13 +64,13 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
   const nav = [...NAV_BASE]
   const waAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
   if (waAgents.length === 1) {
-    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: 'WhatsApp Chat', icon: 'chat' })
+    nav.push({ id: 'whatsapp-chat', path: `/fro/whatsapp-chat?project=${waAgents[0].project}`, label: `Inbox ${INBOX_SHORT[waAgents[0].project] || waAgents[0].project}`, Icon: MessageCircle })
   } else if (waAgents.length > 1) {
     waAgents.forEach(a => {
-      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `WhatsApp - ${a.accountName || a.project}`, icon: 'chat' })
+      nav.push({ id: `whatsapp-${a.project}`, path: `/fro/whatsapp-chat?project=${a.project}`, label: `Inbox ${INBOX_SHORT[a.project] || a.project}`, Icon: MessageCircle })
     })
   } else {
-    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'WhatsApp Chat', icon: 'chat' })
+    nav.push({ id: 'whatsapp-chat', path: '/fro/whatsapp-chat', label: 'Inbox', Icon: MessageCircle })
   }
   return (
     <>
@@ -79,15 +82,20 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
         </div>
         <nav className="sidebar-nav">
           {nav.map(n => (
-            <NavLink key={n.id} to={n.path}
-              className={`snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
+            <NavLink key={n.id} to={n.path} end
+              className={() => `snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
               onClick={() => onClose?.()}>
-            <span className="ico material-symbols-outlined" style={{ fontSize: 18 }}>{n.icon}</span>
+            <n.Icon size={18} strokeWidth={2} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>{n.label}</span>
               {n.id.startsWith('whatsapp') && waUnreadCounts?.[n.id] > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
                   {waUnreadCounts[n.id] > 9 ? '9+' : waUnreadCounts[n.id]}
+                </span>
+              )}
+              {n.id === 'whatsapp-chat' && waAgents.length === 1 && waUnreadCounts?.[`whatsapp-${waAgents[0]?.project}`] > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
+                  {waUnreadCounts[`whatsapp-${waAgents[0]?.project}`] > 9 ? '9+' : waUnreadCounts[`whatsapp-${waAgents[0]?.project}`]}
                 </span>
               )}
               {n.id === 'whatsapp-chat' && waUnreadCounts?.total > 0 && !waAgents.length && (

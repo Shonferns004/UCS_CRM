@@ -25,7 +25,7 @@ export async function whatsappAutoLogin(req, res) {
     const sessions = [];
     for (const agent of agents) {
       const token = jwt.sign(
-        { id: agent.id, email: agent.email, role: agent.role || 'agent', name: agent.name },
+        { id: agent.id, email: agent.email, role: 'agent', name: agent.name },
         process.env.JWT_SECRET,
         { expiresIn: '24h' }
       );
@@ -122,7 +122,7 @@ export async function whatsappLogin(req, res) {
       userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
       const agentExpiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
       token = jwt.sign(
-        { id: userData.id, email: userData.email, role: userData.role || 'agent', name: userData.name },
+        { id: userData.id, email: userData.email, role: 'agent', name: userData.name },
         process.env.JWT_SECRET,
         { expiresIn: agentExpiry }
       );
