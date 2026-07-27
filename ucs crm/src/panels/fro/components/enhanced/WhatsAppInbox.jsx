@@ -236,7 +236,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     if (!newConvPhone.trim() || sendingNew || !waUser) return
     setSendingNew(true)
     try {
-      const result = await createConversation(newConvPhone.trim(), agentToken, activeTab !== 'all' ? activeTab : undefined)
+      const result = await createConversation(newConvPhone.trim(), agentToken, newConvProject || undefined)
       setShowNewConv(false)
       setNewConvPhone('')
       queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
