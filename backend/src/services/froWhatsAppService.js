@@ -456,7 +456,40 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
   if (isAdmin) {
     query = query.or(`assigned_agent_id.eq.${agentUserId},assigned_agent_id.is.null`);
   } else {
-    query = query.eq('assigned_agent_id', agentUserId);
+    const { data: myAcctAssigns } = await supabase
+      .from('worker_agent_assignments')
+      .select('account_id')
+      .eq('user_id', agentUserId);
+    const { data: myFroAssigns } = await supabase
+      .from('fro_whatsapp_assignments')
+      .select('whatsapp_account_id')
+      .eq('fro_worker_id', agentUserId)
+      .eq('is_active', true);
+    const { data: myAgentAssigns } = await supabase
+      .from('agent_phone_assignments')
+      .select('account_id')
+      .eq('user_id', agentUserId);
+
+    const acctIds = new Set();
+    for (const a of [...(myAcctAssigns || []), ...(myFroAssigns || []), ...(myAgentAssigns || [])]) {
+      if (a.account_id) acctIds.add(a.account_id);
+    }
+
+    let myProjects = [];
+    if (acctIds.size > 0) {
+      const { data: accts } = await supabase
+        .from('whatsapp_accounts')
+        .select('project')
+        .in('id', Array.from(acctIds));
+      myProjects = (accts || []).map(a => a.project).filter(Boolean);
+    }
+
+    const orParts = [`assigned_agent_id.eq.${agentUserId}`];
+    if (myProjects.length > 0) {
+      const projectOr = myProjects.map(p => `and(project.eq.${p},assigned_agent_id.is.null)`).join(',');
+      orParts.push(projectOr);
+    }
+    query = query.or(orParts.join(','));
   }
 
   if (projectFilter) {
