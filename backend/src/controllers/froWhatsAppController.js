@@ -139,11 +139,11 @@ export async function listTemplates(req, res) {
 
 export async function sendTemplate(req, res) {
   try {
-    const { conversationId, templateName, paramValues } = req.body;
+    const { conversationId, templateName, paramValues, headerMediaUrl, headerMediaName } = req.body;
     if (!conversationId || !templateName) {
       return res.status(400).json({ message: 'conversationId and templateName are required' });
     }
-    const message = await sendTemplateReply(conversationId, req.user.id, templateName, paramValues || []);
+    const message = await sendTemplateReply(conversationId, req.user.id, templateName, paramValues || [], headerMediaUrl, headerMediaName);
     return res.json({ success: true, message });
   } catch (error) {
     return res.status(500).json({ message: error.message });

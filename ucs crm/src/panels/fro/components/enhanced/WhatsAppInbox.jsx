@@ -7,7 +7,6 @@ import {
   sendMessage as sendMsgApi,
   createConversation,
   markRead,
-  getUnreadCount,
   searchMessages,
   uploadMedia,
   getMyAccounts,
@@ -39,6 +38,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const bottomRef = useRef(null)
+  const handledRouteTargetRef = useRef('')
 
   const [activeConv, setActiveConv] = useState(null)
   const [activeTab, setActiveTab] = useState(activeProject || searchParams.get('project') || 'all')
@@ -49,10 +49,11 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const [myAccounts, setMyAccounts] = useState([])
   const [sendingNew, setSendingNew] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
   const [mediaFile, setMediaFile] = useState(null)
 
-  const height = compact ? '100%' : 'calc(100vh - 180px)'
+  // The surrounding panel owns the viewport sizing. Filling that space keeps the
+  // inbox aligned with both the FRO and Accounts layouts.
+  const height = '100%'
 
   const { data: conversations = [], isLoading: loadingConv } = useQuery({
     queryKey: ['wa-conversations', waUser?.id, activeTab],
@@ -79,28 +80,37 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   useEffect(() => {
     const phoneParam = searchParams.get('phone')
     const projectParam = searchParams.get('project')
+    const routeTarget = `${projectParam || ''}:${phoneParam || ''}`
     if (projectParam && PROJECT_TAB_COLORS[projectParam]) {
       setActiveTab(projectParam)
+      if (activeTab !== projectParam) return
     }
     setNewConvProject(projectParam || (activeTab !== 'all' ? activeTab : ''))
-    if (phoneParam) {
-      if (conversations.length > 0) {
-        const match = conversations.find(c => {
-          const p = c.contact?.phone_normalized || c.contact?.phone || ''
-          return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
-        })
-        if (match) {
-          setActiveConv(match)
-        } else {
-          setNewConvPhone(phoneParam)
-          setShowNewConv(true)
-        }
+    if (!phoneParam) {
+      handledRouteTargetRef.current = ''
+      return
+    }
+    if (handledRouteTargetRef.current === routeTarget) return
+
+    if (conversations.length > 0) {
+      const match = conversations.find(c => {
+        const p = c.contact?.phone_normalized || c.contact?.phone || ''
+        return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
+      })
+      if (match) {
+        setActiveConv(match)
+        handledRouteTargetRef.current = routeTarget
       } else {
         setNewConvPhone(phoneParam)
         setShowNewConv(true)
+        handledRouteTargetRef.current = routeTarget
       }
+    } else if (!loadingConv) {
+      setNewConvPhone(phoneParam)
+      setShowNewConv(true)
+      handledRouteTargetRef.current = routeTarget
     }
-  }, [searchParams, conversations])
+  }, [searchParams, conversations, activeTab, loadingConv])
 
   const { data: messages = null } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
@@ -118,14 +128,10 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   useEffect(() => {
     if (!waUser?.id && !agentToken) return
     if (agentToken) {
-      getUnreadCount(waUser?.id, agentToken).then(d => setUnreadCount(d?.count || d || 0)).catch(() => {})
       getMyAccounts(agentToken).then(accounts => {
         if (accounts?.length) setMyAccounts(accounts)
       }).catch(() => {})
-      const interval = setInterval(() => {
-        getUnreadCount(waUser?.id, agentToken).then(d => setUnreadCount(d?.count || d || 0)).catch(() => {})
-      }, 15000)
-      return () => clearInterval(interval)
+      return undefined
     }
     ;(async () => {
       const { data: assigns } = await supabase
@@ -141,11 +147,6 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
         if (data) setMyAccounts(data)
       }
     })()
-    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
-    const interval = setInterval(() => {
-      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch(() => {})
-    }, 15000)
-    return () => clearInterval(interval)
   }, [waUser?.id, agentToken])
 
   useEffect(() => {
@@ -153,6 +154,32 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages])
+
+  useEffect(() => {
+    if (!activeConv?.id) return
+    const channel = supabase
+      .channel(`wa-messages-${activeConv.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConv.id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [activeConv?.id, queryClient])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('wa-conversations-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        if (payload.new?.conversation_id && payload.new?.conversation_id !== activeConv?.id) {
+          queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+        }
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [queryClient, activeConv?.id])
 
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
@@ -163,9 +190,15 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   const handleSend = useCallback(async (text) => {
     if (!activeConv) return
-    await sendMsgApi(activeConv.id, text, agentToken)
-    queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    console.log('[WhatsAppInbox] handleSend:', { convId: activeConv.id, text, hasToken: !!agentToken, project: activeConv.project })
+    try {
+      await sendMsgApi(activeConv.id, text, agentToken)
+      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    } catch (err) {
+      console.error('[WhatsAppInbox] send failed:', err.message)
+      throw err
+    }
   }, [activeConv, agentToken, queryClient])
 
   const handleSendMedia = useCallback(async (files) => {
@@ -213,7 +246,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     if (!newConvPhone.trim() || sendingNew || !waUser) return
     setSendingNew(true)
     try {
-      const result = await createConversation(newConvPhone.trim(), agentToken, activeTab !== 'all' ? activeTab : undefined)
+      const result = await createConversation(newConvPhone.trim(), agentToken, newConvProject || undefined)
       setShowNewConv(false)
       setNewConvPhone('')
       queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
@@ -235,35 +268,10 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const activeContactId = activeConv?.contact_id || contact.id
 
   return (
-    <div style={{ display: 'flex', height, border: compact ? 'none' : '1px solid #e5e7eb', borderRadius: compact ? 0 : 12, overflow: 'hidden', background: '#fff' }}>
+    <div style={{ display: 'flex', height, border: compact ? 'none' : '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
       {/* Sidebar */}
       <div style={{ width: 280, borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Inbox</div>
-              {unreadCount > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px' }}>
-                  {unreadCount}
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              {activeTab && activeTab !== 'all' && (
-                <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 10, padding: '2px 8px', lineHeight: '16px', background: PROJECT_TAB_COLORS[activeTab]?.bg || '#f3f4f6', color: PROJECT_TAB_COLORS[activeTab]?.text || '#6b7280' }}>
-                  {PROJECT_TABS.find(t => t.id === activeTab)?.label || activeTab}
-                </span>
-              )}
-              <button onClick={() => setShowSearch(true)}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: '#6b7280' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              <button onClick={onLogout}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#dc2626', padding: '4px 6px' }}>
-                Logout
-              </button>
-            </div>
-          </div>
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search conversations..."
             style={{ width: '100%', padding: '6px 10px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }} />
