@@ -21,33 +21,31 @@ function AutoLoginLoader({ project, onReady, onError }) {
         return
       }
 
-      // Check stored agents first
-      const stored = JSON.parse(localStorage.getItem('wa_agents') || '[]')
-      let agent = project ? stored.find(a => a.project === project) : stored[0]
+      // Always clear stale agents and re-fetch on page load
+      localStorage.removeItem('wa_agents')
+      let agent = null
 
-      if (!agent) {
-        // Try auto-login
-        try {
-          const res = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
-            headers: { Authorization: `Bearer ${ucsToken}` },
-          })
-          if (res.ok) {
-            const data = await res.json()
-            const sessionList = data.agents || data.sessions || []
-            if (sessionList.length) {
-              const agents = sessionList.map(s => ({
-                agentUserId: s.agentId,
-                accountName: s.account?.name,
-                project: s.project,
-                whatsappUserId: s.account?.id,
-                token: s.token,
-              }))
-              localStorage.setItem('wa_agents', JSON.stringify(agents))
-              agent = project ? agents.find(a => a.project === project) : agents[0]
-            }
+      // Auto-login
+      try {
+        const res = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
+          headers: { Authorization: `Bearer ${ucsToken}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const sessionList = data.sessions || data.agents || []
+          if (sessionList.length) {
+            const agents = sessionList.map(s => ({
+              agentUserId: s.agentId,
+              accountName: s.account?.name,
+              project: s.project,
+              whatsappUserId: s.account?.id,
+              token: s.token,
+            }))
+            localStorage.setItem('wa_agents', JSON.stringify(agents))
+            agent = project ? agents.find(a => a.project === project) : agents[0]
           }
-        } catch { /* silent */ }
-      }
+        }
+      } catch { /* silent */ }
 
       if (!cancelled) {
         if (agent) {
