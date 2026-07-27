@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../../../api/auth';
+import { toast } from '../../../components/Toast';
 
 const DEPARTMENTS = [
   { value: 'accounts', label: 'Accounts' },
@@ -114,6 +115,7 @@ export default function FroTickets() {
       } else {
         await apiPost('/tickets', form);
       }
+      toast('Ticket submitted successfully', 'success');
       setShowRaise(false);
       setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium' });
       setFormErrors({});
