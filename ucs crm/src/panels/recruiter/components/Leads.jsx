@@ -170,7 +170,7 @@ export default function Leads() {
                 <input value={phone} onChange={e=>handlePhoneChange(e.target.value)} placeholder="e.g. 9876543210" style={phoneError ? {borderColor:'#dc2626'} : undefined} required />
                 {phoneError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{phoneError}</span>}
               </label>
-              <label className="field">Date
+              <label className="field">DOB
                 <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
               </label>
               <label className="field">Source
@@ -241,7 +241,7 @@ export default function Leads() {
               <input value={phone} onChange={e=>handlePhoneChange(e.target.value)} placeholder="e.g. 9876543210" style={phoneError ? {borderColor:'#dc2626'} : undefined} required />
               {phoneError && <span style={{fontSize:11,color:'#dc2626',marginTop:2}}>{phoneError}</span>}
             </label>
-            <label className="field">Date
+            <label className="field">DOB
               <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
             </label>
             <label className="field">Source
