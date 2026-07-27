@@ -561,10 +561,31 @@ export async function getTemplates(project) {
   }
   const { data, error } = await query;
   if (error) throw error;
-  return data || [];
+
+  const account = project ? await getAccountByProject(project) : null;
+  return Promise.all((data || []).map(async template => {
+    if (template.components?.length || !account?.waba_id || !account?.access_token) return template;
+    const liveTemplate = await getLiveTemplateDefinition(account, template.name);
+    return liveTemplate ? { ...template, components: liveTemplate.components, language: liveTemplate.language || template.language } : template;
+  }));
 }
 
-export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues) {
+async function getLiveTemplateDefinition(account, templateName) {
+  if (!account?.waba_id || !account?.access_token) return null;
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${account.waba_id}/message_templates?name=${encodeURIComponent(templateName)}&fields=name,language,components`,
+      { headers: { Authorization: `Bearer ${account.access_token}` } }
+    );
+    const result = await response.json();
+    return result.data?.find(template => template.name === templateName) || null;
+  } catch (error) {
+    console.error('[getLiveTemplateDefinition] failed:', error.message);
+    return null;
+  }
+}
+
+export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues, headerMediaUrl, headerMediaName) {
   const { data: conversation, error: convErr } = await supabase
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
@@ -587,14 +608,19 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     throw new Error(`WhatsApp account not configured for project "${project}"`);
   }
 
-  const { data: template } = await supabase
+  const { data: storedTemplate } = await supabase
     .from('whatsapp_templates')
     .select('*')
     .eq('name', templateName)
+    .eq('project', project)
     .maybeSingle();
 
+  const liveTemplate = await getLiveTemplateDefinition(account, templateName);
+  const template = liveTemplate ? { ...storedTemplate, ...liveTemplate } : storedTemplate;
+  if (!template) throw new Error('Template not found for this WhatsApp account');
+
   const components = [];
-  if (template?.components) {
+  if (template.components) {
     for (const comp of template.components) {
       if (comp.type === 'BODY' && paramValues?.length > 0) {
         const matches = comp.text?.match(/\{\{(\d+)\}\}/g) || [];
@@ -603,8 +629,15 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
             type: 'text',
             text: paramValues[i] || '',
           }));
-          components.push({ type: 'BODY', parameters: params });
+          components.push({ type: 'body', parameters: params });
         }
+      }
+      if (comp.type === 'HEADER' && ['IMAGE', 'DOCUMENT', 'VIDEO'].includes(comp.format)) {
+        if (!headerMediaUrl) throw new Error(`This template requires a ${comp.format.toLowerCase()} header file`);
+        const mediaType = comp.format.toLowerCase();
+        const media = { link: headerMediaUrl };
+        if (mediaType === 'document' && headerMediaName) media.filename = headerMediaName;
+        components.push({ type: 'header', parameters: [{ type: mediaType, [mediaType]: media }] });
       }
     }
   }

@@ -222,7 +222,11 @@ export function MessageBubble({ message, isFirst, isLast, isGroup, onContextMenu
           <span style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1 }}>
             <TimeDisplay ts={message.created_at} />
           </span>
-          {isOutbound && <MessageStatusIcon status={message.status} />}
+          {isOutbound && (
+            <span title={message.status === 'failed' ? (message.failure_reason || 'WhatsApp could not deliver this message') : message.status}>
+              <MessageStatusIcon status={message.status} />
+            </span>
+          )}
         </div>
       </div>
       {preview && <MediaPreviewModal {...preview} onClose={() => setPreview(null)} />}
