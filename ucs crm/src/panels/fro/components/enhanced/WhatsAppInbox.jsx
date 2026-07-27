@@ -180,9 +180,15 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   const handleSend = useCallback(async (text) => {
     if (!activeConv) return
-    await sendMsgApi(activeConv.id, text, agentToken)
-    queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    console.log('[WhatsAppInbox] handleSend:', { convId: activeConv.id, text, hasToken: !!agentToken, project: activeConv.project })
+    try {
+      await sendMsgApi(activeConv.id, text, agentToken)
+      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    } catch (err) {
+      console.error('[WhatsAppInbox] send failed:', err.message)
+      throw err
+    }
   }, [activeConv, agentToken, queryClient])
 
   const handleSendMedia = useCallback(async (files) => {
