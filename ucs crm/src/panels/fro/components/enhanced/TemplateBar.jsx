@@ -1,33 +1,53 @@
 import { useState, useEffect } from 'react'
-import { getTemplates as getTemplatesEnhanced, sendTemplateMessage as sendTemplateEnhanced } from '../../api/whatsappEnhanced'
+import { getTemplates as getTemplatesEnhanced, sendTemplateMessage as sendTemplateEnhanced, uploadMedia } from '../../api/whatsappEnhanced'
 import { getTemplates as getTemplatesDirect, sendTemplateMessage as sendTemplateDirect } from '../../api/whatsappSupabase'
+
+function getHeaderMediaType(template) {
+  const header = template.components?.find(component => component.type === 'HEADER')
+  if (['IMAGE', 'DOCUMENT', 'VIDEO'].includes(header?.format)) return header.format
+
+  // Older records may not yet contain Meta's component metadata. These
+  // templates are known to require a media header, so do not send them bare.
+  const name = String(template.name || '').toLowerCase()
+  if (name.includes('receipt')) return 'DOCUMENT'
+  if (name.includes('quotation')) return 'IMAGE'
+  return null
+}
 
 function TemplateParamsModal({ template, onClose, onSend }) {
   const [values, setValues] = useState({})
+  const [headerFile, setHeaderFile] = useState(null)
 
-  const extractPlaceholders = (text) => {
-    const matches = text.match(/\{\{(\d+)\}\}/g) || []
-    return [...new Set(matches.map(m => parseInt(m.replace(/\D/g, ''))))]
-  }
-
-  const headerText = template.components?.find(c => c.type === 'HEADER')?.text || ''
-  const bodyText = template.components?.find(c => c.type === 'BODY')?.text || ''
-  const placeholders = [...new Set([...extractPlaceholders(headerText), ...extractPlaceholders(bodyText)])]
+  const bodyComponent = template.components?.find(c => c.type === 'BODY')
+  const headerComponent = template.components?.find(c => c.type === 'HEADER')
+  const headerText = headerComponent?.text || ''
+  const bodyText = bodyComponent?.text || ''
+  const placeholders = [...new Set((bodyText.match(/\{\{(\d+)\}\}/g) || [])
+    .map(match => Number(match.replace(/\D/g, ''))))]
+    .sort((a, b) => a - b)
+  const hasMissingValue = placeholders.some(number => !values[number]?.trim())
+  const headerMediaType = getHeaderMediaType(template)
+  const needsHeaderFile = !!headerMediaType
+  const canSend = !hasMissingValue && (!needsHeaderFile || !!headerFile)
+  const acceptedFiles = headerMediaType === 'IMAGE' ? 'image/*' : headerMediaType === 'VIDEO' ? 'video/*' : 'application/pdf,.pdf,.doc,.docx'
 
   const handleSend = () => {
-    const params = placeholders.map(n => values[n] || '').filter(Boolean)
-    onSend(params)
+    if (!canSend) return
+    // Keep the parameter positions intact. Removing blank values shifts all
+    // later variables and can send a recipient the wrong information.
+    const params = placeholders.map(number => values[number].trim())
+    onSend(params, headerFile)
     onClose()
   }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
+      <div className="modal template-params-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header template-params-modal__header">
           <h3>{template.name}</h3>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
-        <div className="modal-body" style={{ padding: 16 }}>
+        <div className="modal-body template-params-modal__body">
           {headerText && (
             <div style={{ marginBottom: 12, padding: 10, background: '#f3f4f6', borderRadius: 8, fontSize: 12, color: '#6b7280', whiteSpace: 'pre-wrap' }}>
               <strong style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#374151' }}>Header:</strong>
@@ -40,21 +60,34 @@ function TemplateParamsModal({ template, onClose, onSend }) {
           </div>
           {placeholders.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 8 }}>Fill in the parameters:</div>
-              {placeholders.map(n => (
-                <div key={n} style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 2 }}>Parameter {n}</label>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 8 }}>Fill in every required message variable:</div>
+              {placeholders.map(number => (
+                <div key={number} style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 2 }}>Variable {`{{${number}}}`}</label>
                   <input
-                    value={values[n] || ''}
-                    onChange={e => setValues(prev => ({ ...prev, [n]: e.target.value }))}
-                    placeholder={`Value for {{${n}}}`}
+                    value={values[number] || ''}
+                    onChange={e => setValues(prev => ({ ...prev, [number]: e.target.value }))}
+                    placeholder={`Enter a value for {{${number}}}`}
                     style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box' }}
                   />
                 </div>
               ))}
             </div>
           )}
-          <button onClick={handleSend} className="btn btn-primary" style={{ width: '100%' }}>
+          {needsHeaderFile && (
+            <label className="template-params-modal__upload">
+              <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                Attach header {headerMediaType.toLowerCase()}
+              </span>
+              <input className="template-params-modal__file-input" type="file" accept={acceptedFiles} onChange={event => setHeaderFile(event.target.files?.[0] || null)} />
+              <span className="template-params-modal__file-name">
+                {headerFile ? headerFile.name : `This template requires a ${headerMediaType.toLowerCase()} before it can be sent.`}
+              </span>
+            </label>
+          )}
+        </div>
+        <div className="template-params-modal__footer">
+          <button onClick={handleSend} disabled={!canSend} className="btn btn-primary" style={{ width: '100%', opacity: canSend ? 1 : .55, cursor: canSend ? 'pointer' : 'not-allowed' }}>
             Send Template
           </button>
         </div>
@@ -82,26 +115,40 @@ export default function TemplateBar({ conversationId, contactId, project, userId
       .finally(() => setLoading(false))
   }, [open, project, agentToken])
 
-  const handleSend = async (template, params) => {
-    if (sending || !conversationId || !contactId || !userId) return
+  const handleSend = async (template, params, headerFile = null) => {
+    console.log('[TemplateBar] handleSend:', { conversationId, contactId, userId, agentToken: !!agentToken, templateName: template.name, params })
+    if (sending || !conversationId || !contactId || !userId) {
+      console.warn('[TemplateBar] BLOCKED — missing required props:', { sending, conversationId, contactId, userId })
+      return
+    }
     setSending(true)
     try {
       if (agentToken) {
-        await sendTemplateEnhanced(conversationId, template.name, params || [], agentToken)
+        console.log('[TemplateBar] sending via enhanced (agentToken present)')
+        let headerMediaUrl
+        if (headerFile) {
+          const upload = await uploadMedia(headerFile, agentToken)
+          headerMediaUrl = upload.file_url || upload.url
+          if (!headerMediaUrl) throw new Error('Header file upload did not return a URL')
+        }
+        await sendTemplateEnhanced(conversationId, template.name, params || [], agentToken, headerMediaUrl, headerFile?.name)
       } else {
+        console.log('[TemplateBar] sending via direct (no agentToken)')
         await sendTemplateDirect(conversationId, contactId, template, params || [], userId)
       }
+      console.log('[TemplateBar] send SUCCESS')
       onSent?.()
     } catch (err) {
+      console.error('[TemplateBar] send FAILED:', err)
       alert('Failed to send template: ' + err.message)
     } finally {
       setSending(false)
     }
   }
 
-  const hasParams = (template) => {
-    const components = template.components || []
-    return components.some(c => (c.text || '').includes('{{'))
+  const requiresSetup = (template) => {
+    const body = template.components?.find(component => component.type === 'BODY')
+    return (body?.text || '').includes('{{') || !!getHeaderMediaType(template)
   }
 
   if (!conversationId || !contactId || !userId) return null
@@ -141,7 +188,7 @@ export default function TemplateBar({ conversationId, contactId, project, userId
                 <button
                   key={tpl.id}
                   onClick={() => {
-                    if (hasParams(tpl)) {
+                    if (requiresSetup(tpl)) {
                       setActiveTemplate(tpl)
                     } else {
                       handleSend(tpl, [])
@@ -170,7 +217,7 @@ export default function TemplateBar({ conversationId, contactId, project, userId
         <TemplateParamsModal
           template={activeTemplate}
           onClose={() => setActiveTemplate(null)}
-          onSend={(params) => handleSend(activeTemplate, params)}
+          onSend={(params, headerFile) => handleSend(activeTemplate, params, headerFile)}
         />
       )}
     </>

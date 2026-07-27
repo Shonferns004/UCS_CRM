@@ -5,8 +5,9 @@ function agentApi(path, options = {}, agentToken) {
     const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), Authorization: `Bearer ${agentToken}` }
     const base = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
     return fetch(`${base}${path}`, { ...options, headers }).then(async r => {
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
-      return r.json()
+      const payload = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(payload.error || payload.message || r.statusText)
+      return payload
     })
   }
   return api(path, options)
@@ -69,10 +70,10 @@ export async function getTemplates(project, agentToken) {
   return agentApi(`/fro/whatsapp/templates${qs}`, {}, agentToken)
 }
 
-export async function sendTemplateMessage(conversationId, templateName, paramValues, agentToken) {
+export async function sendTemplateMessage(conversationId, templateName, paramValues, agentToken, headerMediaUrl, headerMediaName) {
   return agentApi('/fro/whatsapp/send-template', {
     method: 'POST',
-    body: JSON.stringify({ conversationId, templateName, paramValues }),
+    body: JSON.stringify({ conversationId, templateName, paramValues, headerMediaUrl, headerMediaName }),
   }, agentToken)
 }
 

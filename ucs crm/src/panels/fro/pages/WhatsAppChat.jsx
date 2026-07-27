@@ -64,7 +64,7 @@ function AutoLoginLoader({ project, onReady, onError }) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', height: 'calc(100vh - 180px)', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', border: '1px solid #e5e7eb' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ width: 40, height: 40, border: '3px solid #d1d5db', borderTopColor: '#25D366', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
           <div style={{ fontSize: 14, color: '#6b7280' }}>Connecting to WhatsApp...</div>
@@ -76,7 +76,7 @@ function AutoLoginLoader({ project, onReady, onError }) {
 
   if (error) {
     return (
-      <div style={{ display: 'flex', height: 'calc(100vh - 180px)', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', border: '1px solid #e5e7eb' }}>
         <div style={{ width: 360, padding: 32, background: '#fff', borderRadius: 12, textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,.06)' }}>
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
@@ -116,7 +116,7 @@ function WhatsAppChatInner() {
 
   if (error) {
     return (
-      <div style={{ display: 'flex', height: 'calc(100vh - 180px)', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', border: '1px solid #e5e7eb' }}>
         <div style={{ width: 360, padding: 32, background: '#fff', borderRadius: 12, textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,.06)' }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#374151', marginBottom: 6 }}>WhatsApp Unavailable</div>
           <div style={{ fontSize: 13, color: '#6b7280', lineHeight: 1.5 }}>{error}</div>
@@ -130,8 +130,10 @@ function WhatsAppChatInner() {
 
 export default function WhatsAppChat() {
   return (
-    <QueryClientProvider client={waQueryClient}>
-      <WhatsAppChatInner />
-    </QueryClientProvider>
+    <div className="whatsapp-chat-page">
+      <QueryClientProvider client={waQueryClient}>
+        <WhatsAppChatInner />
+      </QueryClientProvider>
+    </div>
   )
 }
