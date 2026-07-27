@@ -67,25 +67,25 @@ function AddLeadModal({ onClose, onSaved }) {
         <div className="modal-body">
           {err && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{err}</div>}
           <div className="form-row">
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.UserCircle} Name <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></label>
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.DeviceMobile} Mobile <input value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.UserCircle} Name</span><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.DeviceMobile} Mobile</span><input value={form.mobile} onChange={e => setForm({...form, mobile: e.target.value})} /></label>
           </div>
           <div className="form-row">
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.Envelope} Email <input value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></label>
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.Translate} Language <input value={form.language} onChange={e => setForm({...form, language: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.Envelope} Email</span><input value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.Translate} Language</span><input value={form.language} onChange={e => setForm({...form, language: e.target.value})} /></label>
           </div>
-          <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.House} Address <input value={form.address} onChange={e => setForm({...form, address: e.target.value})} /></label>
+          <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.House} Address</span><input value={form.address} onChange={e => setForm({...form, address: e.target.value})} /></label>
           <div className="form-row">
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.Buildings} City <input value={form.city} onChange={e => setForm({...form, city: e.target.value})} /></label>
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.MapPin} State <input value={form.state} onChange={e => setForm({...form, state: e.target.value})} /></label>
-          </div>
-          <div className="form-row">
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.IdentificationCard} PAN <input value={form.pan} onChange={e => setForm({...form, pan: e.target.value})} /></label>
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.IdentificationCard} Aadhaar <input value={form.aadhaar} onChange={e => setForm({...form, aadhaar: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.Buildings} City</span><input value={form.city} onChange={e => setForm({...form, city: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.MapPin} State</span><input value={form.state} onChange={e => setForm({...form, state: e.target.value})} /></label>
           </div>
           <div className="form-row">
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.Gift} Birthday <input type="date" value={form.birthday} onChange={e => setForm({...form, birthday: e.target.value})} /></label>
-            <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{I.Heart} Anniversary <input type="date" value={form.anniversary} onChange={e => setForm({...form, anniversary: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.IdentificationCard} PAN</span><input value={form.pan} onChange={e => setForm({...form, pan: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.IdentificationCard} Aadhaar</span><input value={form.aadhaar} onChange={e => setForm({...form, aadhaar: e.target.value})} /></label>
+          </div>
+          <div className="form-row">
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.Gift} Birthday</span><input type="date" value={form.birthday} onChange={e => setForm({...form, birthday: e.target.value})} /></label>
+            <label className="field"><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{I.Heart} Anniversary</span><input type="date" value={form.anniversary} onChange={e => setForm({...form, anniversary: e.target.value})} /></label>
           </div>
         </div>
         <div className="modal-actions">
