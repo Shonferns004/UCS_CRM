@@ -104,12 +104,18 @@
               contact = newContact;
             }
 
-            let { data: conversation } = await supabase
+            const projectFilter = accountProject !== "unknown" ? accountProject : null;
+            let query = supabase
               .from("conversations")
               .select("*")
               .eq("contact_id", contact.id)
-              .eq("status", "open")
-              .maybeSingle();
+              .eq("status", "open");
+            if (projectFilter) {
+              query = query.eq("project", projectFilter);
+            } else {
+              query = query.is("project", null);
+            }
+            let { data: conversation } = await query.maybeSingle();
 
             if (!conversation) {
               const { data: newConversation, error: convErr } = await supabase

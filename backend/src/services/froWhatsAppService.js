@@ -88,6 +88,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   let project = conversation.project;
 
   if (!project) {
+    console.warn('[sendFroReply] Conversation', conversationId, 'has NO project set — falling back to assignment lookup');
     const { data: workerAssignments } = await supabase
       .from('worker_agent_assignments')
       .select('account_id, whatsapp_accounts!inner(project)')
@@ -107,12 +108,16 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     project = froAssignments?.whatsapp_accounts?.project;
   }
 
+  if (!project) {
+    console.warn('[sendFroReply] No project found for conversation', conversationId, '— defaulting to bsct');
+  }
   project = project || 'bsct';
   const recipientPhone = conversation.contact?.phone_normalized;
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
   const account = await getAccountByProject(project);
+  console.log('[sendFroReply] project:', project, 'account:', account ? account.name : 'null', 'phone_number_id:', account?.phone_number_id);
   const accessToken = account?.access_token || config.accessToken;
   const phoneNumberId = account?.phone_number_id || config.phoneNumberId;
 
@@ -529,6 +534,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
 
   let project = conversation.project;
   if (!project) {
+    console.warn('[sendTemplateReply] Conversation', conversationId, 'has NO project set — falling back to contact project');
     project = conversation.contact?.project || 'bsct';
   }
   const recipientPhone = conversation.contact?.phone_normalized;
