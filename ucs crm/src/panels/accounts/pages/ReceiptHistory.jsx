@@ -207,6 +207,7 @@ export default function ReceiptHistory() {
         receiptNo: preview.receipt.receipt_no,
         donorName: preview.receipt.donor_name,
         amount: preview.receipt.amount,
+        project: preview.receipt.project_id,
       });
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch (e) { console.error('Error:', e.message); }
       setWaResult({ success: true, message: 'Receipt sent via WhatsApp!' });
