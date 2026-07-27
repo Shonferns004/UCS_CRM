@@ -117,8 +117,34 @@ export const getDonors = async (req, res) => {
     const grouped = Object.values(groups);
     grouped.sort((a, b) => new Date(b.last_donation_date || 0) - new Date(a.last_donation_date || 0));
 
-    const total = grouped.length;
-    const paginatedSlice = grouped.slice(offset, offset + limit);
+    // Filter: keep only donors who have a verified payment (donation log OR verified lead_done disposition)
+    const allGroupedDonorIds = grouped.flatMap(g => g.donor_ids || []);
+    const verifiedDonorIds = new Set();
+    if (allGroupedDonorIds.length > 0) {
+      const { data: filterAssignments } = await supabase
+        .from('fro_assignments')
+        .select('id, donor_id')
+        .in('donor_id', allGroupedDonorIds);
+      const filterAssignIds = (filterAssignments || []).map(a => a.id);
+      if (filterAssignIds.length > 0) {
+        const { data: verifiedLogs } = await supabase
+          .from('fro_donor_logs')
+          .select('assignment_id')
+          .in('assignment_id', filterAssignIds)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)');
+        const verifiedAssignIds = new Set((verifiedLogs || []).map(l => l.assignment_id));
+        const assignToDonor = {};
+        for (const a of filterAssignments || []) assignToDonor[a.id] = a.donor_id;
+        for (const aid of verifiedAssignIds) {
+          const did = assignToDonor[aid];
+          if (did) verifiedDonorIds.add(did);
+        }
+      }
+    }
+    const verifiedGrouped = grouped.filter(g => (g.donor_ids || []).some(did => verifiedDonorIds.has(did)));
+
+    const total = verifiedGrouped.length;
+    const paginatedSlice = verifiedGrouped.slice(offset, offset + limit);
 
     const allDonorIds = paginatedSlice.flatMap(g => g.donor_ids || []);
     let latestTxMap = {};
