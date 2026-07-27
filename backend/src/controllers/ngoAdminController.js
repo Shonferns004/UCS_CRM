@@ -592,7 +592,7 @@ export const getDashboard = async (req, res) => {
         ])
       : [{ data: [] }, { data: [] }, { data: [] }];
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayStart.toISOString();
     const fyBeforeTodayDonors = new Set();
     const fyBeforeMonthDonors = new Set();
     for (const log of fyDonorsRes.data || []) {

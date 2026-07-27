@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { getMyDashboard, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors } from '../api/donors'
+import { getMyDashboard, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
@@ -42,6 +42,11 @@ export default function Dashboard() {
   const [leadStats, setLeadStats] = useState(null)
   const [monthlyDonors, setMonthlyDonors] = useState([])
   const [showMonthlyModal, setShowMonthlyModal] = useState(false)
+  const [reactivatedFilter, setReactivatedFilter] = useState('today')
+  const [reactivatedDonors, setReactivatedDonors] = useState([])
+  const [reactivatedCount, setReactivatedCount] = useState(0)
+  const [reactivatedLoading, setReactivatedLoading] = useState(false)
+  const [showReactivatedModal, setShowReactivatedModal] = useState(false)
 
   const today = new Date()
   const day = today.getDate()
@@ -65,6 +70,15 @@ export default function Dashboard() {
       if (isMonthlyPopupSeason && md?.length > 0 && localStorage.getItem('monthly_donors_dismissed') !== monthStr) setShowMonthlyModal(true)
     }).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    setReactivatedLoading(true)
+    getReactivatedDonors(reactivatedFilter).then(data => {
+      setReactivatedDonors(data?.donors || [])
+      setReactivatedCount(data?.count || 0)
+    }).catch(() => { setReactivatedDonors([]); setReactivatedCount(0) })
+      .finally(() => setReactivatedLoading(false))
+  }, [reactivatedFilter])
 
   const handleSendRequest = async () => {
     if (!reqMsg.trim()) return
@@ -389,23 +403,81 @@ export default function Dashboard() {
             <Icon color="#f59e0b">
               <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
             </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Reactivated Today</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#f59e0b' }}>{ds.reactivated_today ?? 0}</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Reactivated Donors</span>
+            <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+              <button onClick={() => setReactivatedFilter('today')}
+                style={{ padding: '4px 12px', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                  background: reactivatedFilter === 'today' ? 'var(--sage)' : 'transparent',
+                  color: reactivatedFilter === 'today' ? '#fff' : 'var(--ink-soft)' }}>
+                Today
+              </button>
+              <button onClick={() => setReactivatedFilter('month')}
+                style={{ padding: '4px 12px', borderRadius: 5, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                  background: reactivatedFilter === 'month' ? 'var(--sage)' : 'transparent',
+                  color: reactivatedFilter === 'month' ? '#fff' : 'var(--ink-soft)' }}>
+                Month
+              </button>
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Inactive to active today</div>
-        </div>
-
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <Icon color="#3b82f6">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
-            </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Reactivated This Month</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6' }}>{ds.reactivated_monthly ?? 0}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: '#f59e0b' }}>{reactivatedLoading ? '—' : reactivatedCount}</span>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>donor{reactivatedCount !== 1 ? 's' : ''} reactivated {reactivatedFilter === 'today' ? 'today' : 'this month'}</span>
+            </div>
+            {reactivatedCount > 0 && (
+              <button onClick={() => { setShowReactivatedModal(true); }}
+                style={{ padding: '4px 12px', borderRadius: 6, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', transition: 'opacity .15s' }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                View
+              </button>
+            )}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Inactive to active this month</div>
         </div>
       </div>
+
+      {showReactivatedModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
+          onClick={() => setShowReactivatedModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 440, maxHeight: '70vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Reactivated Donors</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{reactivatedFilter === 'today' ? 'Today' : 'This month'} — {reactivatedCount} donor{reactivatedCount !== 1 ? 's' : ''}</div>
+              </div>
+              <button onClick={() => setShowReactivatedModal(false)}
+                style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
+                ×
+              </button>
+            </div>
+            <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
+              {reactivatedDonors.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No reactivated donors</div>
+              ) : (
+                reactivatedDonors.map(d => (
+                  <div key={d.donor_id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
+                    background: 'var(--bg)', border: '1px solid var(--line)',
+                  }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                      {d.donor_name?.charAt(0) || '?'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.donor_name}</div>
+                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{d.donor_mobile || '—'}</div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(d.amount)}</div>
+                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(d.date).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
         <div className="card" style={{ marginBottom: 0, flex: 1 }}>

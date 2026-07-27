@@ -117,3 +117,7 @@ export async function getFullDonorHistory(donorId, ngoId, unlockAll) {
   if (unlockAll) params.set('unlock_all', 'true');
   return api(`/fro/donors/${donorId}/full-history?${params}`, { _prefix: 'ucs' })
 }
+
+export async function getReactivatedDonors(period) {
+  return api(`/fro/reactivated-donors?period=${period || 'today'}`, { _prefix: 'ucs' })
+}

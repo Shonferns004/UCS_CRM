@@ -32,10 +32,27 @@ export default function AccountsTickets() {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      if (deptFilter) params.set('department', deptFilter);
+      if (deptFilter && deptFilter !== 'developers') params.set('department', deptFilter);
       const qs = params.toString();
-      const data = await apiGet(`/tickets${qs ? '?' + qs : ''}`);
-      setTickets(data || []);
+
+      const promises = [apiGet(`/tickets${qs ? '?' + qs : ''}`)];
+
+      if (!deptFilter || deptFilter === 'developers') {
+        const devParams = new URLSearchParams();
+        if (statusFilter) devParams.set('status', statusFilter);
+        const devQs = devParams.toString();
+        promises.push(apiGet(`/developer-tickets${devQs ? '?' + devQs : ''}`));
+      } else {
+        promises.push(Promise.resolve([]));
+      }
+
+      const [regularTickets, devTickets] = await Promise.all(promises);
+      const allTickets = [
+        ...(regularTickets || []).map(t => ({ ...t, _source: 'regular' })),
+        ...(devTickets || []).map(t => ({ ...t, _source: 'developer' })),
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      setTickets(allTickets);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
@@ -44,8 +61,9 @@ export default function AccountsTickets() {
 
   const openDetail = async (ticket) => {
     try {
-      const data = await apiGet(`/tickets/${ticket.id}`);
-      setShowDetail(data);
+      const endpoint = ticket._source === 'developer' ? '/developer-tickets' : '/tickets';
+      const data = await apiGet(`${endpoint}/${ticket.id}`);
+      setShowDetail({ ...data, _source: ticket._source });
       setReplies(data.replies || []);
       setReplyText('');
       setResolution(data.resolution || '');
@@ -55,11 +73,12 @@ export default function AccountsTickets() {
   const handleStatusUpdate = async (newStatus) => {
     if (!showDetail) return;
     try {
-      await apiPut(`/tickets/${showDetail.id}`, {
+      const endpoint = showDetail._source === 'developer' ? '/developer-tickets' : '/tickets';
+      await apiPut(`${endpoint}/${showDetail.id}`, {
         status: newStatus,
         resolution: newStatus === 'resolved' || newStatus === 'closed' ? resolution : undefined,
       });
-      const data = await apiGet(`/tickets/${showDetail.id}`);
+      const data = await apiGet(`${endpoint}/${showDetail.id}`);
       setShowDetail(data);
       setReplies(data.replies || []);
       setResolution(data.resolution || '');
@@ -71,9 +90,10 @@ export default function AccountsTickets() {
     if (!replyText || !showDetail) return;
     setSendingReply(true);
     try {
-      await apiPost(`/tickets/${showDetail.id}/reply`, { message: replyText });
+      const endpoint = showDetail._source === 'developer' ? '/developer-tickets' : '/tickets';
+      await apiPost(`${endpoint}/${showDetail.id}/reply`, { message: replyText });
       setReplyText('');
-      const data = await apiGet(`/tickets/${showDetail.id}`);
+      const data = await apiGet(`${endpoint}/${showDetail.id}`);
       setReplies(data.replies || []);
     } catch (err) { alert(err.message); }
     finally { setSendingReply(false); }
@@ -140,8 +160,16 @@ export default function AccountsTickets() {
                 tickets.map(t => (
                   <tr key={t.id}>
                     <td><strong style={{ fontSize: 13 }}>{t.subject}</strong></td>
-                    <td style={{ fontSize: 12 }}>{t.workers?.name || 'Unknown'}</td>
-                    <td><span className="pill" style={{ textTransform: 'capitalize', fontSize: 11 }}>{t.department}</span></td>
+                    <td style={{ fontSize: 12 }}>{t.workers?.name || t.raised_by_name || 'Unknown'}</td>
+                    <td>
+                      <span className="pill" style={{
+                        textTransform: 'capitalize', fontSize: 11,
+                        background: t._source === 'developer' ? '#eef2ff' : undefined,
+                        color: t._source === 'developer' ? '#4338ca' : undefined,
+                      }}>
+                        {t._source === 'developer' ? 'Dev' : t.department}
+                      </span>
+                    </td>
                     <td style={{ fontSize: 12, textTransform: 'capitalize' }}>{CATEGORIES.find(c => c.value === t.category)?.label || t.category}</td>
                     <td>
                       <span className={`pill ${t.priority === 'high' ? 'pill-red' : t.priority === 'medium' ? 'pill-yellow' : 'pill-gray'}`} style={{ textTransform: 'capitalize', fontSize: 11 }}>
