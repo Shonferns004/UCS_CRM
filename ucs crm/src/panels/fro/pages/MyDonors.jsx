@@ -130,6 +130,7 @@ export default function MyDonors() {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(null);
   const [showDonationModal, setShowDonationModal] = useState(false);
   const [donations, setDonations] = useState([]);
   const [donationYear, setDonationYear] = useState('this_year');
@@ -1140,7 +1141,11 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0 || saving} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); resetFormState(); setIndex(i => i - 1) }}>
+      <button className="btn-prev" disabled={index === 0 || saving} onClick={() => {
+        const goPrev = () => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); resetFormState(); setIndex(i => i - 1); };
+        if (selected) { setConfirmDiscard(goPrev); return; }
+        goPrev();
+      }}>
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
@@ -1216,6 +1221,27 @@ export default function MyDonors() {
           </div>
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
             Total: ₹{Math.round(donations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
+          </div>
+        </div>
+      </div>
+    )}
+    {confirmDiscard && (
+      <div className="modal-overlay" onClick={() => setConfirmDiscard(null)}>
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+          <div className="modal-body" style={{ textAlign: 'center', padding: '24px 22px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 36, color: '#f59e0b' }}>warning</span>
+            <h3 style={{ margin: '10px 0 4px', fontSize: 15, fontWeight: 700 }}>Discard Disposition?</h3>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>You have an unsaved disposition selection. Changing leads will discard it.</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 18 }}>
+              <button className="btn" onClick={() => setConfirmDiscard(null)}
+                style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button className="btn" onClick={() => { const action = confirmDiscard; setConfirmDiscard(null); action(); }}
+                style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', background: '#dc2626', color: '#fff', border: 'none' }}>
+                Discard
+              </button>
+            </div>
           </div>
         </div>
       </div>
