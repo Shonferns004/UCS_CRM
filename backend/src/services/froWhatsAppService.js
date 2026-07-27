@@ -2,6 +2,13 @@ import supabase from '../config/supabase.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import config from '../config/whatsappConfig.js';
 
+function normalizePhone(phone) {
+  const raw = String(phone).replace(/[^0-9]/g, '');
+  if (raw.length === 10) return '91' + raw;
+  if (raw.length === 12 && raw.startsWith('91')) return raw;
+  return raw;
+}
+
 export async function getFroConversations(froWorkerId) {
   const { data: assignments, error: assignErr } = await supabase
     .from('fro_assignments')
@@ -112,7 +119,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     console.warn('[sendFroReply] No project found for conversation', conversationId, '— defaulting to bsct');
   }
   project = project || 'bsct';
-  const recipientPhone = conversation.contact?.phone_normalized;
+  const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
 
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
@@ -222,7 +229,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 }
 
 export async function sendDirectMessage(froWorkerId, phone, messageText, projectOverride) {
-  const phoneNormalized = String(phone).replace(/[^0-9]/g, '');
+  const phoneNormalized = normalizePhone(phone);
 
   let contact = await findOrCreateContact(phoneNormalized);
   let conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
@@ -343,7 +350,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
 }
 
 export async function createEmptyConversation(froWorkerId, phone, projectOverride) {
-  const phoneNormalized = String(phone).replace(/[^0-9]/g, '');
+  const phoneNormalized = normalizePhone(phone);
   const contact = await findOrCreateContact(phoneNormalized);
   const conversation = await findOrCreateConversation(contact, froWorkerId, projectOverride);
   return { conversation, contact };
@@ -570,7 +577,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     console.warn('[sendTemplateReply] Conversation', conversationId, 'has NO project set — falling back to contact project');
     project = conversation.contact?.project || 'bsct';
   }
-  const recipientPhone = conversation.contact?.phone_normalized;
+  const recipientPhone = normalizePhone(conversation.contact?.phone_normalized || conversation.contact?.phone);
   if (!recipientPhone) throw new Error('Recipient phone not found');
 
   const account = await getAccountByProject(project);

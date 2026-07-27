@@ -83,16 +83,24 @@ export default function TemplateBar({ conversationId, contactId, project, userId
   }, [open, project, agentToken])
 
   const handleSend = async (template, params) => {
-    if (sending || !conversationId || !contactId || !userId) return
+    console.log('[TemplateBar] handleSend:', { conversationId, contactId, userId, agentToken: !!agentToken, templateName: template.name, params })
+    if (sending || !conversationId || !contactId || !userId) {
+      console.warn('[TemplateBar] BLOCKED — missing required props:', { sending, conversationId, contactId, userId })
+      return
+    }
     setSending(true)
     try {
       if (agentToken) {
+        console.log('[TemplateBar] sending via enhanced (agentToken present)')
         await sendTemplateEnhanced(conversationId, template.name, params || [], agentToken)
       } else {
+        console.log('[TemplateBar] sending via direct (no agentToken)')
         await sendTemplateDirect(conversationId, contactId, template, params || [], userId)
       }
+      console.log('[TemplateBar] send SUCCESS')
       onSent?.()
     } catch (err) {
+      console.error('[TemplateBar] send FAILED:', err)
       alert('Failed to send template: ' + err.message)
     } finally {
       setSending(false)
