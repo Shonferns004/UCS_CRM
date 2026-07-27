@@ -1,6 +1,13 @@
 -- Enable Supabase Realtime on messages and conversations tables
-ALTER PUBLICATION supabase_realtime ADD TABLE messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
+-- (skip if already added — causes 42710 error)
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Backfill conversations with NULL project
 -- Strategy: match assigned_agent_id -> worker_agent_assignments -> whatsapp_accounts.project
