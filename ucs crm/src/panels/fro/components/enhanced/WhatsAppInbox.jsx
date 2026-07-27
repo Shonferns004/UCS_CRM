@@ -38,6 +38,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const bottomRef = useRef(null)
+  const handledRouteTargetRef = useRef('')
 
   const [activeConv, setActiveConv] = useState(null)
   const [activeTab, setActiveTab] = useState(activeProject || searchParams.get('project') || 'all')
@@ -79,28 +80,37 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   useEffect(() => {
     const phoneParam = searchParams.get('phone')
     const projectParam = searchParams.get('project')
+    const routeTarget = `${projectParam || ''}:${phoneParam || ''}`
     if (projectParam && PROJECT_TAB_COLORS[projectParam]) {
       setActiveTab(projectParam)
+      if (activeTab !== projectParam) return
     }
     setNewConvProject(projectParam || (activeTab !== 'all' ? activeTab : ''))
-    if (phoneParam) {
-      if (conversations.length > 0) {
-        const match = conversations.find(c => {
-          const p = c.contact?.phone_normalized || c.contact?.phone || ''
-          return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
-        })
-        if (match) {
-          setActiveConv(match)
-        } else {
-          setNewConvPhone(phoneParam)
-          setShowNewConv(true)
-        }
+    if (!phoneParam) {
+      handledRouteTargetRef.current = ''
+      return
+    }
+    if (handledRouteTargetRef.current === routeTarget) return
+
+    if (conversations.length > 0) {
+      const match = conversations.find(c => {
+        const p = c.contact?.phone_normalized || c.contact?.phone || ''
+        return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
+      })
+      if (match) {
+        setActiveConv(match)
+        handledRouteTargetRef.current = routeTarget
       } else {
         setNewConvPhone(phoneParam)
         setShowNewConv(true)
+        handledRouteTargetRef.current = routeTarget
       }
+    } else if (!loadingConv) {
+      setNewConvPhone(phoneParam)
+      setShowNewConv(true)
+      handledRouteTargetRef.current = routeTarget
     }
-  }, [searchParams, conversations])
+  }, [searchParams, conversations, activeTab, loadingConv])
 
   const { data: messages = null } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
