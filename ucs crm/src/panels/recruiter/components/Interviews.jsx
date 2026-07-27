@@ -5,7 +5,9 @@ import { Cal } from '../icons';
 const formatDT = (ts) => {
   if (!ts) return '—';
   const d = new Date(ts);
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return { date, time };
 };
 
 export default function Interviews() {
@@ -25,7 +27,7 @@ export default function Interviews() {
               const dt = formatDT(l.scheduled_date);
               return (
                 <tr key={l.id || i}>
-                  <td><div style={{fontWeight:600}}>{dt}</div></td>
+                  <td><div style={{fontWeight:600}}>{dt.date}</div><div style={{fontSize:12,color:'var(--ink-soft)'}}>{dt.time}</div></td>
                   <td><Who name={l.name} role={l.job_role || '—'} /></td>
                   <td>{l.source || '—'}</td>
                   <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
