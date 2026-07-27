@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
+import Toast from '../components/Toast';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
@@ -225,6 +226,7 @@ export default function BankAudit(){
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');const[mt,setMt]=useState('entries');
+  const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[is,setIs]=useState({razorpaySync:false,emailImport:false,bankStatement:false});
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
 
@@ -247,9 +249,9 @@ export default function BankAudit(){
   const fe=nf?e.filter(e=>{const src=(e.bank_audit_sources?.name||'').toLowerCase();const rem=(e.remarks||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k))}):e;
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
-  const addEntry=async()=>{if(!fm.src_id||!fm.amount||!fm.transaction_date){alert('Source, amount, date required');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const editEntry=async()=>{if(!se)return;setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const delEntry=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/entries/'+id);load(sd,st)}catch(e){alert(e.message)}};
+  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const delEntry=async()=>{if(!dci)return;try{await apiDelete('/accounts/bank-audit/entries/'+dci);setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const openE=(entry)=>{setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||''});setSe(entry)};
@@ -290,7 +292,7 @@ export default function BankAudit(){
       ngoFilter={nf} setNgoFilter={setNf} srcFilter={sf} setSrcFilter={setSf}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
       form={fm} setForm={setFm} editEntry={se} setEditEntry={setSe}
-      saving={sv} handleAdd={addEntry} handleEdit={editEntry} handleDelete={delEntry}
+      saving={sv} handleAdd={addEntry} handleEdit={editEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc} openEdit={openE}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX}
     />}
@@ -299,13 +301,16 @@ export default function BankAudit(){
     {mt==='statement'&&is.bankStatement&&<StatementTab/>}
 
     {/* Add Modal */}
-    {sa&&<div className="modal-overlay" onClick={()=>setSa(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:540,borderRadius:12}}>
-      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Add Bank Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>setSa(false)} style={{padding:4}}><SvgX/></button></div>
+    {sa&&<div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:540,borderRadius:12}}>
+      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Add Bank Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>{setSa(false);setFer('')}} style={{padding:4}}><SvgX/></button></div>
       <div className="modal-body" style={{padding:20}}>
+        {fer&&<div style={{marginBottom:12,padding:'8px 12px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:6}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>{fer}
+        </div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12}}>Source<select className="field-input" value={fm.src_id} onChange={e=>setFm(p=>({...p,src_id:e.target.value}))}>{sr.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label style={{fontSize:12}}>Amount<input className="field-input" type="number" value={fm.amount} onChange={e=>setFm(p=>({...p,amount:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Date<input className="field-input" type="date" value={fm.transaction_date} onChange={e=>setFm(p=>({...p,transaction_date:e.target.value}))}/></label>
+          <label style={{fontSize:12}}>Source<select className="field-input" value={fm.src_id} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}}><option value="">Select Source</option>{sr.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label style={{fontSize:12}}>Amount<input className="field-input" type="number" min="0.01" step="0.01" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}}/></label>
+          <label style={{fontSize:12}}>Date<input className="field-input" type="date" value={fm.transaction_date} onChange={e=>{setFm(p=>({...p,transaction_date:e.target.value}));if(fer)setFer('')}}/></label>
           <label style={{fontSize:12}}>Payer Name<input className="field-input" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))}/></label>
           <label style={{fontSize:12}}>Payment Time<input className="field-input" type="time" value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))}/></label>
           <label style={{fontSize:12}}>Payment ID<input className="field-input" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))}/></label>
@@ -320,13 +325,16 @@ export default function BankAudit(){
     </div></div>}
 
     {/* Edit Modal */}
-    {se&&<div className="modal-overlay" onClick={()=>setSe(null)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:540,borderRadius:12}}>
-      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Edit Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>setSe(null)} style={{padding:4}}><SvgX/></button></div>
+    {se&&<div className="modal-overlay" onClick={()=>{setSe(null);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:540,borderRadius:12}}>
+      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Edit Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>{setSe(null);setFer('')}} style={{padding:4}}><SvgX/></button></div>
       <div className="modal-body" style={{padding:20}}>
+        {fer&&<div style={{marginBottom:12,padding:'8px 12px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:6}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>{fer}
+        </div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12}}>Source<select className="field-input" value={fm.src_id} onChange={e=>setFm(p=>({...p,src_id:e.target.value}))}>{sr.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label style={{fontSize:12}}>Amount<input className="field-input" type="number" value={fm.amount} onChange={e=>setFm(p=>({...p,amount:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Date<input className="field-input" type="date" value={fm.transaction_date} onChange={e=>setFm(p=>({...p,transaction_date:e.target.value}))}/></label>
+          <label style={{fontSize:12}}>Source<select className="field-input" value={fm.src_id} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}}><option value="">Select Source</option>{sr.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          <label style={{fontSize:12}}>Amount<input className="field-input" type="number" min="0.01" step="0.01" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}}/></label>
+          <label style={{fontSize:12}}>Date<input className="field-input" type="date" value={fm.transaction_date} onChange={e=>{setFm(p=>({...p,transaction_date:e.target.value}));if(fer)setFer('')}}/></label>
           <label style={{fontSize:12}}>Payer Name<input className="field-input" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))}/></label>
           <label style={{fontSize:12}}>Payment Time<input className="field-input" type="time" value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))}/></label>
           <label style={{fontSize:12}}>Payment ID<input className="field-input" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))}/></label>
@@ -354,5 +362,23 @@ export default function BankAudit(){
         </div>)}
       </div>
     </div></div>}
+
+    {/* Delete Confirmation Modal */}
+    {dci&&<div className="modal-overlay" onClick={()=>setDci(null)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:400,borderRadius:12}}>
+      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Delete Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>setDci(null)} style={{padding:4}}><SvgX/></button></div>
+      <div className="modal-body" style={{padding:20,textAlign:'center'}}>
+        <div style={{width:48,height:48,borderRadius:'50%',background:'#fef2f2',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        </div>
+        <p style={{fontSize:14,fontWeight:600,color:'#111827',margin:'0 0 6px'}}>Are you sure you want to delete this entry?</p>
+        <p style={{fontSize:12,color:'#6b7280',margin:0}}>This action cannot be undone.</p>
+        <div style={{display:'flex',gap:10,justifyContent:'center',marginTop:18}}>
+          <button className="btn btn-sm" onClick={()=>setDci(null)} style={{padding:'6px 18px'}}>Cancel</button>
+          <button className="btn btn-sm" onClick={delEntry} style={{padding:'6px 18px',background:'#dc2626',color:'#fff',border:'none'}}>Delete</button>
+        </div>
+      </div>
+    </div></div>}
+
+    <Toast message={to.msg} type={to.type} visible={to.vis} onClose={()=>setTo(p=>({...p,vis:false}))}/>
   </div>;
 }
