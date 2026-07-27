@@ -1,76 +1,93 @@
 import { api } from './auth'
 
-export async function getConversations() {
-  return api('/fro/whatsapp/conversations')
+function agentApi(path, options = {}, agentToken) {
+  if (agentToken) {
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}), Authorization: `Bearer ${agentToken}` }
+    const base = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+    return fetch(`${base}${path}`, { ...options, headers }).then(async r => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
+      return r.json()
+    })
+  }
+  return api(path, options)
 }
 
-export async function getUnreadCount() {
-  return api('/fro/whatsapp/conversations/unread-count')
+export async function getMyAccounts(agentToken) {
+  return agentApi('/fro/whatsapp/my-accounts', {}, agentToken)
 }
 
-export async function getMessages(conversationId) {
-  return api(`/fro/whatsapp/conversations/${conversationId}/messages`)
+export async function getConversations(userId, agentToken, project) {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return agentApi(`/fro/whatsapp/agent-conversations${qs}`, {}, agentToken)
 }
 
-export async function sendMessage(conversationId, text) {
-  return api(`/fro/whatsapp/conversations/${conversationId}/send`, {
+export async function getUnreadCount(userId, agentToken) {
+  return agentApi('/fro/whatsapp/agent-conversations/unread-count', {}, agentToken)
+}
+
+export async function getMessages(conversationId, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/messages`, {}, agentToken)
+}
+
+export async function sendMessage(conversationId, text, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/send`, {
     method: 'POST',
     body: JSON.stringify({ text }),
-  })
+  }, agentToken)
 }
 
-export async function sendDirectMessage(phone, text) {
-  return api('/fro/whatsapp/send-direct', {
+export async function sendDirectMessage(phone, text, agentToken, project) {
+  return agentApi('/fro/whatsapp/send-direct', {
     method: 'POST',
-    body: JSON.stringify({ phone, text }),
-  })
+    body: JSON.stringify({ phone, text, project }),
+  }, agentToken)
 }
 
-export async function markRead(conversationId) {
-  return api(`/fro/whatsapp/conversations/${conversationId}/read`, {
+export async function createConversation(phone, agentToken, project) {
+  return agentApi('/fro/whatsapp/create-conversation', {
+    method: 'POST',
+    body: JSON.stringify({ phone, project }),
+  }, agentToken)
+}
+
+export async function markRead(conversationId, agentToken) {
+  return agentApi(`/fro/whatsapp/conversations/${conversationId}/read`, {
     method: 'PUT',
-  })
+  }, agentToken)
 }
 
-export async function getQuickReplies() {
-  return api('/fro/whatsapp/quick-replies')
+export async function searchMessages(query, agentToken) {
+  return agentApi(`/fro/whatsapp/search?q=${encodeURIComponent(query)}`, {}, agentToken)
 }
 
-export async function getTemplates(project) {
+export async function getQuickReplies(agentToken) {
+  return agentApi('/fro/whatsapp/quick-replies', {}, agentToken)
+}
+
+export async function getTemplates(project, agentToken) {
   const qs = project ? `?project=${encodeURIComponent(project)}` : ''
-  return api(`/fro/whatsapp/templates${qs}`)
+  return agentApi(`/fro/whatsapp/templates${qs}`, {}, agentToken)
 }
 
-export async function sendTemplateMessage(conversationId, templateName, paramValues) {
-  return api('/fro/whatsapp/send-template', {
+export async function sendTemplateMessage(conversationId, templateName, paramValues, agentToken) {
+  return agentApi('/fro/whatsapp/send-template', {
     method: 'POST',
     body: JSON.stringify({ conversationId, templateName, paramValues }),
-  })
+  }, agentToken)
 }
 
-export async function searchMessages(query) {
-  return api(`/fro/whatsapp/search?q=${encodeURIComponent(query)}`)
-}
-
-export async function updateLabels(conversationId, labels) {
-  return api(`/fro/whatsapp/conversations/${conversationId}/labels`, {
-    method: 'PUT',
-    body: JSON.stringify({ labels }),
-  })
-}
-
-export async function uploadMedia(file) {
+export async function uploadMedia(file, agentToken) {
   const formData = new FormData()
   formData.append('file', file)
-  return api('/fro/whatsapp/upload-media', {
-    method: 'POST',
-    body: formData,
-  })
-}
-
-export async function sendMediaMessage(conversationId, mediaUrl, caption) {
-  return api(`/fro/whatsapp/conversations/${conversationId}/send`, {
-    method: 'POST',
-    body: JSON.stringify({ text: caption || '', mediaUrl }),
-  })
+  if (agentToken) {
+    const base = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+    const res = await fetch(`${base}/fro/whatsapp/upload-media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${agentToken}` },
+      body: formData,
+    })
+    if (!res.ok) throw new Error('Upload failed')
+    return res.json()
+  }
+  return api('/fro/whatsapp/upload-media', { method: 'POST', body: formData })
 }
