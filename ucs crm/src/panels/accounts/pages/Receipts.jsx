@@ -321,6 +321,7 @@ export default function Receipts() {
         amount: donor['Amount'],
         templateName: tpl.metaTemplate,
         templateLang: tpl.metaLang,
+        project: ngo,
       })
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id }) } catch (e) { console.error('Error:', e.message); }
       showToast('success', `Sent to ${donor['Donor Name']}`)
@@ -374,6 +375,7 @@ export default function Receipts() {
             amount: donor['Amount'],
             templateName: tpl.metaTemplate,
             templateLang: tpl.metaLang,
+            project: ngo,
           })
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id }) } catch (e) { console.error('Error:', e.message); }
         } catch (e) {

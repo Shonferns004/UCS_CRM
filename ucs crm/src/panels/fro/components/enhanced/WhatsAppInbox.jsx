@@ -37,7 +37,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const bottomRef = useRef(null)
+  const messagesContainerRef = useRef(null)
+  const lastScrolledConversationRef = useRef(null)
   const handledRouteTargetRef = useRef('')
 
   const [activeConv, setActiveConv] = useState(null)
@@ -118,6 +119,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     enabled: !!activeConv?.id,
     refetchInterval: 5000,
   })
+  const latestMessageKey = messages?.length
+    ? `${messages.length}:${messages[messages.length - 1]?.id || messages[messages.length - 1]?.created_at || ''}`
+    : ''
 
   useEffect(() => {
     if (activeProject && conversations.length) {
@@ -150,10 +154,15 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   }, [waUser?.id, agentToken])
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages])
+    if (!activeConv?.id || !messages?.length || !messagesContainerRef.current) return
+
+    const openedNewConversation = lastScrolledConversationRef.current !== activeConv.id
+    lastScrolledConversationRef.current = activeConv.id
+    messagesContainerRef.current.scrollTo({
+      top: messagesContainerRef.current.scrollHeight,
+      behavior: openedNewConversation ? 'auto' : 'smooth',
+    })
+  }, [activeConv?.id, latestMessageKey])
 
   useEffect(() => {
     if (!activeConv?.id) return
@@ -304,9 +313,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
               </div>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div ref={bottomRef} />
-              <MessageList messages={messages} />
-              <div ref={bottomRef} />
+              <MessageList messages={messages} messagesContainerRef={messagesContainerRef} />
             </div>
             {mediaFile && (
               <div style={{ padding: '4px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' }}>
