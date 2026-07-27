@@ -87,8 +87,12 @@ export function CallProvider({ children, userId }) {
   }, [activeCall, onBreak, todayStats])
 
   useEffect(() => {
+    if (!localStorage.getItem('ucs_token')) return
     syncAllStats()
-    return () => { api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch((err) => { console.error('Error:', err.message); }) }
+    return () => {
+      if (!localStorage.getItem('ucs_token')) return
+      api('/fro/status', { method: 'PUT', body: JSON.stringify({ status: 'offline' }) }).catch(() => {})
+    }
   }, [])
 
   useEffect(() => {

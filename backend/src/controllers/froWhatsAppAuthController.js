@@ -19,7 +19,7 @@ export async function whatsappAutoLogin(req, res) {
     const agents = typeof agentsRaw === 'string' ? JSON.parse(agentsRaw) : (agentsRaw || []);
 
     if (agents.length === 0) {
-      return res.json({ agents: [] });
+      return res.json({ sessions: [] });
     }
 
     const sessions = [];
@@ -29,20 +29,32 @@ export async function whatsappAutoLogin(req, res) {
         process.env.JWT_SECRET,
         { expiresIn: '24h' }
       );
-      const accounts = (agent.whatsapp_accounts || []).filter(a => a.is_active);
-      for (const account of accounts) {
+
+      if (agent.assigned_account_id && agent.assigned_account_name) {
         sessions.push({
           agentId: agent.id,
           agentEmail: agent.email,
           agentName: agent.name,
-          project: account.project,
-          account: { id: account.id, name: account.name, project: account.project, phone_number_id: account.phone_number_id },
+          project: agent.assigned_account_project,
+          account: { id: agent.assigned_account_id, name: agent.assigned_account_name, project: agent.assigned_account_project, phone_number_id: agent.assigned_phone_number },
           token,
         });
+      } else {
+        const accounts = (agent.whatsapp_accounts || []).filter(a => a.is_active);
+        for (const account of accounts) {
+          sessions.push({
+            agentId: agent.id,
+            agentEmail: agent.email,
+            agentName: agent.name,
+            project: account.project,
+            account: { id: account.id, name: account.name, project: account.project, phone_number_id: account.phone_number_id },
+            token,
+          });
+        }
       }
     }
 
-    return res.json({ agents: sessions });
+    return res.json({ sessions });
   } catch (error) {
     console.error('[auto-login] error:', error?.message);
     return res.status(500).json({ message: 'Auto-login failed' });

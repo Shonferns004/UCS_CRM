@@ -33,12 +33,13 @@ function AutoLoginLoader({ project, onReady, onError }) {
           })
           if (res.ok) {
             const data = await res.json()
-            if (data.sessions?.length) {
-              const agents = data.sessions.map(s => ({
-                agentUserId: s.agent_user_id,
-                accountName: s.account_name,
+            const sessionList = data.agents || data.sessions || []
+            if (sessionList.length) {
+              const agents = sessionList.map(s => ({
+                agentUserId: s.agentId,
+                accountName: s.account?.name,
                 project: s.project,
-                whatsappUserId: s.whatsapp_user_id,
+                whatsappUserId: s.account?.id,
                 token: s.token,
               }))
               localStorage.setItem('wa_agents', JSON.stringify(agents))

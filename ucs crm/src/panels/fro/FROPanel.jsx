@@ -243,12 +243,13 @@ export default function FROPanel() {
             })
             if (loginRes.ok) {
               const loginData = await loginRes.json()
-              if (loginData.sessions?.length) {
-                const agents = loginData.sessions.map(s => ({
-                  agentUserId: s.agent_user_id,
-                  accountName: s.account_name,
+              const sessionList = loginData.agents || loginData.sessions || []
+              if (sessionList.length) {
+                const agents = sessionList.map(s => ({
+                  agentUserId: s.agentId,
+                  accountName: s.account?.name,
                   project: s.project,
-                  whatsappUserId: s.whatsapp_user_id,
+                  whatsappUserId: s.account?.id,
                   token: s.token,
                 }))
                 localStorage.setItem('wa_agents', JSON.stringify(agents))
@@ -345,7 +346,7 @@ export default function FROPanel() {
   const totalShown = rejectedToShow.length + verifiedToShow.length + dueToShow.length;
   const totalHidden = rejectedCount + verifiedCount + dueCount - totalShown;
 
-  const meta = NAV.find(n => location.pathname === n.path)
+  const meta = NAV_BASE.find(n => location.pathname === n.path)
   const userName = user?.name || 'User'
   const initials = userName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
