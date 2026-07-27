@@ -10,21 +10,25 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Backfill conversations with NULL project
--- Strategy: match assigned_agent_id -> worker_agent_assignments -> whatsapp_accounts.project
+-- Match via worker_agent_assignments -> whatsapp_accounts.project
 UPDATE conversations c
-SET project = waa.project
+SET project = wa.project
 FROM worker_agent_assignments waa
+JOIN whatsapp_accounts wa ON wa.id = waa.account_id
 WHERE c.project IS NULL
   AND c.assigned_agent_id = waa.user_id
-  AND waa.account_id IS NOT NULL;
+  AND waa.account_id IS NOT NULL
+  AND wa.project IS NOT NULL;
 
--- Also try via fro_whatsapp_assignments
+-- Also try via fro_whatsapp_assignments -> whatsapp_accounts.project
 UPDATE conversations c
-SET project = fwa.project
+SET project = wa.project
 FROM fro_whatsapp_assignments fwa
+JOIN whatsapp_accounts wa ON wa.id = fwa.whatsapp_account_id
 WHERE c.project IS NULL
   AND c.assigned_agent_id = fwa.fro_worker_id
-  AND fwa.is_active = true;
+  AND fwa.is_active = true
+  AND wa.project IS NOT NULL;
 
 -- Log remaining NULLs so admin can manually fix
 SELECT c.id, c.contact_id, c.assigned_agent_id, c.created_at
