@@ -7,6 +7,45 @@ const waQueryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 30, retry: 1 } },
 })
 
+function InboxSkeleton() {
+  return (
+    <div style={{ display: 'flex', height: '100%', minHeight: 420, overflow: 'hidden', background: '#fff', border: '1px solid #e5e7eb' }}>
+      <div style={{ width: 280, padding: 14, borderRight: '1px solid #e5e7eb', boxSizing: 'border-box', flexShrink: 0 }}>
+        <div className="sk" style={{ height: 34, marginBottom: 8 }} />
+        <div className="sk" style={{ height: 34, marginBottom: 16 }} />
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 0', borderBottom: '1px solid #f1f5f9' }}>
+            <div className="sk" style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div className="sk" style={{ height: 12, width: index % 2 ? '58%' : '72%', marginBottom: 7 }} />
+              <div className="sk" style={{ height: 10, width: '45%' }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: 58, padding: '0 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="sk" style={{ width: 36, height: 36, borderRadius: '50%' }} />
+          <div>
+            <div className="sk" style={{ width: 150, height: 13, marginBottom: 6 }} />
+            <div className="sk" style={{ width: 84, height: 10 }} />
+          </div>
+        </div>
+        <div style={{ flex: 1, padding: '22px 28px', background: '#f9fafb' }}>
+          <div className="sk" style={{ width: '34%', maxWidth: 250, height: 44, marginBottom: 12 }} />
+          <div className="sk" style={{ width: '46%', maxWidth: 330, height: 54, marginLeft: 'auto', marginBottom: 12 }} />
+          <div className="sk" style={{ width: '28%', maxWidth: 210, height: 40 }} />
+        </div>
+        <div style={{ padding: 12, borderTop: '1px solid #e5e7eb', display: 'flex', gap: 8 }}>
+          <div className="sk" style={{ width: 36, height: 36, borderRadius: '50%' }} />
+          <div className="sk" style={{ flex: 1, height: 36, borderRadius: 18 }} />
+          <div className="sk" style={{ width: 36, height: 36, borderRadius: '50%' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AutoLoginLoader({ project, onReady, onError }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -63,15 +102,7 @@ function AutoLoginLoader({ project, onReady, onError }) {
   }, [project])
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', border: '1px solid #e5e7eb' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ width: 40, height: 40, border: '3px solid #d1d5db', borderTopColor: '#25D366', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
-          <div style={{ fontSize: 14, color: '#6b7280' }}>Connecting to WhatsApp...</div>
-        </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      </div>
-    )
+    return <InboxSkeleton />
   }
 
   if (error) {
