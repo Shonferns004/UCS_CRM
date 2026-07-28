@@ -35,6 +35,18 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   const { data: existing } = await query.maybeSingle();
   if (existing) return existing;
 
+  // Fallback: try without ngo_id filter (handles UUID vs integer mismatch)
+  if (ngoId) {
+    const { data: fallback } = await supabase
+      .from('fro_assignments')
+      .select('id, station')
+      .eq('donor_id', donorId)
+      .eq('fro_worker_id', workerId)
+      .not('status', 'eq', 'reassigned')
+      .maybeSingle();
+    if (fallback) return fallback;
+  }
+
   // Fallback: claim unassigned lead (fro_worker_id is null) in this FRO's station
   if (ngoId) {
     const { data: unassigned } = await supabase
