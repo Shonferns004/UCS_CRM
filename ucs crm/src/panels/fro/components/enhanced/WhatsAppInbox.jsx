@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -31,6 +31,19 @@ const PROJECT_TAB_COLORS = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' },
   aflf: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
   maan: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+}
+
+// An FRO must only ever see conversations that have been explicitly assigned
+// to them. Keep this check in the UI as a defence-in-depth guard in case an
+// API response accidentally includes an unassigned conversation.
+function isAssignedToCurrentAgent(conversation, agentId) {
+  const assignedAgentId = conversation?.assigned_agent_id
+    ?? conversation?.assignedAgentId
+    ?? conversation?.assigned_to_agent_id
+    ?? conversation?.agent_id
+
+  return assignedAgentId != null
+    && String(assignedAgentId) === String(agentId)
 }
 
 export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, activeProject }) {
@@ -76,7 +89,17 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     }
   }, [activeProject])
 
-  const filteredByTab = conversations
+  const filteredByTab = useMemo(() => conversations.filter(conversation =>
+    isAssignedToCurrentAgent(conversation, waUser?.id)
+  ), [conversations, waUser?.id])
+
+  // A conversation can be reassigned while this screen is open. Do not leave
+  // its thread accessible after it is no longer assigned to this FRO.
+  useEffect(() => {
+    if (activeConv && !filteredByTab.some(conversation => conversation.id === activeConv.id)) {
+      setActiveConv(null)
+    }
+  }, [activeConv, filteredByTab])
 
   useEffect(() => {
     const phoneParam = searchParams.get('phone')
@@ -93,8 +116,8 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
     }
     if (handledRouteTargetRef.current === routeTarget) return
 
-    if (conversations.length > 0) {
-      const match = conversations.find(c => {
+    if (filteredByTab.length > 0) {
+      const match = filteredByTab.find(c => {
         const p = c.contact?.phone_normalized || c.contact?.phone || ''
         return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
       })
@@ -111,7 +134,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
       setShowNewConv(true)
       handledRouteTargetRef.current = routeTarget
     }
-  }, [searchParams, conversations, activeTab, loadingConv])
+  }, [searchParams, filteredByTab, activeTab, loadingConv])
 
   const { data: messages = null } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
@@ -377,7 +400,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
       {showSearch && (
         <MessageSearchModal userId={waUser?.id} onClose={() => setShowSearch(false)}
-          onSelectConversation={(convId) => { const conv = conversations.find(c => c.id === convId); if (conv) handleSelect(conv) }} />
+          onSelectConversation={(convId) => { const conv = filteredByTab.find(c => c.id === convId); if (conv) handleSelect(conv) }} />
       )}
     </div>
   )
