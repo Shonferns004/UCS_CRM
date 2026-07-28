@@ -11,6 +11,8 @@ const ALLOWED_ROLES = {
   telecaller: 'telecaller',
   fro: 'fro',
   worker: 'worker',
+  digital: 'digital',
+  developers: 'developers',
   event_head: 'event_head',
   event_manager: 'event_manager',
   'Event Manager': 'Event Manager',

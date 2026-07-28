@@ -16,7 +16,7 @@ export default function Login({ onLogin }) {
     setBusy(true)
     try {
       const data = await login(email, pass)
-      onLogin?.(data.user?.role || data.role)
+      onLogin?.((data.user?.department || data.user?.role || data.role)?.toLowerCase())
     } catch (e) {
       setErr(e.message)
     } finally {
