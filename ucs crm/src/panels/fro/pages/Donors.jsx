@@ -158,7 +158,7 @@ export default function Donors() {
   if (loading) return <SkeletonDonors />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 0, boxSizing: 'border-box', minWidth: 0 }}>
       <div style={{ display: 'flex', gap: 5, padding: '6px 0', borderBottom: '1px solid var(--line)', flexShrink: 0, flexWrap: 'wrap' }}>
         {PERIOD_FILTERS.map(p => (
           <button key={p.id} onClick={() => handlePeriodChange(p.id)}
@@ -173,10 +173,10 @@ export default function Donors() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--line)', flexShrink: 0, minWidth: 0 }}>
         <input type="text" placeholder="Search by name or mobile..." value={search} onChange={e => setSearch(e.target.value)}
-          style={{ flex: 1, padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
-        <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>{filtered.length} donor{filtered.length !== 1 ? 's' : ''} &middot; Page {page} of {totalPages}</span>
+          style={{ flex: 1, minWidth: 0, padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+        <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600, whiteSpace: 'nowrap' }}>{filtered.length} donor{filtered.length !== 1 ? 's' : ''} &middot; Page {page} of {totalPages}</span>
       </div>
 
       <div style={{ display: 'flex', gap: 6, padding: '8px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>

@@ -13,8 +13,16 @@ const PROJECT_BADGES = {
 export default function ConversationList({ conversations = [], activeId, onSelect, loading, searchQuery }) {
   if (loading) {
     return (
-      <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#9ca3af' }}>
-        Loading conversations...
+      <div style={{ padding: '8px 12px' }}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+            <div className="sk" style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div className="sk" style={{ height: 12, width: index % 2 ? '56%' : '70%', marginBottom: 7 }} />
+              <div className="sk" style={{ height: 10, width: '42%' }} />
+            </div>
+          </div>
+        ))}
       </div>
     )
   }

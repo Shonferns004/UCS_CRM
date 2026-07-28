@@ -54,21 +54,47 @@ export default function Dashboard() {
   const isMonthlyPopupSeason = day >= 1 && day <= 3
 
   useEffect(() => {
-    Promise.all([
-      getMyDashboard().catch((err) => { console.error('API error:', err.message); return null; }),
-      getMyTarget().catch((err) => { console.error('API error:', err.message); return null; }),
-      getFollowUps().catch((err) => { console.error('API error:', err.message); return []; }),
-      getLeadStats(monthStr).catch((err) => { console.error('API error:', err.message); return null; }),
-      isMonthlyPopupSeason ? getMonthlyDonors(monthStr).catch((err) => { console.error('API error:', err.message); return []; }) : Promise.resolve([]),
-    ]).then(([d, t, f, ls, md]) => {
-      setDashData(d)
-      setTargetData(t)
-      setFollowUps(f || [])
-      setLeadStats(ls)
-      setMonthlyDonors(md || [])
-      if (d || t) cacheSet(CACHE_KEY, { dash: d, target: t }, 30000)
-      if (isMonthlyPopupSeason && md?.length > 0 && localStorage.getItem('monthly_donors_dismissed') !== monthStr) setShowMonthlyModal(true)
-    }).finally(() => setLoading(false))
+    let cancelled = false
+    const safeSet = (setter, value) => { if (!cancelled) setter(value) }
+
+    // Render as soon as the core dashboard request returns. Follow-ups,
+    // lead stats, and monthly donors enrich the page afterwards instead of
+    // keeping the whole screen in a loading state.
+    const dashboardRequest = getMyDashboard()
+      .catch((err) => { console.error('API error:', err.message); return null })
+    const targetRequest = getMyTarget()
+      .catch((err) => { console.error('API error:', err.message); return null })
+
+    dashboardRequest.then(data => {
+      safeSet(setDashData, data)
+      safeSet(setLoading, false)
+    })
+
+    targetRequest.then(data => safeSet(setTargetData, data))
+
+    Promise.all([dashboardRequest, targetRequest]).then(([dash, target]) => {
+      if (dash || target) cacheSet(CACHE_KEY, { dash, target }, 5 * 60 * 1000)
+    })
+
+    getFollowUps()
+      .then(data => safeSet(setFollowUps, data || []))
+      .catch((err) => { console.error('API error:', err.message); safeSet(setFollowUps, []) })
+
+    getLeadStats(monthStr)
+      .then(data => safeSet(setLeadStats, data))
+      .catch((err) => { console.error('API error:', err.message); safeSet(setLeadStats, null) })
+
+    if (isMonthlyPopupSeason) {
+      getMonthlyDonors(monthStr)
+        .then(data => {
+          const donors = data || []
+          safeSet(setMonthlyDonors, donors)
+          if (!cancelled && donors.length > 0 && localStorage.getItem('monthly_donors_dismissed') !== monthStr) setShowMonthlyModal(true)
+        })
+        .catch((err) => { console.error('API error:', err.message); safeSet(setMonthlyDonors, []) })
+    }
+
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {

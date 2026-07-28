@@ -50,7 +50,7 @@ function ProtectedRoute({ role, children }) {
   if (!user) return <Navigate to="/login" replace />
   if (allowedRoles.includes('*')) return children
   if (user.role === 'super_admin' && (allowedRoles.includes('super_admin') || allowedRoles.includes('*'))) return children
-  if (!allowedRoles.includes(user.role) && !allowedRoles.includes((user.department||'').toLowerCase())) {
+  if (!allowedRoles.includes(user.role) && !allowedRoles.includes(user.department)) {
     return <AccessDenied />
   }
   return children
@@ -87,7 +87,7 @@ function AccessDenied() {
 function RootRedirect() {
   const { user } = useUcs()
   if (!user) return <Navigate to="/login" replace />
-  const path = ROLE_PATHS[(user.department||'').toLowerCase()] || ROLE_PATHS[user.role]
+  const path = ROLE_PATHS[user.department] || ROLE_PATHS[user.role]
   if (path) return <Navigate to={path} replace />
   return <AccessDenied />
 }
@@ -96,7 +96,7 @@ function LoginWrapper() {
   const { user } = useUcs()
   const navigate = useNavigate()
   if (user) {
-    const path = ROLE_PATHS[(user.department||'').toLowerCase()] || ROLE_PATHS[user.role]
+    const path = ROLE_PATHS[user.department] || ROLE_PATHS[user.role]
     if (path) return <Navigate to={path} replace />
   }
   return <Login onLogin={(role) => {
@@ -169,8 +169,8 @@ export default function App() {
           </ProtectedRoute>
         } />
         <Route path="/dev-panel/*" element={
-          <ProtectedRoute role={['Digital', 'developers', 'super_admin']}>
-            <PanelWrapper roleKey="Digital" />
+          <ProtectedRoute role={['digital', 'developers', 'super_admin']}>
+            <PanelWrapper roleKey="digital" />
           </ProtectedRoute>
         } />
 
