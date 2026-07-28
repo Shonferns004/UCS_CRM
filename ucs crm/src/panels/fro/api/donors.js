@@ -28,6 +28,10 @@ export async function updateDonorStatus(donorId, data) {
   return api(`/fro/donors/${donorId}/status`, { method: 'PUT', body: JSON.stringify(data), _prefix: 'ucs' })
 }
 
+export async function updateDonorFrequency(donorId, frequency) {
+  return api(`/fro/donors/${donorId}/frequency`, { method: 'PUT', body: JSON.stringify({ frequency }), _prefix: 'ucs' })
+}
+
 export async function addDonorLog(donorId, data) {
   return api(`/fro/donors/${donorId}/logs`, { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
 }

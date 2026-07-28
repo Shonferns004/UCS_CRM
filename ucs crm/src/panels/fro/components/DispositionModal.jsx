@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getDonorDetail, getDonorHistory, addDonorLog, uploadPaymentScreenshot } from '../api/donors';
+import { getDonorDetail, getDonorHistory, addDonorLog, uploadPaymentScreenshot, updateDonorFrequency } from '../api/donors';
 import { DatePicker } from './ui';
 import { TimePicker } from './TimePicker';
 import { useCall } from '../CallContext';
@@ -251,6 +251,22 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                       <div style={{ color: 'var(--sage)', fontWeight: 600 }}>
                         {profile?.donation_count || 0} time{profile?.donation_count !== 1 ? 's' : ''} (₹{Number(profile?.total_amount || 0).toLocaleString('en-IN')})
                       </div>
+                    </div>
+                  </div>
+                  <div className="detail-field-row">
+                    <div className="fld">
+                      <label>Frequency</label>
+                      <select value={profile?.donation_frequency || ''} onChange={e => {
+                        updateDonorFrequency(donorId, e.target.value).then(() => {
+                          setProfile(prev => prev ? { ...prev, donation_frequency: e.target.value } : prev);
+                        }).catch(() => {});
+                      }} style={{ padding: '2px 6px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 12, background: '#fff', outline: 'none' }}>
+                        <option value="">Select</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="yearly">Yearly</option>
+                        <option value="one_time">One Time</option>
+                      </select>
                     </div>
                   </div>
                   <div className="detail-field-row">

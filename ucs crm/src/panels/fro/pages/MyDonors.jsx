@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorFrequency } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -787,6 +787,25 @@ export default function MyDonors() {
                     <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--sage)' }}>payments</span>
                     {donor.donation_count || 0} time{donor.donation_count !== 1 ? 's' : ''} (₹{Number(donor.total_donated || 0).toLocaleString('en-IN')})
                   </div>
+                </div>
+              </div>
+              <div className="detail-field-row">
+                <div className="fld">
+                  <label>Frequency</label>
+                  <select value={donor.donor_frequency || ''} onChange={e => {
+                    const val = e.target.value;
+                    updateDonorFrequency(donor.id, val).then(() => {
+                      const updated = [...donors];
+                      updated[index] = { ...updated[index], donor_frequency: val };
+                      setDonors(updated);
+                    }).catch(() => {});
+                  }} style={{ padding: '2px 6px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 12, background: '#fff', outline: 'none' }}>
+                    <option value="">Select</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="yearly">Yearly</option>
+                    <option value="one_time">One Time</option>
+                  </select>
                 </div>
               </div>
               <div className="detail-field-row">
