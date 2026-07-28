@@ -609,7 +609,7 @@ export default function FROPanel() {
           onDone={handlePopDone}
         />
       )}
-      <NotificationDrawer topOffset={56}
+      <NotificationDrawer topOffset={72}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         sections={drawerSections}
