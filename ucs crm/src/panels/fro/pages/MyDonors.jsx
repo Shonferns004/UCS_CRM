@@ -452,10 +452,6 @@ export default function MyDonors() {
     if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
     if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
-    if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
-    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10 || !PAN_REGEX.test(leadPan))) { setMessage({ type: 'error', text: 'Enter a valid PAN (format: ABCDE1234F)' }); return; }
-    if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
-    if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
 
     setSaving(true); setMessage(null);
     try {
