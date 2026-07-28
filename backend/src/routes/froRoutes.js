@@ -28,6 +28,7 @@ import {
   getRejectedLeads,
   searchDonors,
   updateLiveStatus,
+  updateDonorFrequency,
   getLiveStatuses,
   getMyProgress,
   saveMyProgress,
@@ -54,6 +55,7 @@ router.get('/reactivated-donors', getReactivatedDonors);
 router.get('/donors', getMyDonors);
 router.get('/transferred-leads', getTransferredLeads);
 router.put('/donors/:id/status', updateDonorStatus);
+router.put('/donors/:id/frequency', updateDonorFrequency);
 router.put('/donors/:id/mark-seen', async (req, res) => {
   try {
     const { id } = req.params;

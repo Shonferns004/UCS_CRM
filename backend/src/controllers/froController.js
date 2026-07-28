@@ -669,6 +669,7 @@ export const getMyDonors = async (req, res) => {
         total_donated: d.total_amount || 0,
         last_donation_date: d.last_donation_date || null,
         first_donation_date: d.first_donation_date || null,
+        donor_frequency: d.donation_frequency || '',
         has_donated_current_fy: activeDonorIds.has(a.donor_id),
         is_active: activeDonorIds.has(a.donor_id),
         status: a.status || 'pending',
@@ -1770,7 +1771,7 @@ export const getDonorHistory = async (req, res) => {
 
     const { data: donors } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, donation_frequency')
       .eq('id', donorId)
       .maybeSingle();
 
@@ -2106,7 +2107,7 @@ export const getFullDonorHistory = async (req, res) => {
 
     const { data: donor } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donation_frequency')
       .eq('id', donorId)
       .maybeSingle();
 
@@ -2141,6 +2142,28 @@ export const getFullDonorHistory = async (req, res) => {
     return res.json({ donor: donor || null, logs: logs || [] });
   } catch (error) {
     console.error('getFullDonorHistory error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateDonorFrequency = async (req, res) => {
+  try {
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+    const { frequency } = req.body;
+    const allowed = ['monthly', 'quarterly', 'yearly', 'one_time'];
+    if (!frequency || !allowed.includes(frequency)) {
+      return res.status(400).json({ message: `Frequency must be one of: ${allowed.join(', ')}` });
+    }
+    const { data, error } = await supabase
+      .from('donor_profiles')
+      .update({ donation_frequency: frequency })
+      .eq('id', donorId)
+      .select('donation_frequency')
+      .single();
+    if (error) throw error;
+    return res.json(data);
+  } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
