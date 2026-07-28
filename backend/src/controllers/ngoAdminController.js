@@ -74,7 +74,7 @@ export const getDonors = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         const name = ngoNames[idx];
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -325,7 +325,7 @@ export const setTarget = async (req, res) => {
   try {
     const { fro_worker_id, month, target_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
+    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
 
     if (!fro_worker_id || !month || target_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and target_amount are required' });
@@ -378,8 +378,8 @@ export const getTargets = async (req, res) => {
     const { month, ngo_id } = req.query;
     const targetMonth = month ? month + '-01' : new Date().toISOString().slice(0, 7) + '-01';
 
-    const filterNgoIds = ngo_id && ngoIds.includes(Number(ngo_id))
-      ? [Number(ngo_id)]
+    const filterNgoIds = ngo_id && ngoIds.some(id => String(id) === String(ngo_id))
+      ? [ngo_id]
       : ngoIds;
 
     const allWorkers = [];
@@ -474,7 +474,7 @@ export const getDashboard = async (req, res) => {
     const origNgoIds = [...ngoIds];
 
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -811,7 +811,7 @@ export const getFroPerformance = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
     }
 
@@ -936,7 +936,7 @@ export const setAchievedTarget = async (req, res) => {
   try {
     const { fro_worker_id, month, achieved_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
+    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
 
     if (!fro_worker_id || !month || achieved_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and achieved_amount are required' });
@@ -957,7 +957,7 @@ export const setIncentive = async (req, res) => {
   try {
     const { fro_worker_id, month, incentive_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
+    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
 
     if (!fro_worker_id || !month) {
       return res.status(400).json({ message: 'fro_worker_id and month are required' });
@@ -1292,8 +1292,8 @@ export const removeStationByName = async (req, res) => {
     const { ngo_id } = req.query;
     const ngoIds = await getUserNgoIds(req.user);
 
-    const delNgoId = ngo_id ? Number(ngo_id) : null;
-    if (delNgoId && !ngoIds.includes(delNgoId)) {
+    const delNgoId = ngo_id || null;
+    if (delNgoId && !ngoIds.some(id => String(id) === String(delNgoId))) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -1323,7 +1323,7 @@ export const createStationHandler = async (req, res) => {
       return res.status(400).json({ message: 'station name is required' });
     }
     const ngoIds = await getUserNgoIds(req.user);
-    if (ngo_id && !ngoIds.includes(Number(ngo_id))) {
+    if (ngo_id && !ngoIds.some(id => String(id) === String(ngo_id))) {
       return res.status(403).json({ message: 'Access denied for this NGO' });
     }
 
@@ -1428,7 +1428,7 @@ export const getStationStats = async (req, res) => {
 
     const { ngo_id: filterNgoId, from, to } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -1549,7 +1549,7 @@ export const getNewData = async (req, res) => {
     const perPage = Math.min(5000, Math.max(10, parseInt(perPageStr) || 500));
 
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         const name = ngoNames[idx];
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -1651,7 +1651,7 @@ export const distributeNewData = async (req, res) => {
     }
     // Filter to specific NGO if provided
     if (filterNgoId) {
-      ngoEntries = ngoEntries.filter(e => e.ngoId === Number(filterNgoId));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
     }
     if (ngoEntries.length === 0) {
       return res.json({ message: 'No NGO assigned to your account', count: 0 });
@@ -1900,7 +1900,7 @@ export const getAlerts = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
       }
@@ -1965,7 +1965,7 @@ export const getRejectedLeads = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
       }
@@ -2504,7 +2504,7 @@ export const returnTransferEarly = async (req, res) => {
     const { id } = req.params;
     const ngoIds = await getUserNgoIds(req.user);
     const { data: transfer } = await supabase.from('fro_transfers').select('ngo_id').eq('id', id).maybeSingle();
-    if (transfer && transfer.ngo_id && !ngoIds.includes(Number(transfer.ngo_id))) {
+    if (transfer && transfer.ngo_id && !ngoIds.some(id => String(id) === String(transfer.ngo_id))) {
       return res.status(403).json({ message: 'Access denied' });
     }
     const count = await reverseTransfer(id);
@@ -3135,7 +3135,7 @@ export const createFollowup = async (req, res) => {
     if (!assignment) {
       return res.status(400).json({ message: 'No assignment found for this donor' });
     }
-    if (assignment.ngo_id && !ngoIds.includes(Number(assignment.ngo_id))) {
+    if (assignment.ngo_id && !ngoIds.some(id => String(id) === String(assignment.ngo_id))) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -3283,7 +3283,7 @@ export const cleanupOrphanedStations = async (req, res) => {
 
     let targetNgoIds;
     if (ngo_id) {
-      if (!allowedNgoIds.has(ngo_id)) {
+      if (![...allowedNgoIds].some(id => String(id) === String(ngo_id))) {
         return res.status(403).json({ message: 'You do not have access to this NGO' });
       }
       targetNgoIds = [ngo_id];
@@ -3516,7 +3516,7 @@ export const uploadOldDataForStation = async (req, res) => {
     // Filter by selected NGO if provided
     const { ngo_id } = req.body;
     if (ngo_id) {
-      ngoEntries = ngoEntries.filter(e => e.ngoId === ngo_id || e.ngoId === Number(ngo_id));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(ngo_id));
     }
 
     if (ngoEntries.length === 0) {
