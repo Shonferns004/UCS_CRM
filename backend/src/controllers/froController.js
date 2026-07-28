@@ -31,13 +31,9 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
     .not('status', 'eq', 'reassigned');
-  try {
-    if (ngoId) query = query.eq('ngo_id', ngoId);
-    const { data: existing } = await query.maybeSingle();
-    if (existing) return existing;
-  } catch (_) {
-    // Type mismatch on ngo_id — proceed to fallback
-  }
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data: existing } = await query.maybeSingle();
+  if (existing) return existing;
 
   // Fallback: try without ngo_id filter (handles UUID vs integer mismatch)
   if (ngoId) {
@@ -53,24 +49,20 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
 
   // Fallback: claim unassigned lead (fro_worker_id is null) in this FRO's station
   if (ngoId) {
-    try {
-      const { data: unassigned } = await supabase
+    const { data: unassigned } = await supabase
+      .from('fro_assignments')
+      .select('id, station')
+      .eq('donor_id', donorId)
+      .is('fro_worker_id', null)
+      .eq('ngo_id', ngoId)
+      .not('status', 'eq', 'reassigned')
+      .maybeSingle();
+    if (unassigned) {
+      await supabase
         .from('fro_assignments')
-        .select('id, station')
-        .eq('donor_id', donorId)
-        .is('fro_worker_id', null)
-        .eq('ngo_id', ngoId)
-        .not('status', 'eq', 'reassigned')
-        .maybeSingle();
-      if (unassigned) {
-        await supabase
-          .from('fro_assignments')
-          .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
-          .eq('id', unassigned.id);
-        return unassigned;
-      }
-    } catch (_) {
-      // Type mismatch on ngo_id — skip
+        .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
+        .eq('id', unassigned.id);
+      return unassigned;
     }
   }
 
@@ -92,33 +84,25 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   // Look up FRO's station from fro_station_assignments
   let station = null;
   if (ngoId) {
-    try {
-      const { data: sa } = await supabase
-        .from('fro_station_assignments')
-        .select('station')
-        .eq('fro_worker_id', workerId)
-        .eq('ngo_id', ngoId)
-        .maybeSingle();
-      station = sa?.station || null;
-    } catch (_) {
-      // Type mismatch on ngo_id — skip
-    }
+    const { data: sa } = await supabase
+      .from('fro_station_assignments')
+      .select('station')
+      .eq('fro_worker_id', workerId)
+      .eq('ngo_id', ngoId)
+      .maybeSingle();
+    station = sa?.station || null;
   }
 
   // Use upsert to avoid race condition on concurrent creates
-  try {
-    const { data: created } = await supabase
-      .from('fro_assignments')
-      .upsert(
-        { donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() },
-        { onConflict: 'donor_id,fro_worker_id,ngo_id', ignoreDuplicates: false }
-      )
-      .select('id, station')
-      .single();
-    if (created) return created;
-  } catch (_) {
-    // Type mismatch on ngo_id — fall through to re-query
-  }
+  const { data: created } = await supabase
+    .from('fro_assignments')
+    .upsert(
+      { donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() },
+      { onConflict: 'donor_id,fro_worker_id,ngo_id', ignoreDuplicates: false }
+    )
+    .select('id, station')
+    .single();
+  if (created) return created;
 
   // Fallback: re-query if upsert returned no data (e.g., conflict ignored)
   const { data: retry } = await supabase
