@@ -724,6 +724,7 @@ export const getMyDonors = async (req, res) => {
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
         donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
         donation_count: d.donation_count || 0,
         total_donated: d.total_amount || 0,
         last_donation_date: d.last_donation_date || null,
@@ -927,6 +928,7 @@ export const getTransferredLeads = async (req, res) => {
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
         donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
         donation_count: d.donation_count || 0,
         total_donated: d.total_amount || 0,
         status: a.status || 'pending',
@@ -980,6 +982,34 @@ export const updateDonorStatus = async (req, res) => {
 
     const result = await updateAssignmentStatus(assignment.id, updates);
     return res.json({ message: 'Status updated', data: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateDonorType = async (req, res) => {
+  try {
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+    const { donor_type } = req.body;
+    const validTypes = ['monthly', 'quarterly', 'yearly'];
+    if (!donor_type || !validTypes.includes(donor_type)) {
+      return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly' });
+    }
+
+    const { data, error } = await supabase
+      .from('donor_profiles')
+      .update({ donor_type })
+      .eq('id', donorId)
+      .select('id, donor_type')
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return res.status(404).json({ message: 'Donor not found' });
+      throw error;
+    }
+
+    return res.json({ message: 'Donor type updated', data });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1880,7 +1910,7 @@ export const getDonorHistory = async (req, res) => {
 
     const { data: donors } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, donor_type')
       .eq('id', donorId)
       .maybeSingle();
 
@@ -2151,7 +2181,7 @@ export const searchDonors = async (req, res) => {
 
     const { data: donors, error } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
       .in('id', stationDonorIds)
       .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
       .limit(20);
@@ -2195,6 +2225,7 @@ export const searchDonors = async (req, res) => {
           donor_pan: d.pan_number || '',
           donor_project: d.project_supported || '',
           donor_dob: d.birth_date || '',
+          donor_type: d.donor_type || '',
           donor_address: d.address_1 || '',
           donation_count: d.donation_count || 0,
           total_donated: d.total_amount || 0,
@@ -2222,7 +2253,7 @@ export const getFullDonorHistory = async (req, res) => {
 
     const { data: donor } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
       .eq('id', donorId)
       .maybeSingle();
 

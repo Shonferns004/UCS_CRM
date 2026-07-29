@@ -30,6 +30,10 @@ export async function updateDonorStatus(donorId, data) {
   return api(`/fro/donors/${donorId}/status`, { method: 'PUT', body: JSON.stringify(data), _prefix: 'ucs' })
 }
 
+export async function updateDonorType(donorId, donorType) {
+  return api(`/fro/donors/${donorId}/donor-type`, { method: 'PUT', body: JSON.stringify({ donor_type: donorType }), _prefix: 'ucs' })
+}
+
 export async function addDonorLog(donorId, data) {
   return api(`/fro/donors/${donorId}/logs`, { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
 }
