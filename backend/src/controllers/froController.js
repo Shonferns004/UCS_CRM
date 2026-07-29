@@ -206,14 +206,14 @@ export const getDashboard = async (req, res) => {
         assignedByType[type] = (assignedByType[type] || 0) + 1;
       }
     }
-    const ngoIds = Object.keys(assignedByNgo).map(Number).filter(Boolean);
+    const ngoIds = Object.keys(assignedByNgo).filter(Boolean);
     const ngoMap = {};
     if (ngoIds.length > 0) {
       const { data: ngos } = await supabase.from('ngos').select('id, name').in('id', ngoIds);
       for (const n of ngos || []) ngoMap[n.id] = n.name;
     }
     const assignedData = {
-      byNgo: Object.entries(assignedByNgo).map(([id, count]) => ({ ngo_id: Number(id), ngo_name: ngoMap[Number(id)] || 'Unknown', count })),
+      byNgo: Object.entries(assignedByNgo).map(([id, count]) => ({ ngo_id: id, ngo_name: ngoMap[id] || 'Unknown', count })),
       byStation: Object.entries(assignedByStation).map(([station, count]) => ({ station, count })),
       byType: Object.entries(assignedByType).map(([type, count]) => ({ type, count })),
     };
