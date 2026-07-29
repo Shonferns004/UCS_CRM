@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -344,6 +344,25 @@ export default function MyDonors() {
     setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
     setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
     setMessage(null);
+  };
+
+  const [donorTypeSaving, setDonorTypeSaving] = useState(false);
+  const handleDonorTypeChange = async (e) => {
+    const newType = e.target.value;
+    if (!donor || newType === (donor.donor_type || '')) return;
+    const donorId = donor.id;
+    const prevType = donor.donor_type;
+    setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: newType } : d));
+    setDonorTypeSaving(true);
+    try {
+      await updateDonorType(donorId, newType);
+    } catch (err) {
+      console.error('updateDonorType error:', err.message);
+      setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: prevType } : d));
+      setMessage({ type: 'error', text: 'Failed to update donor type' });
+    } finally {
+      setDonorTypeSaving(false);
+    }
   };
 
   const cancelledRef = useRef(false);
@@ -779,6 +798,17 @@ export default function MyDonors() {
                 <div className="fld fld-sm">
                   <label>Amount</label>
                   <div>₹{Number(donor.donor_amount || 0).toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+              <div className="detail-field-row">
+                <div className="fld">
+                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>saving…</span>}</label>
+                  <select value={donor.donor_type || ''} onChange={handleDonorTypeChange} disabled={donorTypeSaving}>
+                    <option value="">— Select —</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
                 </div>
               </div>
               <div className="detail-field-row">
