@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getTransferredLeads, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations } from '../api/donors';
+import { getTransferredLeads, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, getMyStations } from '../api/donors';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { extractTransactionData } from '../utils/ocr';
 
@@ -69,11 +69,24 @@ export default function TransferredLeads() {
   const [donations, setDonations] = useState([]);
   const [donationYear, setDonationYear] = useState('this_year');
   const [donationLoading, setDonationLoading] = useState(false);
+  const [stations, setStations] = useState([]);
+  const [selectedNgo, setSelectedNgo] = useState(null);
 
   useEffect(() => {
+    getMyStations().then(s => {
+      const arr = Array.isArray(s) ? s : [];
+      setStations(arr);
+      const ngoMap = {};
+      arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+      const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+      if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+    }).catch((err) => { console.error('API error:', err.message); });
+  }, []);
+
+  const loadLeads = useCallback((ngoId) => {
     localStorage.removeItem('mydonors_index');
     setLoading(true);
-    getTransferredLeads().then(r => {
+    getTransferredLeads(ngoId).then(r => {
       setDonors(r);
       setMessage(null);
       const saved = localStorage.getItem('mydonors_current_donor');
@@ -88,6 +101,10 @@ export default function TransferredLeads() {
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadLeads(selectedNgo);
+  }, [selectedNgo, loadLeads]);
 
   const donor = donors[index];
 
@@ -367,6 +384,24 @@ export default function TransferredLeads() {
 
         {/* MIDDLE PANEL — Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
+          {(() => {
+            const ngoMap = {};
+            stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+            const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+            if (ngoList.length <= 1) return null;
+            return (
+              <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+                {ngoList.map(n => (
+                  <button key={n.ngo_id} onClick={() => setSelectedNgo(n.ngo_id)}
+                    className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
+                    style={{ fontSize: 10 }}>
+                    {n.ngo_name}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {message && (
             <div className={`detail-message ${message.type}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
