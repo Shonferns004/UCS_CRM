@@ -35,6 +35,18 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   const { data: existing } = await query.maybeSingle();
   if (existing) return existing;
 
+  // Fallback: try without ngo_id filter (handles UUID vs integer mismatch)
+  if (ngoId) {
+    const { data: fallback } = await supabase
+      .from('fro_assignments')
+      .select('id, station')
+      .eq('donor_id', donorId)
+      .eq('fro_worker_id', workerId)
+      .not('status', 'eq', 'reassigned')
+      .maybeSingle();
+    if (fallback) return fallback;
+  }
+
   // Fallback: claim unassigned lead (fro_worker_id is null) in this FRO's station
   if (ngoId) {
     const { data: unassigned } = await supabase
@@ -1020,6 +1032,22 @@ export const createDonorLogHandler = async (req, res) => {
       });
     } else if (action === 'disposition' && disposition_detail) {
       await completeAllScheduledByAssignment(assignment.id);
+
+      // Also complete orphaned schedules linked to other assignments for this donor+FRO
+      const { data: allAsgn } = await supabase
+        .from('fro_assignments')
+        .select('id')
+        .eq('donor_id', donorId)
+        .eq('fro_worker_id', workerId)
+        .not('status', 'eq', 'reassigned');
+      if (allAsgn && allAsgn.length > 1) {
+        const allIds = allAsgn.map(a => a.id);
+        await supabase
+          .from('fro_scheduled_contacts')
+          .update({ is_completed: true, reminded: true })
+          .in('assignment_id', allIds)
+          .eq('is_completed', false);
+      }
 
       const statusFromDetail = dispositionDetailToStatus(disposition_detail);
       const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
