@@ -1,0 +1,1 @@
+ALTER TABLE donor_profiles ADD COLUMN IF NOT EXISTS donor_type TEXT DEFAULT NULL;
