@@ -533,6 +533,8 @@ export const getMyDonors = async (req, res) => {
 
     if (req.query.station) {
       query = query.eq('station', req.query.station);
+      effectiveScope = effectiveScope.filter(s => s.station === req.query.station);
+      effectiveStations = [req.query.station];
     }
 
     if (statusGroup === 'not_connected') {
