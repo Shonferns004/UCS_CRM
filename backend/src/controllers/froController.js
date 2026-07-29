@@ -185,17 +185,38 @@ export const getDashboard = async (req, res) => {
     // Count donors by this FRO's stations (from fro_assignments)
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     let totalDonors = 0;
+    let assignedByNgo = {};
+    let assignedByStation = {};
+    let assignedByType = {};
     if (stationNames.length > 0) {
-      const { data: donorIds } = await withStationNgoPairs(
+      const { data: assignedRows } = await withStationNgoPairs(
         supabase
           .from('fro_assignments')
-          .select('donor_id')
+          .select('donor_id, ngo_id, station, batch_type')
           .in('station', stationNames)
           .not('status', 'eq', 'reassigned'),
         myScope
       );
-      totalDonors = new Set((donorIds || []).map(a => a.donor_id)).size;
+      const rows = assignedRows || [];
+      totalDonors = new Set(rows.map(a => a.donor_id)).size;
+      for (const row of rows) {
+        if (row.ngo_id) assignedByNgo[row.ngo_id] = (assignedByNgo[row.ngo_id] || 0) + 1;
+        if (row.station) assignedByStation[row.station] = (assignedByStation[row.station] || 0) + 1;
+        const type = row.batch_type || 'unknown';
+        assignedByType[type] = (assignedByType[type] || 0) + 1;
+      }
     }
+    const ngoIds = Object.keys(assignedByNgo).map(Number).filter(Boolean);
+    const ngoMap = {};
+    if (ngoIds.length > 0) {
+      const { data: ngos } = await supabase.from('ngos').select('id, name').in('id', ngoIds);
+      for (const n of ngos || []) ngoMap[n.id] = n.name;
+    }
+    const assignedData = {
+      byNgo: Object.entries(assignedByNgo).map(([id, count]) => ({ ngo_id: Number(id), ngo_name: ngoMap[Number(id)] || 'Unknown', count })),
+      byStation: Object.entries(assignedByStation).map(([station, count]) => ({ station, count })),
+      byType: Object.entries(assignedByType).map(([type, count]) => ({ type, count })),
+    };
 
     const stats = await getDashboardStats(workerId);
     stats.total = totalDonors;
@@ -441,6 +462,7 @@ export const getDashboard = async (req, res) => {
         used: dataUsed,
         unused: dataUnused,
       },
+      assignedData,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
