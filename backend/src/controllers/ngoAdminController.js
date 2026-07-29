@@ -3634,3 +3634,123 @@ export const uploadOldDataForStation = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+export const getDataOverview = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await supabase.from('ngos').select('id, name').eq('id', req.user.ngo_id).maybeSingle();
+      if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
+    }
+    if (ngoEntries.length === 0) return res.json([]);
+
+    const minimal = req.query.minimal === 'true';
+    const perStationLimit = Math.min(500, Math.max(1, parseInt(req.query.per_station) || 100));
+
+    const result = [];
+    for (const { ngoId, ngoName } of ngoEntries) {
+      const [stationAssignsRes, assignmentsRes] = await Promise.all([
+        supabase.from('fro_station_assignments')
+          .select('id, station, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(id, name)')
+          .eq('ngo_id', ngoId)
+          .order('station', { ascending: true }),
+        supabase.from('fro_assignments')
+          .select('id, donor_id, station, fro_worker_id, status, batch_type, is_new, assigned_at, ngo_id')
+          .eq('ngo_id', ngoId)
+          .not('status', 'eq', 'reassigned'),
+      ]);
+      if (stationAssignsRes.error) throw stationAssignsRes.error;
+
+      const stationRows = stationAssignsRes.data || [];
+      const assignments = assignmentsRes.data || [];
+
+      const workerNameMap = {};
+      for (const sa of stationRows) {
+        const wid = sa.fro_worker_id;
+        if (wid && !workerNameMap[wid]) workerNameMap[wid] = sa.workers?.name || 'Unknown';
+      }
+      const stationIdMap = {};
+      for (const sa of stationRows) stationIdMap[sa.station] = sa.id;
+
+      const buckets = {};
+      const getFro = (wid) => wid || 'UNASSIGNED';
+      for (const a of assignments) {
+        const froKey = getFro(a.fro_worker_id);
+        if (!buckets[froKey]) buckets[froKey] = { new: {}, old: {} };
+        const side = a.batch_type === 'new_data' ? 'new' : 'old';
+        const st = a.station || 'UNKNOWN';
+        if (!buckets[froKey][side][st]) buckets[froKey][side][st] = [];
+        buckets[froKey][side][st].push(a);
+      }
+
+      let donorIds = [];
+      if (!minimal) donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+
+      const donorMap = {};
+      if (!minimal && donorIds.length > 0) {
+        const { data: donors } = await supabase.from('donor_profiles')
+          .select('id, name, mobile_number, amount, city')
+          .in('id', donorIds);
+        for (const d of donors || []) donorMap[d.id] = d;
+      }
+
+      const knownFroIds = new Set(Object.keys(workerNameMap));
+      const froKeys = new Set([...Object.keys(buckets), ...knownFroIds]);
+
+      const froAssignments = [];
+      for (const froKey of froKeys) {
+        const isUnassigned = froKey === 'UNASSIGNED';
+        const froId = isUnassigned ? null : froKey;
+        const froName = isUnassigned ? 'Unassigned' : (workerNameMap[froKey] || 'Unknown');
+        const buildSide = (side) => {
+          const stationBuckets = (buckets[froKey] && buckets[froKey][side]) || {};
+          const stations = Object.keys(stationBuckets).sort();
+          return stations.map(st => {
+            const list = stationBuckets[st] || [];
+            const data = minimal ? [] : list.slice(0, perStationLimit).map(a => {
+              const d = donorMap[a.donor_id] || {};
+              return {
+                id: a.id,
+                assignment_id: a.id,
+                donor_id: a.donor_id,
+                name: d.name || 'Unknown',
+                mobile: d.mobile_number || '',
+                amount: d.amount || 0,
+                city: d.city || '',
+                status: a.status || 'pending',
+                is_new: a.is_new !== false,
+                batch_type: a.batch_type || null,
+                assigned_at: a.assigned_at || null,
+              };
+            });
+            return {
+              stationId: stationIdMap[st] || null,
+              stationName: st,
+              count: list.length,
+              data,
+            };
+          });
+        };
+        froAssignments.push({
+          froId,
+          froName,
+          new: { stations: buildSide('new') },
+          old: { stations: buildSide('old') },
+        });
+      }
+
+      result.push({ ngoId, ngoName, froAssignments });
+    }
+
+    return res.json(result);
+  } catch (error) {
+    console.error('getDataOverview error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};

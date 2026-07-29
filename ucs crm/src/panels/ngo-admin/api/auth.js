@@ -20,4 +20,9 @@ export async function getCallAnalytics(params = {}) {
   return apiGet(`/ngo-admin/call-analytics${qs ? '?' + qs : ''}`)
 }
 
+export async function getDataOverview(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/data-overview${qs ? '?' + qs : ''}`)
+}
+
 export { setSession, clearSession, getToken, getUser } from '../../../api/auth'

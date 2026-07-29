@@ -1,7 +1,8 @@
 import { api } from './auth'
 
-export async function getTransferredLeads() {
-  return api('/fro/transferred-leads', { _prefix: 'ucs' })
+export async function getTransferredLeads(ngoId) {
+  const params = ngoId ? `?ngo_id=${ngoId}` : ''
+  return api(`/fro/transferred-leads${params}`, { _prefix: 'ucs' })
 }
 
 export async function getMyDonors(status, statusGroup, options = {}) {
@@ -15,6 +16,7 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (options.newOnly) params.set('new_only', 'true');
   if (options.oldOnly) params.set('old_only', 'true');
   if (options.station) params.set('station', options.station);
+  if (options.ngoId) params.set('ngo_id', options.ngoId);
   const qs = params.toString();
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
@@ -28,8 +30,8 @@ export async function updateDonorStatus(donorId, data) {
   return api(`/fro/donors/${donorId}/status`, { method: 'PUT', body: JSON.stringify(data), _prefix: 'ucs' })
 }
 
-export async function updateDonorFrequency(donorId, frequency) {
-  return api(`/fro/donors/${donorId}/frequency`, { method: 'PUT', body: JSON.stringify({ frequency }), _prefix: 'ucs' })
+export async function updateDonorType(donorId, donorType) {
+  return api(`/fro/donors/${donorId}/donor-type`, { method: 'PUT', body: JSON.stringify({ donor_type: donorType }), _prefix: 'ucs' })
 }
 
 export async function addDonorLog(donorId, data) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorFrequency } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -150,6 +150,7 @@ export default function MyDonors() {
   const initialMountRef = useRef(true);
   const [stations, setStations] = useState([]);
   const [selectedStation, setSelectedStation] = useState('all');
+  const [selectedNgo, setSelectedNgo] = useState(null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -226,7 +227,7 @@ export default function MyDonors() {
     })();
 
     return () => { cancelled = true; };
-  }, [dataTab, selectedStation]);
+  }, [dataTab, selectedStation, selectedNgo]);
 
   useEffect(() => {
     if (donors.length > 0 && index >= donors.length) {
@@ -249,18 +250,26 @@ export default function MyDonors() {
   }, [index, donors, endDonorView, startDonorView]);
 
   useEffect(() => {
-    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch((err) => { console.error('API error:', err.message); });
+    getMyStations().then(s => {
+      const arr = Array.isArray(s) ? s : [];
+      setStations(arr);
+      const ngoMap = {};
+      arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+      const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+      if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+    }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stationOpts = (tab, station) => {
     const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
     if (station && station !== 'all') opts.station = station;
+    if (selectedNgo) opts.ngoId = selectedNgo;
     return opts;
   };
 
   const reloadDonors = useCallback(() => {
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(filterAndSortDonors(r)); }).catch((err) => { console.error('API error:', err.message); });
-  }, [dataTab, selectedStation]);
+  }, [dataTab, selectedStation, selectedNgo]);
 
   const debouncedReload = useCallback(() => {
     if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
@@ -335,6 +344,25 @@ export default function MyDonors() {
     setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
     setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
     setMessage(null);
+  };
+
+  const [donorTypeSaving, setDonorTypeSaving] = useState(false);
+  const handleDonorTypeChange = async (e) => {
+    const newType = e.target.value;
+    if (!donor || newType === (donor.donor_type || '')) return;
+    const donorId = donor.id;
+    const prevType = donor.donor_type;
+    setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: newType } : d));
+    setDonorTypeSaving(true);
+    try {
+      await updateDonorType(donorId, newType);
+    } catch (err) {
+      console.error('updateDonorType error:', err.message);
+      setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: prevType } : d));
+      setMessage({ type: 'error', text: 'Failed to update donor type' });
+    } finally {
+      setDonorTypeSaving(false);
+    }
   };
 
   const cancelledRef = useRef(false);
@@ -774,6 +802,17 @@ export default function MyDonors() {
               </div>
               <div className="detail-field-row">
                 <div className="fld">
+                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>saving…</span>}</label>
+                  <select value={donor.donor_type || ''} onChange={handleDonorTypeChange} disabled={donorTypeSaving}>
+                    <option value="">— Select —</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+              </div>
+              <div className="detail-field-row">
+                <div className="fld">
                   <label>Email</label>
                   <div style={{ fontStyle: donor.donor_email ? 'normal' : 'italic', color: donor.donor_email ? 'inherit' : 'var(--ink-soft)' }}>{donor.donor_email || 'No email'}</div>
                 </div>
@@ -854,15 +893,36 @@ export default function MyDonors() {
 
         {/* MIDDLE PANEL — Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
+          {(() => {
+            const ngoMap = {};
+            stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+            const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+            if (ngoList.length <= 1) return null;
+            return (
+              <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+                {ngoList.map(n => (
+                  <button key={n.ngo_id} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(n.ngo_id); setSelectedStation('all'); }}
+                    className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
+                    style={{ fontSize: 10 }}>
+                    {n.ngo_name}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {/* Station Tabs */}
-          {stations.length > 1 && (
+          {(() => {
+            const filteredStations = stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station);
+            if (filteredStations.length <= 1) return null;
+            return (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
               <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
                 className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
                 style={{ fontSize: 10 }}>
                 All Stations
               </button>
-              {stations.map(s => (
+              {filteredStations.map(s => (
                 <button key={s} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation(s) }}
                   className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
                   style={{ fontSize: 10 }}>
@@ -871,7 +931,8 @@ export default function MyDonors() {
                 </button>
               ))}
             </div>
-          )}
+            );
+          })()}
           {/* New/Old Data Tabs */}
           <div className="fro-tab-segment">
             <button onClick={() => switchTab('new')}

@@ -112,6 +112,25 @@ async function getMyStationNames(workerId) {
   return (stationAssigns || []).map(s => s.station);
 }
 
+async function getMyStationScope(workerId) {
+  const { data: stationAssigns, error } = await supabase
+    .from('fro_station_assignments')
+    .select('station, ngo_id')
+    .eq('fro_worker_id', workerId);
+  if (error) throw error;
+  const scope = (stationAssigns || []).map(s => ({ station: s.station, ngo_id: s.ngo_id }));
+  const stationNames = scope.map(s => s.station);
+  const allowedNgoIds = [...new Set(scope.map(s => s.ngo_id).filter(Boolean))];
+  return { scope, stationNames, allowedNgoIds };
+}
+
+function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol = 'ngo_id') {
+  if (!scope || scope.length === 0) return queryBuilder;
+  const pairs = scope.filter(s => s.ngo_id && s.station).map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
+  if (pairs.length === 0) return queryBuilder;
+  return queryBuilder.or(pairs.join(','));
+}
+
 async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
   const allData = [];
   for (let i = 0; i < ids.length; i += chunkSize) {
@@ -164,14 +183,17 @@ export const getDashboard = async (req, res) => {
     const workerId = req.user.id;
 
     // Count donors by this FRO's stations (from fro_assignments)
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     let totalDonors = 0;
     if (stationNames.length > 0) {
-      const { data: donorIds } = await supabase
-        .from('fro_assignments')
-        .select('donor_id')
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned');
+      const { data: donorIds } = await withStationNgoPairs(
+        supabase
+          .from('fro_assignments')
+          .select('donor_id')
+          .in('station', stationNames)
+          .not('status', 'eq', 'reassigned'),
+        myScope
+      );
       totalDonors = new Set((donorIds || []).map(a => a.donor_id)).size;
     }
 
@@ -225,15 +247,15 @@ export const getDashboard = async (req, res) => {
       leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes,
     ] = stationNames.length > 0
       ? await Promise.all([
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'),
-          supabase.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'),
-          supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'),
-          supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'), myScope),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
         ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
@@ -290,31 +312,40 @@ export const getDashboard = async (req, res) => {
     let froReactivatedToday = 0, froReactivatedMonthly = 0;
     if (stationNames.length > 0) {
       // Get donations by this FRO worker today
-      const { data: froTodayDonors } = await supabase
-        .from('fro_donor_logs')
-        .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
-        .in('fro_assignments.station', stationNames)
-        .eq('fro_assignments.fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', todayStart.toISOString())
-        .lte('created_at', todayEnd.toISOString());
+      const { data: froTodayDonors } = await withStationNgoPairs(
+        supabase
+          .from('fro_donor_logs')
+          .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
+          .in('fro_assignments.station', stationNames)
+          .eq('fro_assignments.fro_worker_id', workerId)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .gte('created_at', todayStart.toISOString())
+          .lte('created_at', todayEnd.toISOString()),
+        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+      );
 
-      const { data: froMonthDonors } = await supabase
-        .from('fro_donor_logs')
-        .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
-        .in('fro_assignments.station', stationNames)
-        .eq('fro_assignments.fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', monthStart)
-        .lte('created_at', monthEnd);
+      const { data: froMonthDonors } = await withStationNgoPairs(
+        supabase
+          .from('fro_donor_logs')
+          .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
+          .in('fro_assignments.station', stationNames)
+          .eq('fro_assignments.fro_worker_id', workerId)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .gte('created_at', monthStart)
+          .lte('created_at', monthEnd),
+        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+      );
 
-      const { data: froFyDonors } = await supabase
-        .from('fro_donor_logs')
-        .select('donor_id, created_at, fro_assignments!inner(station, fro_worker_id)')
-        .in('fro_assignments.station', stationNames)
-        .eq('fro_assignments.fro_worker_id', workerId)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', fyStart.toISOString());
+      const { data: froFyDonors } = await withStationNgoPairs(
+        supabase
+          .from('fro_donor_logs')
+          .select('donor_id, created_at, fro_assignments!inner(station, fro_worker_id)')
+          .in('fro_assignments.station', stationNames)
+          .eq('fro_assignments.fro_worker_id', workerId)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .gte('created_at', fyStart.toISOString()),
+        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+      );
 
       const todayStr = todayStart.toISOString();
       const fyBeforeTodayDonorsSet = new Set();
@@ -334,12 +365,15 @@ export const getDashboard = async (req, res) => {
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
     const donorsWithRecentDonations = stationNames.length > 0
-      ? (await supabase
-          .from('fro_donor_logs')
-          .select('donor_id, fro_assignments!inner(station)')
-          .in('fro_assignments.station', stationNames)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', oneYearAgo.toISOString())).data || []
+      ? (await withStationNgoPairs(
+          supabase
+            .from('fro_donor_logs')
+            .select('donor_id, fro_assignments!inner(station)')
+            .in('fro_assignments.station', stationNames)
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .gte('created_at', oneYearAgo.toISOString()),
+          myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+        )).data || []
       : [];
 
     const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
@@ -417,7 +451,7 @@ export const getReactivatedDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
     const period = req.query.period === 'month' ? 'month' : 'today';
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
     const nowUtc = new Date();
@@ -433,16 +467,16 @@ export const getReactivatedDonors = async (req, res) => {
     const fyBeforeEnd = period === 'month' ? monthStart.toISOString() : todayStart.toISOString();
 
     const [periodDonorsRes, fyDonorsRes] = await Promise.all([
-      supabase.from('fro_donor_logs')
+      withStationNgoPairs(supabase.from('fro_donor_logs')
         .select('donor_id, amount_collected, created_at, donor_profiles!inner(name, mobile_number), fro_assignments!inner(station)')
         .in('fro_assignments.station', stationNames)
         .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', periodStart).lte('created_at', periodEnd),
-      supabase.from('fro_donor_logs')
+        .gte('created_at', periodStart).lte('created_at', periodEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+      withStationNgoPairs(supabase.from('fro_donor_logs')
         .select('donor_id, created_at, fro_assignments!inner(station)')
         .in('fro_assignments.station', stationNames)
         .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', fyStart.toISOString()),
+        .gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
     ]);
 
     const fyBeforePeriodDonors = new Set();
@@ -480,14 +514,22 @@ export const getMyDonors = async (req, res) => {
     const statusFilter = req.query.status;
     const statusGroup = req.query.status_group;
 
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
+
+    let effectiveScope = myScope;
+    let effectiveStations = stationNames;
+    if (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) {
+      effectiveScope = myScope.filter(s => s.ngo_id === req.query.ngo_id);
+      effectiveStations = effectiveScope.map(s => s.station);
+    }
 
     let query = supabase
       .from('fro_assignments')
       .select('*, ngos(name)')
-      .in('station', stationNames)
+      .in('station', effectiveStations)
       .not('status', 'eq', 'reassigned');
+    query = withStationNgoPairs(query, effectiveScope);
 
     if (req.query.station) {
       query = query.eq('station', req.query.station);
@@ -503,20 +545,21 @@ export const getMyDonors = async (req, res) => {
 
     if (req.query.new_only === 'true') {
       const batchIds = [];
-      for (const s of stationNames) {
+      for (const sc of effectiveScope) {
         try {
-          const { data: lb } = await supabase
+          let batchQ = supabase
             .from('fro_assignments')
             .select('batch_id')
-            .eq('station', s)
+            .eq('station', sc.station)
             .eq('batch_type', 'new_data')
             .not('status', 'eq', 'reassigned')
             .order('assigned_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(1);
+          if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+          const { data: lb } = await batchQ.maybeSingle();
           if (lb?.batch_id) batchIds.push(lb.batch_id);
         } catch (e) {
-          console.error(`getMyDonors batch query error ${s}:`, e.message);
+          console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
         }
       }
       if (batchIds.length > 0) {
@@ -526,20 +569,21 @@ export const getMyDonors = async (req, res) => {
       }
     } else if (req.query.old_only === 'true') {
       const batchIds = [];
-      for (const s of stationNames) {
+      for (const sc of effectiveScope) {
         try {
-          const { data: lb } = await supabase
+          let batchQ = supabase
             .from('fro_assignments')
             .select('batch_id')
-            .eq('station', s)
+            .eq('station', sc.station)
             .eq('batch_type', 'old_data')
             .not('status', 'eq', 'reassigned')
             .order('assigned_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(1);
+          if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+          const { data: lb } = await batchQ.maybeSingle();
           if (lb?.batch_id) batchIds.push(lb.batch_id);
         } catch (e) {
-          console.error(`getMyDonors batch query error ${s}:`, e.message);
+          console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
         }
       }
       if (batchIds.length > 0) {
@@ -554,7 +598,8 @@ export const getMyDonors = async (req, res) => {
     let { data: assignments, error: qErr } = await query;
     if (qErr) {
       console.error('getMyDonors main query error:', qErr);
-      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', stationNames).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+      query = withStationNgoPairs(query, effectiveScope);
       if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
       else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
       const { data: retry } = await query;
@@ -562,13 +607,15 @@ export const getMyDonors = async (req, res) => {
     }
 
     if (!assignments || assignments.length === 0) {
-      const { data: byWorker } = await supabase
+      let byWorkerQ = supabase
         .from('fro_assignments')
         .select('*, ngos(name)')
         .eq('fro_worker_id', workerId)
-        .in('station', stationNames)
+        .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned')
         .limit(DONOR_LIMIT);
+      byWorkerQ = withStationNgoPairs(byWorkerQ, effectiveScope);
+      const { data: byWorker } = await byWorkerQ;
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
       }
@@ -665,6 +712,7 @@ export const getMyDonors = async (req, res) => {
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
         donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
         donation_count: d.donation_count || 0,
         total_donated: d.total_amount || 0,
         last_donation_date: d.last_donation_date || null,
@@ -801,16 +849,25 @@ export const getMyDonors = async (req, res) => {
 export const getTransferredLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
-    const { data: assignments } = await supabase
+    let effectiveScope = myScope;
+    let effectiveStations = stationNames;
+    if (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) {
+      effectiveScope = myScope.filter(s => s.ngo_id === req.query.ngo_id);
+      effectiveStations = effectiveScope.map(s => s.station);
+    }
+
+    let txQuery = supabase
       .from('fro_assignments')
       .select('*, ngos(name)')
-      .in('station', stationNames)
+      .in('station', effectiveStations)
       .is('fro_worker_id', null)
       .not('status', 'eq', 'reassigned')
       .limit(200);
+    txQuery = withStationNgoPairs(txQuery, effectiveScope);
+    const { data: assignments } = await txQuery;
 
     if (!assignments || assignments.length === 0) return res.json([]);
 
@@ -860,6 +917,7 @@ export const getTransferredLeads = async (req, res) => {
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
         donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
         donation_count: d.donation_count || 0,
         total_donated: d.total_amount || 0,
         status: a.status || 'pending',
@@ -913,6 +971,34 @@ export const updateDonorStatus = async (req, res) => {
 
     const result = await updateAssignmentStatus(assignment.id, updates);
     return res.json({ message: 'Status updated', data: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateDonorType = async (req, res) => {
+  try {
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+    const { donor_type } = req.body;
+    const validTypes = ['monthly', 'quarterly', 'yearly'];
+    if (!donor_type || !validTypes.includes(donor_type)) {
+      return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly' });
+    }
+
+    const { data, error } = await supabase
+      .from('donor_profiles')
+      .update({ donor_type })
+      .eq('id', donorId)
+      .select('id, donor_type')
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return res.status(404).json({ message: 'Donor not found' });
+      throw error;
+    }
+
+    return res.json({ message: 'Donor type updated', data });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1086,7 +1172,7 @@ export const createDonorLogHandler = async (req, res) => {
 export const getRejectedLeads = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
 
     if (stationNames.length === 0) return res.json([]);
 
@@ -1321,10 +1407,15 @@ export const getMyStations = async (req, res) => {
     const workerId = req.user.id;
     const { data: stations, error } = await supabase
       .from('fro_station_assignments')
-      .select('station')
-      .eq('fro_worker_id', workerId);
+      .select('station, ngo_id, ngos(name)')
+      .eq('fro_worker_id', workerId)
+      .order('station', { ascending: true });
     if (error) throw error;
-    return res.json((stations || []).map(s => s.station));
+    return res.json((stations || []).map(s => ({
+      station: s.station,
+      ngo_id: s.ngo_id,
+      ngo_name: s.ngos?.name || null,
+    })));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1382,15 +1473,18 @@ export const debugMyStations = async (req, res) => {
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
-    const { data: contacts, error } = await supabase
-      .from('fro_scheduled_contacts')
-      .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, ngos(name))')
-      .eq('is_completed', false)
-      .in('fro_assignments.station', stationNames)
-      .order('scheduled_at', { ascending: true });
+    const { data: contacts, error } = await withStationNgoPairs(
+      supabase
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station, ngos(name))')
+        .eq('is_completed', false)
+        .in('fro_assignments.station', stationNames)
+        .order('scheduled_at', { ascending: true }),
+      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+    );
 
     if (error) throw error;
 
@@ -1430,14 +1524,17 @@ export const getFroScheduled = async (req, res) => {
 export const getFroCallbacks = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
-    const { data: assignments, error } = await supabase
-      .from('fro_assignments')
-      .select('*')
-      .in('station', stationNames)
-      .in('status', ['follow_up', 'callback']);
+    const { data: assignments, error } = await withStationNgoPairs(
+      supabase
+        .from('fro_assignments')
+        .select('*')
+        .in('station', stationNames)
+        .in('status', ['follow_up', 'callback']),
+      myScope
+    );
 
     if (error) throw error;
 
@@ -1485,16 +1582,19 @@ export const getFroCallbacks = async (req, res) => {
 export const getMyHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
-    const { data: logs, error } = await supabase
-      .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(fro_worker_id, donor_id, station)')
-      .eq('fro_assignments.fro_worker_id', workerId)
-      .in('fro_assignments.station', stationNames)
-      .order('created_at', { ascending: false })
-      .limit(200);
+    const { data: logs, error } = await withStationNgoPairs(
+      supabase
+        .from('fro_donor_logs')
+        .select('*, fro_assignments!inner(fro_worker_id, donor_id, station)')
+        .eq('fro_assignments.fro_worker_id', workerId)
+        .in('fro_assignments.station', stationNames)
+        .order('created_at', { ascending: false })
+        .limit(200),
+      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+    );
 
     if (error) throw error;
 
@@ -1568,21 +1668,24 @@ export const getMyDataRequests = async (req, res) => {
 export const getFollowUps = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
     const nowUtc = new Date();
     const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
     const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
 
-    const { data: contacts, error } = await supabase
-      .from('fro_scheduled_contacts')
-      .select('*, fro_assignments!inner(id, donor_id, ngo_id, station,  ngos(name))')
-      .eq('is_completed', false)
-      .in('fro_assignments.station', stationNames)
-      .gte('scheduled_at', todayStart.toISOString())
-      .lte('scheduled_at', todayEnd.toISOString())
-      .order('scheduled_at', { ascending: true });
+    const { data: contacts, error } = await withStationNgoPairs(
+      supabase
+        .from('fro_scheduled_contacts')
+        .select('*, fro_assignments!inner(id, donor_id, ngo_id, station,  ngos(name))')
+        .eq('is_completed', false)
+        .in('fro_assignments.station', stationNames)
+        .gte('scheduled_at', todayStart.toISOString())
+        .lte('scheduled_at', todayEnd.toISOString())
+        .order('scheduled_at', { ascending: true }),
+      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+    );
 
     if (error) throw error;
 
@@ -1620,7 +1723,7 @@ export const getFollowUps = async (req, res) => {
 export const getLeadStats = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json({ new_donors: 0, new_amount: 0, existing_donors: 0, existing_amount: 0 });
 
     const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -1628,13 +1731,16 @@ export const getLeadStats = async (req, res) => {
     const monthEndDate = new Date(new Date(monthStart).getFullYear(), new Date(monthStart).getMonth() + 1, 0);
     const monthEnd = monthEndDate.toISOString().slice(0, 10) + 'T23:59:59.999Z';
 
-    const { data: logs, error } = await supabase
-      .from('fro_donor_logs')
-      .select('donor_id, amount_collected, fro_assignments!inner(id, station, donor_id)')
-      .eq('action', 'donation')
-      .in('fro_assignments.station', stationNames)
-      .gte('created_at', monthStart)
-      .lte('created_at', monthEnd);
+    const { data: logs, error } = await withStationNgoPairs(
+      supabase
+        .from('fro_donor_logs')
+        .select('donor_id, amount_collected, fro_assignments!inner(id, station, donor_id)')
+        .eq('action', 'donation')
+        .in('fro_assignments.station', stationNames)
+        .gte('created_at', monthStart)
+        .lte('created_at', monthEnd),
+      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+    );
 
     if (error) throw error;
 
@@ -1676,7 +1782,7 @@ export const getLeadStats = async (req, res) => {
 export const getMonthlyDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
     const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -1685,12 +1791,15 @@ export const getMonthlyDonors = async (req, res) => {
     const monthEndDate = new Date(new Date(monthStart).getFullYear(), new Date(monthStart).getMonth() + 1, 0);
     const monthEnd = monthEndDate.toISOString().slice(0, 10) + 'T23:59:59.999Z';
 
-    const { data: assignments, error } = await supabase
-      .from('fro_assignments')
-      .select('*, donor_profiles!inner(id, name, mobile_number, amount, total_amount, donation_count, city), ngos(name)')
-      .in('station', stationNames)
-      .not('status', 'eq', 'reassigned')
-      .gte('donor_profiles.donation_count', 3);
+    const { data: assignments, error } = await withStationNgoPairs(
+      supabase
+        .from('fro_assignments')
+        .select('*, donor_profiles!inner(id, name, mobile_number, amount, total_amount, donation_count, city), ngos(name)')
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned')
+        .gte('donor_profiles.donation_count', 3),
+      myScope
+    );
 
     if (error) throw error;
 
@@ -1737,7 +1846,7 @@ export const getDonorHistory = async (req, res) => {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const period = req.query.period || 'monthly';
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const now = new Date();
@@ -1749,13 +1858,16 @@ export const getDonorHistory = async (req, res) => {
       startDate = now.toISOString().slice(0, 7) + '-01';
     }
 
-    const { data: checkAccess } = await supabase
-      .from('fro_assignments')
-      .select('id')
-      .eq('donor_id', donorId)
-      .in('station', stationNames)
-      .not('status', 'eq', 'reassigned')
-      .limit(1);
+    const { data: checkAccess } = await withStationNgoPairs(
+      supabase
+        .from('fro_assignments')
+        .select('id')
+        .eq('donor_id', donorId)
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned')
+        .limit(1),
+      myScope
+    );
     if (!checkAccess || checkAccess.length === 0) {
       return res.status(403).json({ message: 'Access denied' });
     }
@@ -1771,7 +1883,7 @@ export const getDonorHistory = async (req, res) => {
 
     const { data: donors } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, donation_frequency')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, donor_type')
       .eq('id', donorId)
       .maybeSingle();
 
@@ -2024,22 +2136,25 @@ export const searchDonors = async (req, res) => {
     const { q } = req.query;
     if (!q || q.trim().length < 2) return res.json([]);
 
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json([]);
 
     const searchTerm = `%${q.trim()}%`;
 
-    const { data: donorIdsFromStation } = await supabase
-      .from('fro_assignments')
-      .select('donor_id')
-      .in('station', stationNames)
-      .not('status', 'eq', 'reassigned');
+    const { data: donorIdsFromStation } = await withStationNgoPairs(
+      supabase
+        .from('fro_assignments')
+        .select('donor_id')
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned'),
+      myScope
+    );
     const stationDonorIds = [...new Set((donorIdsFromStation || []).map(a => a.donor_id).filter(Boolean))];
     if (stationDonorIds.length === 0) return res.json([]);
 
     const { data: donors, error } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date')
+      .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
       .in('id', stationDonorIds)
       .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
       .limit(20);
@@ -2049,12 +2164,15 @@ export const searchDonors = async (req, res) => {
 
     const matchedIds = donors.map(d => d.id);
 
-    const { data: assignments, error: asgnError } = await supabase
-      .from('fro_assignments')
-      .select('*, ngos!inner(name)')
-      .in('donor_id', matchedIds)
-      .in('station', stationNames)
-      .not('status', 'eq', 'reassigned');
+    const { data: assignments, error: asgnError } = await withStationNgoPairs(
+      supabase
+        .from('fro_assignments')
+        .select('*, ngos!inner(name)')
+        .in('donor_id', matchedIds)
+        .in('station', stationNames)
+        .not('status', 'eq', 'reassigned'),
+      myScope
+    );
     if (asgnError) throw asgnError;
 
     const result = [];
@@ -2080,6 +2198,7 @@ export const searchDonors = async (req, res) => {
           donor_pan: d.pan_number || '',
           donor_project: d.project_supported || '',
           donor_dob: d.birth_date || '',
+          donor_type: d.donor_type || '',
           donor_address: d.address_1 || '',
           donation_count: d.donation_count || 0,
           total_donated: d.total_amount || 0,
@@ -2102,12 +2221,12 @@ export const getFullDonorHistory = async (req, res) => {
     const ngoId = parseInt(req.query.ngo_id) || null;
     const unlockAll = req.query.unlock_all === 'true';
 
-    const stationNames = await getMyStationNames(workerId);
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     if (stationNames.length === 0) return res.json({ donor: null, logs: [] });
 
     const { data: donor } = await supabase
       .from('donor_profiles')
-      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donation_frequency')
+      .select('id, name, mobile_number, amount, total_amount, donation_count, city, pan_number, email, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
       .eq('id', donorId)
       .maybeSingle();
 
@@ -2117,6 +2236,7 @@ export const getFullDonorHistory = async (req, res) => {
       .eq('donor_id', donorId)
       .in('station', stationNames)
       .not('status', 'eq', 'reassigned');
+    query = withStationNgoPairs(query, myScope);
     if (ngoId) query = query.eq('ngo_id', ngoId);
 
     const { data: assignments } = await query;
