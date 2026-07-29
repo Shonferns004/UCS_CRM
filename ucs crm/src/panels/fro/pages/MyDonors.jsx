@@ -711,7 +711,12 @@ export default function MyDonors() {
                 ? 'New data will appear here once distributed to your station.'
                 : 'Old data will appear here once uploaded to your station.'}
             </div>
-            {dataTab === 'old' && (
+            {dataTab === 'new' ? (
+              <button onClick={() => switchTab('old')} className="fro-empty-switch">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
+                Try Old Data tab
+              </button>
+            ) : (
               <button onClick={() => switchTab('new')} className="fro-empty-switch">
                 <span className="material-symbols-outlined" style={{ fontSize: 13 }}>fiber_new</span>
                 Try New Data tab
