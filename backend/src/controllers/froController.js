@@ -546,52 +546,60 @@ export const getMyDonors = async (req, res) => {
     }
 
     if (req.query.new_only === 'true') {
-      const batchIds = [];
-      for (const sc of effectiveScope) {
-        try {
-          let batchQ = supabase
-            .from('fro_assignments')
-            .select('batch_id')
-            .eq('station', sc.station)
-            .eq('batch_type', 'new_data')
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1);
-          if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-          const { data: lb } = await batchQ.maybeSingle();
-          if (lb?.batch_id) batchIds.push(lb.batch_id);
-        } catch (e) {
-          console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-        }
-      }
-      if (batchIds.length > 0) {
-        query = query.in('batch_id', [...new Set(batchIds)]);
-      } else {
+      if (req.query.station) {
         query = query.eq('batch_type', 'new_data');
+      } else {
+        const batchIds = [];
+        for (const sc of effectiveScope) {
+          try {
+            let batchQ = supabase
+              .from('fro_assignments')
+              .select('batch_id')
+              .eq('station', sc.station)
+              .eq('batch_type', 'new_data')
+              .not('status', 'eq', 'reassigned')
+              .order('assigned_at', { ascending: false })
+              .limit(1);
+            if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+            const { data: lb } = await batchQ.maybeSingle();
+            if (lb?.batch_id) batchIds.push(lb.batch_id);
+          } catch (e) {
+            console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+          }
+        }
+        if (batchIds.length > 0) {
+          query = query.in('batch_id', [...new Set(batchIds)]);
+        } else {
+          query = query.eq('batch_type', 'new_data');
+        }
       }
     } else if (req.query.old_only === 'true') {
-      const batchIds = [];
-      for (const sc of effectiveScope) {
-        try {
-          let batchQ = supabase
-            .from('fro_assignments')
-            .select('batch_id')
-            .eq('station', sc.station)
-            .eq('batch_type', 'old_data')
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1);
-          if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-          const { data: lb } = await batchQ.maybeSingle();
-          if (lb?.batch_id) batchIds.push(lb.batch_id);
-        } catch (e) {
-          console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-        }
-      }
-      if (batchIds.length > 0) {
-        query = query.in('batch_id', [...new Set(batchIds)]);
-      } else {
+      if (req.query.station) {
         query = query.eq('batch_type', 'old_data');
+      } else {
+        const batchIds = [];
+        for (const sc of effectiveScope) {
+          try {
+            let batchQ = supabase
+              .from('fro_assignments')
+              .select('batch_id')
+              .eq('station', sc.station)
+              .eq('batch_type', 'old_data')
+              .not('status', 'eq', 'reassigned')
+              .order('assigned_at', { ascending: false })
+              .limit(1);
+            if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+            const { data: lb } = await batchQ.maybeSingle();
+            if (lb?.batch_id) batchIds.push(lb.batch_id);
+          } catch (e) {
+            console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+          }
+        }
+        if (batchIds.length > 0) {
+          query = query.in('batch_id', [...new Set(batchIds)]);
+        } else {
+          query = query.eq('batch_type', 'old_data');
+        }
       }
     }
 
