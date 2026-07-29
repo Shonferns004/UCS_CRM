@@ -870,10 +870,10 @@ export const getTeamLeadDashboard = async (req, res) => {
 export const getFroWorkerDashboard = async (req, res) => {
   try {
     const { workerId } = req.params;
-    const userNgoIds = req.user.ngo_id ? [Number(req.user.ngo_id)] : [];
+    const userNgoIds = req.user.ngo_id ? [req.user.ngo_id] : [];
     if (userNgoIds.length > 0) {
       const worker = await getWorkerById(workerId);
-      if (worker && worker.ngo_id && !userNgoIds.includes(Number(worker.ngo_id))) {
+      if (worker && worker.ngo_id && !userNgoIds.some(id => String(id) === String(worker.ngo_id))) {
         return res.status(403).json({ message: 'Access denied' });
       }
     }
