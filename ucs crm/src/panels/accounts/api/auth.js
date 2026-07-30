@@ -8,7 +8,7 @@ export async function login(email, password) {
 }
 
 export function apiGet(path) { return api(path, { _prefix: 'ucs' }) }
-export function apiPost(path, body) { return api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' }) }
+export function apiPost(path, body, timeout) { return api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs', timeout }) }
 export function apiPut(path, body) { return api(path, { method: 'PUT', body: JSON.stringify(body), _prefix: 'ucs' }) }
 export function apiPatch(path, body) { return api(path, { method: 'PATCH', body: JSON.stringify(body), _prefix: 'ucs' }) }
 export function apiDelete(path) { return api(path, { method: 'DELETE', _prefix: 'ucs' }) }
