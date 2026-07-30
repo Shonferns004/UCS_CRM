@@ -60,43 +60,91 @@ export default function ReceiptHistory() {
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [dPage, setDPage] = useState(1);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteStatus, setDeleteStatus] = useState('');
+  const [deleteProgress, setDeleteProgress] = useState(0);
   const [showCleanModal, setShowCleanModal] = useState(false);
   const fileRef = useRef(null);
   const perPage = 40;
+  const CHUNK_SIZE = 2000;
 
-  const handleFile = useCallback((file) => {
+  const handleFile = useCallback(async (file) => {
     if (!file) return;
     const name = file.name.toLowerCase();
     if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
       alert('Please upload a valid Excel/CSV file'); return;
     }
-    setImporting(true); setImportResult(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-        if (!rows || rows.length === 0) { alert('File is empty'); return; }
-        const res = await apiPost('/accounts/receipts/import', { receipts: rows });
-        setImportResult(res);
-        load();
-      } catch (err) { alert('Import failed: ' + err.message); }
-      finally { setImporting(false); }
-    };
-    reader.onerror = () => { alert('Failed to read file'); setImporting(false); };
-    reader.readAsArrayBuffer(file);
+    setImporting(true);
+    setImportResult(null);
+    setUploadProgress(0);
+    setUploadStatus('Reading file...');
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      if (!rows || rows.length === 0) { alert('File is empty'); return; }
+
+      const chunks = [];
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        chunks.push(rows.slice(i, i + CHUNK_SIZE));
+      }
+
+      let totalImported = 0;
+      let totalMatched = 0;
+      let totalDups = 0;
+
+      for (let i = 0; i < chunks.length; i++) {
+        setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
+        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i] });
+        totalImported += res.imported || 0;
+        totalMatched += res.matchedDonors || 0;
+        setUploadProgress(Math.round(((i + 1) / chunks.length) * 100));
+      }
+      setUploadProgress(100);
+      setUploadStatus('');
+      setImportResult({
+        message: `${totalImported} receipts imported${totalMatched > 0 ? `, ${totalMatched} linked to donors` : ''}`,
+        imported: totalImported,
+        matchedDonors: totalMatched,
+      });
+      load();
+    } catch (err) { alert('Import failed: ' + err.message); }
+    finally { setImporting(false); setUploadProgress(0); setUploadStatus(''); }
   }, []);
 
   const handleCleanUp = async () => {
     setShowCleanModal(false);
+    setDeleting(true);
+    setDeleteStatus('Finding receipts...');
+    setDeleteProgress(0);
     try {
-      await apiDelete('/accounts/receipts');
+      const { count: total } = await apiGet('/accounts/receipts/count');
+      if (total === 0) {
+        setDeleteStatus('No receipts to delete');
+        setTimeout(() => { setDeleting(false); setDeleteStatus(''); }, 800);
+        return;
+      }
+      let deleted = 0;
+      let isFirst = true;
+      const BATCH = 1000;
+      while (true) {
+        const res = await apiDelete(`/accounts/receipts?batch=${BATCH}${isFirst ? '&reverse=1' : ''}`);
+        isFirst = false;
+        if (!res.deleted || res.deleted === 0) break;
+        deleted += res.deleted;
+        const pct = Math.round((Math.min(deleted, total) / total) * 100);
+        setDeleteProgress(pct);
+        setDeleteStatus(`Deleting ${Math.min(deleted, total)} of ${total} receipts...`);
+      }
+      setDeleteStatus(`Deleted ${total} receipts`);
+      setTimeout(() => { setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }, 1500);
       load();
-    } catch (err) { alert('Clean up failed: ' + err.message); }
+    } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
   const load = () => {
@@ -248,9 +296,15 @@ export default function ReceiptHistory() {
           >
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
             {importing ? (
-              <div>
-                <div style={{ width: 20, height: 20, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', margin: '0 auto 6px' }} />
-                <p style={{ fontSize: 11, color: '#6b7280' }}>Importing...</p>
+              <div style={{ padding: '8px 0' }}>
+                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                  <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#6b7280' }}>{uploadStatus || 'Importing...'}</span>
+                </div>
+                <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#5B6B4E', borderRadius: 3, transition: 'width .3s ease' }} />
+                </div>
+                <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{uploadProgress}%</p>
               </div>
             ) : (
               <>
@@ -262,6 +316,17 @@ export default function ReceiptHistory() {
               </>
             )}
           </div>
+          {deleting && (
+            <div style={{ marginTop: 8, padding: '6px 0' }}>
+              <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{deleteStatus}</span>
+              </div>
+              <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${deleteProgress}%`, height: '100%', background: '#dc2626', borderRadius: 3, transition: 'width .3s ease' }} />
+              </div>
+              {deleteProgress > 0 && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{deleteProgress}%</p>}
+            </div>
+          )}
           {importResult && (
             <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -502,6 +567,7 @@ export default function ReceiptHistory() {
         }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes modalIn { from { opacity: 0; transform: translate(-50%, -50%) scale(.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid #e5e7eb; }
         .modal-header h3 { margin: 0; font-size: 16px; }
         .modal-body { overflow: auto; max-height: calc(90vh - 70px); }
