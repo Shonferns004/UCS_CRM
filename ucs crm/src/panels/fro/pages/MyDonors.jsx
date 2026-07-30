@@ -487,7 +487,14 @@ export default function MyDonors() {
       setDonationEntering(false);
       setDonationAmt('');
       setMessage({ type: 'success', text: 'Donation recorded' });
-      loadDetail();
+      const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+      const newDonors = filterAndSortDonors(refreshed);
+      setDonors(newDonors);
+      const nextIdx = findNextDonorIndex(newDonors, donor.id);
+      setIndex(nextIdx);
+      const nextDonor = newDonors[nextIdx];
+      if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+      clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally {
@@ -958,38 +965,44 @@ export default function MyDonors() {
                     <option value="one_time">One Time</option>
                   </select>
                   {showDonationPrompt && (
-                    <div style={{ marginTop: 6, padding: '8px 10px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
+                    <div style={{ marginTop: 8, background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0', overflow: 'hidden' }}>
                       {!donationEntering ? (
-                        <>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 5 }}>
                             Has this donor donated?
                           </div>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button onClick={handleDonationYes}
-                              style={{ padding: '4px 14px', border: '1px solid #16a34a', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+                              style={{ padding: '5px 16px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
                               Yes
                             </button>
                             <button onClick={handleDonationNo}
-                              style={{ padding: '4px 14px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', color: 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                              style={{ padding: '5px 16px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', color: 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
                               No
                             </button>
                           </div>
-                        </>
+                        </div>
                       ) : (
-                        <>
-                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 6 }}>
                             Donation Details
                           </div>
-                          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                            <input type="number" min="0" placeholder="Amount (₹)"
-                              value={donationAmt} onChange={e => setDonationAmt(e.target.value)}
-                              style={{ flex: 1, padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 5, fontSize: 11, fontFamily: 'inherit', outline: 'none', minWidth: 0 }} />
-                            <input type="date" value={donationDt} onChange={e => setDonationDt(e.target.value)}
-                              style={{ padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 5, fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
+                          <div className="detail-field-row" style={{ marginBottom: 4 }}>
+                            <div className="fld">
+                              <label>Amount (₹)</label>
+                              <input type="number" min="0" placeholder="e.g. 5000"
+                                value={donationAmt} onChange={e => setDonationAmt(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box' }} />
+                            </div>
+                            <div className="fld">
+                              <label>Date</label>
+                              <input type="date" value={donationDt} onChange={e => setDonationDt(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box' }} />
+                            </div>
                           </div>
                           <div style={{ display: 'flex', gap: 4 }}>
                             <button onClick={handleDonationSave} disabled={donationSaving || !donationAmt || !donationDt}
-                              style={{ flex: 1, padding: '5px 14px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: donationSaving || !donationAmt || !donationDt ? 'not-allowed' : 'pointer', opacity: donationSaving || !donationAmt || !donationDt ? 0.5 : 1 }}>
+                              style={{ flex: 1, padding: '6px 14px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: donationSaving || !donationAmt || !donationDt ? 'not-allowed' : 'pointer', opacity: donationSaving || !donationAmt || !donationDt ? 0.5 : 1 }}>
                               {donationSaving ? 'Saving...' : 'Save Donation'}
                             </button>
                             {!donationSaving && (
@@ -999,7 +1012,7 @@ export default function MyDonors() {
                               </button>
                             )}
                           </div>
-                        </>
+                        </div>
                       )}
                     </div>
                   )}
