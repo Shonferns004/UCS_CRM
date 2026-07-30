@@ -1,1 +1,0 @@
-ALTER TABLE conversations ADD COLUMN IF NOT EXISTS whatsapp_account_id INTEGER REFERENCES whatsapp_accounts(id) ON DELETE SET NULL;
