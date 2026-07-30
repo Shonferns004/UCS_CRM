@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiGet } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
-import RecentNotices from '../../../components/RecentNotices';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -191,7 +190,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <RecentNotices limit={5} />
     </div>
   );
 }
