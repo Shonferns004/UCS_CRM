@@ -27,7 +27,8 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
     .eq('fro_assignments.fro_worker_id', workerId)
     .or(
       `and(action.eq.donation,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd})`
+      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
+      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
     );
   if (error) throw error;
 
@@ -59,7 +60,8 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   const { data, error } = await query.or(
       `and(action.eq.donation,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
       `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
+      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
+      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
     );
   if (error) throw error;
 
@@ -77,17 +79,18 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     const amount = parseFloat(d.amount_collected || 0);
 
     const isDonation = d.action === 'donation';
+    const isDoneDirect = d.action === 'disposition' && d.disposition_detail === 'done';
     const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
     const isPendingLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'pending';
 
-    if (isDonation && d.created_at >= monthStart && d.created_at <= monthEnd) {
+    if ((isDonation || isDoneDirect) && d.created_at >= monthStart && d.created_at <= monthEnd) {
       monthCollection[wId] += amount;
     }
     if (isVerifiedLead && d.verified_at >= monthStart && d.verified_at <= monthEnd) {
       monthCollection[wId] += amount;
     }
 
-    if (isDonation && d.created_at >= todayStart && d.created_at <= todayEnd) {
+    if ((isDonation || isDoneDirect) && d.created_at >= todayStart && d.created_at <= todayEnd) {
       todayCollection[wId] += amount;
     }
     if (isVerifiedLead && d.verified_at >= todayStart && d.verified_at <= todayEnd) {
@@ -149,7 +152,7 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
     .select('amount_collected')
     .eq('donor_id', donorId)
     .eq('fro_worker_id', workerId)
-    .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)');
+    .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)');
   if (error) {
     console.error('getTotalCollectedByDonorAndWorker failed, trying fallback:', error.message);
     const { data: assignment, error: asgnErr } = await supabase
@@ -212,7 +215,7 @@ export const getTotalCollectedByAssignment = async (assignmentId) => {
     .from('fro_donor_logs')
     .select('amount_collected, action, disposition_detail')
     .eq('assignment_id', assignmentId)
-    .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)');
+    .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)');
   if (error) throw error;
 
   let total = 0;

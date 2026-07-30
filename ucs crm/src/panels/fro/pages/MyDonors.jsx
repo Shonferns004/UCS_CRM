@@ -29,7 +29,7 @@ const PROJECTS = [
 ];
 
 const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'scheduled', label: 'Follow Up' },
+  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Follow Up' },
   { id: 'callback', label: 'Callback' },
   { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
   { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
@@ -44,7 +44,7 @@ const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
 const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
-const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected']);
+const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
 const DISPOSITION_ORDER = {};
 NOT_CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1; });
 CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1 + NOT_CONNECTED.length; });
@@ -67,7 +67,7 @@ const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
   callback: 'pill-purple', follow_up: 'pill-purple', busy: 'pill-gray', ringing: 'pill-gray',
   unreachable: 'pill-gray', switched_off: 'pill-gray', wrong_number: 'pill-gray',
-  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green',
+  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green', done: 'pill-green',
   visit_donate: 'pill-green', donation_collected: 'pill-green', promise_to_pay: 'pill-blue',
   payment_pending: 'pill-yellow', already_donated: 'pill-gray', not_interested: 'pill-red',
   not_interested_now: 'pill-red', language_barrier: 'pill-gray', transferred_senior: 'pill-blue',
@@ -476,6 +476,8 @@ export default function MyDonors() {
       setProjectName(donor?.donor_project || '');
       setLeadAmount('');
       setPanError('');
+    } else if (detailId === 'done') {
+      setLeadAmount('');
     } else {
       setLeadScreenshot(null);
       setScreenshotPreview(null);
@@ -555,7 +557,7 @@ export default function MyDonors() {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
-    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
 
     setSaving(true); setMessage(null);
     try {
@@ -586,6 +588,9 @@ export default function MyDonors() {
         logData.remark = leadRemark || null;
         logData.upi_transaction_id = upiTransactionId || null;
         logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
+      }
+      if (selected === 'done') {
+        logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
       }
       await addDonorLog(donor.id, logData);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
@@ -1111,6 +1116,16 @@ export default function MyDonors() {
                 </div>
               )}
 
+              {selected === 'done' && (
+                <div className="detail-field-row">
+                  <div className="fld">
+                    <label>Amount Collected</label>
+                    <input type="number" min="0" value={leadAmount}
+                      onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
+                  </div>
+                </div>
+              )}
+
               {selected === 'lead_done' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div className="detail-field-row">
@@ -1260,6 +1275,9 @@ export default function MyDonors() {
                             <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--md-tertiary-fixed, #e0e7ff)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>
                               {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
                             </span>
+                          )}
+                          {log.disposition_detail === 'done' && (
+                            <span style={{ fontSize: 8, fontWeight: 700, background: '#f0fdf4', color: 'var(--sage)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>Collected</span>
                           )}
                         </div>
                       </div>

@@ -528,7 +528,7 @@ export const getReactivatedDonors = async (req, res) => {
 };
 
 const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected'];
-const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
+const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
 
 export const getMyDonors = async (req, res) => {
   try {
@@ -1308,6 +1308,7 @@ function dispositionDetailToStatus(detail) {
     invalid_number: 'invalid_number',
     rejected: 'rejected',
     lead_done: 'lead_done',
+    done: 'done',
     scheduled: 'scheduled',
     callback: 'callback',
     visit_donate: 'visit_donate',
@@ -2070,7 +2071,8 @@ export const getLiveStatuses = async (req, res) => {
         .in('fro_assignments.fro_worker_id', workerIds)
         .or(
           `and(action.eq.donation,created_at.gte.${todayStart},created_at.lte.${todayEnd}),` +
-          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart},verified_at.lte.${todayEnd})`
+          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart},verified_at.lte.${todayEnd}),` +
+          `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${todayStart},created_at.lte.${todayEnd})`
         ),
       supabase
         .from('fro_assignments')
@@ -2105,7 +2107,7 @@ export const getLiveStatuses = async (req, res) => {
       if (['contacted', 'donation_collected', 'follow_up', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'visit_donate', 'promise_to_pay'].includes(status)) {
         s.contacted++;
       }
-      if (status === 'donation_collected' || status === 'lead_done') {
+      if (status === 'donation_collected' || status === 'lead_done' || status === 'done') {
         s.donation_collected++;
       }
       if (status === 'follow_up') {

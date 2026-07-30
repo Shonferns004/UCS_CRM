@@ -22,7 +22,7 @@ const Icon = ({ children, color }) => (
 
 const STATUS_COLORS = {
   pending: '#fbbf24', contacted: '#60a5fa', follow_up: '#a78bfa',
-  donation_collected: '#34d399', lead_done: '#34d399', not_interested: '#f87171',
+  donation_collected: '#34d399', lead_done: '#34d399', done: '#34d399', not_interested: '#f87171',
   not_reachable: '#9ca3af', scheduled: '#a78bfa',
 }
 
