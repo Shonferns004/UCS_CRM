@@ -431,7 +431,7 @@ export default function MyDonors() {
   const [donationEntering, setDonationEntering] = useState(false);
   const handleDonorTypeChange = async (e) => {
     const newType = e.target.value;
-    if (!donor || newType === (donor.donor_type || '')) return;
+    if (!donor || !newType || newType === (donor.donor_type || '')) return;
     const donorId = donor.id;
     const prevType = donor.donor_type;
     setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: newType } : d));
