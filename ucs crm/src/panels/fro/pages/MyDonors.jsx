@@ -353,7 +353,7 @@ export default function MyDonors() {
     setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError('');
     setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
     setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
-    setShowDonationPrompt(false); setDonationAmt(''); setDonationSaving(false);
+    setShowDonationPrompt(false); setDonationEntering(false); setDonationAmt(''); setDonationSaving(false);
     setDonationDt(new Date().toISOString().slice(0, 10));
     setMessage(null);
   };
@@ -368,7 +368,7 @@ export default function MyDonors() {
       leadScreenshot: f.leadScreenshot, screenshotPreview: f.screenshotPreview, leadAddress: f.leadAddress, leadPan: f.leadPan, panError: f.panError,
       leadDob: f.leadDob, projectName: f.projectName, leadAmount: f.leadAmount, leadRemark: f.leadRemark, showRemark: f.showRemark,
       upiTransactionId: f.upiTransactionId, transactionDatetime: f.transactionDatetime, ocrFromName: f.ocrFromName,
-      showDonationPrompt: f.showDonationPrompt, donationAmt: f.donationAmt, donationDt: f.donationDt,
+      showDonationPrompt: f.showDonationPrompt, donationEntering: f.donationEntering, donationAmt: f.donationAmt, donationDt: f.donationDt,
     };
     localStorage.setItem(formStateKey(f.donor.id), JSON.stringify(state));
   };
@@ -399,6 +399,7 @@ export default function MyDonors() {
       setTransactionDatetime(s.transactionDatetime || '');
       setOcrFromName(s.ocrFromName || '');
       setShowDonationPrompt(s.showDonationPrompt || false);
+      setDonationEntering(s.donationEntering || false);
       setDonationAmt(s.donationAmt || '');
       setDonationDt(s.donationDt || new Date().toISOString().slice(0, 10));
     } catch (e) { /* ignore */ }
@@ -427,6 +428,7 @@ export default function MyDonors() {
   const [donationAmt, setDonationAmt] = useState('');
   const [donationDt, setDonationDt] = useState(() => new Date().toISOString().slice(0, 10));
   const [donationSaving, setDonationSaving] = useState(false);
+  const [donationEntering, setDonationEntering] = useState(false);
   const handleDonorTypeChange = async (e) => {
     const newType = e.target.value;
     if (!donor || newType === (donor.donor_type || '')) return;
@@ -437,6 +439,7 @@ export default function MyDonors() {
     try {
       await updateDonorType(donorId, newType);
       setShowDonationPrompt(true);
+      setDonationEntering(false);
       setDonationAmt('');
       setDonationDt(new Date().toISOString().slice(0, 10));
       setMessage(null);
@@ -450,12 +453,14 @@ export default function MyDonors() {
   };
 
   const handleDonationYes = () => {
+    setDonationEntering(true);
     setDonationAmt('');
     setDonationDt(new Date().toISOString().slice(0, 10));
   };
 
   const handleDonationNo = () => {
     setShowDonationPrompt(false);
+    setDonationEntering(false);
     setDonationAmt('');
   };
 
@@ -479,6 +484,7 @@ export default function MyDonors() {
         ngo_id: donor.ngo_id,
       });
       setShowDonationPrompt(false);
+      setDonationEntering(false);
       setDonationAmt('');
       setMessage({ type: 'success', text: 'Donation recorded' });
       loadDetail();
@@ -554,7 +560,7 @@ export default function MyDonors() {
     leadScreenshot, screenshotPreview, leadAddress, leadPan, panError,
     leadDob, projectName, leadAmount, leadRemark, showRemark,
     upiTransactionId, transactionDatetime, ocrFromName,
-    showDonationPrompt, donationAmt, donationDt,
+    showDonationPrompt, donationEntering, donationAmt, donationDt,
   };
 
   const handleScreenshotChange = (e) => {
@@ -953,7 +959,7 @@ export default function MyDonors() {
                   </select>
                   {showDonationPrompt && (
                     <div style={{ marginTop: 6, padding: '8px 10px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
-                      {donationAmt === '' ? (
+                      {!donationEntering ? (
                         <>
                           <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 4 }}>
                             Has this donor donated?
@@ -981,10 +987,18 @@ export default function MyDonors() {
                             <input type="date" value={donationDt} onChange={e => setDonationDt(e.target.value)}
                               style={{ padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 5, fontSize: 11, fontFamily: 'inherit', outline: 'none' }} />
                           </div>
-                          <button onClick={handleDonationSave} disabled={donationSaving || !donationAmt || !donationDt}
-                            style={{ padding: '5px 14px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: donationSaving || !donationAmt || !donationDt ? 'not-allowed' : 'pointer', opacity: donationSaving || !donationAmt || !donationDt ? 0.5 : 1 }}>
-                            {donationSaving ? 'Saving...' : 'Save Donation'}
-                          </button>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={handleDonationSave} disabled={donationSaving || !donationAmt || !donationDt}
+                              style={{ flex: 1, padding: '5px 14px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: donationSaving || !donationAmt || !donationDt ? 'not-allowed' : 'pointer', opacity: donationSaving || !donationAmt || !donationDt ? 0.5 : 1 }}>
+                              {donationSaving ? 'Saving...' : 'Save Donation'}
+                            </button>
+                            {!donationSaving && (
+                              <button onClick={() => setDonationEntering(false)}
+                                style={{ padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                                Back
+                              </button>
+                            )}
+                          </div>
                         </>
                       )}
                     </div>
