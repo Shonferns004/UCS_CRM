@@ -149,8 +149,10 @@ export default function MyDonors() {
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
   const [stations, setStations] = useState([]);
-  const [selectedStation, setSelectedStation] = useState('all');
-  const [selectedNgo, setSelectedNgo] = useState(null);
+  const VIEW_STATE_KEY = 'mydonors_view_state';
+  const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
+  const [selectedStation, setSelectedStation] = useState(savedView?.selectedStation || 'all');
+  const [selectedNgo, setSelectedNgo] = useState(savedView?.selectedNgo || null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -253,10 +255,12 @@ export default function MyDonors() {
     getMyStations().then(s => {
       const arr = Array.isArray(s) ? s : [];
       setStations(arr);
-      const ngoMap = {};
-      arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
-      const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
-      if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+      if (!savedView?.selectedNgo) {
+        const ngoMap = {};
+        arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+        const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+        if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+      }
     }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
@@ -311,6 +315,7 @@ export default function MyDonors() {
 
   const progressRef = useRef({ donor, index, dataTab });
   progressRef.current = { donor, index, dataTab };
+  const formStateRef = useRef({});
   useEffect(() => {
     const handleBeforeUnload = () => {
       const p = progressRef.current;
@@ -330,8 +335,13 @@ export default function MyDonors() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      saveViewState();
       const p = progressRef.current;
-      if (p.donor) saveProgress(p.dataTab, p.donor.id, p.index);
+      if (p.donor) {
+        saveFormState();
+        localStorage.setItem(`${p.dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: p.donor.id, idx: p.index }));
+        saveProgress(p.dataTab, p.donor.id, p.index);
+      }
     };
   }, [stationKey, selectedStation]);
   const logs = detail?.logs || [];
@@ -345,6 +355,66 @@ export default function MyDonors() {
     setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
     setMessage(null);
   };
+
+  const formStateKey = (donorId) => `mydonors_form_state_${donorId}`;
+
+  const saveFormState = () => {
+    const f = formStateRef.current;
+    if (!f.donor) return;
+    const state = {
+      selected: f.selected, notes: f.notes, scheduledDate: f.scheduledDate, scheduledTime: f.scheduledTime, dateConfirmed: f.dateConfirmed, callbackTime: f.callbackTime,
+      leadScreenshot: f.leadScreenshot, screenshotPreview: f.screenshotPreview, leadAddress: f.leadAddress, leadPan: f.leadPan, panError: f.panError,
+      leadDob: f.leadDob, projectName: f.projectName, leadAmount: f.leadAmount, leadRemark: f.leadRemark, showRemark: f.showRemark,
+      upiTransactionId: f.upiTransactionId, transactionDatetime: f.transactionDatetime, ocrFromName: f.ocrFromName,
+    };
+    localStorage.setItem(formStateKey(f.donor.id), JSON.stringify(state));
+  };
+
+  const restoreFormState = () => {
+    if (!donor) return;
+    const saved = localStorage.getItem(formStateKey(donor.id));
+    if (!saved) return;
+    try {
+      const s = JSON.parse(saved);
+      setSelected(s.selected);
+      setNotes(s.notes || '');
+      setScheduledDate(s.scheduledDate || '');
+      setScheduledTime(s.scheduledTime || '');
+      setDateConfirmed(s.dateConfirmed || false);
+      setCallbackTime(s.callbackTime || '');
+      setLeadScreenshot(s.leadScreenshot || null);
+      setScreenshotPreview(s.screenshotPreview || null);
+      setLeadAddress(s.leadAddress || '');
+      setLeadPan(s.leadPan || '');
+      setPanError(s.panError || '');
+      setLeadDob(s.leadDob || '');
+      setProjectName(s.projectName || '');
+      setLeadAmount(s.leadAmount || '');
+      setLeadRemark(s.leadRemark || '');
+      setShowRemark(s.showRemark || false);
+      setUpiTransactionId(s.upiTransactionId || '');
+      setTransactionDatetime(s.transactionDatetime || '');
+      setOcrFromName(s.ocrFromName || '');
+    } catch (e) { /* ignore */ }
+  };
+
+  const clearFormState = () => {
+    if (!donor) return;
+    localStorage.removeItem(formStateKey(donor.id));
+    resetFormState();
+  };
+
+  const saveViewState = () => {
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
+      selectedStation, selectedNgo, dataTab,
+      donorId: donor?.id || null,
+      donorIdx: donor ? index : null,
+    }));
+  };
+
+  useEffect(() => {
+    if (donor) restoreFormState();
+  }, [donor?.id]);
 
   const [donorTypeSaving, setDonorTypeSaving] = useState(false);
   const handleDonorTypeChange = async (e) => {
@@ -423,6 +493,12 @@ export default function MyDonors() {
   };
 
   const [screenshotPreview, setScreenshotPreview] = useState(null);
+  formStateRef.current = {
+    donor, selected, notes, scheduledDate, scheduledTime, dateConfirmed, callbackTime,
+    leadScreenshot, screenshotPreview, leadAddress, leadPan, panError,
+    leadDob, projectName, leadAmount, leadRemark, showRemark,
+    upiTransactionId, transactionDatetime, ocrFromName,
+  };
 
   const handleScreenshotChange = (e) => {
     const file = e.target.files[0];
@@ -534,7 +610,7 @@ export default function MyDonors() {
         const nextDonor = newDonors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
-      resetFormState();
+      clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally { setSaving(false); }
@@ -635,7 +711,12 @@ export default function MyDonors() {
                 ? 'New data will appear here once distributed to your station.'
                 : 'Old data will appear here once uploaded to your station.'}
             </div>
-            {dataTab === 'old' && (
+            {dataTab === 'new' ? (
+              <button onClick={() => switchTab('old')} className="fro-empty-switch">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
+                Try Old Data tab
+              </button>
+            ) : (
               <button onClick={() => switchTab('new')} className="fro-empty-switch">
                 <span className="material-symbols-outlined" style={{ fontSize: 13 }}>fiber_new</span>
                 Try New Data tab
@@ -783,7 +864,7 @@ export default function MyDonors() {
                   </button>
                 )}
               </div>
-              <button onClick={(e) => { e.stopPropagation(); navigate(getWhatsAppChatUrl(donor)) }}
+              <button onClick={(e) => { e.stopPropagation(); saveFormState(); saveViewState(); saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); navigate(getWhatsAppChatUrl(donor)) }}
                 style={{ width: 48, border: 'none', borderRadius: 10, background: 'linear-gradient(135deg, #25D366 0%, #1da851 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
               </button>
@@ -808,6 +889,7 @@ export default function MyDonors() {
                     <option value="monthly">Monthly</option>
                     <option value="quarterly">Quarterly</option>
                     <option value="yearly">Yearly</option>
+                    <option value="one_time">One Time</option>
                   </select>
                 </div>
               </div>

@@ -292,6 +292,7 @@ The database has grown organically — the WhatsApp CRM tables (contacts, conver
               { name: 'amount', type: 'DECIMAL(12,2)', description: 'Last/expected amount' },
               { name: 'total_amount', type: 'DECIMAL(12,2)', description: 'Total lifetime donations' },
               { name: 'donation_count', type: 'INTEGER', description: 'Number of donations' },
+              { name: 'donation_frequency', type: 'VARCHAR(50)', description: 'monthly, quarterly, yearly, one_time' },
               { name: 'birth_date', type: 'DATE', description: '' },
               { name: 'last_donation_date', type: 'DATE', description: '' },
               { name: 'first_donation_date', type: 'DATE', description: '' },
