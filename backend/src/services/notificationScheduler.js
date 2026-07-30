@@ -390,21 +390,8 @@ function start() {
   cronJobs.push(cron.schedule('* * * * *', () => autoReturnTransfers()));
   console.log('Scheduled: every-minute check for expired lead transfers');
 
-  const pollInterval = `*/${Math.max(1, emailConfig.pollIntervalMinutes)} * * * *`;
-  cronJobs.push(cron.schedule(pollInterval, async () => {
-    const enabled = await getSetting('email_import_enabled').catch(() => 'true');
-    if (enabled === 'false') return;
-    pollEmailInbox().catch(err => console.error('[emailImporter] Cron error:', err.message));
-  }));
-  console.log(`Scheduled: email import every ${emailConfig.pollIntervalMinutes} minutes`);
-
-  const razorpayInterval = parseInt(process.env.RAZORPAY_SYNC_INTERVAL || '5');
-  cronJobs.push(cron.schedule(`*/${Math.max(1, razorpayInterval)} * * * *`, async () => {
-    const enabled = await getSetting('razorpay_sync_enabled').catch(() => 'true');
-    if (enabled === 'false') return;
-    syncAllRazorpayAccounts().catch(err => console.error('[razorpaySync] Cron error:', err.message));
-  }));
-  console.log(`Scheduled: Razorpay sync every ${razorpayInterval} minutes`);
+  // Email imports and Razorpay synchronization are manual-only. Do not schedule
+  // background jobs for them; the Accounts screens can still start either action.
 }
 
 async function sendScheduledNotifications() {

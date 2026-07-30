@@ -26,6 +26,7 @@ import {
   getMonthlyDonors,
   getDonorHistory,
   getFullDonorHistory,
+  getDonorDonations,
   getRejectedLeads,
   searchDonors,
   updateLiveStatus,
@@ -115,6 +116,7 @@ router.get('/lead-stats', getLeadStats);
 router.get('/monthly-donors', getMonthlyDonors);
 router.get('/donors/:id/history', getDonorHistory);
 router.get('/donors/:id/full-history', getFullDonorHistory);
+router.get('/donors/:id/donations', getDonorDonations);
 router.get('/search-donors', searchDonors);
 
 router.get('/suspense', listFroSuspense);

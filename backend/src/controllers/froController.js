@@ -2306,3 +2306,104 @@ export const getFullDonorHistory = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+export const getDonorDonations = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+    const { ngo_id, period = 'this_year' } = req.query;
+
+    const { data: assignment } = await supabase
+      .from('fro_assignments')
+      .select('id')
+      .eq('donor_id', donorId)
+      .eq('fro_worker_id', workerId)
+      .not('status', 'eq', 'reassigned')
+      .limit(1)
+      .maybeSingle();
+    if (!assignment) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const now = new Date();
+    let startDate;
+    let endDate;
+    if (period === 'monthly') {
+      startDate = now.toISOString().slice(0, 7) + '-01';
+    } else if (period === 'yearly') {
+      startDate = now.getFullYear() + '-01-01';
+    } else if (period === 'all') {
+      startDate = null;
+    } else if (period === 'this_year') {
+      const year = now.getFullYear();
+      startDate = now.getMonth() < 3 ? `${year - 1}-04-01` : `${year}-04-01`;
+    } else if (period?.startsWith('fy_')) {
+      const parts = period.split('_');
+      startDate = `${parts[1]}-04-01`;
+      endDate = `${parts[2]}-03-31`;
+    } else {
+      startDate = now.toISOString().slice(0, 7) + '-01';
+    }
+
+    let query = supabase
+      .from('fro_donor_logs')
+      .select('*')
+      .eq('donor_id', donorId)
+      .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+      .order('created_at', { ascending: false });
+
+    if (startDate) {
+      query = query.gte('created_at', startDate);
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate + 'T23:59:59Z');
+    }
+
+    const { data: logs, error } = await query;
+    if (error) throw error;
+
+    let receiptQuery = supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    if (startDate) {
+      receiptQuery = receiptQuery.or(`receipt_date.gte.${startDate},receipt_date.is.null`);
+    } else {
+      receiptQuery = receiptQuery.or('receipt_date.gte.2000-01-01,receipt_date.is.null');
+    }
+    if (endDate) {
+      receiptQuery = receiptQuery.lte('receipt_date', endDate);
+    }
+
+    const { data: receipts } = await receiptQuery;
+
+    const donations = (logs || []).map(l => ({
+      date: l.transaction_datetime || l.verified_at || l.created_at,
+      amount: l.amount_collected || 0,
+      mode: l.payment_mode || null,
+      status: l.action === 'donation' ? 'verified' : (l.accounts_status || 'pending'),
+      upi_transaction_id: l.upi_transaction_id || null,
+      receipt_no: l.receipt_no || null,
+    }));
+
+    const receiptDonations = (receipts || []).map(r => ({
+      date: r.receipt_date || r.created_at,
+      amount: r.amount || 0,
+      mode: r.mode || null,
+      status: 'verified',
+      upi_transaction_id: r.upi_transaction_id || null,
+      receipt_no: r.receipt_no || null,
+    }));
+
+    const all = [...donations, ...receiptDonations];
+    all.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    return res.json(all);
+  } catch (error) {
+    console.error('getDonorDonations error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};

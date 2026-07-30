@@ -36,7 +36,7 @@ export const getLastReceiptNo = async (projectId) => {
 export const listAllReceipts = async () => {
   const { data, error } = await supabase
     .from('receipts')
-    .select('*')
+    .select('*, fro_donor_logs!receipts_log_id_fkey(fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name))')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
