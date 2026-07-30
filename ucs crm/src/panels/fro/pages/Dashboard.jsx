@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [leadStats, setLeadStats] = useState(null)
   const [monthlyDonors, setMonthlyDonors] = useState([])
   const [showMonthlyModal, setShowMonthlyModal] = useState(false)
+  const [assignedView, setAssignedView] = useState('total')
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -156,6 +157,7 @@ export default function Dashboard() {
       unverified_today_amount: d.verification?.today?.unverified?.amount,
       unverified_today_count: d.verification?.today?.unverified?.count,
       stats: d.stats,
+      assignedData: d.assignedData,
     }
   }
   const { stats = {} } = ds
@@ -391,15 +393,71 @@ export default function Dashboard() {
           <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Lifetime donations collected</div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <Icon color="var(--ink)">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
             </Icon>
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>Assigned Data</span>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{stats.total ?? ts.stats?.total ?? 0}</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1, minWidth: 80 }}>Assigned Data</span>
+            <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2, flexWrap: 'wrap' }}>
+              {['total', 'ngo', 'station', 'type'].map(v => (
+                <button key={v} onClick={() => setAssignedView(v)}
+                  style={{ padding: '3px 6px', borderRadius: 5, border: 'none', fontSize: 9, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
+                    background: assignedView === v ? 'var(--sage)' : 'transparent',
+                    color: assignedView === v ? '#fff' : 'var(--ink-soft)' }}>
+                  {v === 'total' ? 'Total' : v === 'ngo' ? 'By NGO' : v === 'station' ? 'By Station' : 'By Type'}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Total donors assigned</div>
+          {assignedView === 'total' && (
+            <>
+              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{stats.total ?? ts.stats?.total ?? 0}</span>
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Total donors assigned</div>
+            </>
+          )}
+          {assignedView === 'ngo' && (
+            ds.assignedData?.byNgo?.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                {ds.assignedData.byNgo.map(n => (
+                  <div key={n.ngo_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '2px 0', minWidth: 0 }}>
+                    <span style={{ color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, marginRight: 8 }}>{n.ngo_name}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{n.count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No NGO data</div>
+            )
+          )}
+          {assignedView === 'station' && (
+            ds.assignedData?.byStation?.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                {ds.assignedData.byStation.map(s => (
+                  <div key={s.station} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '2px 0', minWidth: 0 }}>
+                    <span style={{ color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, marginRight: 8 }}>{s.station}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{s.count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No station data</div>
+            )
+          )}
+          {assignedView === 'type' && (
+            ds.assignedData?.byType?.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                {ds.assignedData.byType.map(t => (
+                  <div key={t.type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '2px 0', minWidth: 0 }}>
+                    <span style={{ color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, marginRight: 8 }}>{t.type === 'new_data' ? 'New Data' : t.type === 'old_data' ? 'Old Data' : t.type}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{t.count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No type data</div>
+            )
+          )}
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>

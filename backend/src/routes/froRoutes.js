@@ -29,6 +29,7 @@ import {
   getRejectedLeads,
   searchDonors,
   updateLiveStatus,
+  updateDonorFrequency,
   getLiveStatuses,
   getMyProgress,
   saveMyProgress,
