@@ -8,7 +8,7 @@ const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
   busy: 'Busy', ringing: 'Ringing', unreachable: 'Unreachable', switched_off: 'Switched Off',
   wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected',
-  lead_done: 'Lead Done', visit_donate: 'Visit & Donate', promise_to_pay: 'Promise to Pay',
+  lead_done: 'Lead Done', done: 'Done', visit_donate: 'Visit & Donate', promise_to_pay: 'Promise to Pay',
   payment_pending: 'Payment Pending', already_donated: 'Already Donated',
   not_interested: 'Not Interested', not_interested_now: 'Not Interested Now',
   language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
@@ -17,7 +17,7 @@ const DISPOSITION_LABELS = {
 };
 
 const DISPOSITION_GROUPS = [
-  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'visit_donate', 'payment_pending', 'already_donated'] },
+  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'done', 'visit_donate', 'payment_pending', 'already_donated'] },
   { label: 'In Progress', color: '#d97706', bg: '#fffbeb', statuses: ['pending', 'contacted', 'follow_up', 'scheduled'] },
   { label: 'Negative', color: '#dc2626', bg: '#fef2f2', statuses: ['not_interested', 'not_interested_now', 'rejected', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'language_barrier'] },
   { label: 'Other', color: '#5B6B4E', bg: '#f0f2ee', statuses: ['transferred_senior', 'query_complaint', 'receipt_request'] },

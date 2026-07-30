@@ -131,7 +131,7 @@ export const getDonors = async (req, res) => {
           .from('fro_donor_logs')
           .select('assignment_id')
           .in('assignment_id', filterAssignIds)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)');
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)');
         const verifiedAssignIds = new Set((verifiedLogs || []).map(l => l.assignment_id));
         const assignToDonor = {};
         for (const a of filterAssignments || []) assignToDonor[a.id] = a.donor_id;
@@ -530,7 +530,7 @@ export const getDashboard = async (req, res) => {
 
     // Data used / unused — per unique donor
     const connectedStatuses = new Set([
-      'contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled',
+      'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
       'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated',
       'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
       'not_interested_now', 'callback',
@@ -563,7 +563,7 @@ export const getDashboard = async (req, res) => {
           .from('fro_donor_logs')
           .select('donor_id, fro_assignments!inner(ngo_id)')
           .in('fro_assignments.ngo_id', ngoIds)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
           .gte('created_at', oneYearAgo.toISOString())).data || []
       : [];
 
@@ -603,16 +603,16 @@ export const getDashboard = async (req, res) => {
       ? await Promise.all([
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', fyStart.toISOString()),
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', todayStart.toISOString())
             .lte('created_at', todayEnd.toISOString()),
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', monthStart)
             .lte('created_at', monthEnd),
         ])
@@ -870,7 +870,7 @@ export const getFroPerformance = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds);
-    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
     const workerAssignments = {};
     for (const a of faRows || []) {
       if (a.status === 'reassigned') continue;
@@ -2224,7 +2224,7 @@ export const resolveDataRequest = async (req, res) => {
   }
 };
 
-const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
+const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
 const NOT_CONNECTED_DISPOSITIONS = ['busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid', 'invalid_number', 'rejected'];
 
 export const masterSearch = async (req, res) => {
@@ -3197,7 +3197,7 @@ export const getFroSummary = async (req, res) => {
     const todayCollection = logs.reduce((s, l) => {
       const amt = parseFloat(l.amount_collected || 0);
       if (l.action === 'donation') return s + amt;
-      if (l.action === 'disposition' && l.disposition_detail === 'lead_done') return s + amt;
+      if (l.action === 'disposition' && (l.disposition_detail === 'lead_done' || l.disposition_detail === 'done')) return s + amt;
       return s;
     }, 0);
 

@@ -116,7 +116,7 @@ export default function Donors() {
   const filteredLogs = useMemo(() => {
     if (!modalDetail?.logs) return [];
     let filtered = modalDetail.logs.filter(l =>
-      l.action === 'donation' || (l.disposition_detail === 'lead_done' && l.accounts_status === 'verified')
+      l.action === 'donation' || l.disposition_detail === 'done' || (l.disposition_detail === 'lead_done' && l.accounts_status === 'verified')
     );
     let cutoff;
     if (historyFilter === 'tenyears') {
