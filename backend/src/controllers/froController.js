@@ -1914,7 +1914,14 @@ export const getDonorHistory = async (req, res) => {
       .eq('id', donorId)
       .maybeSingle();
 
-    return res.json({ donor: donors || null, logs: logs || [] });
+    // Also fetch receipts linked directly via donor_id (imported receipts)
+    const { data: receipts } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    return res.json({ donor: donors || null, logs: logs || [], receipts: receipts || [] });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -2286,7 +2293,14 @@ export const getFullDonorHistory = async (req, res) => {
     const { data: logs, error } = await logsQuery;
     if (error) throw error;
 
-    return res.json({ donor: donor || null, logs: logs || [] });
+    // Also fetch receipts linked directly via donor_id (imported receipts)
+    const { data: receipts } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    return res.json({ donor: donor || null, logs: logs || [], receipts: receipts || [] });
   } catch (error) {
     console.error('getFullDonorHistory error:', error.message);
     return res.status(500).json({ message: error.message });
