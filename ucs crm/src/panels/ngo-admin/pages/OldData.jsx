@@ -9,7 +9,7 @@ const statusLabel = (s) => {
     callback: 'Callback', follow_up: 'Follow Up', busy: 'Busy',
     ringing: 'Ringing', unreachable: 'Unreachable', switched_off: 'Switched Off',
     wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected',
-    lead_done: 'Lead Done', visit_donate: 'Visit & Donate',
+    lead_done: 'Lead Done', done: 'Done', visit_donate: 'Visit & Donate',
     promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending',
     already_donated: 'Already Donated', not_interested: 'Not Interested',
     not_interested_now: 'Not Interested Now', language_barrier: 'Language Barrier',

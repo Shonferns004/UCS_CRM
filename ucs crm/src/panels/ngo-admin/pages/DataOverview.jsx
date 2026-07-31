@@ -9,7 +9,7 @@ const statusLabel = (s) => {
     callback: 'Callback', follow_up: 'Follow Up', busy: 'Busy',
     ringing: 'Ringing', unreachable: 'Unreachable', switched_off: 'Switched Off',
     wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected',
-    lead_done: 'Lead Done', visit_donate: 'Visit & Donate',
+    lead_done: 'Lead Done', done: 'Done', visit_donate: 'Visit & Donate',
     promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending',
     already_donated: 'Already Donated', not_interested: 'Not Interested',
     not_interested_now: 'Not Interested Now', language_barrier: 'Language Barrier',
@@ -21,7 +21,7 @@ const statusLabel = (s) => {
 
 const statusPillClass = (s) => {
   if (!s) return 'pill pill-gray';
-  if (['donation_collected', 'lead_done', 'already_donated'].includes(s)) return 'pill pill-green';
+  if (['donation_collected', 'lead_done', 'done', 'already_donated'].includes(s)) return 'pill pill-green';
   if (['pending', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected', 'not_interested'].includes(s)) return 'pill pill-red';
   if (['scheduled', 'callback', 'follow_up', 'promise_to_pay', 'payment_pending', 'visit_donate'].includes(s)) return 'pill pill-yellow';
   return 'pill pill-blue';
