@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { getLeadList, verifyLead, rejectLead, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, clearReceipts } from '../controllers/accountsController.js';
+import { getLeadList, verifyLead, rejectLead, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, clearReceipts, getReceiptCount, getDonorsList, getDonorDetail } from '../controllers/accountsController.js';
 
 const router = Router();
 
@@ -18,11 +18,14 @@ router.post('/suspense/:id/assign', assignSuspense);
 
 router.post('/leads/:logId/receipt', generateReceipt);
 router.get('/leads/:logId/receipt', getReceipt);
+router.get('/receipts/count', getReceiptCount);
 router.get('/receipts', getReceiptList);
 router.get('/receipts/pending', getPendingReceipts);
 router.post('/receipts/mark-sent', markReceiptAsSent);
 router.post('/receipts/import', importReceipts);
 router.delete('/receipts', clearReceipts);
+router.get('/donors', getDonorsList);
+router.get('/donors/:id', getDonorDetail);
 router.get('/donor/:donorId/history', getDonorHistory);
 
 router.get('/day-end-report', getDayEndReport);

@@ -18,7 +18,7 @@ const PROJECTS = [
 ];
 
 const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'scheduled', label: 'Follow Up' },
+  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Follow Up' },
   { id: 'callback', label: 'Callback' },
   { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
   { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
@@ -119,11 +119,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
-    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
-    if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
-    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
-    if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
-    if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
+    if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
     setSaving(true);
     try {
       const logPayload = {
@@ -153,10 +149,14 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         logPayload.upi_transaction_id = upiTransactionId || null;
         logPayload.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
+      if (selected === 'done') {
+        logPayload.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
+      }
       await addDonorLog(donorId, logPayload);
       endCall();
       const disp = ALL_DISPOSITIONS.find(d => d.id === selected);
       if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');
+      else if (selected === 'done') toast('Collection recorded', 'success');
       else if (selected === 'scheduled' || selected === 'callback') toast(`Follow-up scheduled`, 'info');
       else toast(`Disposition: ${disp?.label || selected}`, 'info');
       onDone();
@@ -182,6 +182,8 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
     if (detailId === 'lead_done') {
       setProjectName(profile?.donor_project || '');
       setPanError('');
+    } else if (detailId === 'done') {
+      setLeadAmount('');
     } else {
       setLeadScreenshot(null);
       setScreenshotPreview(null);
@@ -325,6 +327,16 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                       </div>
                     )}
 
+                    {selected === 'done' && (
+                      <div className="detail-field-row">
+                        <div className="fld">
+                          <label>Amount Collected</label>
+                          <input type="number" min="0" value={leadAmount}
+                            onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
+                        </div>
+                      </div>
+                    )}
+
                     {selected === 'lead_done' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div className="detail-field-row">
@@ -450,6 +462,9 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                                     {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
                                   </span>
                                 )}
+                                {log.disposition_detail === 'done' && (
+                                  <span style={{ fontSize: 8, fontWeight: 700, background: '#f0fdf4', color: 'var(--sage)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>Collected</span>
+                                )}
                               </div>
                             </div>
                           );
@@ -465,8 +480,8 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         </div>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 16px', borderTop: '1px solid var(--line)' }}>
-          <button onClick={onClose} disabled={!selected}
-            style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: selected ? 'pointer' : 'not-allowed', opacity: selected ? 1 : 0.4 }}>Cancel</button>
+          <button onClick={onClose} disabled={saving || !selected}
+            style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: saving || !selected ? 'not-allowed' : 'pointer', opacity: saving ? .4 : selected ? 1 : 0.4 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving || !selected}
             style={{ padding: '7px 12px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: saving ? .5 : 1 }}>
             {saving ? 'Saving...' : selected ? `Log ${findDisp(selected)?.label || selected}` : 'Save'}

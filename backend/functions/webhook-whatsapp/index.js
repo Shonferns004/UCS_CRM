@@ -104,12 +104,18 @@
               contact = newContact;
             }
 
-            let { data: conversation } = await supabase
+            const projectFilter = accountProject !== "unknown" ? accountProject : null;
+            let query = supabase
               .from("conversations")
               .select("*")
               .eq("contact_id", contact.id)
-              .eq("status", "open")
-              .maybeSingle();
+              .eq("status", "open");
+            if (projectFilter) {
+              query = query.eq("project", projectFilter);
+            } else {
+              query = query.is("project", null);
+            }
+            let { data: conversation } = await query.maybeSingle();
 
             if (!conversation) {
               const { data: newConversation, error: convErr } = await supabase
@@ -221,12 +227,17 @@
 
         if ((changes?.field === "messages" || changes?.field === "message_status") && value?.statuses) {
           for (const status of value.statuses) {
+            const update = {
+              status: status.status,
+              status_updated_at: new Date().toISOString(),
+            };
+            if (status.status === "failed" && status.errors?.length > 0) {
+              update.failure_reason = `(${status.errors[0].code}) ${status.errors[0].message}`;
+            }
+            console.log("Status update:", status.id, "->", status.status, status.errors ? JSON.stringify(status.errors) : "");
             await supabase
               .from("messages")
-              .update({
-                status: status.status,
-                status_updated_at: new Date().toISOString(),
-              })
+              .update(update)
               .eq("wa_message_id", status.id);
           }
         }

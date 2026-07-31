@@ -1,16 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getConversations,
   getMessages,
   sendMessage as sendMsgApi,
-  sendDirectMessage,
+  createConversation,
   markRead,
-  getUnreadCount,
   searchMessages,
   uploadMedia,
-} from '../../api/whatsappSupabase'
+  getMyAccounts,
+} from '../../api/whatsappEnhanced'
 import { supabase } from '../../lib/supabase'
 import ConversationList from './ConversationList'
 import { MessageList } from './MessageBubble'
@@ -33,44 +33,48 @@ const PROJECT_TAB_COLORS = {
   maan: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
 }
 
-export default function WhatsAppInbox({ waUser, onLogout, compact }) {
+// An FRO must only ever see conversations that have been explicitly assigned
+// to them. Keep this check in the UI as a defence-in-depth guard in case an
+// API response accidentally includes an unassigned conversation.
+function isAssignedToCurrentAgent(conversation, agentId) {
+  const assignedAgentId = conversation?.assigned_agent_id
+    ?? conversation?.assignedAgentId
+    ?? conversation?.assigned_to_agent_id
+    ?? conversation?.agent_id
+
+  return assignedAgentId != null
+    && String(assignedAgentId) === String(agentId)
+}
+
+export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, activeProject }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const bottomRef = useRef(null)
+  const messagesContainerRef = useRef(null)
+  const lastScrolledConversationRef = useRef(null)
+  const handledRouteTargetRef = useRef('')
 
   const [activeConv, setActiveConv] = useState(null)
-  const [activeTab, setActiveTab] = useState(searchParams.get('project') || 'all')
+  const [activeTab, setActiveTab] = useState(activeProject || searchParams.get('project') || 'all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewConv, setShowNewConv] = useState(false)
   const [newConvPhone, setNewConvPhone] = useState('')
-  const [newConvText, setNewConvText] = useState('')
   const [newConvProject, setNewConvProject] = useState('')
   const [myAccounts, setMyAccounts] = useState([])
   const [sendingNew, setSendingNew] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
   const [mediaFile, setMediaFile] = useState(null)
 
-  const height = compact ? '100%' : 'calc(100vh - 180px)'
+  // The surrounding panel owns the viewport sizing. Filling that space keeps the
+  // inbox aligned with both the FRO and Accounts layouts.
+  const height = '100%'
 
   const { data: conversations = [], isLoading: loadingConv } = useQuery({
-    queryKey: ['wa-conversations', waUser?.id],
-    queryFn: () => getConversations(waUser.id),
+    queryKey: ['wa-conversations', waUser?.id, activeTab],
+    queryFn: () => getConversations(waUser.id, agentToken, activeTab !== 'all' ? activeTab : undefined),
     enabled: !!waUser?.id,
     refetchInterval: 15000,
   })
-
-  const myProjectTabs = myAccounts.length
-    ? [
-        { id: 'all', label: 'All', color: '#6b7280' },
-        ...myAccounts.map(a => ({
-          id: a.project,
-          label: PROJECT_TABS.find(t => t.id === a.project)?.label || a.project,
-          color: PROJECT_TABS.find(t => t.id === a.project)?.color || '#6b7280',
-        })),
-      ]
-    : PROJECT_TABS
 
   useEffect(() => {
     if (!activeConv && myAccounts.length === 1) {
@@ -78,45 +82,84 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     }
   }, [myAccounts])
 
-  const filteredByTab = activeTab === 'all'
-    ? conversations
-    : conversations.filter(c => (c.project || c.contact?.project) === activeTab)
+  useEffect(() => {
+    if (activeProject) {
+      setActiveTab(activeProject)
+      setActiveConv(null)
+    }
+  }, [activeProject])
+
+  const filteredByTab = useMemo(() => conversations.filter(conversation =>
+    isAssignedToCurrentAgent(conversation, waUser?.id)
+  ), [conversations, waUser?.id])
+
+  // A conversation can be reassigned while this screen is open. Do not leave
+  // its thread accessible after it is no longer assigned to this FRO.
+  useEffect(() => {
+    if (activeConv && !filteredByTab.some(conversation => conversation.id === activeConv.id)) {
+      setActiveConv(null)
+    }
+  }, [activeConv, filteredByTab])
 
   useEffect(() => {
     const phoneParam = searchParams.get('phone')
     const projectParam = searchParams.get('project')
+    const routeTarget = `${projectParam || ''}:${phoneParam || ''}`
     if (projectParam && PROJECT_TAB_COLORS[projectParam]) {
       setActiveTab(projectParam)
+      if (activeTab !== projectParam) return
     }
     setNewConvProject(projectParam || (activeTab !== 'all' ? activeTab : ''))
-    if (phoneParam) {
-      if (conversations.length > 0) {
-        const match = conversations.find(c => {
-          const p = c.contact?.phone_normalized || c.contact?.phone || ''
-          return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
-        })
-        if (match) {
-          setActiveConv(match)
-        } else {
-          setNewConvPhone(phoneParam)
-          setShowNewConv(true)
-        }
+    if (!phoneParam) {
+      handledRouteTargetRef.current = ''
+      return
+    }
+    if (handledRouteTargetRef.current === routeTarget) return
+
+    if (filteredByTab.length > 0) {
+      const match = filteredByTab.find(c => {
+        const p = c.contact?.phone_normalized || c.contact?.phone || ''
+        return p.includes(phoneParam) || phoneParam.includes(p.replace(/[^0-9]/g, ''))
+      })
+      if (match) {
+        setActiveConv(match)
+        handledRouteTargetRef.current = routeTarget
       } else {
         setNewConvPhone(phoneParam)
         setShowNewConv(true)
+        handledRouteTargetRef.current = routeTarget
       }
+    } else if (!loadingConv) {
+      setNewConvPhone(phoneParam)
+      setShowNewConv(true)
+      handledRouteTargetRef.current = routeTarget
     }
-  }, [searchParams, conversations])
+  }, [searchParams, filteredByTab, activeTab, loadingConv])
 
   const { data: messages = null } = useQuery({
     queryKey: ['wa-messages', activeConv?.id],
-    queryFn: () => getMessages(activeConv.id),
+    queryFn: () => getMessages(activeConv.id, agentToken),
     enabled: !!activeConv?.id,
     refetchInterval: 5000,
   })
+  const latestMessageKey = messages?.length
+    ? `${messages.length}:${messages[messages.length - 1]?.id || messages[messages.length - 1]?.created_at || ''}`
+    : ''
 
   useEffect(() => {
-    if (!waUser?.id) return
+    if (activeProject && conversations.length) {
+      setActiveTab(activeProject)
+    }
+  }, [activeProject, conversations])
+
+  useEffect(() => {
+    if (!waUser?.id && !agentToken) return
+    if (agentToken) {
+      getMyAccounts(agentToken).then(accounts => {
+        if (accounts?.length) setMyAccounts(accounts)
+      }).catch(() => {})
+      return undefined
+    }
     ;(async () => {
       const { data: assigns } = await supabase
         .from('agent_phone_assignments')
@@ -131,32 +174,64 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
         if (data) setMyAccounts(data)
       }
     })()
-    getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch((err) => { console.error('Error:', err.message); })
-    const interval = setInterval(() => {
-      getUnreadCount(waUser.id).then(d => setUnreadCount(d || 0)).catch((err) => { console.error('Error:', err.message); })
-    }, 15000)
-    return () => clearInterval(interval)
-  }, [waUser?.id])
+  }, [waUser?.id, agentToken])
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages])
+    if (!activeConv?.id || !messages?.length || !messagesContainerRef.current) return
+
+    const openedNewConversation = lastScrolledConversationRef.current !== activeConv.id
+    lastScrolledConversationRef.current = activeConv.id
+    messagesContainerRef.current.scrollTo({
+      top: messagesContainerRef.current.scrollHeight,
+      behavior: openedNewConversation ? 'auto' : 'smooth',
+    })
+  }, [activeConv?.id, latestMessageKey])
+
+  useEffect(() => {
+    if (!activeConv?.id) return
+    const channel = supabase
+      .channel(`wa-messages-${activeConv.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConv.id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [activeConv?.id, queryClient])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('wa-conversations-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        if (payload.new?.conversation_id && payload.new?.conversation_id !== activeConv?.id) {
+          queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+        }
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [queryClient, activeConv?.id])
 
   const handleSelect = useCallback(async (conv) => {
     setActiveConv(conv)
     setMediaFile(null)
-    try { await markRead(conv.id) } catch (e) { console.error('Error:', e.message); }
+    try { await markRead(conv.id, agentToken) } catch (e) { console.error('Error:', e.message); }
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [queryClient])
+  }, [queryClient, agentToken])
 
   const handleSend = useCallback(async (text) => {
     if (!activeConv) return
-    await sendMsgApi(activeConv.id, activeConv.contact_id, text, waUser?.id)
-    queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-    queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [activeConv, waUser?.id, queryClient])
+    console.log('[WhatsAppInbox] handleSend:', { convId: activeConv.id, text, hasToken: !!agentToken, project: activeConv.project })
+    try {
+      await sendMsgApi(activeConv.id, text, agentToken)
+      queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
+      queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
+    } catch (err) {
+      console.error('[WhatsAppInbox] send failed:', err.message)
+      throw err
+    }
+  }, [activeConv, agentToken, queryClient])
 
   const handleSendMedia = useCallback(async (files) => {
     if (!activeConv || !waUser) return
@@ -165,7 +240,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     const phoneNumber = contact.phone_normalized || contact.phone || ''
     const mimeType = (f) => f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document'
     for (const f of fileArr) {
-      const r = await uploadMedia(waUser.id, f)
+      const r = await uploadMedia(f, agentToken)
       if (r?.file_url) {
         const { data: msg } = await supabase.from('messages').insert({
           conversation_id: activeConv.id,
@@ -180,7 +255,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
         if (msg && phoneNumber) {
           const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
           fetch(baseUrl + '/whatsapp/send', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...(agentToken ? { Authorization: `Bearer ${agentToken}` } : {}) },
             body: JSON.stringify({
               conversationId: activeConv.id,
               contactId: activeConv.contact_id,
@@ -197,16 +272,15 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     }
     queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
     queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-  }, [activeConv, waUser, queryClient])
+  }, [activeConv, waUser, agentToken, queryClient])
 
   const handleNewConv = useCallback(async () => {
     if (!newConvPhone.trim() || sendingNew || !waUser) return
     setSendingNew(true)
     try {
-      const result = await sendDirectMessage(waUser.id, newConvPhone.trim(), newConvText.trim() || 'Hello', newConvProject)
+      const result = await createConversation(newConvPhone.trim(), agentToken, newConvProject || undefined)
       setShowNewConv(false)
       setNewConvPhone('')
-      setNewConvText('')
       queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
       if (result.conversation) handleSelect(result.conversation)
     } catch (err) {
@@ -214,42 +288,22 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
     } finally {
       setSendingNew(false)
     }
-  }, [newConvPhone, newConvText, sendingNew, waUser, queryClient, handleSelect])
+  }, [newConvPhone, sendingNew, waUser, agentToken, queryClient, handleSelect])
 
   const handleQuickReply = async (text) => { await handleSend(text) }
 
   const contact = activeConv?.contact || {}
   const activeName = contact.wa_profile_name || contact.phone || 'Select a conversation'
-  const activeProject = activeConv?.project || contact.project || ''
-  const activeProjectLabel = PROJECT_TABS.find(t => t.id === activeProject)?.label || activeProject.toUpperCase()
-  const activeProjectColor = PROJECT_TAB_COLORS[activeProject] || null
+  const convProject = activeConv?.project || activeConv?.contact?.project || activeTab
+  const activeProjectLabel = PROJECT_TABS.find(t => t.id === convProject)?.label || convProject.toUpperCase()
+  const activeProjectColor = PROJECT_TAB_COLORS[convProject] || null
   const activeContactId = activeConv?.contact_id || contact.id
 
   return (
-    <div style={{ display: 'flex', height, border: compact ? 'none' : '1px solid #e5e7eb', borderRadius: compact ? 0 : 12, overflow: 'hidden', background: '#fff' }}>
+    <div style={{ display: 'flex', height, border: compact ? 'none' : '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
       {/* Sidebar */}
       <div style={{ width: 280, borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '10px 14px', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Inbox</div>
-              {unreadCount > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px' }}>
-                  {unreadCount}
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button onClick={() => setShowSearch(true)}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: '#6b7280' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              <button onClick={onLogout}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 11, color: '#dc2626', padding: '4px 6px' }}>
-                Logout
-              </button>
-            </div>
-          </div>
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search conversations..."
             style={{ width: '100%', padding: '6px 10px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }} />
@@ -257,32 +311,6 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
             style={{ width: '100%', marginTop: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#25D366', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
             + New Conversation
           </button>
-        </div>
-        <div style={{ display: 'flex', gap: 2, padding: '6px 10px', borderBottom: '1px solid #e5e7eb', overflowX: 'auto', flexShrink: 0 }}>
-          {myProjectTabs.map(tab => {
-            const isActive = activeTab === tab.id
-            const style = tab.id === 'all'
-              ? {}
-              : PROJECT_TAB_COLORS[tab.id] || {}
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 12, border: 'none',
-                  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                  background: isActive ? (style.bg || '#111827') : '#f3f4f6',
-                  color: isActive ? (style.text || '#fff') : '#6b7280',
-                  transition: 'all .15s',
-                }}
-              >
-                {tab.id !== 'all' && (
-                  <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: tab.color, marginRight: 4, verticalAlign: 'middle' }} />
-                )}
-                {tab.label}
-              </button>
-            )
-          })}
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <ConversationList conversations={filteredByTab} activeId={activeConv?.id} onSelect={handleSelect} loading={loadingConv} searchQuery={searchQuery} />
@@ -303,14 +331,12 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
                   {activeProjectColor && (
                     <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: activeProjectColor.border?.replace('86efac', '#22c55e') || '#22c55e', flexShrink: 0 }} />
                   )}
-                  {activeProject ? activeProjectLabel : 'WhatsApp'}
+                  {convProject ? activeProjectLabel : 'WhatsApp'}
                 </div>
               </div>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div ref={bottomRef} />
-              <MessageList messages={messages} />
-              <div ref={bottomRef} />
+              <MessageList messages={messages} messagesContainerRef={messagesContainerRef} />
             </div>
             {mediaFile && (
               <div style={{ padding: '4px 12px', borderTop: '1px solid #e5e7eb', background: '#fff' }}>
@@ -318,7 +344,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
               </div>
             )}
             <QuickReplyBar onSend={handleQuickReply} />
-            <TemplateBar conversationId={activeConv?.id} contactId={activeContactId} project={activeProject} userId={waUser?.id} onSent={() => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })} />
+            <TemplateBar conversationId={activeConv?.id} contactId={activeContactId} project={convProject} userId={waUser?.id} agentToken={agentToken} onSent={() => queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })} />
             <MessageComposer onSend={handleSend} onSendMedia={handleSendMedia} />
           </>
         ) : (
@@ -335,21 +361,21 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
       {showNewConv && (
         <div className="modal-overlay" onClick={() => setShowNewConv(false)}>
           <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
+            <div className="modal-head">
               <h3>New Conversation</h3>
-              <button className="btn btn-sm" onClick={() => setShowNewConv(false)}>Close</button>
+              <button onClick={() => setShowNewConv(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#6b7280', lineHeight: 1 }}>&times;</button>
             </div>
-            <div className="modal-body" style={{ padding: 16 }}>
-              <label className="field" style={{ marginBottom: 12, display: 'block' }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Phone Number</span>
+            <div className="modal-body">
+              <label style={{ display: 'block', marginBottom: 14 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Phone Number</span>
                 <input type="tel" value={newConvPhone} onChange={e => setNewConvPhone(e.target.value)} placeholder="e.g. 917506419340"
-                  style={{ width: '100%', marginTop: 4, padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box' }} />
+                  style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', outline: 'none' }} />
               </label>
               {myAccounts.length > 1 && (
-                <label className="field" style={{ marginBottom: 12, display: 'block' }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Send from</span>
+                <label style={{ display: 'block', marginBottom: 14 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Send from</span>
                   <select value={newConvProject} onChange={e => setNewConvProject(e.target.value)}
-                    style={{ width: '100%', marginTop: 4, padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', background: '#fff' }}>
+                    style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', background: '#fff', outline: 'none' }}>
                     <option value="">— Select number —</option>
                     {myAccounts.map(a => (
                       <option key={a.id} value={a.project}>{a.name} ({a.phone_number_id})</option>
@@ -357,15 +383,16 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
                   </select>
                 </label>
               )}
-              <label className="field" style={{ marginBottom: 16, display: 'block' }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Message (optional)</span>
-                <textarea value={newConvText} onChange={e => setNewConvText(e.target.value)} placeholder="Type your first message..." rows={3}
-                  style={{ width: '100%', marginTop: 4, padding: '8px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, boxSizing: 'border-box', resize: 'vertical' }} />
-              </label>
-              <button onClick={handleNewConv} disabled={sendingNew || !newConvPhone.trim() || (myAccounts.length > 1 && !newConvProject)}
-                style={{ width: '100%', padding: '10px', background: '#25D366', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, cursor: sendingNew ? 'not-allowed' : 'pointer' }}>
-                {sendingNew ? 'Starting...' : 'Start Conversation'}
-              </button>
+              <div className="modal-actions" style={{ marginTop: 8 }}>
+                <button onClick={() => setShowNewConv(false)}
+                  style={{ padding: '9px 18px', fontSize: 13, fontWeight: 500, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleNewConv} disabled={sendingNew || !newConvPhone.trim() || (myAccounts.length > 1 && !newConvProject)}
+                  style={{ padding: '9px 18px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#25D366', color: '#fff', cursor: sendingNew || !newConvPhone.trim() ? 'not-allowed' : 'pointer', opacity: sendingNew || !newConvPhone.trim() ? 0.6 : 1 }}>
+                  {sendingNew ? 'Starting...' : 'Start Conversation'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -373,7 +400,7 @@ export default function WhatsAppInbox({ waUser, onLogout, compact }) {
 
       {showSearch && (
         <MessageSearchModal userId={waUser?.id} onClose={() => setShowSearch(false)}
-          onSelectConversation={(convId) => { const conv = conversations.find(c => c.id === convId); if (conv) handleSelect(conv) }} />
+          onSelectConversation={(convId) => { const conv = filteredByTab.find(c => c.id === convId); if (conv) handleSelect(conv) }} />
       )}
     </div>
   )

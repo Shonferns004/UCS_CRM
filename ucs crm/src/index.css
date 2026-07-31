@@ -1060,6 +1060,7 @@
 .panel-event-head, .panel-accounts, .panel-ngo-admin, .panel-fro { --sage:#5B6B4E; --sage-light:#7A8F6A; --ink:#1a1a2e; --ink-soft:#6b7280; --line:#e5e7eb; --danger:#d9534f; --warning:#e67e22; --success:#16a34a; --bg:#f5f6fa; --card-bg:#ffffff; --radius:12px; --radius-sm:8px; --shadow:0 1px 3px rgba(0,0,0,0.06); --shadow-md:0 4px 12px rgba(0,0,0,0.08); background:var(--bg); color:var(--ink); }
 
 .panel-accounts .app, .panel-ngo-admin .app, .panel-fro .app { display:flex; min-height:100vh; }
+.panel-fro .app { height:100dvh; overflow:hidden; }
 .panel-event-head .app { display:flex; min-height:100vh; height:100vh; overflow:hidden; }
 .panel-accounts .app { height:100vh; overflow:hidden; }
 .panel-event-head .sidebar, .panel-accounts .sidebar, .panel-ngo-admin .sidebar, .panel-fro .sidebar { width:200px; background:var(--card-bg); border-right:1px solid var(--line); padding:20px 0; flex-shrink:0; display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto; }
@@ -1087,7 +1088,12 @@
 .panel-accounts .user-menu-item, .panel-ngo-admin .user-menu-item, .panel-fro .user-menu-item { display:flex; align-items:center; gap:8px; width:100%; padding:8px 12px; border:none; background:transparent; font-size:13px; font-family:inherit; cursor:pointer; border-radius:6px; color:var(--ink); }
 .panel-accounts .user-menu-item:hover, .panel-ngo-admin .user-menu-item:hover, .panel-fro .user-menu-item:hover { background:var(--bg); }
 .panel-accounts .user-menu-divider, .panel-ngo-admin .user-menu-divider, .panel-fro .user-menu-divider { height:1px; background:var(--line); margin:4px 8px; }
-.panel-accounts .content-body, .panel-ngo-admin .content-body, .panel-fro .content-body { padding:24px; flex:1; overflow-y:auto; }
+.panel-accounts .content-body, .panel-ngo-admin .content-body, .panel-fro .content-body { padding:24px; flex:1; min-height:0; overflow-y:auto; }
+
+/* The chat must occupy the actual content area, not a fixed viewport estimate. */
+.panel-accounts .content-body:has(.whatsapp-chat-page),
+.panel-fro .content-body:has(.whatsapp-chat-page) { overflow:hidden; }
+.whatsapp-chat-page { height:100%; min-height:0; }
 .panel-accounts .card, .panel-ngo-admin .card, .panel-fro .card { background:var(--card-bg); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:16px; }
 .panel-accounts .card-head, .panel-ngo-admin .card-head, .panel-fro .card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
 .panel-accounts .card-head h3, .panel-ngo-admin .card-head h3, .panel-fro .card-head h3 { font-size:14px; font-weight:600; }
@@ -1149,6 +1155,28 @@
 .panel-accounts .modal-head, .panel-ngo-admin .modal-head, .panel-fro .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
 .panel-accounts .modal-head h3, .panel-ngo-admin .modal-head h3, .panel-fro .modal-head h3 { font-size:15px; font-weight:600; }
 .panel-accounts .modal-body, .panel-ngo-admin .modal-body, .panel-fro .modal-body { padding:18px; }
+.panel-accounts .accounts-donor-modal {
+  width:min(520px, calc(100vw - 40px));
+  max-width:520px;
+  max-height:min(80vh, 720px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.panel-accounts .accounts-donor-modal__body {
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.panel-accounts .accounts-donor-modal__footer {
+  flex:0 0 auto;
+  padding:14px 20px;
+  border-top:1px solid var(--line);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
 .panel-accounts .modal-actions, .panel-ngo-admin .modal-actions, .panel-fro .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
 .panel-event-head .loading, .panel-accounts .loading, .panel-ngo-admin .loading, .panel-fro .loading { display:flex; align-items:center; justify-content:center; padding:40px; color:var(--ink-soft); font-size:13px; }
 .panel-event-head .empty-state, .panel-accounts .empty-state, .panel-ngo-admin .empty-state, .panel-fro .empty-state { text-align:center; padding:40px; color:var(--ink-soft); }
@@ -1184,10 +1212,15 @@
 .panel-accounts .stat-card .stat-num { font-size:22px; font-weight:700; line-height:1.2; }
 .panel-accounts .stat-card .stat-lbl { font-size:11px; color:var(--ink-soft); margin-top:1px; }
 .panel-accounts .stat-card .stat-sub { font-size:10px; color:var(--ink-soft); opacity:.7; margin-top:1px; }
+.panel-accounts .receipt-history-stats { grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.panel-accounts .receipt-history-stat-card { min-width:0; padding:18px 20px; }
+.panel-accounts .receipt-history-stat-card .stat-num { font-size:clamp(19px,1.7vw,26px); white-space:nowrap; letter-spacing:-.02em; }
+@media (max-width:900px) { .panel-accounts .receipt-history-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .panel-accounts .search-input { padding:7px 12px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:13px; font-family:inherit; outline:none; background:var(--card-bg); min-width:200px; transition:border-color .15s; }
 .panel-accounts .search-input:focus { border-color:var(--sage); }
 .panel-accounts .search-input::placeholder { color:var(--ink-soft); opacity:.6; }
 .panel-accounts .pagination { display:flex; align-items:center; justify-content:center; gap:6px; padding:12px 0 4px; }
+.panel-accounts .pagination > div { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; }
 .panel-accounts .pagination button { min-width:32px; height:32px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); font-size:12px; font-family:inherit; cursor:pointer; color:var(--ink); transition:all .12s; display:flex; align-items:center; justify-content:center; }
 .panel-accounts .pagination button:hover:not(:disabled) { border-color:var(--sage); color:var(--sage); }
 .panel-accounts .pagination button:disabled { opacity:.4; cursor:not-allowed; }
@@ -1335,7 +1368,8 @@
 .panel-fro .btn-outline:hover { background:var(--bg); }
 
 /* ── FRO Panel - Donor Detail Card Layout ── */
-.panel-fro .content-body { padding:0; display:flex; flex-direction:column; flex:1; }
+.panel-fro .content-body { padding:16px; display:flex; flex-direction:column; flex:1; }
+.panel-fro .content-body:has(.whatsapp-chat-page) { padding:0; }
 .panel-fro .detail-split { display:flex; gap:16px; flex:1; min-height:0; }
 .panel-fro .detail-left { width:25%; display:flex; flex-direction:column; gap:10px; min-height:0; }
 .panel-fro .detail-mid { width:55%; display:flex; flex-direction:column; gap:10px; min-height:0; }
@@ -1559,7 +1593,8 @@
   .panel-fro .hamburger { display:flex; }
   .panel-fro .topbar { padding:0 16px; height:56px; }
   .panel-fro .topbar-user-text { display:none; }
-  .panel-fro .content-body { padding:0; }
+  .panel-fro .content-body { padding:12px; }
+  .panel-fro .content-body:has(.whatsapp-chat-page) { padding:0; }
   .panel-fro .detail-split { flex-direction:column; }
   .panel-fro .detail-left, .panel-fro .detail-mid, .panel-fro .detail-right { width:100%; }
   .panel-fro .bento-grid { grid-template-columns:repeat(6,1fr); }
@@ -1568,7 +1603,8 @@
   .panel-fro .info-grid, .panel-fro .lead-card-details, .panel-fro .donor-card-details { grid-template-columns:1fr; }
 }
 @media (max-width:480px) {
-  .panel-fro .content-body { padding:0; }
+  .panel-fro .content-body { padding:10px; }
+  .panel-fro .content-body:has(.whatsapp-chat-page) { padding:0; }
   .panel-fro .bento-grid { grid-template-columns:1fr; }
   .panel-fro .bento-col-12, .panel-fro .bento-col-8, .panel-fro .bento-col-7, .panel-fro .bento-col-6, .panel-fro .bento-col-5, .panel-fro .bento-col-4, .panel-fro .bento-col-3, .panel-fro .bento-col-2 { grid-column:span 1; }
   .panel-fro .topbar h2 { font-size:15px; }
@@ -1707,6 +1743,37 @@
 
 /* Candidate detail modal */
 .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:2000; display:flex; align-items:center; justify-content:center; padding:20px; }
+.panel-fro .template-params-modal {
+  width:min(480px, 100%);
+  max-width:480px;
+  height:min(760px, calc(100dvh - 32px));
+  max-height:calc(100dvh - 32px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border:1px solid rgba(22, 101, 52, .12);
+  border-radius:14px;
+}
+.panel-fro .template-params-modal__header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 18px;
+  border-bottom:1px solid var(--line);
+  flex-shrink:0;
+}
+.panel-fro .template-params-modal__header h3 { margin:0; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.panel-fro .template-params-modal__body { padding:16px 18px; overflow-y:auto; overscroll-behavior:contain; flex:1; min-height:0; }
+.panel-fro .template-params-modal__footer { padding:12px 18px 16px; border-top:1px solid var(--line); background:var(--card-bg); flex-shrink:0; }
+.template-params-modal__upload { display:block; margin-bottom:4px; padding:12px; border:1px dashed #86bf95; border-radius:9px; background:#f7fcf8; cursor:pointer; }
+.template-params-modal__file-input { display:block; width:100%; font-size:12px; color:#374151; }
+.template-params-modal__file-name { display:block; margin-top:7px; font-size:11px; color:#6b7280; overflow-wrap:anywhere; }
+@media (max-width:600px) {
+  .panel-fro .modal-overlay { padding:12px; align-items:flex-end; }
+  .panel-fro .template-params-modal { height:min(760px, calc(100dvh - 24px)); max-height:calc(100dvh - 24px); border-radius:14px; }
+  .panel-fro .template-params-modal__header, .panel-fro .template-params-modal__body, .panel-fro .template-params-modal__footer { padding-left:14px; padding-right:14px; }
+}
 .candidate-modal { position:fixed; z-index:2001; top:50%; left:50%; transform:translate(-50%,-50%); width:calc(100% - 32px); max-width:400px; background:#fff; border-radius:16px; box-shadow:0 12px 48px rgba(0,0,0,.15); overflow:hidden; }
 .candidate-modal-close { position:absolute; top:12px; right:14px; width:28px; height:28px; border-radius:50%; border:none; background:rgba(0,0,0,.08); color:#666; font-size:18px; cursor:pointer; display:grid; place-items:center; line-height:1; z-index:1; }
 .candidate-modal-close:hover { background:rgba(0,0,0,.15); }

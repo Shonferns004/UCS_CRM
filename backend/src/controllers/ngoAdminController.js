@@ -74,7 +74,7 @@ export const getDonors = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         const name = ngoNames[idx];
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -117,8 +117,34 @@ export const getDonors = async (req, res) => {
     const grouped = Object.values(groups);
     grouped.sort((a, b) => new Date(b.last_donation_date || 0) - new Date(a.last_donation_date || 0));
 
-    const total = grouped.length;
-    const paginatedSlice = grouped.slice(offset, offset + limit);
+    // Filter: keep only donors who have a verified payment (donation log OR verified lead_done disposition)
+    const allGroupedDonorIds = grouped.flatMap(g => g.donor_ids || []);
+    const verifiedDonorIds = new Set();
+    if (allGroupedDonorIds.length > 0) {
+      const { data: filterAssignments } = await supabase
+        .from('fro_assignments')
+        .select('id, donor_id')
+        .in('donor_id', allGroupedDonorIds);
+      const filterAssignIds = (filterAssignments || []).map(a => a.id);
+      if (filterAssignIds.length > 0) {
+        const { data: verifiedLogs } = await supabase
+          .from('fro_donor_logs')
+          .select('assignment_id')
+          .in('assignment_id', filterAssignIds)
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)');
+        const verifiedAssignIds = new Set((verifiedLogs || []).map(l => l.assignment_id));
+        const assignToDonor = {};
+        for (const a of filterAssignments || []) assignToDonor[a.id] = a.donor_id;
+        for (const aid of verifiedAssignIds) {
+          const did = assignToDonor[aid];
+          if (did) verifiedDonorIds.add(did);
+        }
+      }
+    }
+    const verifiedGrouped = grouped.filter(g => (g.donor_ids || []).some(did => verifiedDonorIds.has(did)));
+
+    const total = verifiedGrouped.length;
+    const paginatedSlice = verifiedGrouped.slice(offset, offset + limit);
 
     const allDonorIds = paginatedSlice.flatMap(g => g.donor_ids || []);
     let latestTxMap = {};
@@ -299,7 +325,7 @@ export const setTarget = async (req, res) => {
   try {
     const { fro_worker_id, month, target_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
+    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
 
     if (!fro_worker_id || !month || target_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and target_amount are required' });
@@ -352,8 +378,8 @@ export const getTargets = async (req, res) => {
     const { month, ngo_id } = req.query;
     const targetMonth = month ? month + '-01' : new Date().toISOString().slice(0, 7) + '-01';
 
-    const filterNgoIds = ngo_id && ngoIds.includes(Number(ngo_id))
-      ? [Number(ngo_id)]
+    const filterNgoIds = ngo_id && ngoIds.some(id => String(id) === String(ngo_id))
+      ? [ngo_id]
       : ngoIds;
 
     const allWorkers = [];
@@ -448,7 +474,7 @@ export const getDashboard = async (req, res) => {
     const origNgoIds = [...ngoIds];
 
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -504,7 +530,7 @@ export const getDashboard = async (req, res) => {
 
     // Data used / unused — per unique donor
     const connectedStatuses = new Set([
-      'contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled',
+      'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
       'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated',
       'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
       'not_interested_now', 'callback',
@@ -537,7 +563,7 @@ export const getDashboard = async (req, res) => {
           .from('fro_donor_logs')
           .select('donor_id, fro_assignments!inner(ngo_id)')
           .in('fro_assignments.ngo_id', ngoIds)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
           .gte('created_at', oneYearAgo.toISOString())).data || []
       : [];
 
@@ -577,16 +603,16 @@ export const getDashboard = async (req, res) => {
       ? await Promise.all([
           supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', fyStart.toISOString()),
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', todayStart.toISOString())
             .lte('created_at', todayEnd.toISOString()),
           supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', monthStart)
             .lte('created_at', monthEnd),
         ])
@@ -785,7 +811,7 @@ export const getFroPerformance = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) { ngoIds.splice(0, ngoIds.length, ngoIds[idx]); }
     }
 
@@ -844,7 +870,7 @@ export const getFroPerformance = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds);
-    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
     const workerAssignments = {};
     for (const a of faRows || []) {
       if (a.status === 'reassigned') continue;
@@ -910,7 +936,7 @@ export const setAchievedTarget = async (req, res) => {
   try {
     const { fro_worker_id, month, achieved_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
+    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
 
     if (!fro_worker_id || !month || achieved_amount === undefined) {
       return res.status(400).json({ message: 'fro_worker_id, month, and achieved_amount are required' });
@@ -931,7 +957,7 @@ export const setIncentive = async (req, res) => {
   try {
     const { fro_worker_id, month, incentive_amount, ngo_id } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
-    const ngoId = ngo_id && ngoIds.includes(Number(ngo_id)) ? Number(ngo_id) : ngoIds[0];
+    const ngoId = ngo_id && ngoIds.some(id => String(id) === String(ngo_id)) ? ngo_id : ngoIds[0];
 
     if (!fro_worker_id || !month) {
       return res.status(400).json({ message: 'fro_worker_id and month are required' });
@@ -1266,8 +1292,8 @@ export const removeStationByName = async (req, res) => {
     const { ngo_id } = req.query;
     const ngoIds = await getUserNgoIds(req.user);
 
-    const delNgoId = ngo_id ? Number(ngo_id) : null;
-    if (delNgoId && !ngoIds.includes(delNgoId)) {
+    const delNgoId = ngo_id || null;
+    if (delNgoId && !ngoIds.some(id => String(id) === String(delNgoId))) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -1297,7 +1323,7 @@ export const createStationHandler = async (req, res) => {
       return res.status(400).json({ message: 'station name is required' });
     }
     const ngoIds = await getUserNgoIds(req.user);
-    if (ngo_id && !ngoIds.includes(Number(ngo_id))) {
+    if (ngo_id && !ngoIds.some(id => String(id) === String(ngo_id))) {
       return res.status(403).json({ message: 'Access denied for this NGO' });
     }
 
@@ -1402,7 +1428,7 @@ export const getStationStats = async (req, res) => {
 
     const { ngo_id: filterNgoId, from, to } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoNames.splice(0, ngoNames.length, ngoNames[idx]);
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -1523,7 +1549,7 @@ export const getNewData = async (req, res) => {
     const perPage = Math.min(5000, Math.max(10, parseInt(perPageStr) || 500));
 
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         const name = ngoNames[idx];
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
@@ -1625,7 +1651,7 @@ export const distributeNewData = async (req, res) => {
     }
     // Filter to specific NGO if provided
     if (filterNgoId) {
-      ngoEntries = ngoEntries.filter(e => e.ngoId === Number(filterNgoId));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
     }
     if (ngoEntries.length === 0) {
       return res.json({ message: 'No NGO assigned to your account', count: 0 });
@@ -1874,7 +1900,7 @@ export const getAlerts = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
       }
@@ -1939,7 +1965,7 @@ export const getRejectedLeads = async (req, res) => {
 
     const { ngo_id: filterNgoId } = req.query;
     if (filterNgoId && filterNgoId !== 'all') {
-      const idx = ngoIds.indexOf(Number(filterNgoId));
+      const idx = ngoIds.findIndex(id => String(id) === String(filterNgoId));
       if (idx !== -1) {
         ngoIds.splice(0, ngoIds.length, ngoIds[idx]);
       }
@@ -2198,7 +2224,7 @@ export const resolveDataRequest = async (req, res) => {
   }
 };
 
-const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
+const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
 const NOT_CONNECTED_DISPOSITIONS = ['busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid', 'invalid_number', 'rejected'];
 
 export const masterSearch = async (req, res) => {
@@ -2478,7 +2504,7 @@ export const returnTransferEarly = async (req, res) => {
     const { id } = req.params;
     const ngoIds = await getUserNgoIds(req.user);
     const { data: transfer } = await supabase.from('fro_transfers').select('ngo_id').eq('id', id).maybeSingle();
-    if (transfer && transfer.ngo_id && !ngoIds.includes(Number(transfer.ngo_id))) {
+    if (transfer && transfer.ngo_id && !ngoIds.some(id => String(id) === String(transfer.ngo_id))) {
       return res.status(403).json({ message: 'Access denied' });
     }
     const count = await reverseTransfer(id);
@@ -3109,7 +3135,7 @@ export const createFollowup = async (req, res) => {
     if (!assignment) {
       return res.status(400).json({ message: 'No assignment found for this donor' });
     }
-    if (assignment.ngo_id && !ngoIds.includes(Number(assignment.ngo_id))) {
+    if (assignment.ngo_id && !ngoIds.some(id => String(id) === String(assignment.ngo_id))) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -3171,7 +3197,7 @@ export const getFroSummary = async (req, res) => {
     const todayCollection = logs.reduce((s, l) => {
       const amt = parseFloat(l.amount_collected || 0);
       if (l.action === 'donation') return s + amt;
-      if (l.action === 'disposition' && l.disposition_detail === 'lead_done') return s + amt;
+      if (l.action === 'disposition' && (l.disposition_detail === 'lead_done' || l.disposition_detail === 'done')) return s + amt;
       return s;
     }, 0);
 
@@ -3257,7 +3283,7 @@ export const cleanupOrphanedStations = async (req, res) => {
 
     let targetNgoIds;
     if (ngo_id) {
-      if (!allowedNgoIds.has(ngo_id)) {
+      if (![...allowedNgoIds].some(id => String(id) === String(ngo_id))) {
         return res.status(403).json({ message: 'You do not have access to this NGO' });
       }
       targetNgoIds = [ngo_id];
@@ -3490,7 +3516,7 @@ export const uploadOldDataForStation = async (req, res) => {
     // Filter by selected NGO if provided
     const { ngo_id } = req.body;
     if (ngo_id) {
-      ngoEntries = ngoEntries.filter(e => e.ngoId === ngo_id || e.ngoId === Number(ngo_id));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(ngo_id));
     }
 
     if (ngoEntries.length === 0) {
@@ -3605,6 +3631,126 @@ export const uploadOldDataForStation = async (req, res) => {
       errors: errors.slice(0, 20),
     });
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDataOverview = async (req, res) => {
+  try {
+    const access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await supabase.from('ngos').select('id, name').eq('id', req.user.ngo_id).maybeSingle();
+      if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
+    }
+
+    const { ngo_id: filterNgoId } = req.query;
+    if (filterNgoId && filterNgoId !== 'all') {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
+    }
+    if (ngoEntries.length === 0) return res.json([]);
+
+    const minimal = req.query.minimal === 'true';
+    const perStationLimit = Math.min(500, Math.max(1, parseInt(req.query.per_station) || 100));
+
+    const result = [];
+    for (const { ngoId, ngoName } of ngoEntries) {
+      const [stationAssignsRes, assignmentsRes] = await Promise.all([
+        supabase.from('fro_station_assignments')
+          .select('id, station, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(id, name)')
+          .eq('ngo_id', ngoId)
+          .order('station', { ascending: true }),
+        supabase.from('fro_assignments')
+          .select('id, donor_id, station, fro_worker_id, status, batch_type, is_new, assigned_at, ngo_id')
+          .eq('ngo_id', ngoId)
+          .not('status', 'eq', 'reassigned'),
+      ]);
+      if (stationAssignsRes.error) throw stationAssignsRes.error;
+
+      const stationRows = stationAssignsRes.data || [];
+      const assignments = assignmentsRes.data || [];
+
+      const workerNameMap = {};
+      for (const sa of stationRows) {
+        const wid = sa.fro_worker_id;
+        if (wid && !workerNameMap[wid]) workerNameMap[wid] = sa.workers?.name || 'Unknown';
+      }
+      const stationIdMap = {};
+      for (const sa of stationRows) stationIdMap[sa.station] = sa.id;
+
+      const buckets = {};
+      const getFro = (wid) => wid || 'UNASSIGNED';
+      for (const a of assignments) {
+        const froKey = getFro(a.fro_worker_id);
+        if (!buckets[froKey]) buckets[froKey] = { new: {}, old: {} };
+        const side = a.batch_type === 'new_data' ? 'new' : 'old';
+        const st = a.station || 'UNKNOWN';
+        if (!buckets[froKey][side][st]) buckets[froKey][side][st] = [];
+        buckets[froKey][side][st].push(a);
+      }
+
+      let donorIds = [];
+      if (!minimal) donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+
+      const donorMap = {};
+      if (!minimal && donorIds.length > 0) {
+        const { data: donors } = await supabase.from('donor_profiles')
+          .select('id, name, mobile_number, amount, city')
+          .in('id', donorIds);
+        for (const d of donors || []) donorMap[d.id] = d;
+      }
+
+      const knownFroIds = new Set(Object.keys(workerNameMap));
+      const froKeys = new Set([...Object.keys(buckets), ...knownFroIds]);
+
+      const froAssignments = [];
+      for (const froKey of froKeys) {
+        const isUnassigned = froKey === 'UNASSIGNED';
+        const froId = isUnassigned ? null : froKey;
+        const froName = isUnassigned ? 'Unassigned' : (workerNameMap[froKey] || 'Unknown');
+        const buildSide = (side) => {
+          const stationBuckets = (buckets[froKey] && buckets[froKey][side]) || {};
+          const stations = Object.keys(stationBuckets).sort();
+          return stations.map(st => {
+            const list = stationBuckets[st] || [];
+            const data = minimal ? [] : list.slice(0, perStationLimit).map(a => {
+              const d = donorMap[a.donor_id] || {};
+              return {
+                id: a.id,
+                assignment_id: a.id,
+                donor_id: a.donor_id,
+                name: d.name || 'Unknown',
+                mobile: d.mobile_number || '',
+                amount: d.amount || 0,
+                city: d.city || '',
+                status: a.status || 'pending',
+                is_new: a.is_new !== false,
+                batch_type: a.batch_type || null,
+                assigned_at: a.assigned_at || null,
+              };
+            });
+            return {
+              stationId: stationIdMap[st] || null,
+              stationName: st,
+              count: list.length,
+              data,
+            };
+          });
+        };
+        froAssignments.push({
+          froId,
+          froName,
+          new: { stations: buildSide('new') },
+          old: { stations: buildSide('old') },
+        });
+      }
+
+      result.push({ ngoId, ngoName, froAssignments });
+    }
+
+    return res.json(result);
+  } catch (error) {
+    console.error('getDataOverview error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

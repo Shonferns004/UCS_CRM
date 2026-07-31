@@ -219,13 +219,23 @@ export default function Receipts() {
   const cancelBulkRef = useRef(false)
   const [confirmBulk, setConfirmBulk] = useState({ visible:false, donorCount:0 })
   const [receiptPage, setReceiptPage] = useState(1)
-  const handleDataLoaded = useCallback((data) => { setDonors(data); setSelectedIndex(null); setReceiptPage(1) }, [])
+  const [markingAllSent, setMarkingAllSent] = useState(false)
+  const [markAllProgress, setMarkAllProgress] = useState({ completed: 0, total: 0 })
+
+  const removeFromPending = useCallback((receiptId) => {
+    setDonors(current => (current || []).filter(donor => donor.receipt_id !== receiptId))
+    setSelectedIndex(null)
+  }, [])
 
   const loadPending = useCallback(async () => {
     setLoading(true)
     try {
       const data = await apiGet('/accounts/receipts/pending')
-      setDonors(data)
+      const pending = (Array.isArray(data) ? data : []).filter(receipt => {
+        const status = String(receipt.status || '').toLowerCase()
+        return !receipt.sent && !receipt.whatsapp_sent && !receipt.is_sent && !['sent', 'delivered'].includes(status)
+      })
+      setDonors(pending)
     } catch (e) { console.error('Error:', e.message); }
     setLoading(false)
   }, [])
@@ -278,7 +288,6 @@ export default function Receipts() {
       }
       const content = await zip.generateAsync({ type: 'blob' })
       saveAs(content, 'Donation_Receipts.zip')
-      donors.forEach(d => { try { apiPost('/accounts/receipts/mark-sent', { receiptId: d.receipt_id }) } catch (e) { console.error('Error:', e.message); } })
     } catch (e) { alert('Failed to download ZIP: ' + e.message) }
     setDownloadAll(false)
   }
@@ -302,6 +311,7 @@ export default function Receipts() {
   const handleSendSingle = async (donor, index) => {
     setSendingIndex(index)
     try {
+      if (!donor.receipt_id) throw new Error('This receipt is not eligible for sending')
       const receiptNo = donor['Receipt No.'] || 'N/A'
       const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
       if (phone.length < 10) throw new Error('Invalid phone')
@@ -321,8 +331,10 @@ export default function Receipts() {
         amount: donor['Amount'],
         templateName: tpl.metaTemplate,
         templateLang: tpl.metaLang,
+        project: ngo,
       })
-      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id }) } catch (e) { console.error('Error:', e.message); }
+      await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id })
+      removeFromPending(donor.receipt_id)
       showToast('success', `Sent to ${donor['Donor Name']}`)
     } catch (e) {
       showToast('error', e.message)
@@ -334,6 +346,53 @@ export default function Receipts() {
     const valid = getValidDonors()
     if (valid.length === 0) { showToast('error', 'No donors with valid mobile numbers'); return }
     setConfirmBulk({ visible:true, donorCount:valid.length })
+  }
+
+  const handleMarkAllSent = async () => {
+    const receiptIds = [...new Set((donors || []).map(donor => donor.receipt_id).filter(Boolean))]
+    if (receiptIds.length === 0) { showToast('error', 'No eligible pending receipts found'); return }
+    if (!window.confirm(`Mark ${receiptIds.length} receipt${receiptIds.length === 1 ? '' : 's'} as sent? This will remove them from the pending queue without sending WhatsApp messages.`)) return
+
+    // The API accepts a maximum of 50 receipt IDs per request. Batching prevents
+    // the browser from flooding it with thousands of individual requests.
+    const batches = []
+    for (let index = 0; index < receiptIds.length; index += 50) batches.push(receiptIds.slice(index, index + 50))
+
+    setMarkingAllSent(true)
+    setMarkAllProgress({ completed: 0, total: receiptIds.length })
+    const markedIds = []
+    let failed = 0
+
+    try {
+      for (const batch of batches) {
+        try {
+          const result = await apiPost('/accounts/receipts/mark-sent', {
+            receipt_ids: batch,
+            delivery_channel: 'manual',
+          })
+          if (result?.success === false) throw new Error(result.message || 'Could not mark this batch as sent')
+
+          // Use the server-confirmed IDs when available; older API deployments
+          // only return success, in which case the whole successful batch is valid.
+          markedIds.push(...(Array.isArray(result?.data?.receipt_ids) ? result.data.receipt_ids : batch))
+        } catch (error) {
+          console.error('Unable to mark receipt batch as sent:', error.message)
+          failed += batch.length
+        }
+        setMarkAllProgress({ completed: markedIds.length + failed, total: receiptIds.length })
+      }
+
+      if (markedIds.length) {
+        const markedIdSet = new Set(markedIds)
+        setDonors(current => (current || []).filter(donor => !markedIdSet.has(donor.receipt_id)))
+      }
+      showToast(failed ? 'error' : 'success', failed
+        ? `${markedIds.length} marked sent; ${failed} could not be updated.`
+        : `${markedIds.length} receipts marked as sent`)
+    } finally {
+      setMarkingAllSent(false)
+      setMarkAllProgress({ completed: 0, total: 0 })
+    }
   }
 
   const handleConfirmBulkSend = async () => {
@@ -353,6 +412,7 @@ export default function Receipts() {
       setBulkState(prev => ({ ...prev, currentBatch: batchIdx + 1, results: batch.map(d => ({ name: d['Donor Name'], status:'sending' })) }))
 
       const batchResults = await Promise.allSettled(batch.map(async (donor) => {
+        if (!donor.receipt_id) throw new Error('This receipt is not eligible for sending')
         const receiptNo = donor['Receipt No.'] || 'N/A'
         const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
         if (phone.length < 10) throw new Error('Invalid phone')
@@ -374,8 +434,9 @@ export default function Receipts() {
             amount: donor['Amount'],
             templateName: tpl.metaTemplate,
             templateLang: tpl.metaLang,
+            project: ngo,
           })
-      try { await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id }) } catch (e) { console.error('Error:', e.message); }
+          await apiPost('/accounts/receipts/mark-sent', { receiptId: donor.receipt_id })
         } catch (e) {
           console.error('WhatsApp send failed for', donor['Donor Name'], ':', e.message)
           allErrors.push(donor['Donor Name'] + ': ' + e.message)
@@ -391,6 +452,12 @@ export default function Receipts() {
         results: batchResults.map((r, i) => ({ name: batch[i]['Donor Name'], status: r.status === 'fulfilled' ? 'sent' : 'failed', error: r.status === 'rejected' ? r.reason?.message : null })),
         previousBatches: [...prev.previousBatches, { batch: batchIdx + 1, sent: batchSent, failed: batchFailed }],
       }))
+      const sentReceiptIds = batchResults
+        .map((result, i) => result.status === 'fulfilled' ? batch[i].receipt_id : null)
+        .filter(Boolean)
+      if (sentReceiptIds.length) {
+        setDonors(current => (current || []).filter(donor => !sentReceiptIds.includes(donor.receipt_id)))
+      }
     }
     setBulkState(prev => ({ ...prev, active:false }))
     if (totalFailed > 0 && totalSent === 0 && allErrors.length > 0) {
@@ -406,12 +473,13 @@ export default function Receipts() {
 
   return (
     <div>
-      <ExcelUpload onDataLoaded={handleDataLoaded} />
-
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-pad">
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-            <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Donor Records {donors ? <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span> : <span className="sk" style={{ display:'inline-block', width:60, height:14, borderRadius:3, verticalAlign:'middle' }} />}</h3>
+            <div>
+              <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Verified receipts awaiting WhatsApp {donors ? <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span> : <span className="sk" style={{ display:'inline-block', width:60, height:14, borderRadius:3, verticalAlign:'middle' }} />}</h3>
+              <p style={{ margin:'3px 0 0', fontSize:11, color:'var(--ink-soft)' }}>Sent receipts are available only in Donors.</p>
+            </div>
                 <div style={{ display:'flex', gap:8 }}>
                   <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
                     onClick={() => {
@@ -423,7 +491,6 @@ export default function Receipts() {
                       }));
                       XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
                       XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
-                      donors.forEach(d => { try { apiPost('/accounts/receipts/mark-sent', { receiptId: d.receipt_id }) } catch (e) { console.error('Error:', e.message); } })
                     }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     Excel
@@ -437,6 +504,13 @@ export default function Receipts() {
                     onClick={handleSendAllWhatsApp}
                     disabled={bulkState.active || getValidDonors().length === 0}>
                     Send All ({getValidDonors().length})
+                  </button>
+                  <button className="btn btn-sm" style={{ background:'#2563eb', color:'#fff', border:'none' }}
+                    onClick={handleMarkAllSent}
+                    disabled={markingAllSent || !donors?.some(donor => donor.receipt_id)}>
+                    {markingAllSent
+                      ? `Updating ${markAllProgress.completed}/${markAllProgress.total}...`
+                      : `Mark all sent (${donors?.filter(donor => donor.receipt_id).length || 0})`}
                   </button>
                 </div>
               </div>

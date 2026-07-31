@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getTransferredLeads, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations } from '../api/donors';
+import { getTransferredLeads, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, getMyStations } from '../api/donors';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { extractTransactionData } from '../utils/ocr';
 
@@ -15,7 +15,7 @@ const PROJECTS = [
 ];
 
 const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'scheduled', label: 'Schedule' },
+  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Schedule' },
   { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
   { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
   { id: 'not_interested_now', label: 'Not Interested Now' }, { id: 'language_barrier', label: 'Language Barrier' },
@@ -33,7 +33,7 @@ const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
   follow_up: 'pill-purple', busy: 'pill-gray', ringing: 'pill-gray',
   unreachable: 'pill-gray', switched_off: 'pill-gray', wrong_number: 'pill-gray',
-  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green',
+  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green', done: 'pill-green',
   visit_donate: 'pill-green', donation_collected: 'pill-green', promise_to_pay: 'pill-blue',
   payment_pending: 'pill-yellow', already_donated: 'pill-gray', not_interested: 'pill-red',
   not_interested_now: 'pill-red', language_barrier: 'pill-gray', transferred_senior: 'pill-blue',
@@ -69,11 +69,24 @@ export default function TransferredLeads() {
   const [donations, setDonations] = useState([]);
   const [donationYear, setDonationYear] = useState('this_year');
   const [donationLoading, setDonationLoading] = useState(false);
+  const [stations, setStations] = useState([]);
+  const [selectedNgo, setSelectedNgo] = useState(null);
 
   useEffect(() => {
+    getMyStations().then(s => {
+      const arr = Array.isArray(s) ? s : [];
+      setStations(arr);
+      const ngoMap = {};
+      arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+      const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+      if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+    }).catch((err) => { console.error('API error:', err.message); });
+  }, []);
+
+  const loadLeads = useCallback((ngoId) => {
     localStorage.removeItem('mydonors_index');
     setLoading(true);
-    getTransferredLeads().then(r => {
+    getTransferredLeads(ngoId).then(r => {
       setDonors(r);
       setMessage(null);
       const saved = localStorage.getItem('mydonors_current_donor');
@@ -88,6 +101,10 @@ export default function TransferredLeads() {
       setIndex(0);
     }).catch(err => setMessage({ type: 'error', text: err.message })).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadLeads(selectedNgo);
+  }, [selectedNgo, loadLeads]);
 
   const donor = donors[index];
 
@@ -126,6 +143,8 @@ export default function TransferredLeads() {
     if (detailId === 'lead_done') {
       setProjectName(donor?.donor_project || '');
       setPanError('');
+    } else if (detailId === 'done') {
+      setLeadAmount('');
     } else {
       setLeadScreenshot(null);
       setScreenshotPreview(null);
@@ -197,7 +216,7 @@ export default function TransferredLeads() {
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && !scheduledAt) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
-    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
     if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
     if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
     if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
@@ -225,6 +244,9 @@ export default function TransferredLeads() {
         logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
         logData.upi_transaction_id = upiTransactionId || null;
         logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
+      }
+      if (selected === 'done') {
+        logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
       }
       await addDonorLog(donor.id, logData);
       setSelected(null); setNotes(''); setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError(''); setLeadDob(''); setProjectName(''); setLeadAmount(''); setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
@@ -367,6 +389,24 @@ export default function TransferredLeads() {
 
         {/* MIDDLE PANEL — Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
+          {(() => {
+            const ngoMap = {};
+            stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+            const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+            if (ngoList.length <= 1) return null;
+            return (
+              <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+                {ngoList.map(n => (
+                  <button key={n.ngo_id} onClick={() => setSelectedNgo(n.ngo_id)}
+                    className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
+                    style={{ fontSize: 10 }}>
+                    {n.ngo_name}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {message && (
             <div className={`detail-message ${message.type}`}>
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
@@ -402,6 +442,16 @@ export default function TransferredLeads() {
                   <div className="fld">
                     <label>Schedule Date & Time</label>
                     <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} />
+                  </div>
+                </div>
+              )}
+
+              {selected === 'done' && (
+                <div className="detail-field-row">
+                  <div className="fld">
+                    <label>Amount Collected</label>
+                    <input type="number" min="0" value={leadAmount}
+                      onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
                   </div>
                 </div>
               )}
@@ -540,6 +590,9 @@ export default function TransferredLeads() {
                             <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--md-tertiary-fixed, #e0e7ff)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>
                               {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
                             </span>
+                          )}
+                          {log.disposition_detail === 'done' && (
+                            <span style={{ fontSize: 8, fontWeight: 700, background: '#f0fdf4', color: 'var(--sage)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>Collected</span>
                           )}
                         </div>
                       </div>

@@ -3,16 +3,22 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getWorkerByLoginId } from '../models/workerModel.js';
 
-function getTokenExpiry(req) {
-  const clientType = req.headers['x-client-type'] || 'web';
-  return clientType === 'flutter' ? '100y' : '24h';
-}
+const TOKEN_EXPIRY = '100y';
 
 export async function whatsappCrmLogin(req, res) {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
+    }
+
+    const masterEmail = process.env.WHATSAPP_MASTER_EMAIL;
+    const masterPassword = process.env.WHATSAPP_MASTER_PASSWORD;
+
+    if (masterEmail && masterPassword && email === masterEmail && password === masterPassword) {
+      const masterUser = { id: 'master', email: masterEmail, role: 'master', first_name: 'Master', last_name: 'Admin', tenant_id: 'master' };
+      const token = jwt.sign({ id: 'master', email: masterEmail, role: 'master', name: 'Master Admin', tenant_id: 'master' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, user: { ...masterUser, status: 'active', created_at: new Date().toISOString() } });
     }
 
     let userData = null;
@@ -61,7 +67,7 @@ export async function whatsappCrmLogin(req, res) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const expiry = getTokenExpiry(req);
+    const expiry = TOKEN_EXPIRY;
     const tokenPayload = {
       id: userData.id,
       email: userData.email || email,

@@ -23,6 +23,7 @@ import DonorCRM from './pages/DonorCRM'
 import SearchResults from './pages/SearchResults'
 import CallAnalytics from './pages/CallAnalytics'
 import OldData from './pages/OldData'
+import DataOverview from './pages/DataOverview'
 
 const NAV = [
   { id: 'dashboard', path: '/ngo-admin/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -35,6 +36,7 @@ const NAV = [
   { id: 'donors', path: '/ngo-admin/donors', label: 'Donors', icon: 'donors' },
   { id: 'new-data', path: '/ngo-admin/new-data', label: 'New Data', icon: 'newData' },
   { id: 'old-data', path: '/ngo-admin/old-data', label: 'Old Data', icon: 'oldData' },
+  { id: 'data-overview', path: '/ngo-admin/data-overview', label: 'Data Overview', icon: 'dataOverview' },
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'rejected', path: '/ngo-admin/rejected-leads', label: 'Rejected Leads', icon: 'rejected' },
 ]
@@ -52,6 +54,7 @@ const ICONS = {
   suspense: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
   callAnalytics: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
   oldData: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>,
+  dataOverview: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>,
 }
 
 const MAX_DROPDOWN = 4
@@ -251,11 +254,20 @@ export default function NgoAdminPanel() {
     { label: 'Notifications', type: 'notifications', items: allNotifs },
   ];
 
-  const handleDrawerItemClick = (item) => {
+  const markRead = async (notifId) => {
+    try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); loadNotifications(); }
+    catch (e) { console.error('Error:', e.message); }
+  };
+
+  const handleDrawerItemClick = (item, section) => {
     setDrawerOpen(false);
+    if (section?.type === 'rejected') {
+      navigate('/ngo-admin/rejected-leads');
+      return;
+    }
     if (item.type === 'suspense_assigned' || item.fro_donor_log_id) {
       navigate('/ngo-admin/suspense');
-    } else {
+    } else if (item.type === 'lead_rejected') {
       navigate('/ngo-admin/rejected-leads');
     }
   };
@@ -287,7 +299,7 @@ export default function NgoAdminPanel() {
                   <span style={{ fontSize:12, color:'var(--ink-soft)', cursor:'pointer' }}
                     onClick={() => { setSearchQuery(''); setSearchResults({ donors:[], fros:[], stations:[] }); setShowSearchDropdown(false); }}>?</span>
                 )}
-                {searchingMaster && <span style={{ fontSize:9, color:'var(--ink-soft)' }}>…</span>}
+                {searchingMaster && <span style={{ fontSize:9, color:'var(--ink-soft)' }}>ï¿½</span>}
               </div>
               {showSearchDropdown && searchTotal > 0 && (
                 <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 4px 16px rgba(0,0,0,.12)', zIndex:200, maxHeight:360, overflowY:'auto', marginTop:2 }}>
@@ -301,7 +313,7 @@ export default function NgoAdminPanel() {
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#dcfce7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#16a34a' }}>{d.name?.[0] || '?'}</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{d.name || 'Unknown'}</div>
-                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{d.mobile_number || ''}{d.city ? ` · ${d.city}` : ''}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{d.mobile_number || ''}{d.city ? ` ï¿½ ${d.city}` : ''}</div>
                           </div>
                         </div>
                       ))}
@@ -318,7 +330,7 @@ export default function NgoAdminPanel() {
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#e0e7ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#4338ca' }}>{f.name?.[0] || '?'}</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{f.name || 'Unknown'}</div>
-                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{f.login_id || ''}{f.is_active !== false ? ' · Active' : ' · Inactive'}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{f.login_id || ''}{f.is_active !== false ? ' ï¿½ Active' : ' ï¿½ Inactive'}</div>
                           </div>
                         </div>
                       ))}
@@ -334,7 +346,7 @@ export default function NgoAdminPanel() {
                           <div style={{ width:24, height:24, borderRadius:'50%', background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#d97706' }}>S</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:11, fontWeight:600, color:'#111827' }}>{s.station || 'Unknown'}</div>
-                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{s.workers?.name || 'No FRO'}{s.donor_count != null ? ` · ${s.donor_count} donors` : ''}</div>
+                            <div style={{ fontSize:9, color:'var(--ink-soft)' }}>{s.workers?.name || 'No FRO'}{s.donor_count != null ? ` ï¿½ ${s.donor_count} donors` : ''}</div>
                           </div>
                         </div>
                       ))}
@@ -409,6 +421,7 @@ export default function NgoAdminPanel() {
             <Route path="search" element={<SearchResults />} />
             <Route path="call-analytics" element={<CallAnalytics />} />
             <Route path="old-data" element={<OldData />} />
+            <Route path="data-overview" element={<DataOverview />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
@@ -432,7 +445,7 @@ export default function NgoAdminPanel() {
                     <div style={{ width: 40, height: 40, borderRadius: '50%', background: bgMap.donor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: colorMap.donor }}>{iname(r.name)}</div>
                     <div>
                       <div style={{ fontSize: 15, fontWeight: 700 }}>{r.name || 'Unknown'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.mobile_number || ''}{r.email ? ` · ${r.email}` : ''}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r.mobile_number || ''}{r.email ? ` ï¿½ ${r.email}` : ''}</div>
                     </div>
                   </div>
                   <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={close}>close</span>
@@ -441,7 +454,7 @@ export default function NgoAdminPanel() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                     <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>City</div>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.city || '—'}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.city || 'ï¿½'}</div>
                     </div>
                     <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Amount</div>
@@ -453,7 +466,7 @@ export default function NgoAdminPanel() {
                     </div>
                     <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Project</div>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.project_supported || '—'}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.project_supported || 'ï¿½'}</div>
                     </div>
                     <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Total Donated</div>
@@ -467,11 +480,11 @@ export default function NgoAdminPanel() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                     <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Address</div>
-                      <div style={{ fontSize: 11, fontWeight: 500 }}>{r.address_1 || '—'}</div>
+                      <div style={{ fontSize: 11, fontWeight: 500 }}>{r.address_1 || 'ï¿½'}</div>
                     </div>
                     <div className="card" style={{ margin: 0, padding: '8px 10px' }}>
                       <div style={{ fontSize: 8, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>Last Donation</div>
-                      <div style={{ fontSize: 11, fontWeight: 500 }}>{r.last_donation_date ? new Date(r.last_donation_date).toLocaleDateString('en-GB') : '—'}</div>
+                      <div style={{ fontSize: 11, fontWeight: 500 }}>{r.last_donation_date ? new Date(r.last_donation_date).toLocaleDateString('en-GB') : 'ï¿½'}</div>
                     </div>
                   </div>
                   <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10, color: 'var(--ink-soft)' }}>
@@ -483,7 +496,7 @@ export default function NgoAdminPanel() {
                   {(r.pan_number || r.birth_date) && (
                     <div style={{ marginTop: 6, fontSize: 10, color: 'var(--ink-soft)', padding: '6px 10px', background: 'var(--card-bg)', borderRadius: 6 }}>
                       {r.pan_number && <span>PAN: <strong>{r.pan_number}</strong></span>}
-                      {r.birth_date && <span> &nbsp;·&nbsp; DOB: <strong>{r.birth_date}</strong></span>}
+                      {r.birth_date && <span> &nbsp;ï¿½&nbsp; DOB: <strong>{r.birth_date}</strong></span>}
                     </div>
                   )}
                   <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -514,7 +527,7 @@ export default function NgoAdminPanel() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <span className={`pill ${r.is_active !== false ? 'pill-green' : 'pill-red'}`}>{r.is_active !== false ? 'Active' : 'Inactive'}</span>
                     <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>ID: {r.id}</span>
-                    <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Joined {r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '—'}</span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Joined {r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : 'ï¿½'}</span>
                   </div>
                   {r.ngos?.name && (
                     <div style={{ fontSize: 10, color: 'var(--ink-soft)', padding: '6px 10px', background: 'var(--card-bg)', borderRadius: 6 }}>
@@ -554,7 +567,7 @@ export default function NgoAdminPanel() {
                     </div>
                     <div className="card" style={{ margin: 0, padding: '10px 12px' }}>
                       <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 2 }}>NGO</div>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.ngo_id || '—'}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.ngo_id || 'ï¿½'}</div>
                     </div>
                   </div>
                   {!froName && (
@@ -580,6 +593,7 @@ export default function NgoAdminPanel() {
         onClose={() => setDrawerOpen(false)}
         sections={drawerSections}
         onItemClick={handleDrawerItemClick}
+        onMarkRead={markRead}
       />
 
       {showDonorDetail && (

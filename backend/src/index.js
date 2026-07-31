@@ -112,6 +112,7 @@ app.use('/api/data-sources', dataSourceRoutes);
 app.use('/api/data-import', dataImportRoutes);
 app.use('/api/ngo-admin', ngoAdminRoutes);
 app.post('/api/whatsapp/fro-login', whatsappLogin);
+app.use('/api/fro/whatsapp', froWhatsAppRoutes);
 app.use('/api/fro', froRoutes);
 app.use('/api/accounts', accountsRoutes);
 app.use('/api/loans', loanRoutes);
@@ -130,7 +131,6 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/developer-tickets', developerTicketRoutes);
 app.use('/api/whatsapp/agents', bulkAgentImportRoutes);
 app.use('/api/whatsapp/agents', agentTransferRoutes);
-app.use('/api/fro/whatsapp', froWhatsAppRoutes);
 app.use('/api/whatsapp-crm', whatsappCrmRoutes);
 app.use('/api/whatsapp-crm', whatsappCrmDataRoutes);
 app.use('/api/profile-update-requests', profileUpdateRequestRoutes);
@@ -352,6 +352,8 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
     res.status(500).json({ message: err.message });
   }
 });
+
+app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
