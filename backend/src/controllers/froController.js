@@ -171,16 +171,19 @@ const STATUS_PRIORITY = [
   'contacted',
   'follow_up',
   'scheduled',
-  'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected',
+  'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail',
   'visit_donate',
+  'will_donate_online',
   'promise_to_pay',
   'payment_pending',
   'already_donated',
-  'not_interested', 'not_interested_now',
+  'email_sent', 'whatsapp_sent',
+  'not_interested', 'not_interested_now', 'dnd', 'wrong_person',
   'language_barrier',
   'transferred_senior',
   'query_complaint',
   'receipt_request',
+  'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'call_disconnected',
   'lead_done',
   'donation_collected',
 ];
@@ -287,7 +290,7 @@ export const getDashboard = async (req, res) => {
         ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
-    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
     const donorInfo = new Map();
     for (const a of assignmentsRes.data || []) {
       if (!donorInfo.has(a.donor_id)) {
@@ -534,8 +537,8 @@ export const getReactivatedDonors = async (req, res) => {
   }
 };
 
-const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected'];
-const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
+const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail'];
+const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected'];
 
 export const getMyDonors = async (req, res) => {
   try {
@@ -743,7 +746,7 @@ export const getMyDonors = async (req, res) => {
     // Sort assignments so completed/connected statuses come before pending
     // (dedup picks the first occurrence)
     if (req.query.verified_only === 'true') {
-      const statusOrder = ['donation_collected', 'lead_done', 'follow_up', 'scheduled', 'contacted', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'pending', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected'];
+      const statusOrder = ['donation_collected', 'lead_done', 'follow_up', 'scheduled', 'contacted', 'callback', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail'];
       const statusRank = {};
       for (let i = 0; i < statusOrder.length; i++) statusRank[statusOrder[i]] = i;
       assignments.sort((a, b) => (statusRank[a.status] ?? 999) - (statusRank[b.status] ?? 999));
@@ -1208,17 +1211,7 @@ export const createDonorLogHandler = async (req, res) => {
       const statusFromDetail = dispositionDetailToStatus(disposition_detail);
       const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
 
-      if (disposition_detail === 'scheduled' && scheduled_at) {
-        await createScheduledContact({
-          assignment_id: assignment.id,
-          scheduled_at,
-          notes: notes || null,
-          created_by: workerId,
-        });
-        statusUpdates.next_follow_up = scheduled_at.slice(0, 10);
-      }
-
-      if (disposition_detail === 'callback' && scheduled_at) {
+      if (['scheduled', 'follow_up_next_day', 'office_visit_scheduled', 'program_visit_scheduled', 'callback', 'callback_tomorrow'].includes(disposition_detail) && scheduled_at) {
         await createScheduledContact({
           assignment_id: assignment.id,
           scheduled_at,
@@ -1366,25 +1359,43 @@ function dispositionDetailToStatus(detail) {
   const map = {
     busy: 'busy',
     ringing: 'ringing',
+    call_waiting: 'call_waiting',
     unreachable: 'unreachable',
     switched_off: 'switched_off',
+    out_of_coverage: 'out_of_coverage',
     wrong_number: 'wrong_number',
     invalid: 'invalid_number',
     invalid_number: 'invalid_number',
     rejected: 'rejected',
+    temporary_network_issue: 'temporary_network_issue',
+    voicemail: 'voicemail',
     lead_done: 'lead_done',
     done: 'done',
     scheduled: 'scheduled',
     callback: 'callback',
+    callback_tomorrow: 'callback',
+    follow_up_next_day: 'follow_up',
+    office_visit_scheduled: 'scheduled',
+    program_visit_scheduled: 'scheduled',
     visit_donate: 'visit_donate',
+    will_donate_online: 'will_donate_online',
     promise_to_pay: 'promise_to_pay',
     payment_pending: 'payment_pending',
     already_donated: 'already_donated',
+    email_sent: 'email_sent',
+    whatsapp_sent: 'whatsapp_sent',
+    csr_inquiry: 'csr_inquiry',
+    wants_80g_details: 'wants_80g_details',
+    wants_trust_documents: 'wants_trust_documents',
     not_interested_now: 'not_interested_now',
+    not_interested: 'not_interested',
     language_barrier: 'language_barrier',
     transferred_senior: 'transferred_senior',
     query_complaint: 'query_complaint',
     receipt_request: 'receipt_request',
+    dnd: 'dnd',
+    wrong_person: 'wrong_person',
+    call_disconnected: 'call_disconnected',
   };
   return map[detail] || 'contacted';
 }
@@ -2169,7 +2180,7 @@ export const getLiveStatuses = async (req, res) => {
       const s = statsMap[a.fro_worker_id];
       s.total++;
       const status = (a.status || '').toLowerCase();
-      if (['contacted', 'donation_collected', 'follow_up', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'visit_donate', 'promise_to_pay'].includes(status)) {
+      if (['contacted', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'lead_done', 'done', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'call_disconnected'].includes(status)) {
         s.contacted++;
       }
       if (status === 'donation_collected' || status === 'lead_done' || status === 'done') {

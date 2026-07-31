@@ -5,32 +5,13 @@ import { TimePicker } from './TimePicker';
 import { useCall } from '../CallContext';
 import { toast } from '../../../components/Toast';
 import { extractTransactionData } from '../utils/ocr';
+import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 
-const NOT_CONNECTED = [
-  { id: 'busy', label: 'Busy' }, { id: 'ringing', label: 'Ringing' },
-  { id: 'unreachable', label: 'Unreachable' }, { id: 'switched_off', label: 'Switched Off' },
-  { id: 'wrong_number', label: 'Wrong Number' }, { id: 'invalid', label: 'Invalid' },
-  { id: 'rejected', label: 'Rejected' },
-];
 const PROJECTS = [
   'Mission Annapurna', 'Mission Vidhya', 'Mission Aurat', 'Mission Bezubaan',
   'Mission Atmanirbhar', 'Mission Arogya', 'Sevak Seva Kendra', 'Mission Eco-Warriors',
 ];
-
-const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Follow Up' },
-  { id: 'callback', label: 'Callback' },
-  { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
-  { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
-  { id: 'not_interested_now', label: 'Not Interested Now' }, { id: 'language_barrier', label: 'Language Barrier' },
-  { id: 'transferred_senior', label: 'Transferred to Senior' }, { id: 'query_complaint', label: 'Query/Complaint' },
-  { id: 'receipt_request', label: 'Request Receipt/Info' },
-];
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-
-const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
-const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
-const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -117,8 +98,8 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
 
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
-    if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
-    if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
+    if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
+    if (SCHEDULE_TIME_TYPES.has(selected) && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
     if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
     setSaving(true);
     try {
@@ -129,12 +110,12 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         notes: notes || null,
         ngo_id: ngoId,
       };
-      if (selected === 'scheduled') logPayload.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
-      if (selected === 'callback') {
-        const today = new Date();
+      if (SCHEDULE_DATE_TYPES.has(selected)) logPayload.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
+      if (SCHEDULE_TIME_TYPES.has(selected)) {
+        const target = selected === 'callback_tomorrow' ? (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })() : new Date();
         const [h, m] = callbackTime.split(':');
-        today.setHours(+h, +m, 0, 0);
-        logPayload.scheduled_at = today.toISOString();
+        target.setHours(+h, +m, 0, 0);
+        logPayload.scheduled_at = target.toISOString();
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
@@ -154,10 +135,10 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       }
       await addDonorLog(donorId, logPayload);
       endCall();
-      const disp = ALL_DISPOSITIONS.find(d => d.id === selected);
+      const disp = findDisp(selected);
       if (selected === 'lead_done') toast('Lead sent to Accounts for verification', 'success');
       else if (selected === 'done') toast('Collection recorded', 'success');
-      else if (selected === 'scheduled' || selected === 'callback') toast(`Follow-up scheduled`, 'info');
+      else if (SCHEDULE_DATE_TYPES.has(selected) || SCHEDULE_TIME_TYPES.has(selected)) toast(`Follow-up scheduled`, 'info');
       else toast(`Disposition: ${disp?.label || selected}`, 'info');
       onDone();
     } catch (err) {
@@ -168,14 +149,14 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const handleDropdownChange = (detailId) => {
     setSelected(detailId);
     setMessage(null);
-    if (detailId === 'scheduled') {
+    if (SCHEDULE_DATE_TYPES.has(detailId)) {
       const d = new Date();
       d.setDate(d.getDate() + 1);
       setScheduledDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
       setScheduledTime('');
       setDateConfirmed(false);
     }
-    if (detailId === 'callback') {
+    if (SCHEDULE_TIME_TYPES.has(detailId)) {
       const now = new Date();
       setCallbackTime(now.toTimeString().slice(0, 5));
     }
@@ -299,7 +280,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                       </div>
                     </div>
 
-                    {selected === 'scheduled' && (
+                    {SCHEDULE_DATE_TYPES.has(selected) && (
                       <>
                         <div className="detail-field-row">
                           <div className="fld">
@@ -318,10 +299,10 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                       </>
                     )}
 
-                    {selected === 'callback' && (
+                    {SCHEDULE_TIME_TYPES.has(selected) && (
                       <div className="detail-field-row">
                         <div className="fld">
-                          <label>Callback Time (Today)</label>
+                          <label>{selected === 'callback_tomorrow' ? 'Callback Time (Tomorrow)' : 'Callback Time (Today)'}</label>
                           <TimePicker value={callbackTime} onChange={e => setCallbackTime(e.target.value)} placeholder="Select time" />
                         </div>
                       </div>

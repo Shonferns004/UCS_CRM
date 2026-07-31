@@ -5,43 +5,7 @@ import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 import { extractTransactionData } from '../utils/ocr';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
-
-const NOT_CONNECTED = [
-  { id: 'busy', label: 'Busy' },
-  { id: 'ringing', label: 'Ringing' },
-  { id: 'unreachable', label: 'Unreachable' },
-  { id: 'switched_off', label: 'Switched Off' },
-  { id: 'wrong_number', label: 'Wrong Number' },
-  { id: 'invalid', label: 'Invalid' },
-  { id: 'rejected', label: 'Rejected' },
-];
-
-const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' },
-  { id: 'done', label: 'Done' },
-  { id: 'scheduled', label: 'Follow Up' },
-  { id: 'callback', label: 'Callback' },
-  { id: 'visit_donate', label: 'Visit & Donate' },
-  { id: 'promise_to_pay', label: 'Promise to Pay' },
-  { id: 'payment_pending', label: 'Payment Pending' },
-  { id: 'already_donated', label: 'Already Donated' },
-  { id: 'not_interested_now', label: 'Not Interested Now' },
-  { id: 'language_barrier', label: 'Language Barrier' },
-  { id: 'transferred_senior', label: 'Transferred to Senior' },
-  { id: 'query_complaint', label: 'Query/Complaint' },
-  { id: 'receipt_request', label: 'Request Receipt/Info' },
-];
-
-const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
-const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
-
-function isConnected(id) {
-  return CONNECTED_IDS.has(id);
-}
-
-function findDisposition(id) {
-  return ALL_DISPOSITIONS.find(d => d.id === id);
-}
+import { NOT_CONNECTED, CONNECTED, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 
 export default function DonorDetail({ assignmentId, donor, onBack, hideHeader }) {
   const navigate = useNavigate();
@@ -86,14 +50,14 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
     }
     setSelected(detail);
     setMessage(null);
-    if (detail === 'scheduled') {
+    if (SCHEDULE_DATE_TYPES.has(detail)) {
       const d = new Date();
       d.setDate(d.getDate() + 1);
       setScheduledDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
       setScheduledTime('');
       setDateConfirmed(false);
     }
-    if (detail === 'callback') {
+    if (SCHEDULE_TIME_TYPES.has(detail)) {
       setCallbackTime(new Date().toTimeString().slice(0, 5));
     }
     if (detail !== 'lead_done') {
@@ -139,11 +103,11 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
       setMessage({ type: 'error', text: 'Select a disposition' });
       return;
     }
-    if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) {
+    if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) {
       setMessage({ type: 'error', text: 'Select date & time' });
       return;
     }
-    if (selected === 'callback' && !callbackTime) {
+    if (SCHEDULE_TIME_TYPES.has(selected) && !callbackTime) {
       setMessage({ type: 'error', text: 'Select time for callback' });
       return;
     }
@@ -174,15 +138,15 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
         notes: notes || null,
       };
 
-      if (selected === 'scheduled') {
+      if (SCHEDULE_DATE_TYPES.has(selected)) {
         logData.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
       }
 
-      if (selected === 'callback') {
-        const today = new Date();
+      if (SCHEDULE_TIME_TYPES.has(selected)) {
+        const target = selected === 'callback_tomorrow' ? (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })() : new Date();
         const [h, m] = callbackTime.split(':');
-        today.setHours(+h, +m, 0, 0);
-        logData.scheduled_at = today.toISOString();
+        target.setHours(+h, +m, 0, 0);
+        logData.scheduled_at = target.toISOString();
       }
 
       if (selected === 'lead_done') {
@@ -337,7 +301,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             </div>
           )}
 
-          {selected === 'scheduled' && (
+          {SCHEDULE_DATE_TYPES.has(selected) && (
             <>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Follow Up Date</label>
@@ -352,9 +316,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             </>
           )}
 
-          {selected === 'callback' && (
+          {SCHEDULE_TIME_TYPES.has(selected) && (
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Callback Time (Today)</label>
+              <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>{selected === 'callback_tomorrow' ? 'Callback Time (Tomorrow)' : 'Callback Time (Today)'}</label>
               <TimePicker value={callbackTime} onChange={e => setCallbackTime(e.target.value)} placeholder="Select time" />
             </div>
           )}
@@ -425,7 +389,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             </button>
           ) : (
             <button className="btn btn-primary" onClick={handleSave} disabled={saving || !selected} style={{ width: '100%' }}>
-              {saving ? 'Saving...' : selected ? `Log ${findDisposition(selected)?.label || selected}` : 'Select a disposition above'}
+              {saving ? 'Saving...' : selected ? `Log ${findDisp(selected)?.label || selected}` : 'Select a disposition above'}
             </button>
           )}
         </div>
