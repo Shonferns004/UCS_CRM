@@ -353,6 +353,8 @@ export default function MyDonors() {
     setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError('');
     setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
     setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
+    setShowDonationPrompt(false); setDonationEntering(false); setDonationAmt(''); setDonationSaving(false);
+    setDonationDt(new Date().toISOString().slice(0, 10));
     setMessage(null);
   };
 
@@ -366,6 +368,7 @@ export default function MyDonors() {
       leadScreenshot: f.leadScreenshot, screenshotPreview: f.screenshotPreview, leadAddress: f.leadAddress, leadPan: f.leadPan, panError: f.panError,
       leadDob: f.leadDob, projectName: f.projectName, leadAmount: f.leadAmount, leadRemark: f.leadRemark, showRemark: f.showRemark,
       upiTransactionId: f.upiTransactionId, transactionDatetime: f.transactionDatetime, ocrFromName: f.ocrFromName,
+      showDonationPrompt: f.showDonationPrompt, donationEntering: f.donationEntering, donationAmt: f.donationAmt, donationDt: f.donationDt,
     };
     localStorage.setItem(formStateKey(f.donor.id), JSON.stringify(state));
   };
@@ -395,6 +398,10 @@ export default function MyDonors() {
       setUpiTransactionId(s.upiTransactionId || '');
       setTransactionDatetime(s.transactionDatetime || '');
       setOcrFromName(s.ocrFromName || '');
+      setShowDonationPrompt(s.showDonationPrompt || false);
+      setDonationEntering(s.donationEntering || false);
+      setDonationAmt(s.donationAmt || '');
+      setDonationDt(s.donationDt || new Date().toISOString().slice(0, 10));
     } catch (e) { /* ignore */ }
   };
 
@@ -417,21 +424,81 @@ export default function MyDonors() {
   }, [donor?.id]);
 
   const [donorTypeSaving, setDonorTypeSaving] = useState(false);
+  const [showDonationPrompt, setShowDonationPrompt] = useState(false);
+  const [donationAmt, setDonationAmt] = useState('');
+  const [donationDt, setDonationDt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [donationSaving, setDonationSaving] = useState(false);
+  const [donationEntering, setDonationEntering] = useState(false);
   const handleDonorTypeChange = async (e) => {
     const newType = e.target.value;
-    if (!donor || newType === (donor.donor_type || '')) return;
+    if (!donor || !newType || newType === (donor.donor_type || '')) return;
     const donorId = donor.id;
     const prevType = donor.donor_type;
     setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: newType } : d));
     setDonorTypeSaving(true);
     try {
       await updateDonorType(donorId, newType);
+      setShowDonationPrompt(true);
+      setDonationEntering(false);
+      setDonationAmt('');
+      setDonationDt(new Date().toISOString().slice(0, 10));
+      setMessage(null);
     } catch (err) {
       console.error('updateDonorType error:', err.message);
       setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: prevType } : d));
       setMessage({ type: 'error', text: 'Failed to update donor type' });
     } finally {
       setDonorTypeSaving(false);
+    }
+  };
+
+  const handleDonationYes = () => {
+    setDonationEntering(true);
+    setDonationAmt('');
+    setDonationDt(new Date().toISOString().slice(0, 10));
+  };
+
+  const handleDonationNo = () => {
+    setShowDonationPrompt(false);
+    setDonationEntering(false);
+    setDonationAmt('');
+  };
+
+  const handleDonationSave = async () => {
+    if (!donationAmt || isNaN(donationAmt) || Number(donationAmt) <= 0) {
+      setMessage({ type: 'error', text: 'Enter a valid donation amount' });
+      return;
+    }
+    if (!donationDt) {
+      setMessage({ type: 'error', text: 'Select donation date' });
+      return;
+    }
+    setDonationSaving(true);
+    setMessage(null);
+    try {
+      await addDonorLog(donor.id, {
+        action: 'donation',
+        amount_collected: Number(donationAmt),
+        transaction_datetime: new Date(donationDt).toISOString(),
+        notes: `Donation recorded (${donor.donor_type})`,
+        ngo_id: donor.ngo_id,
+      });
+      setShowDonationPrompt(false);
+      setDonationEntering(false);
+      setDonationAmt('');
+      setMessage({ type: 'success', text: 'Donation recorded' });
+      const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+      const newDonors = filterAndSortDonors(refreshed);
+      setDonors(newDonors);
+      const nextIdx = findNextDonorIndex(newDonors, donor.id);
+      setIndex(nextIdx);
+      const nextDonor = newDonors[nextIdx];
+      if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+      clearFormState();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setDonationSaving(false);
     }
   };
 
@@ -500,6 +567,7 @@ export default function MyDonors() {
     leadScreenshot, screenshotPreview, leadAddress, leadPan, panError,
     leadDob, projectName, leadAmount, leadRemark, showRemark,
     upiTransactionId, transactionDatetime, ocrFromName,
+    showDonationPrompt, donationEntering, donationAmt, donationDt,
   };
 
   const handleScreenshotChange = (e) => {
@@ -896,6 +964,58 @@ export default function MyDonors() {
                     <option value="yearly">Yearly</option>
                     <option value="one_time">One Time</option>
                   </select>
+                  {showDonationPrompt && (
+                    <div style={{ marginTop: 8, background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0', overflow: 'hidden' }}>
+                      {!donationEntering ? (
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 5 }}>
+                            Has this donor donated?
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={handleDonationYes}
+                              style={{ padding: '5px 16px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+                              Yes
+                            </button>
+                            <button onClick={handleDonationNo}
+                              style={{ padding: '5px 16px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', color: 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                              No
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 6 }}>
+                            Donation Details
+                          </div>
+                          <div className="detail-field-row" style={{ marginBottom: 4 }}>
+                            <div className="fld">
+                              <label>Amount (₹)</label>
+                              <input type="number" min="0" placeholder="e.g. 5000"
+                                value={donationAmt} onChange={e => setDonationAmt(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box' }} />
+                            </div>
+                            <div className="fld">
+                              <label>Date</label>
+                              <input type="date" value={donationDt} onChange={e => setDonationDt(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box' }} />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={handleDonationSave} disabled={donationSaving || !donationAmt || !donationDt}
+                              style={{ flex: 1, padding: '6px 14px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: donationSaving || !donationAmt || !donationDt ? 'not-allowed' : 'pointer', opacity: donationSaving || !donationAmt || !donationDt ? 0.5 : 1 }}>
+                              {donationSaving ? 'Saving...' : 'Save Donation'}
+                            </button>
+                            {!donationSaving && (
+                              <button onClick={() => setDonationEntering(false)}
+                                style={{ padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                                Back
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="detail-field-row">
