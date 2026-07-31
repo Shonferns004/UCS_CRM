@@ -12,6 +12,45 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { maan: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { maan: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
+const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
+const nameKey = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const IMPORT_FIELDS = {
+  receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
+  receipt_date: ['receiptdate', 'recieptdate', 'donationdate', 'date'],
+  donor_name: ['donorname', 'name'],
+  donor_mobile: ['mobileno', 'mobile', 'mobilenumber', 'phone', 'phoneno', 'contactno'],
+  amount: ['amount', 'donationamount'],
+  mode: ['mode', 'mop', 'paymentmode', 'modeofpayment'],
+  project_id: ['project', 'ngo', 'projectsupported'],
+  email: ['email', 'emailid', 'mailid'],
+  pan_number: ['pan', 'panno', 'pannumber'],
+  address: ['address', 'address1'],
+  city: ['city'],
+  payment_id: ['paymentid', 'paymentidno', 'transactionid', 'transactionno', 'utr'],
+  bank_name: ['bankname', 'donorbankname'],
+  agent_name: ['fsename', 'agentname', 'agent', 'fro'],
+};
+
+const normalizeImportHeader = (value) => String(value || '').replace(/^\uFEFF/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function formatImportDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  return value == null ? '' : String(value).trim();
+}
+
+function prepareImportRows(rows) {
+  return rows.map(row => {
+    const fields = Object.fromEntries(Object.keys(row).map(key => [normalizeImportHeader(key), row[key]]));
+    const result = { ...row };
+    for (const [field, aliases] of Object.entries(IMPORT_FIELDS)) {
+      const value = aliases.map(alias => fields[alias]).find(value => value !== undefined && value !== null && String(value).trim() !== '');
+      result[field] = field === 'receipt_date' ? formatImportDate(value) : (value == null ? '' : String(value).trim());
+    }
+    return result;
+  }).filter(row => row.receipt_no || row.donor_name || row.amount);
+}
+
 function getTemplateId(projectId) {
   return DB_TO_TEMPLATE[projectId] || 'beingsevak';
 }
@@ -37,8 +76,8 @@ function buildDonor(r, lead) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
-const StatCard = ({ icon, label, value, sub, color }) => (
-  <div className="stat-card">
+const StatCard = ({ icon, label, value, sub, color, className = '' }) => (
+  <div className={`stat-card ${className}`}>
     <div className="stat-icon" style={{ background: color + '18', color }}>{icon}</div>
     <div className="stat-info">
       <div className="stat-num">{value}</div>
@@ -56,6 +95,8 @@ export default function ReceiptHistory() {
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
+  const [receiptTab, setReceiptTab] = useState('linked');
+  const [donorProfiles, setDonorProfiles] = useState([]);
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -71,7 +112,7 @@ export default function ReceiptHistory() {
   const [showCleanModal, setShowCleanModal] = useState(false);
   const fileRef = useRef(null);
   const perPage = 40;
-  const CHUNK_SIZE = 2000;
+  const CHUNK_SIZE = 100;
 
   const handleFile = useCallback(async (file) => {
     if (!file) return;
@@ -85,8 +126,11 @@ export default function ReceiptHistory() {
     setUploadStatus('Reading file...');
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const sourceRows = wb.SheetNames
+        .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
+        .find(sheetRows => sheetRows.length > 0) || [];
+      const rows = prepareImportRows(sourceRows);
       if (!rows || rows.length === 0) { alert('File is empty'); return; }
 
       const chunks = [];
@@ -96,21 +140,29 @@ export default function ReceiptHistory() {
 
       let totalImported = 0;
       let totalMatched = 0;
-      let totalDups = 0;
+      let totalFailed = 0;
+      let failedFileUrl = null;
 
       for (let i = 0; i < chunks.length; i++) {
         setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
-        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i] });
+        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i] }, 300000);
         totalImported += res.imported || 0;
         totalMatched += res.matchedDonors || 0;
+        totalFailed += res.failedCount || 0;
+        if (res.failedFile && !failedFileUrl) failedFileUrl = res.failedFile;
         setUploadProgress(Math.round(((i + 1) / chunks.length) * 100));
       }
       setUploadProgress(100);
       setUploadStatus('');
+
+      const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+      const rootUrl = apiBase.replace(/\/api\/?$/, '');
       setImportResult({
-        message: `${totalImported} receipts imported${totalMatched > 0 ? `, ${totalMatched} linked to donors` : ''}`,
+        message: `${totalImported} receipts imported${totalMatched > 0 ? `, ${totalMatched} linked to donors` : ''}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`,
         imported: totalImported,
         matchedDonors: totalMatched,
+        failedCount: totalFailed,
+        failedFile: failedFileUrl ? rootUrl + failedFileUrl : null,
       });
       load();
     } catch (err) { alert('Import failed: ' + err.message); }
@@ -149,15 +201,21 @@ export default function ReceiptHistory() {
 
   const load = () => {
     setLoading(true);
-    apiGet('/accounts/receipts')
-      .then(setReceipts)
+    Promise.all([
+      apiGet('/accounts/receipts'),
+      apiGet('/accounts/donors?limit=100000&page=1').catch(() => ({ data: [] })),
+    ])
+      .then(([receiptRows, donorResponse]) => {
+        setReceipts(Array.isArray(receiptRows) ? receiptRows : []);
+        setDonorProfiles(donorResponse?.data || []);
+      })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
   };
 
   useEffect(load, []);
 
-  useEffect(() => { setDPage(1); }, [searchQuery, projectFilter]);
+  useEffect(() => { setDPage(1); }, [searchQuery, projectFilter, receiptTab]);
 
   const stats = useMemo(() => {
     const totalAmount = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -187,23 +245,56 @@ export default function ReceiptHistory() {
     });
   }, [receipts, searchQuery, projectFilter]);
 
+  const linkedReceiptIds = useMemo(() => {
+    const mobiles = new Set(donorProfiles.map(donor => phoneKey(donor.mobile_number)).filter(Boolean));
+    const names = new Set(donorProfiles.map(donor => nameKey(donor.name || donor.bank_donor_name || donor.agent_donor_name)).filter(Boolean));
+    const firstNameIndex = {};
+    donorProfiles.forEach(p => {
+      const key = nameKey(p.name || p.bank_donor_name || p.agent_donor_name || '');
+      if (key) {
+        const first = key.split(/\s+/)[0];
+        if (first && first.length >= 2) {
+          if (!firstNameIndex[first]) firstNameIndex[first] = [];
+          firstNameIndex[first].push(key);
+        }
+      }
+    });
+    return new Set(receipts.filter(receipt => {
+      if (receipt.donor_id || receipt.donorId) return true;
+      const mobile = phoneKey(receipt.donor_mobile);
+      if (mobile) return mobiles.has(mobile);
+      const name = nameKey(receipt.donor_name);
+      if (!name) return false;
+      if (names.has(name)) return true;
+      const first = name.split(/\s+/)[0];
+      if (first && firstNameIndex[first]) {
+        return firstNameIndex[first].some(pn => pn.startsWith(name) || name.startsWith(pn) || pn.includes(name) || name.includes(pn));
+      }
+      return false;
+    }).map(receipt => receipt.id));
+  }, [receipts, donorProfiles]);
+
+  const displayedReceipts = useMemo(() => filtered.filter(receipt =>
+    receiptTab === 'linked' ? linkedReceiptIds.has(receipt.id) : !linkedReceiptIds.has(receipt.id)
+  ), [filtered, receiptTab, linkedReceiptIds]);
+
   const uniqueDonors = useMemo(() => {
     const seen = new Set();
-    return filtered.filter(r => {
+    return displayedReceipts.filter(r => {
       const mobile = (r.donor_mobile || '').replace(/\D/g, '');
       if (!mobile) return true;
       if (seen.has(mobile)) return false;
       seen.add(mobile);
       return true;
     });
-  }, [filtered]);
+  }, [displayedReceipts]);
 
   const totalPages = Math.ceil(uniqueDonors.length / perPage) || 1;
   const paginatedDonors = uniqueDonors.slice((dPage - 1) * perPage, dPage * perPage);
 
   const donorMap = useMemo(() => {
     const map = {};
-    filtered.forEach(d => {
+    displayedReceipts.forEach(d => {
       const mobile = (d.donor_mobile || '').replace(/\D/g, '');
       const key = mobile || (d.donor_name || '').toLowerCase().trim();
       if (!map[key]) map[key] = { receipts: [], count: 0, total: 0 };
@@ -212,7 +303,7 @@ export default function ReceiptHistory() {
       map[key].total += Number(d.amount || 0);
     });
     return map;
-  }, [filtered]);
+  }, [displayedReceipts]);
 
   const handlePreview = async (r) => {
     if (donorDetail) setSavedDetail(donorDetail);
@@ -328,9 +419,16 @@ export default function ReceiptHistory() {
             </div>
           )}
           {importResult && (
-            <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              {importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}
+              <span>{importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}</span>
+              {(importResult.failedCount > 0 && importResult.failedFile) && (
+                <a href={importResult.failedFile} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 11, color: '#dc2626', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download failed rows
+                </a>
+              )}
             </div>
           )}
           <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
@@ -353,28 +451,33 @@ export default function ReceiptHistory() {
           </details>
         </div>
       </div>
-      <div className="stats-grid">
+      <div className="stats-grid receipt-history-stats">
         {loading ? (
           <>
             {[1,2,3].map(i => (
-              <div key={i} className="stat-card" style={{ padding: 20 }}>
+              <div key={i} className="stat-card receipt-history-stat-card" style={{ padding: 20 }}>
                 <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4, marginBottom: 8 }} />
                 <div className="sk" style={{ width: '60%', height: 22, borderRadius: 4 }} />
               </div>
             ))}
           </>
         ) : (<>
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} label="Total Receipts" value={stats.total} color="#5B6B4E" />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Unique Donors" value={stats.donors} color="#8b5cf6" />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} color="#16a34a" />
-        {Object.entries(stats.byProject).map(([pid, count]) => (
-          <StatCard key={pid} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>} label={PROJECT_LABELS[pid] || pid} value={count} color="#3b82f6" />
-        ))}
+        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} label="Total Receipts" value={stats.total} color="#5B6B4E" />
+        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Total Donors" value={stats.donors} color="#8b5cf6" />
+        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} color="#16a34a" />
         </>)}
       </div>
 
       <div className="card">
         <div className="filter-bar">
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className={`btn btn-sm${receiptTab === 'linked' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('linked')}>
+              Linked donors
+            </button>
+            <button className={`btn btn-sm${receiptTab === 'unlinked' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('unlinked')}>
+              Unlinked receipts
+            </button>
+          </div>
           <input
             className="search-input"
             placeholder="Search by receipt no or donor name..."
@@ -387,7 +490,7 @@ export default function ReceiptHistory() {
               <option key={pid} value={pid}>{PROJECT_LABELS[pid] || pid}</option>
             ))}
           </select>
-          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{filtered.length} receipts</span>
+          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{displayedReceipts.length} receipts</span>
         </div>
         <div className="table-wrap">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -398,9 +501,9 @@ export default function ReceiptHistory() {
                   <div className="sk" style={{ flex: 1, height: 14, borderRadius: 4 }} />
                 </div>
               ))
-            ) : filtered.length === 0 ? (
+            ) : displayedReceipts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery || projectFilter ? 'No receipts match your filters.' : 'No receipts generated yet.'}
+                {searchQuery || projectFilter ? 'No receipts match your filters.' : receiptTab === 'unlinked' ? 'All receipts are linked to donors.' : 'No linked receipts yet.'}
               </div>
             ) : (
               paginatedDonors.map(r => {
@@ -409,7 +512,24 @@ export default function ReceiptHistory() {
                 const info = donorMap[key] || { receipts: [], count: 0, total: 0 };
                 const initial = (r.donor_name || '?')[0].toUpperCase();
                 return (
-                  <div key={r.id} onClick={() => setDonorDetail({ name: r.donor_name, mobile: r.donor_mobile, receipts: info.receipts })}
+                  <div key={r.id} onClick={() => {
+                    const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
+                    const profileMobile = rMobileClean.length >= 10 ? rMobileClean : null;
+                    let profile = profileMobile ? donorProfiles.find(p => phoneKey(p.mobile_number) === profileMobile) : null;
+                    if (!profile) {
+                      const receiptNameKey = nameKey(r.donor_name);
+                      if (receiptNameKey) {
+                        const first = receiptNameKey.split(/\s+/)[0];
+                        profile = donorProfiles.find(p => {
+                          const pn = nameKey(p.name || p.bank_donor_name || p.agent_donor_name || '');
+                          return pn && first && pn.split(/\s+/)[0] === first && (pn.startsWith(receiptNameKey) || receiptNameKey.startsWith(pn) || pn.includes(receiptNameKey) || receiptNameKey.includes(pn));
+                        });
+                      }
+                    }
+                    const realName = profile?.name || r.donor_name;
+                    const realMobile = profile?.mobile_number || (rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile);
+                    setDonorDetail({ name: realName, mobile: realMobile, receipts: info.receipts });
+                  }}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', transition: 'background .12s' }}
                     onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
                     onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
@@ -518,6 +638,9 @@ export default function ReceiptHistory() {
                     </div>
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
                       {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      Agent: {r.agent_name || r.fro_donor_logs?.workers?.name || 'Not assigned'}
                     </div>
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</div>

@@ -3,10 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getWorkerByLoginId } from '../models/workerModel.js';
 
-function getTokenExpiry(req) {
-  const clientType = req.headers['x-client-type'] || 'web';
-  return clientType === 'flutter' ? '100y' : '24h';
-}
+const TOKEN_EXPIRY = '100y';
 
 export async function whatsappCrmLogin(req, res) {
   try {
@@ -70,7 +67,7 @@ export async function whatsappCrmLogin(req, res) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const expiry = getTokenExpiry(req);
+    const expiry = TOKEN_EXPIRY;
     const tokenPayload = {
       id: userData.id,
       email: userData.email || email,
