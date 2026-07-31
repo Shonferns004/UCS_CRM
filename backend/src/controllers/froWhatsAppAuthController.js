@@ -72,7 +72,6 @@ export async function whatsappLogin(req, res) {
     const masterPassword = process.env.WHATSAPP_MASTER_PASSWORD;
 
     if (masterEmail && masterPassword && email === masterEmail && password === masterPassword) {
-      const expiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
       const token = jwt.sign(
         { id: 'master', email: masterEmail, role: 'master', name: 'Master Admin' },
         process.env.JWT_SECRET,
@@ -120,7 +119,7 @@ export async function whatsappLogin(req, res) {
       }
 
       userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
-      const agentExpiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
+      const agentExpiry = '100y';
       token = jwt.sign(
         { id: userData.id, email: userData.email, role: 'agent', name: userData.name },
         process.env.JWT_SECRET,
