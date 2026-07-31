@@ -10,6 +10,88 @@ const TEMPLATE_PROJECT_MAP = {
   ashray_receipt: 'aflf',
 };
 
+function phoneVariants(phone) {
+  const raw = String(phone || '').replace(/\D/g, '');
+  const values = new Set([raw]);
+  if (raw.length === 10) values.add(`91${raw}`);
+  if (raw.length === 12 && raw.startsWith('91')) values.add(raw.slice(2));
+  return [...values].filter(Boolean);
+}
+
+function whatsappMessageId(result) {
+  return result?.data?.messages?.[0]?.id || result?.messages?.[0]?.id || null;
+}
+
+// Accounts sends by phone number, whereas the FRO inbox reads the messages
+// table by conversation. Record the successful receipt delivery against the
+// donor's existing conversation so both teams see the same history.
+async function recordReceiptInConversation({ phone, project, receiptNo, documentUrl, displayName, sentBy, result }) {
+  try {
+    const variants = phoneVariants(phone);
+    if (!variants.length) return null;
+
+    const { data: contacts, error: contactError } = await supabase
+      .from('contacts')
+      .select('id')
+      .in('phone_normalized', variants);
+    if (contactError || !contacts?.length) return null;
+
+    let conversationQuery = supabase
+      .from('conversations')
+      .select('id, tenant_id, contact_id')
+      .in('contact_id', contacts.map(contact => contact.id))
+      .order('last_message_at', { ascending: false })
+      .limit(1);
+    if (project) conversationQuery = conversationQuery.eq('project', project);
+
+    let { data: conversation, error: conversationError } = await conversationQuery.maybeSingle();
+    // Older conversations may not have a project stored. Fall back to the
+    // donor's latest conversation rather than hiding the receipt from the FRO.
+    if (!conversation && !conversationError) {
+      ({ data: conversation, error: conversationError } = await supabase
+        .from('conversations')
+        .select('id, tenant_id, contact_id')
+        .in('contact_id', contacts.map(contact => contact.id))
+        .order('last_message_at', { ascending: false })
+        .limit(1)
+        .maybeSingle());
+    }
+    if (conversationError || !conversation) return null;
+
+    const { data: message, error: messageError } = await supabase
+      .from('messages')
+      .insert({
+        tenant_id: conversation.tenant_id,
+        conversation_id: conversation.id,
+        contact_id: conversation.contact_id,
+        user_id: sentBy ? String(sentBy) : null,
+        direction: 'outbound',
+        message_type: 'document',
+        body_text: displayName || `Receipt_${receiptNo || 'receipt'}.pdf`,
+        media_url: documentUrl,
+        media_mime_type: 'application/pdf',
+        wa_message_id: whatsappMessageId(result),
+        status: 'sent',
+        status_updated_at: new Date().toISOString(),
+        message_category: 'template',
+      })
+      .select()
+      .single();
+    if (messageError) throw messageError;
+
+    await supabase
+      .from('conversations')
+      .update({ last_message_at: new Date().toISOString() })
+      .eq('id', conversation.id);
+    return message;
+  } catch (error) {
+    // The donor has already received the receipt. Do not report that delivery
+    // as failed solely because an older chat record could not be linked.
+    console.error('Could not record receipt in WhatsApp conversation:', error.message);
+    return null;
+  }
+}
+
 export async function test(req, res) {
   try {
     const { to, accountId } = req.body;
@@ -120,8 +202,12 @@ export async function sendReceipt(req, res) {
 
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     const result = await sendReceiptMessage(phone, donorName, amount, receiptNo, date, documentUrl, templateName, account);
+    const displayName = `Receipt_${String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()}_${receiptNo || 'receipt'}.pdf`;
+    const message = await recordReceiptInConversation({
+      phone, project: donorProject, receiptNo, documentUrl, displayName, sentBy: req.user?.id, result,
+    });
 
-    return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, uploadError: uploadErrorMsg });
+    return res.json({ success: true, message: 'Receipt sent via WhatsApp template', data: result, chatMessage: message, uploadError: uploadErrorMsg });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -239,7 +325,11 @@ export async function sendDirect(req, res) {
     });
     const msgText = await msgRes.text();
     if (!msgRes.ok) return res.status(400).json({ message: msgText });
-    return res.json({ success: true, data: JSON.parse(msgText) });
+    const result = JSON.parse(msgText);
+    const message = await recordReceiptInConversation({
+      phone, project: donorProject, receiptNo, documentUrl, displayName, sentBy: req.user?.id, result,
+    });
+    return res.json({ success: true, data: result, chatMessage: message });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

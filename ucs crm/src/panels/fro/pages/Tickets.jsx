@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../../../api/auth';
+import { toast } from '../../../components/Toast';
 
 const DEPARTMENTS = [
   { value: 'accounts', label: 'Accounts' },
@@ -47,6 +48,9 @@ export default function FroTickets() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [formErrors, setFormErrors] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -63,6 +67,11 @@ export default function FroTickets() {
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
+
+  useEffect(() => { setPage(1); }, [tickets.length]);
+
+  const totalPages = Math.ceil(tickets.length / pageSize);
+  const paginatedTickets = tickets.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +97,10 @@ export default function FroTickets() {
   }, []);
 
   const handleRaise = async () => {
-    if (!form.subject) { alert('Subject is required'); return; }
+    const errs = {};
+    if (!form.subject.trim()) errs.subject = 'Subject is required';
+    if (Object.keys(errs).length) { setFormErrors(errs); return; }
+    setFormErrors({});
     setSubmitting(true);
     try {
       if (form.department === 'developers') {
@@ -103,10 +115,12 @@ export default function FroTickets() {
       } else {
         await apiPost('/tickets', form);
       }
+      toast('Ticket submitted successfully', 'success');
       setShowRaise(false);
       setForm({ department: 'accounts', category: 'suspense', subject: '', description: '', reference_id: '', priority: 'medium' });
+      setFormErrors({});
       load();
-    } catch (err) { alert(err.message); }
+    } catch (err) { setFormErrors({ _general: err.message }); }
     finally { setSubmitting(false); }
   };
 
@@ -161,8 +175,10 @@ export default function FroTickets() {
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
               ) : tickets.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No tickets raised yet</td></tr>
+              ) : paginatedTickets.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No tickets on this page</td></tr>
               ) : (
-                tickets.map(t => (
+                paginatedTickets.map(t => (
                   <tr key={t.id}>
                     <td><strong style={{ fontSize: 13 }}>{t.subject}</strong></td>
                     <td>
@@ -198,6 +214,29 @@ export default function FroTickets() {
             </tbody>
           </table>
         </div>
+        {tickets.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)', fontSize: 11, color: 'var(--ink-soft)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>Rows:</span>
+              <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer' }}>
+                {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <span style={{ marginLeft: 4 }}>Showing {Math.min((page - 1) * pageSize + 1, tickets.length)}&ndash;{Math.min(page * pageSize, tickets.length)} of {tickets.length}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button className="btn btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                style={{ padding: '3px 10px', fontSize: 11, cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.4 : 1 }}>
+                Prev
+              </button>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>{page} / {totalPages || 1}</span>
+              <button className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
+                style={{ padding: '3px 10px', fontSize: 11, cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.4 : 1 }}>
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showRaise && (
@@ -210,6 +249,11 @@ export default function FroTickets() {
               </button>
             </div>
             <div className="modal-body">
+              {formErrors._general && (
+                <div style={{ padding: '8px 12px', marginBottom: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#dc2626' }}>
+                  {formErrors._general}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <label className="field" style={{ marginBottom: 0, flex: 1 }}>
                   Department *
@@ -238,16 +282,30 @@ export default function FroTickets() {
               </div>
               <label className="field" style={{ marginBottom: 12 }}>
                 Subject *
-                <input value={form.subject} onChange={e => setForm(p => ({ ...p, subject: e.target.value }))} placeholder="Brief title of the issue" />
+                <input value={form.subject} onChange={e => { setForm(p => ({ ...p, subject: e.target.value })); if (formErrors.subject) setFormErrors(p => { const n = { ...p }; delete n.subject; return n; }); }}
+                  placeholder="Brief title of the issue"
+                  style={formErrors.subject ? { borderColor: '#dc2626' } : undefined} />
+                {formErrors.subject && <div style={{ color: '#dc2626', fontSize: 11, marginTop: 3 }}>{formErrors.subject}</div>}
               </label>
               <label className="field" style={{ marginBottom: 12 }}>
                 Description
-                <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Describe the issue in detail..." rows={4} style={{ padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', width: '100%', boxSizing: 'border-box' }} />
+                <div style={{ position: 'relative' }}>
+                  <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Describe the issue in detail..." maxLength={200} rows={4} style={{ padding: '10px 12px', paddingRight: 56, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', width: '100%', boxSizing: 'border-box' }} />
+                  <span style={{ position: 'absolute', bottom: 6, right: 8, fontSize: 10, fontWeight: 600, color: form.description.length > 180 ? '#dc2626' : 'var(--ink-soft)' }}>
+                    {form.description.length}/200
+                  </span>
+                </div>
               </label>
             </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setShowRaise(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleRaise} disabled={submitting}>
+            <div className="modal-foot" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={() => setShowRaise(false)}
+                style={{ padding: '8px 20px', color: '#dc2626', border: '1px solid #dc2626', borderRadius: 6, background: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s' }}
+                onMouseOver={e => { e.currentTarget.style.background = '#fef2f2'; }}
+                onMouseOut={e => { e.currentTarget.style.background = '#fff'; }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleRaise} disabled={submitting}
+                style={{ padding: '8px 20px', fontSize: 12, borderRadius: 6 }}>
                 {submitting ? 'Submitting...' : 'Submit Ticket'}
               </button>
             </div>

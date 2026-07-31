@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
+import Toast from '../components/Toast';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
@@ -225,6 +228,7 @@ export default function BankAudit(){
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');const[mt,setMt]=useState('entries');
+  const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[is,setIs]=useState({razorpaySync:false,emailImport:false,bankStatement:false});
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
 
@@ -247,15 +251,32 @@ export default function BankAudit(){
   const fe=nf?e.filter(e=>{const src=(e.bank_audit_sources?.name||'').toLowerCase();const rem=(e.remarks||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k))}):e;
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
-  const addEntry=async()=>{if(!fm.src_id||!fm.amount||!fm.transaction_date){alert('Source, amount, date required');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const editEntry=async()=>{if(!se)return;setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const delEntry=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/entries/'+id);load(sd,st)}catch(e){alert(e.message)}};
+  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const delEntry=async()=>{if(!dci)return;try{await apiDelete('/accounts/bank-audit/entries/'+dci);setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const openE=(entry)=>{setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||''});setSe(entry)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
   return <div>
+    <style>{`
+      .bank-audit-cal{font-family:inherit!important;font-size:13px!important;border:1px solid #e5e7eb!important;border-radius:10px!important;box-shadow:0 4px 20px rgba(0,0,0,.08)!important}
+      .bank-audit-cal .react-datepicker__header{background:#f0fdf4!important;border-bottom:1px solid #dcfce7!important;border-radius:10px 10px 0 0!important;padding-top:10px!important}
+      .bank-audit-cal .react-datepicker__current-month{font-weight:600!important;color:#166534!important;font-size:14px!important}
+      .bank-audit-cal .react-datepicker__day-name{color:#6b7280!important;font-weight:500!important;font-size:11px!important;width:32px!important}
+      .bank-audit-cal .react-datepicker__day{width:32px!important;height:32px!important;line-height:32px!important;border-radius:8px!important;margin:1px!important;color:#374151!important}
+      .bank-audit-cal .react-datepicker__day:hover{background:#dcfce7!important;border-radius:8px!important}
+      .bank-audit-cal .react-datepicker__day--selected,.bank-audit-cal .react-datepicker__day--keyboard-selected{background:#166534!important;color:#fff!important;border-radius:8px!important}
+      .bank-audit-cal .react-datepicker__day--today{font-weight:700!important;color:#166534!important;background:#f0fdf4!important}
+      .bank-audit-cal .react-datepicker__navigation{top:10px!important}
+      .bank-audit-cal .react-datepicker__year-select,.bank-audit-cal .react-datepicker__month-select{padding:2px 6px!important;font-size:13px!important;border:1px solid #d1d5db!important;border-radius:4px!important;background:#fff!important;color:#166534!important;font-weight:600!important;cursor:pointer!important;outline:none!important}
+      .bank-audit-cal .react-datepicker__close-icon::after{background:#9ca3af!important;font-size:14px!important;height:16px!important;width:16px!important}
+      .bank-audit-cal .react-datepicker__triangle{display:none!important}
+      .bank-audit-cal .react-datepicker__time-list-item{font-size:13px!important;padding:6px 12px!important}
+      .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff!important}
+      .bank-audit-cal .react-datepicker__time-list-item:hover{background:#dcfce7!important}
+    `}</style>
     {/* Stats */}
     {mt==='entries'&&<div className="stats-grid" style={{marginBottom:16}}>
       {ld?Array.from({length:Math.max(sr.length||4,4)},(_,i)=><SkStat key={i}/>):sr.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
@@ -290,7 +311,7 @@ export default function BankAudit(){
       ngoFilter={nf} setNgoFilter={setNf} srcFilter={sf} setSrcFilter={setSf}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
       form={fm} setForm={setFm} editEntry={se} setEditEntry={setSe}
-      saving={sv} handleAdd={addEntry} handleEdit={editEntry} handleDelete={delEntry}
+      saving={sv} handleAdd={addEntry} handleEdit={editEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc} openEdit={openE}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX}
     />}
@@ -298,47 +319,113 @@ export default function BankAudit(){
     {mt==='gateways'&&is.razorpaySync&&<GatewayTab/>}
     {mt==='statement'&&is.bankStatement&&<StatementTab/>}
 
-    {/* Add Modal */}
-    {sa&&<div className="modal-overlay" onClick={()=>setSa(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:540,borderRadius:12}}>
-      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Add Bank Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>setSa(false)} style={{padding:4}}><SvgX/></button></div>
-      <div className="modal-body" style={{padding:20}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12}}>Source<select className="field-input" value={fm.src_id} onChange={e=>setFm(p=>({...p,src_id:e.target.value}))}>{sr.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label style={{fontSize:12}}>Amount<input className="field-input" type="number" value={fm.amount} onChange={e=>setFm(p=>({...p,amount:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Date<input className="field-input" type="date" value={fm.transaction_date} onChange={e=>setFm(p=>({...p,transaction_date:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Payer Name<input className="field-input" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Payment Time<input className="field-input" type="time" value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Payment ID<input className="field-input" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Check ID<input className="field-input" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))}/></label>
-          <label style={{fontSize:12,gridColumn:'1/-1'}}>Remarks<input className="field-input" value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))}/></label>
+    {/* Add/Edit Modal */}
+    {(sa||se)&&(()=>{const isEdit=!!se;return <div className="modal-overlay" onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:580,borderRadius:14,overflow:'hidden'}}>
+      <div style={{padding:'16px 20px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f9fafb'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:36,height:36,borderRadius:10,background:isEdit?'#2563eb18':'var(--sage-light, #e8f0e4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isEdit?'#2563eb':'var(--sage)'} strokeWidth="2" strokeLinecap="round">{isEdit?<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>}</svg>
+          </div>
+          <div>
+            <h3 style={{fontSize:15,fontWeight:700,margin:0,color:'#111827'}}>{isEdit?'Edit Entry':'New Bank Entry'}</h3>
+            <p style={{fontSize:11,color:'#9ca3af',margin:0}}>{isEdit?'Update entry details':'Record a new transaction'}</p>
+          </div>
         </div>
-        <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
-          <button className="btn btn-sm" onClick={()=>setSa(false)}>Cancel</button>
-          <button className="btn btn-primary btn-sm" onClick={addEntry} disabled={sv}>{sv?'Saving...':'Add Entry'}</button>
-        </div>
+        <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:30,height:30,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#e5e7eb';e.currentTarget.style.color='#374151'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
       </div>
-    </div></div>}
+      <div className="modal-body" style={{padding:'16px 20px'}}>
+        {fer&&<div style={{marginBottom:14,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:8}}>
+          <div style={{width:20,height:20,borderRadius:'50%',background:'#dc262618',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          </div>{fer}
+        </div>}
 
-    {/* Edit Modal */}
-    {se&&<div className="modal-overlay" onClick={()=>setSe(null)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:540,borderRadius:12}}>
-      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Edit Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>setSe(null)} style={{padding:4}}><SvgX/></button></div>
-      <div className="modal-body" style={{padding:20}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12}}>Source<select className="field-input" value={fm.src_id} onChange={e=>setFm(p=>({...p,src_id:e.target.value}))}>{sr.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label style={{fontSize:12}}>Amount<input className="field-input" type="number" value={fm.amount} onChange={e=>setFm(p=>({...p,amount:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Date<input className="field-input" type="date" value={fm.transaction_date} onChange={e=>setFm(p=>({...p,transaction_date:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Payer Name<input className="field-input" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Payment Time<input className="field-input" type="time" value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Payment ID<input className="field-input" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))}/></label>
-          <label style={{fontSize:12}}>Check ID<input className="field-input" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))}/></label>
-          <label style={{fontSize:12,gridColumn:'1/-1'}}>Remarks<input className="field-input" value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))}/></label>
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Transaction Details</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Source <span style={{color:'#dc2626'}}>*</span></span>
+              <select className="field-input" value={fm.src_id} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+                <option value="">Select source...</option>
+                {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </label>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
+              <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            </label>
+          </div>
         </div>
-        <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
-          <button className="btn btn-sm" onClick={()=>setSe(null)}>Cancel</button>
-          <button className="btn btn-primary btn-sm" onClick={editEntry} disabled={sv}>{sv?'Saving...':'Save'}</button>
+
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Date & Time</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
+              <DatePicker
+                selected={fm.transaction_date ? new Date(fm.transaction_date + 'T00:00:00') : null}
+                onChange={date=>{const ds=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'):'';setFm(p=>({...p,transaction_date:ds}));if(fer)setFer('')}}
+                dateFormat="dd MMM yyyy"
+                placeholderText="Pick a date..."
+                maxDate={new Date()}
+                showMonthDropdown
+                showYearDropdown
+                dropdownMode="select"
+                className="field-input"
+                wrapperStyle={{width:'100%'}}
+                calendarClassName="bank-audit-cal"
+                customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
+              />
+            </label>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Payment Time</span>
+              <DatePicker
+                selected={fm.payment_time ? (()=>{const [h,m]=fm.payment_time.split(':').map(Number);const d=new Date();d.setHours(h,m,0,0);return d})() : null}
+                onChange={date=>{const ts=date?String(date.getHours()).padStart(2,'0')+':'+String(date.getMinutes()).padStart(2,'0'):'';setFm(p=>({...p,payment_time:ts}))}}
+                showTimeSelect
+                showTimeSelectOnly
+                timeCaption="Time"
+                timeFormat="HH:mm"
+                dateFormat="HH:mm"
+                placeholderText="Pick a time..."
+                className="field-input"
+                wrapperStyle={{width:'100%'}}
+                calendarClassName="bank-audit-cal"
+                customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Additional Info</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Payer Name</span>
+              <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            </label>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Payment ID</span>
+              <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            </label>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Check ID</span>
+              <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            </label>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Remarks</span>
+              <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            </label>
+          </div>
         </div>
       </div>
-    </div></div>}
+      <div style={{padding:'14px 20px',borderTop:'1px solid #f3f4f6',display:'flex',gap:10,justifyContent:'flex-end',background:'#fafafa',borderRadius:'0 0 14px 14px'}}>
+        <button className="btn btn-sm" onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{padding:'8px 18px',borderRadius:8,fontSize:12,fontWeight:600}}>Cancel</button>
+        <button className="btn btn-sm" onClick={isEdit?editEntry:addEntry} disabled={sv} style={{padding:'8px 20px',borderRadius:8,fontSize:12,fontWeight:600,background:isEdit?'#2563eb':'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,transition:'all .15s'}}>
+          {sv?(isEdit?'Saving...':'Adding...'):isEdit?'Save Changes':'Add Entry'}
+        </button>
+      </div>
+    </div></div>})()}
 
     {/* Sources Modal */}
     {ss&&<div className="modal-overlay" onClick={()=>setSs(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,borderRadius:12}}>
@@ -354,5 +441,23 @@ export default function BankAudit(){
         </div>)}
       </div>
     </div></div>}
+
+    {/* Delete Confirmation Modal */}
+    {dci&&<div className="modal-overlay" onClick={()=>setDci(null)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:400,borderRadius:12}}>
+      <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Delete Entry</h3><button className="btn btn-sm btn-icon" onClick={()=>setDci(null)} style={{padding:4}}><SvgX/></button></div>
+      <div className="modal-body" style={{padding:20,textAlign:'center'}}>
+        <div style={{width:48,height:48,borderRadius:'50%',background:'#fef2f2',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        </div>
+        <p style={{fontSize:14,fontWeight:600,color:'#111827',margin:'0 0 6px'}}>Are you sure you want to delete this entry?</p>
+        <p style={{fontSize:12,color:'#6b7280',margin:0}}>This action cannot be undone.</p>
+        <div style={{display:'flex',gap:10,justifyContent:'center',marginTop:18}}>
+          <button className="btn btn-sm" onClick={()=>setDci(null)} style={{padding:'6px 18px'}}>Cancel</button>
+          <button className="btn btn-sm" onClick={delEntry} style={{padding:'6px 18px',background:'#dc2626',color:'#fff',border:'none'}}>Delete</button>
+        </div>
+      </div>
+    </div></div>}
+
+    <Toast message={to.msg} type={to.type} visible={to.vis} onClose={()=>setTo(p=>({...p,vis:false}))}/>
   </div>;
 }

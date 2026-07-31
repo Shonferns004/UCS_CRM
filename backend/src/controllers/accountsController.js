@@ -1,7 +1,14 @@
 import supabase from '../config/supabase.js';
-import { createReceipt, findReceiptByLogId, getLastReceiptNo, listAllReceipts } from '../models/receiptModel.js';
+import { createReceipt, findReceiptByLogId, listAllReceipts } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
+import XLSX from 'xlsx';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export const getLeadList = async (req, res) => {
   try {
@@ -157,10 +164,9 @@ export const verifyLead = async (req, res) => {
     const existing = await findReceiptByLogId(logId);
     let receipt = existing || null;
     if (!existing) {
-      const project = donorProfile?.project_supported || 'bsct';
       const donorName = donorProfile?.name || 'Unknown';
-      const lastNo = await getLastReceiptNo(project);
-      const receiptNo = generateReceiptNo(project, lastNo);
+      const project = donorProfile?.project_supported || 'bsct';
+      const receiptNo = await getNextReceiptNo();
 
       receipt = await createReceipt({
         log_id: parseInt(logId),
@@ -174,6 +180,7 @@ export const verifyLead = async (req, res) => {
         mode: payment_mode || null,
         purpose: 'General Donation',
         generated_by: req.user.id,
+        donor_id: donorId,
       });
     }
 
@@ -540,14 +547,17 @@ export const patchLeadField = async (req, res) => {
 
 // ─── Receipts ──────────────────────────────────────────────
 
-function generateReceiptNo(projectId, lastNo) {
-  const prefix = projectId.toUpperCase().slice(0, 4);
-  let num = 1;
-  if (lastNo) {
-    const match = lastNo.match(/(\d+)$/);
-    if (match) num = parseInt(match[1], 10) + 1;
+async function getNextReceiptNo() {
+  const { data } = await supabase.from('receipts').select('receipt_no');
+  let maxNum = 0;
+  for (const r of data || []) {
+    const match = String(r.receipt_no).match(/(\d+)/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
   }
-  return `${prefix}/${String(num).padStart(5, '0')}/${new Date().getFullYear()}`;
+  return String(maxNum + 1);
 }
 
 export const generateReceipt = async (req, res) => {
@@ -582,9 +592,9 @@ export const generateReceipt = async (req, res) => {
     const project = donorProfile?.project_supported || 'bsct';
     const donorName = donorProfile?.name || 'Unknown';
 
-    const lastNo = await getLastReceiptNo(project);
-    const receiptNo = generateReceiptNo(project, lastNo);
+    const receiptNo = await getNextReceiptNo();
 
+    const donorId = log.fro_assignments?.donor_id;
     const receipt = await createReceipt({
       log_id: logId,
       receipt_no: receiptNo,
@@ -597,6 +607,7 @@ export const generateReceipt = async (req, res) => {
       mode: mode || null,
       purpose: purpose || 'General Donation',
       generated_by: req.user.id,
+      donor_id: donorId,
     });
 
     return res.status(201).json({ receipt, message: 'Receipt generated' });
@@ -690,17 +701,19 @@ export const getPendingReceipts = async (req, res) => {
 
 export const markReceiptAsSent = async (req, res) => {
   try {
-    const { receiptId } = req.body;
-    if (!receiptId) return res.status(400).json({ message: 'receiptId is required' });
+    const { receiptId, receipt_ids: receiptIds } = req.body;
+    const ids = Array.isArray(receiptIds) ? [...new Set(receiptIds.filter(Boolean))] : (receiptId ? [receiptId] : []);
+    if (ids.length === 0) return res.status(400).json({ message: 'receiptId or receipt_ids is required' });
+    if (ids.length > 50) return res.status(400).json({ message: 'A maximum of 50 receipt IDs can be updated at once' });
 
     const { data, error } = await supabase
       .from('receipts')
       .update({ sent: true, sent_at: new Date().toISOString() })
-      .eq('id', receiptId)
+      .in('id', ids)
       .select();
 
     if (error) throw error;
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: { receipt_ids: (data || []).map(receipt => receipt.id), updated_count: data?.length || 0 } });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -725,14 +738,35 @@ export const getDonorHistory = async (req, res) => {
     if (error) throw error;
 
     const logIds = (logs || []).map(l => l.id);
-    const { data: receipts, error: rError } = logIds.length > 0
-      ? await supabase.from('receipts').select('*').in('log_id', logIds)
-      : { data: [], error: null };
+
+    // Look up receipts via log chain + direct donor_id link
+    const receiptPromises = [];
+    if (logIds.length > 0) {
+      receiptPromises.push(
+        supabase.from('receipts').select('*').in('log_id', logIds)
+      );
+    }
+    receiptPromises.push(
+      supabase.from('receipts').select('*').eq('donor_id', donorId)
+    );
+
+    const receiptResults = await Promise.allSettled(receiptPromises);
+    const allReceipts = [];
+    for (const r of receiptResults) {
+      if (r.status === 'fulfilled' && r.value.data) {
+        allReceipts.push(...r.value.data);
+      }
+    }
+    // Deduplicate by id
+    const seenReceiptIds = new Set();
+    const uniqueReceipts = allReceipts.filter(r => {
+      if (seenReceiptIds.has(r.id)) return false;
+      seenReceiptIds.add(r.id);
+      return true;
+    });
 
     const receiptMap = {};
-    if (!rError && receipts) {
-      for (const r of receipts) receiptMap[r.log_id] = r;
-    }
+    for (const r of uniqueReceipts) receiptMap[r.log_id || `direct_${r.id}`] = r;
 
     const result = (logs || []).map(l => ({
       log_id: l.id,
@@ -750,6 +784,34 @@ export const getDonorHistory = async (req, res) => {
       type: l.action === 'donation' ? 'Donation' : 'Lead',
       receipt_no: receiptMap[l.id]?.receipt_no || null,
     }));
+
+    // Include direct-linked receipts that are NOT tied to any log
+    const logIdSet = new Set(logIds);
+    const orphanReceipts = uniqueReceipts
+      .filter(r => !r.log_id || !logIdSet.has(r.log_id))
+      .map(r => ({
+        log_id: null,
+        receipt_id: r.id,
+        amount: r.amount,
+        payment_mode: r.mode,
+        payment_from: r.bank_name,
+        accounts_status: 'imported',
+        created_at: r.receipt_date || r.created_at,
+        verified_at: null,
+        agent_name: 'System Import',
+        agent_login: '',
+        type: 'Imported Receipt',
+        receipt_no: r.receipt_no,
+        donor_name: r.donor_name,
+        donor_mobile: r.donor_mobile,
+      }));
+
+    result.push(...orphanReceipts);
+    result.sort((a, b) => {
+      const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return db - da;
+    });
 
     return res.json(result);
   } catch (error) {
@@ -855,17 +917,18 @@ export const importReceipts = async (req, res) => {
       return res.status(400).json({ message: 'No receipts data provided' });
     }
 
-    const rows = receipts
-      .map(r => {
-        const row = {};
-        Object.keys(r).forEach(k => { row[k.trim()] = r[k]; });
-        const donorName = row.donor_name || row['Receipt Name'] || row['Donor Name'] || '';
-        const projectRaw = (row.project_id || row['Project'] || row['Project Supported'] || 'bsct').trim();
-        const projectId = projectRaw.toLowerCase().includes('anna') ? 'bsct' : projectRaw.toLowerCase();
-        const rawAmount = String(row.amount || row['Amount'] || row['Amt'] || '0')
-          .replace(/,/g, '')
-          .trim();
-        return {
+    const parsed = receipts.map(r => {
+      const row = {};
+      Object.keys(r).forEach(k => { row[k.trim()] = r[k]; });
+      const donorName = row.donor_name || row['Receipt Name'] || row['Donor Name'] || '';
+      const projectRaw = (row.project_id || row['Project'] || row['Project Supported'] || 'bsct').trim();
+      const projectId = projectRaw.toLowerCase().includes('anna') ? 'bsct' : projectRaw.toLowerCase();
+      const rawAmount = String(row.amount || row['Amount'] || row['Amt'] || '0')
+        .replace(/,/g, '')
+        .trim();
+      return {
+        original: r,
+        parsed: {
           receipt_no: row.receipt_no || row['Receipt No'] || row['Receipt No.'] || '',
           project_id: projectId,
           donor_name: donorName,
@@ -880,58 +943,387 @@ export const importReceipts = async (req, res) => {
           email: row.email || row['Mail Id'] || row['Email ID'] || null,
           payment_id: row.payment_id || row['Payment Id No.'] || null,
           bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
-        };
-      })
-      .filter(row => {
-        const isBlank = row.donor_name.toLowerCase().includes('blank');
-        const hasAmount = row.amount > 0;
-        return !isBlank && hasAmount;
-      });
+          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || null,
+        },
+      };
+    }).filter(({ parsed }) => {
+      const isBlank = parsed.donor_name.toLowerCase().includes('blank');
+      const hasAmount = parsed.amount > 0;
+      return !isBlank && hasAmount;
+    });
 
-    if (rows.length === 0) {
+    if (parsed.length === 0) {
       return res.status(400).json({ message: 'No valid receipts found after filtering' });
     }
 
-    const { error: delErr } = await supabase.from('receipts').delete().neq('id', 0);
-    if (delErr) throw delErr;
+    // Duplicate check against DB (batched at 100)
+    const incomingNos = [...new Set(parsed.map(p => p.parsed.receipt_no).filter(Boolean))];
+    const existingReceiptIds = new Map();
+    if (incomingNos.length > 0) {
+      for (let i = 0; i < incomingNos.length; i += 100) {
+        const batch = incomingNos.slice(i, i + 100);
+        const { data: existing } = await supabase
+          .from('receipts')
+          .select('id, receipt_no')
+          .in('receipt_no', batch);
+        for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r.id);
+      }
+    }
 
     const seen = new Set();
-    const uniqueRows = rows.filter(r => {
-      const key = r.receipt_no || `${r.donor_name}_${r.amount}_${r.receipt_date}`;
+    const uniqueParsed = parsed.filter(({ parsed }) => {
+      if (parsed.receipt_no && existingReceiptIds.has(parsed.receipt_no)) return false;
+      const key = parsed.receipt_no || `${parsed.donor_name}_${parsed.amount}_${parsed.receipt_date}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-    const dupCount = rows.length - uniqueRows.length;
+    const dupCount = parsed.length - uniqueParsed.length;
 
-    const { data, error } = await supabase
-      .from('receipts')
-      .insert(uniqueRows)
-      .select();
+    const uniqueRows = uniqueParsed.map(p => p.parsed);
+    const originalRows = uniqueParsed.map(p => p.original);
 
-    if (error) throw error;
+    // A repeat upload must not create a duplicate receipt, but it can enrich an
+    // existing receipt with the FSE/agent name supplied in the newer sheet.
+    const agentUpdates = parsed
+      .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
+      .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
+    if (agentUpdates.length > 0) {
+      await Promise.all(agentUpdates.map(({ id, agent_name }) =>
+        supabase.from('receipts').update({ agent_name }).eq('id', id)
+      ));
+    }
 
-    const withBank = data.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+    // ─── Insert + match + link (with retry) ───
+    const MAX_RETRIES = 3;
+    const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    return res.status(201).json({
-      message: `${data.length} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}`,
-      imported: data.length,
-      withBank,
-      receipts: data,
-    });
+    let inserted = [];
+    let matchedCount = 0;
+    let withBankCount = 0;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 1) {
+        console.log(`Import retry attempt ${attempt}/${MAX_RETRIES}`);
+        await sleep(attempt * 1000);
+      }
+
+      try {
+        console.time('import-dedup');
+        const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
+        let alreadyInserted = new Set();
+        if (nos.length > 0) {
+          const { data: existing } = await supabase
+            .from('receipts')
+            .select('receipt_no')
+            .in('receipt_no', nos);
+          for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
+        }
+        const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
+        console.timeEnd('import-dedup');
+
+        if (toInsert.length > 0) {
+          console.time('import-insert');
+          const { data, error } = await supabase
+            .from('receipts')
+            .insert(toInsert)
+            .select();
+          if (error) throw error;
+          inserted = data || [];
+          console.timeEnd('import-insert');
+        }
+
+        if (inserted.length > 0) {
+          console.time('import-match');
+          const mobiles = [...new Set(
+            inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
+          )];
+
+          const donorByMobile = {};
+          if (mobiles.length > 0) {
+            for (let i = 0; i < mobiles.length; i += 100) {
+              const batch = mobiles.slice(i, i + 100);
+              const { data: donors } = await supabase
+                .from('donor_profiles')
+                .select('id, mobile_number, total_amount, donation_count, last_donation_date')
+                .in('mobile_number', batch);
+              for (const d of (donors || [])) {
+                donorByMobile[(d.mobile_number || '').replace(/\D/g, '')] = d;
+              }
+            }
+          }
+
+          const receiptsByDonor = {};
+          for (const receipt of inserted) {
+            const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
+            if (mobile.length < 10) continue;
+            const donor = donorByMobile[mobile];
+            if (!donor) continue;
+            matchedCount++;
+            if (!receiptsByDonor[donor.id]) {
+              receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
+            }
+            receiptsByDonor[donor.id].ids.push(receipt.id);
+            receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
+            receiptsByDonor[donor.id].donation_count += 1;
+            if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
+              receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+            }
+          }
+          console.timeEnd('import-match');
+
+          if (Object.keys(receiptsByDonor).length > 0) {
+            console.time('import-updates');
+            const updates = [];
+            for (const [donorId, info] of Object.entries(receiptsByDonor)) {
+              for (let i = 0; i < info.ids.length; i += 50) {
+                updates.push(supabase.from('receipts').update({ donor_id: parseInt(donorId) }).in('id', info.ids.slice(i, i + 50)));
+              }
+              updates.push(supabase.from('donor_profiles').update({
+                total_amount: Math.round(info.total_amount * 100) / 100,
+                donation_count: info.donation_count,
+                last_donation_date: info.last_donation_date,
+                updated_at: new Date().toISOString(),
+              }).eq('id', donorId));
+            }
+            await Promise.allSettled(updates);
+            console.timeEnd('import-updates');
+          }
+          withBankCount = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+        }
+
+        console.log(`Import OK: ${inserted.length} rows, ${matchedCount} matched`);
+        return res.status(201).json({
+          message: `${inserted.length} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${matchedCount > 0 ? `, ${matchedCount} linked to donors` : ''}`,
+          imported: inserted.length,
+          withBank: withBankCount,
+          matchedDonors: matchedCount,
+        });
+
+      } catch (err) {
+        console.warn(`Import attempt ${attempt} failed:`, err.message);
+        if (attempt === MAX_RETRIES) {
+          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}` });
+        }
+      }
+    }
+
+    return res.status(500).json({ message: 'Import failed: unknown error' });
+
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
 
+const reverseDonorTotals = async () => {
+  try {
+    const { data: linked } = await supabase
+      .from('receipts')
+      .select('donor_id, amount')
+      .not('donor_id', 'is', null);
+    const safeLinked = linked || [];
+    if (safeLinked.length === 0) return 0;
+
+    const deductions = {};
+    const donorIds = [];
+    for (const r of safeLinked) {
+      if (!deductions[r.donor_id]) {
+        deductions[r.donor_id] = { amount: 0, count: 0 };
+        donorIds.push(r.donor_id);
+      }
+      deductions[r.donor_id].amount += parseFloat(r.amount || 0);
+      deductions[r.donor_id].count += 1;
+    }
+
+    const donorMap = {};
+    const BATCH = 100;
+    for (let i = 0; i < donorIds.length; i += BATCH) {
+      const batch = donorIds.slice(i, i + BATCH);
+      const { data: donors } = await supabase
+        .from('donor_profiles')
+        .select('id, total_amount, donation_count')
+        .in('id', batch);
+      for (const d of (donors || [])) donorMap[d.id] = d;
+    }
+
+    await Promise.all(
+      Object.entries(deductions).map(([donorId, dec]) => {
+        const donor = donorMap[donorId];
+        if (!donor) return Promise.resolve();
+        return supabase.from('donor_profiles').update({
+          total_amount: Math.max(0, (donor.total_amount || 0) - dec.amount),
+          donation_count: Math.max(0, (donor.donation_count || 0) - dec.count),
+          updated_at: new Date().toISOString(),
+        }).eq('id', donorId);
+      })
+    );
+    return donorIds.length;
+  } catch (err) {
+    console.warn('Donor reversal skipped (column may not exist):', err.message);
+    return 0;
+  }
+};
+
 export const clearReceipts = async (req, res) => {
   try {
-    const { error } = await supabase
+    const batch = req.query.batch ? parseInt(req.query.batch) : null;
+    const shouldReverse = req.query.reverse === '1';
+
+    const reversed = batch ? (shouldReverse ? await reverseDonorTotals() : 0) : await reverseDonorTotals();
+
+    let deleted = 0, remaining = 0;
+    if (batch) {
+      const { data: ids } = await supabase
+        .from('receipts')
+        .select('id')
+        .neq('id', 0)
+        .limit(batch);
+      const batchIds = (ids || []).map(r => r.id);
+      if (batchIds.length > 0) {
+        const { data: rows } = await supabase
+          .from('receipts')
+          .delete()
+          .in('id', batchIds)
+          .select('id');
+        deleted = rows?.length || 0;
+      }
+    } else {
+      const { data: rows } = await supabase
+        .from('receipts')
+        .delete()
+        .neq('id', 0)
+        .select('id');
+      deleted = rows?.length || 0;
+      remaining = 0;
+    }
+
+    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getReceiptCount = async (req, res) => {
+  try {
+    const { count } = await supabase
       .from('receipts')
-      .delete()
-      .neq('id', 0);
+      .select('*', { count: 'exact', head: true });
+    return res.json({ count: count || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDonorsList = async (req, res) => {
+  try {
+    const { search, page = '1', limit = '50' } = req.query;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100000, Math.max(1, parseInt(limit) || 50));
+    const from = (pageNum - 1) * limitNum;
+    const to = from + limitNum - 1;
+
+    let query = supabase
+      .from('donor_profiles')
+      .select('*', { count: 'exact' });
+
+    if (search) {
+      const q = search.trim();
+      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+
+    const { data, count, error } = await query
+      .order('last_donation_date', { ascending: false, nullsFirst: false })
+      .order('first_imported_at', { ascending: false })
+      .range(from, to);
+
     if (error) throw error;
-    return res.json({ message: 'All receipts deleted successfully' });
+
+    const donorIds = (data || []).map(d => d.id).filter(Boolean);
+    if (donorIds.length > 0) {
+      const { data: assignments } = await supabase
+        .from('fro_assignments')
+        .select('donor_id, fro_worker_id, station, ngo_id')
+        .in('donor_id', donorIds)
+        .not('status', 'eq', 'reassigned');
+
+      const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
+      const ngoMap = {};
+      if (ngoIds.length > 0) {
+        const { data: ngos } = await supabase
+          .from('ngos')
+          .select('id, name')
+          .in('id', ngoIds);
+        for (const n of ngos || []) ngoMap[n.id] = n.name;
+      }
+
+      const workerIds = [...new Set((assignments || []).map(a => a.fro_worker_id).filter(Boolean))];
+      const workerMap = {};
+      if (workerIds.length > 0) {
+        const { data: workers } = await supabase
+          .from('workers')
+          .select('id, name')
+          .in('id', workerIds);
+        for (const w of workers || []) workerMap[w.id] = w.name;
+      }
+
+      const donorNgoMap = {};
+      const donorAssignmentMap = {};
+      for (const a of assignments || []) {
+        if (!donorNgoMap[a.donor_id]) donorNgoMap[a.donor_id] = new Set();
+        const ngoName = ngoMap[a.ngo_id];
+        if (ngoName) donorNgoMap[a.donor_id].add(ngoName);
+
+        if (!donorAssignmentMap[a.donor_id]) donorAssignmentMap[a.donor_id] = [];
+        const name = workerMap[a.fro_worker_id];
+        if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'}) — ${ngoName || a.ngo_id}`);
+      }
+
+      for (const d of data || []) {
+        const labels = donorAssignmentMap[d.id];
+        d.assigned_to = labels && labels.length > 0 ? [...new Set(labels)].join(', ') : null;
+
+        const ngoFromAssignments = donorNgoMap[d.id];
+        if (ngoFromAssignments && ngoFromAssignments.size > 0) {
+          if (d.ngo && ngoFromAssignments.has(d.ngo)) {
+            d.ngo = d.ngo;
+          } else {
+            d.ngo = [...ngoFromAssignments].join(', ');
+          }
+        }
+      }
+    }
+
+    return res.json({ data: data || [], total: count || 0, page: pageNum, limit: limitNum });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDonorDetail = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: donor, error: donorErr } = await supabase
+      .from('donor_profiles')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (donorErr) throw donorErr;
+
+    const { data: receipts, error: recErr } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', id)
+      .order('receipt_date', { ascending: false });
+    if (recErr) throw recErr;
+
+    return res.json({
+      donor,
+      receipts: receipts || [],
+      receiptCount: receipts?.length || 0,
+      totalAmount: (receipts || []).reduce((s, r) => s + parseFloat(r.amount || 0), 0),
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

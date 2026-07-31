@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiGet, apiPost } from '../api/auth';
+import Toast from '../components/Toast';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 
@@ -24,6 +25,8 @@ export default function SuspensePage() {
   const [noteInputs, setNoteInputs] = useState({});
   const [assignInputs, setAssignInputs] = useState({});
   const [workers, setWorkers] = useState([]);
+  const [formErr, setFormErr] = useState('');
+  const [toast, setToast] = useState({ msg: '', type: 'success', vis: false });
 
   const load = useCallback(() => {
     setLoading(true);
@@ -49,12 +52,15 @@ export default function SuspensePage() {
   }, [items]);
 
   const handleAdd = async () => {
-    if (!addForm.donor_name || !addForm.amount) return;
+    if (!addForm.donor_name.trim() || !addForm.amount) { setFormErr('Donor name and amount are required'); return; }
+    if (Number(addForm.amount) <= 0) { setFormErr('Amount must be greater than zero'); return; }
+    setFormErr('');
     setAdding(true);
     try {
       await apiPost('/accounts/suspense', addForm);
       setAddForm({ donor_name: '', amount: '', transaction_date: '', notes: '' });
       setShowAdd(false);
+      setToast({ msg: 'Suspense entry added successfully', type: 'success', vis: true });
       load();
     } catch (err) { alert(err.message); }
     finally { setAdding(false); }
@@ -185,20 +191,23 @@ export default function SuspensePage() {
       </div>
 
       {showAdd && (
-        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+        <div className="modal-overlay" onClick={() => { setShowAdd(false); setFormErr(''); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Add to Suspense</h3>
-              <button className="btn btn-sm" onClick={() => setShowAdd(false)}>✕</button>
+              <button className="btn btn-sm" onClick={() => { setShowAdd(false); setFormErr(''); }}>✕</button>
             </div>
             <div className="modal-body">
+              {formErr && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>{formErr}
+              </div>}
               <label className="field" style={{ marginBottom: 12 }}>
                 Donor Name *
-                <input value={addForm.donor_name} onChange={e => setAddForm(p => ({ ...p, donor_name: e.target.value }))} placeholder="e.g. SHARMA SURESH" />
+                <input value={addForm.donor_name} onChange={e => { setAddForm(p => ({ ...p, donor_name: e.target.value })); if (formErr) setFormErr(''); }} placeholder="e.g. SHARMA SURESH" />
               </label>
               <label className="field" style={{ marginBottom: 12 }}>
                 Amount *
-                <input type="number" value={addForm.amount} onChange={e => setAddForm(p => ({ ...p, amount: e.target.value }))} placeholder="e.g. 1000" />
+                <input type="number" min="0.01" step="0.01" value={addForm.amount} onChange={e => { setAddForm(p => ({ ...p, amount: e.target.value })); if (formErr) setFormErr(''); }} placeholder="e.g. 1000" />
               </label>
               <label className="field" style={{ marginBottom: 12 }}>
                 Transaction Date
@@ -209,7 +218,7 @@ export default function SuspensePage() {
                 <textarea value={addForm.notes} onChange={e => setAddForm(p => ({ ...p, notes: e.target.value }))} placeholder="Any details about this deposit..." rows={3} style={{ padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
               </label>
               <div className="modal-actions">
-                <button className="btn" onClick={() => setShowAdd(false)}>Cancel</button>
+                <button className="btn" onClick={() => { setShowAdd(false); setFormErr(''); }}>Cancel</button>
                 <button className="btn btn-primary" onClick={handleAdd} disabled={adding}>
                   {adding ? 'Adding...' : 'Add to Suspense'}
                 </button>
@@ -218,6 +227,8 @@ export default function SuspensePage() {
           </div>
         </div>
       )}
+
+      <Toast message={toast.msg} type={toast.type} visible={toast.vis} onClose={() => setToast(p => ({ ...p, vis: false }))} />
     </div>
   );
 }

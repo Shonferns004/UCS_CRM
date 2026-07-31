@@ -1,6 +1,66 @@
 import supabase from '../config/supabase.js';
 import jwt from 'jsonwebtoken';
 
+export async function whatsappAutoLogin(req, res) {
+  try {
+    const workerId = req.user.id;
+    if (!workerId || workerId === 'master') {
+      return res.status(400).json({ message: 'Worker identity required' });
+    }
+
+    const { data: agentsRaw, error: agentsErr } = await supabase
+      .rpc('get_worker_agents', { p_worker_id: workerId });
+
+    if (agentsErr) {
+      console.error('[auto-login] get_worker_agents error:', agentsErr.message);
+      return res.status(500).json({ message: 'Failed to load agents' });
+    }
+
+    const agents = typeof agentsRaw === 'string' ? JSON.parse(agentsRaw) : (agentsRaw || []);
+
+    if (agents.length === 0) {
+      return res.json({ sessions: [] });
+    }
+
+    const sessions = [];
+    for (const agent of agents) {
+      const token = jwt.sign(
+        { id: agent.id, email: agent.email, role: 'agent', name: agent.name },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      if (agent.assigned_account_id && agent.assigned_account_name) {
+        sessions.push({
+          agentId: agent.id,
+          agentEmail: agent.email,
+          agentName: agent.name,
+          project: agent.assigned_account_project,
+          account: { id: agent.assigned_account_id, name: agent.assigned_account_name, project: agent.assigned_account_project, phone_number_id: agent.assigned_phone_number },
+          token,
+        });
+      } else {
+        const accounts = (agent.whatsapp_accounts || []).filter(a => a.is_active);
+        for (const account of accounts) {
+          sessions.push({
+            agentId: agent.id,
+            agentEmail: agent.email,
+            agentName: agent.name,
+            project: account.project,
+            account: { id: account.id, name: account.name, project: account.project, phone_number_id: account.phone_number_id },
+            token,
+          });
+        }
+      }
+    }
+
+    return res.json({ sessions });
+  } catch (error) {
+    console.error('[auto-login] error:', error?.message);
+    return res.status(500).json({ message: 'Auto-login failed' });
+  }
+}
+
 export async function whatsappLogin(req, res) {
   try {
     const { email, password } = req.body;
@@ -12,7 +72,6 @@ export async function whatsappLogin(req, res) {
     const masterPassword = process.env.WHATSAPP_MASTER_PASSWORD;
 
     if (masterEmail && masterPassword && email === masterEmail && password === masterPassword) {
-      const expiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
       const token = jwt.sign(
         { id: 'master', email: masterEmail, role: 'master', name: 'Master Admin' },
         process.env.JWT_SECRET,
@@ -60,9 +119,9 @@ export async function whatsappLogin(req, res) {
       }
 
       userData = typeof agentData === 'string' ? JSON.parse(agentData) : agentData;
-      const agentExpiry = req.headers['x-client-type'] === 'flutter' ? '100y' : '24h';
+      const agentExpiry = '100y';
       token = jwt.sign(
-        { id: userData.id, email: userData.email, role: userData.role || 'agent', name: userData.name },
+        { id: userData.id, email: userData.email, role: 'agent', name: userData.name },
         process.env.JWT_SECRET,
         { expiresIn: agentExpiry }
       );

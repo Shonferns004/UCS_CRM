@@ -2,10 +2,16 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/authMiddleware.js';
 import multer from 'multer';
 import {
+  whatsappAutoLogin,
+} from '../controllers/froWhatsAppAuthController.js';
+import {
   listConversations,
+  listAgentConversations,
+  agentUnreadCount,
   listMessages,
   sendMessage,
   sendDirect,
+  createConversation,
   markRead,
   unreadCount,
   listQuickReplies,
@@ -14,6 +20,7 @@ import {
   searchMessages,
   updateLabels,
   uploadMedia,
+  listMyAccounts,
 } from '../controllers/froWhatsAppController.js';
 
 const router = Router();
@@ -21,26 +28,36 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 
 router.use(authenticate);
 
-const requireFro = (req, res, next) => {
-  if (req.user.role === 'fro') return next();
-  if (req.user.department && req.user.department.toLowerCase().trim() === 'fro') return next();
-  return res.status(403).json({ message: 'FRO worker access required' });
+const ALLOWED_ROLES = ['fro', 'worker', 'agent', 'admin', 'super_admin', 'master'];
+
+const requireWhatsApp = (req, res, next) => {
+  const role = req.user?.role;
+  console.log('[froWhatsApp] role:', role, 'path:', req.path, 'user:', JSON.stringify(req.user));
+  if (ALLOWED_ROLES.includes(role)) return next();
+  if (req.user?.department && req.user.department.toLowerCase().trim() === 'fro') return next();
+  return res.status(403).json({ message: 'Access denied', debug_role: role, debug_user: req.user });
 };
 
-router.use(requireFro);
+router.get('/auto-login', whatsappAutoLogin);
+
+router.use(requireWhatsApp);
+
+router.get('/agent-conversations', listAgentConversations);
+router.get('/agent-conversations/unread-count', agentUnreadCount);
+router.get('/my-accounts', listMyAccounts);
+router.post('/send-direct', sendDirect);
+router.post('/create-conversation', createConversation);
+router.get('/conversations/:id/messages', listMessages);
+router.post('/conversations/:id/send', sendMessage);
+router.put('/conversations/:id/read', markRead);
+router.get('/search', searchMessages);
+router.post('/upload-media', upload.single('file'), uploadMedia);
+router.post('/send-template', sendTemplate);
+router.get('/quick-replies', listQuickReplies);
+router.get('/templates', listTemplates);
 
 router.get('/conversations', listConversations);
 router.get('/conversations/unread-count', unreadCount);
-router.get('/conversations/:id/messages', listMessages);
-router.post('/conversations/:id/send', sendMessage);
-router.post('/send-direct', sendDirect);
-router.put('/conversations/:id/read', markRead);
 router.put('/conversations/:id/labels', updateLabels);
-
-router.get('/quick-replies', listQuickReplies);
-router.get('/templates', listTemplates);
-router.post('/send-template', sendTemplate);
-router.get('/search', searchMessages);
-router.post('/upload-media', upload.single('file'), uploadMedia);
 
 export default router;

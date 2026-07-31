@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { fetchMyLeads, updateLead } from '../api/leads';
 import { fetchLeadCallLogs, addCallLog } from '../api/callLogs';
 import { DatePicker } from '../components/ui';
@@ -29,6 +29,8 @@ export default function MyLeads() {
   const [logNotes, setLogNotes] = useState('');
   const [logFollowUp, setLogFollowUp] = useState('');
   const [logBusy, setLogBusy] = useState(false);
+  const prevActionRef = useRef(null);
+  const [showConfirmPrev, setShowConfirmPrev] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -181,7 +183,15 @@ export default function MyLeads() {
           </div>
 
           <div className="bento-nav" style={{ marginTop:4 }}>
-            <button disabled={index === 0} onClick={() => setIndex(i => i - 1)}>← Prev</button>
+            <button disabled={index === 0} onClick={() => {
+              if (showLogModal) {
+                prevActionRef.current = () => { setShowLogModal(false); setIndex(i => i - 1); };
+                setShowConfirmPrev(true);
+                return;
+              }
+              setShowLogModal(false);
+              setIndex(i => i - 1);
+            }}>← Prev</button>
             <span className="cnt">{index + 1} of {filtered.length}</span>
             <button disabled={index === filtered.length - 1} onClick={() => setIndex(i => i + 1)}>Next →</button>
           </div>
@@ -241,6 +251,27 @@ export default function MyLeads() {
               <div className="modal-actions">
                 <button className="btn btn-sm" onClick={() => setShowLogModal(false)} style={{ background:'transparent', border:'1px solid var(--line)' }}>Cancel</button>
                 <button className="btn btn-primary btn-sm" onClick={handleAddCallLog} disabled={logBusy}>{logBusy ? 'Saving…' : 'Save Call Log'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {showConfirmPrev && (
+        <div className="modal-overlay" onClick={() => setShowConfirmPrev(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <div className="modal-body" style={{ textAlign: 'center', padding: '24px 22px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 36, color: '#f59e0b' }}>warning</span>
+              <h3 style={{ margin: '10px 0 4px', fontSize: 15, fontWeight: 700 }}>Discard Call Log?</h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>You have an unsaved call log form. Navigating away will discard it.</p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 18 }}>
+                <button className="btn btn-sm" onClick={() => setShowConfirmPrev(false)}
+                  style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', border: '1px solid var(--line)', background: '#fff' }}>
+                  Cancel
+                </button>
+                <button className="btn btn-sm" onClick={() => { setShowConfirmPrev(false); prevActionRef.current?.(); }}
+                  style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', background: '#dc2626', color: '#fff', border: 'none' }}>
+                  Discard
+                </button>
               </div>
             </div>
           </div>

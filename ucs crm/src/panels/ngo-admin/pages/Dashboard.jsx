@@ -8,7 +8,7 @@ const DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
   busy: 'Busy', ringing: 'Ringing', unreachable: 'Unreachable', switched_off: 'Switched Off',
   wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected',
-  lead_done: 'Lead Done', visit_donate: 'Visit & Donate', promise_to_pay: 'Promise to Pay',
+  lead_done: 'Lead Done', done: 'Done', visit_donate: 'Visit & Donate', promise_to_pay: 'Promise to Pay',
   payment_pending: 'Payment Pending', already_donated: 'Already Donated',
   not_interested: 'Not Interested', not_interested_now: 'Not Interested Now',
   language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
@@ -17,7 +17,7 @@ const DISPOSITION_LABELS = {
 };
 
 const DISPOSITION_GROUPS = [
-  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'visit_donate', 'payment_pending', 'already_donated'] },
+  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'done', 'visit_donate', 'payment_pending', 'already_donated'] },
   { label: 'In Progress', color: '#d97706', bg: '#fffbeb', statuses: ['pending', 'contacted', 'follow_up', 'scheduled'] },
   { label: 'Negative', color: '#dc2626', bg: '#fef2f2', statuses: ['not_interested', 'not_interested_now', 'rejected', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'language_barrier'] },
   { label: 'Other', color: '#5B6B4E', bg: '#f0f2ee', statuses: ['transferred_senior', 'query_complaint', 'receipt_request'] },
@@ -441,6 +441,7 @@ export default function Dashboard() {
   const [accessibleNgos, setAccessibleNgos] = useState([]);
   const [weakPeriod, setWeakPeriod] = useState('today');
   const [weakPerformers, setWeakPerformers] = useState([]);
+  const [weakLoading, setWeakLoading] = useState(false);
   const [stationDateFrom, setStationDateFrom] = useState('');
   const [stationDateTo, setStationDateTo] = useState('');
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
@@ -457,10 +458,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
+    setWeakLoading(true);
     const ngoParam = selectedNgoId !== 'all' ? `&ngo_id=${selectedNgoId}` : '';
     apiGet(`/ngo-admin/fro-performance?period=${weakPeriod}${ngoParam}`)
       .then(data => { if (!cancelled) setWeakPerformers(data); })
-      .catch(() => { if (!cancelled) setWeakPerformers([]); });
+      .catch(() => { if (!cancelled) setWeakPerformers([]); })
+      .finally(() => { if (!cancelled) setWeakLoading(false); });
     return () => { cancelled = true };
   }, [selectedNgoId, weakPeriod]);
 
@@ -896,15 +899,19 @@ export default function Dashboard() {
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-head">
               <h3>⚠ Low Performance</h3>
-              <div style={{ display:'flex', gap:6 }}>
-                <button onClick={() => setWeakPeriod('today')}
-                  style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: weakPeriod === 'today' ? 'var(--sage)' : '#fff', color: weakPeriod === 'today' ? '#fff' : 'var(--ink)' }}>
+              <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                <button onClick={() => setWeakPeriod('today')} disabled={weakLoading}
+                  style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'today' ? 'var(--sage)' : '#fff', color: weakPeriod === 'today' ? '#fff' : 'var(--ink)' }}>
                   Today
                 </button>
-                <button onClick={() => setWeakPeriod('month')}
-                  style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: weakPeriod === 'month' ? 'var(--sage)' : '#fff', color: weakPeriod === 'month' ? '#fff' : 'var(--ink)' }}>
+                <button onClick={() => setWeakPeriod('month')} disabled={weakLoading}
+                  style={{ padding:'3px 10px', borderRadius:12, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor: weakLoading ? 'default' : 'pointer', opacity: weakLoading ? 0.6 : 1, background: weakPeriod === 'month' ? 'var(--sage)' : '#fff', color: weakPeriod === 'month' ? '#fff' : 'var(--ink)' }}>
                   Month
                 </button>
+                {weakLoading && <span style={{ fontSize:11, color:'var(--ink-soft)', display:'flex', alignItems:'center', gap:4 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="3" strokeLinecap="round" className="weak-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" className="weak-spin-arc"/></svg>
+                  Loading…
+                </span>}
               </div>
             </div>
             <div className="card-pad" style={{ padding:0 }}>
@@ -958,6 +965,8 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
       {/* Call Connectivity Widget */}
       {(() => {

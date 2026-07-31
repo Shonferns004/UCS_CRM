@@ -19,7 +19,7 @@ export default function ToastContainer() {
 
   return (
     <div style={{
-      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      position: 'fixed', top: 24, left: '50%', transform: 'translateX(-50%)',
       zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8,
       pointerEvents: 'none',
     }}>

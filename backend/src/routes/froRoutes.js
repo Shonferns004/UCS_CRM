@@ -9,6 +9,7 @@ import {
   getMyDonors,
   getTransferredLeads,
   updateDonorStatus,
+  updateDonorType,
   getDonorLogs,
   createDonorLogHandler,
   getMyTarget,
@@ -25,9 +26,12 @@ import {
   getMonthlyDonors,
   getDonorHistory,
   getFullDonorHistory,
+  getDonorDonations,
+  getDonorReceipts,
   getRejectedLeads,
   searchDonors,
   updateLiveStatus,
+  updateDonorFrequency,
   getLiveStatuses,
   getMyProgress,
   saveMyProgress,
@@ -54,6 +58,7 @@ router.get('/reactivated-donors', getReactivatedDonors);
 router.get('/donors', getMyDonors);
 router.get('/transferred-leads', getTransferredLeads);
 router.put('/donors/:id/status', updateDonorStatus);
+router.put('/donors/:id/donor-type', updateDonorType);
 router.put('/donors/:id/mark-seen', async (req, res) => {
   try {
     const { id } = req.params;
@@ -113,6 +118,8 @@ router.get('/lead-stats', getLeadStats);
 router.get('/monthly-donors', getMonthlyDonors);
 router.get('/donors/:id/history', getDonorHistory);
 router.get('/donors/:id/full-history', getFullDonorHistory);
+router.get('/donors/:id/donations', getDonorDonations);
+router.get('/donors/:id/receipts', getDonorReceipts);
 router.get('/search-donors', searchDonors);
 
 router.get('/suspense', listFroSuspense);

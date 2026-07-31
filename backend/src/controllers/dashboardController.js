@@ -623,7 +623,8 @@ export const getFroLiveStatus = async (req, res) => {
         .in('fro_assignments.fro_worker_id', froWorkerIds)
         .or(
           `and(action.eq.donation,created_at.gte.${todayStart.toISOString()},created_at.lte.${todayEnd.toISOString()}),` +
-          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart.toISOString()},verified_at.lte.${todayEnd.toISOString()})`
+          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart.toISOString()},verified_at.lte.${todayEnd.toISOString()}),` +
+          `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${todayStart.toISOString()},created_at.lte.${todayEnd.toISOString()})`
         ),
     ]);
 
@@ -632,7 +633,7 @@ export const getFroLiveStatus = async (req, res) => {
       busy: 'not_reachable', ringing: 'not_reachable', unreachable: 'not_reachable',
       switched_off: 'not_reachable', wrong_number: 'not_reachable', invalid_number: 'not_reachable', rejected: 'not_reachable',
       not_interested: 'not_interested', not_interested_now: 'not_interested',
-      donation_collected: 'donation_collected', lead_done: 'donation_collected',
+      donation_collected: 'donation_collected', lead_done: 'donation_collected', done: 'donation_collected',
       scheduled: 'follow_up', visit_donate: 'contacted', promise_to_pay: 'contacted',
       payment_pending: 'contacted', already_donated: 'contacted',
       language_barrier: 'contacted', transferred_senior: 'contacted',
@@ -870,10 +871,10 @@ export const getTeamLeadDashboard = async (req, res) => {
 export const getFroWorkerDashboard = async (req, res) => {
   try {
     const { workerId } = req.params;
-    const userNgoIds = req.user.ngo_id ? [Number(req.user.ngo_id)] : [];
+    const userNgoIds = req.user.ngo_id ? [req.user.ngo_id] : [];
     if (userNgoIds.length > 0) {
       const worker = await getWorkerById(workerId);
-      if (worker && worker.ngo_id && !userNgoIds.includes(Number(worker.ngo_id))) {
+      if (worker && worker.ngo_id && !userNgoIds.some(id => String(id) === String(worker.ngo_id))) {
         return res.status(403).json({ message: 'Access denied' });
       }
     }

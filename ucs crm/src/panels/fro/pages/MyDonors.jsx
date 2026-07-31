@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile } from '../api/donors';
+import { getMyDonors, getMyStations, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, searchDonorsByMobile, updateDonorType } from '../api/donors';
 import { api } from '../../../api/auth';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -8,6 +8,7 @@ import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
+import { getWhatsAppChatUrl } from '../utils/whatsappProject';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -28,7 +29,7 @@ const PROJECTS = [
 ];
 
 const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'scheduled', label: 'Follow Up' },
+  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Follow Up' },
   { id: 'callback', label: 'Callback' },
   { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
   { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
@@ -43,7 +44,7 @@ const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
 const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
 const isConnected = (id) => CONNECTED_IDS.has(id);
 const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
-const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected']);
+const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
 const DISPOSITION_ORDER = {};
 NOT_CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1; });
 CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1 + NOT_CONNECTED.length; });
@@ -66,7 +67,7 @@ const STATUS_PILL_MAP = {
   pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
   callback: 'pill-purple', follow_up: 'pill-purple', busy: 'pill-gray', ringing: 'pill-gray',
   unreachable: 'pill-gray', switched_off: 'pill-gray', wrong_number: 'pill-gray',
-  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green',
+  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green', done: 'pill-green',
   visit_donate: 'pill-green', donation_collected: 'pill-green', promise_to_pay: 'pill-blue',
   payment_pending: 'pill-yellow', already_donated: 'pill-gray', not_interested: 'pill-red',
   not_interested_now: 'pill-red', language_barrier: 'pill-gray', transferred_senior: 'pill-blue',
@@ -130,6 +131,8 @@ export default function MyDonors() {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const prevActionRef = useRef(null);
+  const [showConfirmPrev, setShowConfirmPrev] = useState(false);
   const [showDonationModal, setShowDonationModal] = useState(false);
   const [donations, setDonations] = useState([]);
   const [donationYear, setDonationYear] = useState('this_year');
@@ -145,8 +148,12 @@ export default function MyDonors() {
   const searchRef = useRef(null);
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
+  const pendingSelectRef = useRef(null);
   const [stations, setStations] = useState([]);
-  const [selectedStation, setSelectedStation] = useState('all');
+  const VIEW_STATE_KEY = 'mydonors_view_state';
+  const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
+  const [selectedStation, setSelectedStation] = useState(savedView?.selectedStation || 'all');
+  const [selectedNgo, setSelectedNgo] = useState(savedView?.selectedNgo || null);
   const { isOnCall, activeCall, startCall, endCall, todayStats, startDonorView, endDonorView } = useCall();
 
   useEffect(() => {
@@ -165,6 +172,19 @@ export default function MyDonors() {
         setDonors(sortedDonors);
         setMessage(null);
         let restored = false;
+
+        // Apply pending selection from Search All navigation (highest priority)
+        if (pendingSelectRef.current) {
+          const { donorId } = pendingSelectRef.current;
+          const found = sortedDonors.findIndex(d => d.id === donorId);
+          if (found >= 0) {
+            setIndex(found);
+            restored = true;
+          } else {
+            setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+          }
+          pendingSelectRef.current = null;
+        }
 
         // Restore from localStorage snapshot (captured before state changes)
         if (savedSnapshot) {
@@ -223,7 +243,7 @@ export default function MyDonors() {
     })();
 
     return () => { cancelled = true; };
-  }, [dataTab, selectedStation]);
+  }, [dataTab, selectedStation, selectedNgo]);
 
   useEffect(() => {
     if (donors.length > 0 && index >= donors.length) {
@@ -246,18 +266,28 @@ export default function MyDonors() {
   }, [index, donors, endDonorView, startDonorView]);
 
   useEffect(() => {
-    getMyStations().then(s => { setStations(Array.isArray(s) ? s : []); }).catch((err) => { console.error('API error:', err.message); });
+    getMyStations().then(s => {
+      const arr = Array.isArray(s) ? s : [];
+      setStations(arr);
+      if (!savedView?.selectedNgo) {
+        const ngoMap = {};
+        arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+        const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+        if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+      }
+    }).catch((err) => { console.error('API error:', err.message); });
   }, []);
 
   const stationOpts = (tab, station) => {
     const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
     if (station && station !== 'all') opts.station = station;
+    if (selectedNgo) opts.ngoId = selectedNgo;
     return opts;
   };
 
   const reloadDonors = useCallback(() => {
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(filterAndSortDonors(r)); }).catch((err) => { console.error('API error:', err.message); });
-  }, [dataTab, selectedStation]);
+  }, [dataTab, selectedStation, selectedNgo]);
 
   const debouncedReload = useCallback(() => {
     if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
@@ -299,6 +329,7 @@ export default function MyDonors() {
 
   const progressRef = useRef({ donor, index, dataTab });
   progressRef.current = { donor, index, dataTab };
+  const formStateRef = useRef({});
   useEffect(() => {
     const handleBeforeUnload = () => {
       const p = progressRef.current;
@@ -318,8 +349,13 @@ export default function MyDonors() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      saveViewState();
       const p = progressRef.current;
-      if (p.donor) saveProgress(p.dataTab, p.donor.id, p.index);
+      if (p.donor) {
+        saveFormState();
+        localStorage.setItem(`${p.dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: p.donor.id, idx: p.index }));
+        saveProgress(p.dataTab, p.donor.id, p.index);
+      }
     };
   }, [stationKey, selectedStation]);
   const logs = detail?.logs || [];
@@ -331,7 +367,153 @@ export default function MyDonors() {
     setLeadScreenshot(null); setScreenshotPreview(null); setLeadAddress(''); setLeadPan(''); setPanError('');
     setLeadDob(''); setProjectName(''); setLeadAmount(''); setLeadRemark(''); setShowRemark(false);
     setUpiTransactionId(''); setTransactionDatetime(''); setOcrFromName(''); setOcrLoading(false);
+    setShowDonationPrompt(false); setDonationEntering(false); setDonationAmt(''); setDonationSaving(false);
+    setDonationDt(new Date().toISOString().slice(0, 10));
     setMessage(null);
+  };
+
+  const formStateKey = (donorId) => `mydonors_form_state_${donorId}`;
+
+  const saveFormState = () => {
+    const f = formStateRef.current;
+    if (!f.donor) return;
+    const state = {
+      selected: f.selected, notes: f.notes, scheduledDate: f.scheduledDate, scheduledTime: f.scheduledTime, dateConfirmed: f.dateConfirmed, callbackTime: f.callbackTime,
+      leadScreenshot: f.leadScreenshot, screenshotPreview: f.screenshotPreview, leadAddress: f.leadAddress, leadPan: f.leadPan, panError: f.panError,
+      leadDob: f.leadDob, projectName: f.projectName, leadAmount: f.leadAmount, leadRemark: f.leadRemark, showRemark: f.showRemark,
+      upiTransactionId: f.upiTransactionId, transactionDatetime: f.transactionDatetime, ocrFromName: f.ocrFromName,
+      showDonationPrompt: f.showDonationPrompt, donationEntering: f.donationEntering, donationAmt: f.donationAmt, donationDt: f.donationDt,
+    };
+    localStorage.setItem(formStateKey(f.donor.id), JSON.stringify(state));
+  };
+
+  const restoreFormState = () => {
+    if (!donor) return;
+    const saved = localStorage.getItem(formStateKey(donor.id));
+    if (!saved) return;
+    try {
+      const s = JSON.parse(saved);
+      setSelected(s.selected);
+      setNotes(s.notes || '');
+      setScheduledDate(s.scheduledDate || '');
+      setScheduledTime(s.scheduledTime || '');
+      setDateConfirmed(s.dateConfirmed || false);
+      setCallbackTime(s.callbackTime || '');
+      setLeadScreenshot(s.leadScreenshot || null);
+      setScreenshotPreview(s.screenshotPreview || null);
+      setLeadAddress(s.leadAddress || '');
+      setLeadPan(s.leadPan || '');
+      setPanError(s.panError || '');
+      setLeadDob(s.leadDob || '');
+      setProjectName(s.projectName || '');
+      setLeadAmount(s.leadAmount || '');
+      setLeadRemark(s.leadRemark || '');
+      setShowRemark(s.showRemark || false);
+      setUpiTransactionId(s.upiTransactionId || '');
+      setTransactionDatetime(s.transactionDatetime || '');
+      setOcrFromName(s.ocrFromName || '');
+      setShowDonationPrompt(s.showDonationPrompt || false);
+      setDonationEntering(s.donationEntering || false);
+      setDonationAmt(s.donationAmt || '');
+      setDonationDt(s.donationDt || new Date().toISOString().slice(0, 10));
+    } catch (e) { /* ignore */ }
+  };
+
+  const clearFormState = () => {
+    if (!donor) return;
+    localStorage.removeItem(formStateKey(donor.id));
+    resetFormState();
+  };
+
+  const saveViewState = () => {
+    localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
+      selectedStation, selectedNgo, dataTab,
+      donorId: donor?.id || null,
+      donorIdx: donor ? index : null,
+    }));
+  };
+
+  useEffect(() => {
+    if (donor) restoreFormState();
+  }, [donor?.id]);
+
+  const [donorTypeSaving, setDonorTypeSaving] = useState(false);
+  const [showDonationPrompt, setShowDonationPrompt] = useState(false);
+  const [donationAmt, setDonationAmt] = useState('');
+  const [donationDt, setDonationDt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [donationSaving, setDonationSaving] = useState(false);
+  const [donationEntering, setDonationEntering] = useState(false);
+  const handleDonorTypeChange = async (e) => {
+    const newType = e.target.value;
+    if (!donor || !newType || newType === (donor.donor_type || '')) return;
+    const donorId = donor.id;
+    const prevType = donor.donor_type;
+    setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: newType } : d));
+    setDonorTypeSaving(true);
+    try {
+      await updateDonorType(donorId, newType);
+      setShowDonationPrompt(true);
+      setDonationEntering(false);
+      setDonationAmt('');
+      setDonationDt(new Date().toISOString().slice(0, 10));
+      setMessage(null);
+    } catch (err) {
+      console.error('updateDonorType error:', err.message);
+      setDonors(prev => prev.map(d => d.id === donorId ? { ...d, donor_type: prevType } : d));
+      setMessage({ type: 'error', text: 'Failed to update donor type' });
+    } finally {
+      setDonorTypeSaving(false);
+    }
+  };
+
+  const handleDonationYes = () => {
+    setDonationEntering(true);
+    setDonationAmt('');
+    setDonationDt(new Date().toISOString().slice(0, 10));
+  };
+
+  const handleDonationNo = () => {
+    setShowDonationPrompt(false);
+    setDonationEntering(false);
+    setDonationAmt('');
+  };
+
+  const handleDonationSave = async () => {
+    if (!donationAmt || isNaN(donationAmt) || Number(donationAmt) <= 0) {
+      setMessage({ type: 'error', text: 'Enter a valid donation amount' });
+      return;
+    }
+    if (!donationDt) {
+      setMessage({ type: 'error', text: 'Select donation date' });
+      return;
+    }
+    setDonationSaving(true);
+    setMessage(null);
+    try {
+      await addDonorLog(donor.id, {
+        action: 'donation',
+        amount_collected: Number(donationAmt),
+        transaction_datetime: new Date(donationDt).toISOString(),
+        notes: `Donation recorded (${donor.donor_type})`,
+        ngo_id: donor.ngo_id,
+      });
+      setShowDonationPrompt(false);
+      setDonationEntering(false);
+      setDonationAmt('');
+      setMessage({ type: 'success', text: 'Donation recorded' });
+      const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
+      const newDonors = filterAndSortDonors(refreshed);
+      setDonors(newDonors);
+      const nextIdx = findNextDonorIndex(newDonors, donor.id);
+      setIndex(nextIdx);
+      const nextDonor = newDonors[nextIdx];
+      if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+      clearFormState();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setDonationSaving(false);
+    }
   };
 
   const cancelledRef = useRef(false);
@@ -375,6 +557,8 @@ export default function MyDonors() {
       setProjectName(donor?.donor_project || '');
       setLeadAmount('');
       setPanError('');
+    } else if (detailId === 'done') {
+      setLeadAmount('');
     } else {
       setLeadScreenshot(null);
       setScreenshotPreview(null);
@@ -392,6 +576,13 @@ export default function MyDonors() {
   };
 
   const [screenshotPreview, setScreenshotPreview] = useState(null);
+  formStateRef.current = {
+    donor, selected, notes, scheduledDate, scheduledTime, dateConfirmed, callbackTime,
+    leadScreenshot, screenshotPreview, leadAddress, leadPan, panError,
+    leadDob, projectName, leadAmount, leadRemark, showRemark,
+    upiTransactionId, transactionDatetime, ocrFromName,
+    showDonationPrompt, donationEntering, donationAmt, donationDt,
+  };
 
   const handleScreenshotChange = (e) => {
     const file = e.target.files[0];
@@ -448,11 +639,7 @@ export default function MyDonors() {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
     if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
-    if (selected === 'lead_done' && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
-    if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
-    if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10 || !PAN_REGEX.test(leadPan))) { setMessage({ type: 'error', text: 'Enter a valid PAN (format: ABCDE1234F)' }); return; }
-    if (selected === 'lead_done' && !upiTransactionId) { setMessage({ type: 'error', text: 'Enter UPI transaction ID' }); return; }
-    if (selected === 'lead_done' && !transactionDatetime) { setMessage({ type: 'error', text: 'Enter transaction date & time' }); return; }
+    if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
 
     setSaving(true); setMessage(null);
     try {
@@ -484,6 +671,9 @@ export default function MyDonors() {
         logData.upi_transaction_id = upiTransactionId || null;
         logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
+      if (selected === 'done') {
+        logData.amount_collected = leadAmount !== '' ? Number(leadAmount) : null;
+      }
       await addDonorLog(donor.id, logData);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
@@ -507,7 +697,7 @@ export default function MyDonors() {
         const nextDonor = newDonors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
       }
-      resetFormState();
+      clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
     } finally { setSaving(false); }
@@ -536,6 +726,22 @@ export default function MyDonors() {
     if (actualIdx >= 0) {
       setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
       setIndex(actualIdx);
+    } else if (donorId && (r?.batch_type || r?.station || r?.ngo_id)) {
+      const targetTab = r.batch_type === 'old_data' ? 'old' : 'new';
+      const targetNgo = r.ngo_id || selectedNgo;
+      const validStation = r.station && stations.some(s => s.station === r.station && (!targetNgo || s.ngo_id === targetNgo));
+      const targetStation = validStation ? r.station : 'all';
+      const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
+      if (!needsReload) {
+        setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+      } else {
+        if (donor) setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
+        pendingSelectRef.current = { donorId, ngoId: targetNgo };
+        if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); }
+        if (targetNgo !== selectedNgo) setSelectedNgo(targetNgo);
+        if (targetStation !== selectedStation) setSelectedStation(targetStation);
+        if (targetTab !== dataTab) switchTab(targetTab);
+      }
     } else {
       setMessage({ type: 'error', text: 'Donor not in current list. Try navigating to the correct view.' });
     }
@@ -608,7 +814,12 @@ export default function MyDonors() {
                 ? 'New data will appear here once distributed to your station.'
                 : 'Old data will appear here once uploaded to your station.'}
             </div>
-            {dataTab === 'old' && (
+            {dataTab === 'new' ? (
+              <button onClick={() => switchTab('old')} className="fro-empty-switch">
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
+                Try Old Data tab
+              </button>
+            ) : (
               <button onClick={() => switchTab('new')} className="fro-empty-switch">
                 <span className="material-symbols-outlined" style={{ fontSize: 13 }}>fiber_new</span>
                 Try New Data tab
@@ -733,8 +944,8 @@ export default function MyDonors() {
             <div style={{ margin: '10px 0', borderRadius: 10, overflow: 'hidden', display: 'flex', gap: 6 }}>
               <div style={{ flex: 1, borderRadius: 10, overflow: 'hidden' }}>
                 {isOnCall && activeCall?.donorId === donor.id ? (
-                  <button onClick={(e) => { e.stopPropagation(); endCall() }}
-                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
+                  <button onClick={(e) => { e.stopPropagation(); endCall() }} disabled={saving}
+                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .5 : 1, display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#fff' }}>call_end</span>
                     </div>
@@ -744,8 +955,8 @@ export default function MyDonors() {
                     </div>
                   </button>
                 ) : (
-                  <button onClick={(e) => { e.stopPropagation(); startCall(donor) }}
-                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
+                  <button onClick={(e) => { e.stopPropagation(); startCall(donor) }} disabled={saving}
+                    style={{ width: '100%', padding: '10px 14px', border: 'none', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .5 : 1, display: 'flex', alignItems: 'center', gap: 8, transition: 'all .15s' }}>
                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#fff' }}>call</span>
                     </div>
@@ -756,7 +967,7 @@ export default function MyDonors() {
                   </button>
                 )}
               </div>
-              <button onClick={(e) => { e.stopPropagation(); navigate(`/fro/whatsapp-chat?phone=${donor.donor_mobile || ''}&project=${donor.donor_project || ''}`) }}
+              <button onClick={(e) => { e.stopPropagation(); saveFormState(); saveViewState(); saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); navigate(getWhatsAppChatUrl(donor)) }}
                 style={{ width: 48, border: 'none', borderRadius: 10, background: 'linear-gradient(135deg, #25D366 0%, #1da851 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
               </button>
@@ -771,6 +982,70 @@ export default function MyDonors() {
                 <div className="fld fld-sm">
                   <label>Amount</label>
                   <div>₹{Number(donor.donor_amount || 0).toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+              <div className="detail-field-row">
+                <div className="fld">
+                  <label>Donor Type {donorTypeSaving && <span style={{ fontSize: 8, opacity: .5 }}>saving…</span>}</label>
+                  <select value={donor.donor_type || ''} onChange={handleDonorTypeChange} disabled={donorTypeSaving}>
+                    <option value="">— Select —</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="yearly">Yearly</option>
+                    <option value="one_time">One Time</option>
+                  </select>
+                  {showDonationPrompt && (
+                    <div style={{ marginTop: 8, background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0', overflow: 'hidden' }}>
+                      {!donationEntering ? (
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 5 }}>
+                            Has this donor donated?
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={handleDonationYes}
+                              style={{ padding: '5px 16px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+                              Yes
+                            </button>
+                            <button onClick={handleDonationNo}
+                              style={{ padding: '5px 16px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', color: 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                              No
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '8px 10px' }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#166534', marginBottom: 6 }}>
+                            Donation Details
+                          </div>
+                          <div className="detail-field-row" style={{ marginBottom: 4 }}>
+                            <div className="fld">
+                              <label>Amount (₹)</label>
+                              <input type="number" min="0" placeholder="e.g. 5000"
+                                value={donationAmt} onChange={e => setDonationAmt(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box' }} />
+                            </div>
+                            <div className="fld">
+                              <label>Date</label>
+                              <input type="date" value={donationDt} onChange={e => setDonationDt(e.target.value)}
+                                style={{ width: '100%', boxSizing: 'border-box' }} />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={handleDonationSave} disabled={donationSaving || !donationAmt || !donationDt}
+                              style={{ flex: 1, padding: '6px 14px', border: 'none', borderRadius: 5, background: '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', cursor: donationSaving || !donationAmt || !donationDt ? 'not-allowed' : 'pointer', opacity: donationSaving || !donationAmt || !donationDt ? 0.5 : 1 }}>
+                              {donationSaving ? 'Saving...' : 'Save Donation'}
+                            </button>
+                            {!donationSaving && (
+                              <button onClick={() => setDonationEntering(false)}
+                                style={{ padding: '5px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                                Back
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="detail-field-row">
@@ -836,15 +1111,36 @@ export default function MyDonors() {
 
         {/* MIDDLE PANEL — Status (55%) */}
         <div className="detail-mid" style={{ padding: '12px 0 12px 8px' }}>
+          {/* NGO Tabs — only shown when FRO is assigned to multiple NGOs */}
+          {(() => {
+            const ngoMap = {};
+            stations.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
+            const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
+            if (ngoList.length <= 1) return null;
+            return (
+              <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+                {ngoList.map(n => (
+                  <button key={n.ngo_id} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(n.ngo_id); setSelectedStation('all'); }}
+                    className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
+                    style={{ fontSize: 10 }}>
+                    {n.ngo_name}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {/* Station Tabs */}
-          {stations.length > 1 && (
+          {(() => {
+            const filteredStations = stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station);
+            if (filteredStations.length <= 1) return null;
+            return (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
               <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
                 className={`fro-tab-btn ${selectedStation === 'all' ? 'fro-tab-active-new' : ''}`}
                 style={{ fontSize: 10 }}>
                 All Stations
               </button>
-              {stations.map(s => (
+              {filteredStations.map(s => (
                 <button key={s} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation(s) }}
                   className={`fro-tab-btn ${selectedStation === s ? 'fro-tab-active-old' : ''}`}
                   style={{ fontSize: 10 }}>
@@ -853,7 +1149,8 @@ export default function MyDonors() {
                 </button>
               ))}
             </div>
-          )}
+            );
+          })()}
           {/* New/Old Data Tabs */}
           <div className="fro-tab-segment">
             <button onClick={() => switchTab('new')}
@@ -965,6 +1262,16 @@ export default function MyDonors() {
                   <div className="fld">
                     <label>Callback Time (Today)</label>
                     <TimePicker value={callbackTime} onChange={e => setCallbackTime(e.target.value)} placeholder="Select time" />
+                  </div>
+                </div>
+              )}
+
+              {selected === 'done' && (
+                <div className="detail-field-row">
+                  <div className="fld">
+                    <label>Amount Collected</label>
+                    <input type="number" min="0" value={leadAmount}
+                      onChange={e => setLeadAmount(e.target.value)} placeholder="e.g. 5000" />
                   </div>
                 </div>
               )}
@@ -1119,6 +1426,9 @@ export default function MyDonors() {
                               {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
                             </span>
                           )}
+                          {log.disposition_detail === 'done' && (
+                            <span style={{ fontSize: 8, fontWeight: 700, background: '#f0fdf4', color: 'var(--sage)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>Collected</span>
+                          )}
                         </div>
                       </div>
                     );
@@ -1140,18 +1450,33 @@ export default function MyDonors() {
     </div>
 
     <div className="fro-action-bar">
-      <button className="btn-prev" disabled={index === 0} onClick={() => { if (donor) saveProgress(dataTab, donor.id, index); endDonorView(isOnCall && activeCall?.donorId === donor.id); resetFormState(); setIndex(i => i - 1) }}>
+      <button className="btn-prev" disabled={index === 0 || saving} onClick={() => {
+        if (selected) {
+          prevActionRef.current = () => {
+            if (donor) saveProgress(dataTab, donor.id, index);
+            endDonorView(isOnCall && activeCall?.donorId === donor.id);
+            resetFormState();
+            setIndex(i => i - 1);
+          };
+          setShowConfirmPrev(true);
+          return;
+        }
+        if (donor) saveProgress(dataTab, donor.id, index);
+        endDonorView(isOnCall && activeCall?.donorId === donor.id);
+        resetFormState();
+        setIndex(i => i - 1);
+      }}>
         <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_back</span> Prev
       </button>
 
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', paddingRight: 4 }}>
         {isOnCall && activeCall?.donorId === donor.id ? (
-          <button onClick={endCall} className="fro-btn-end-call">
+          <button onClick={endCall} disabled={saving} className="fro-btn-end-call" style={saving ? { opacity: .5, cursor: 'not-allowed' } : undefined}>
             <span className="fro-pulse-dot" />
             End Call
           </button>
         ) : (
-          <button onClick={() => startCall(donor)} className="fro-btn-call">
+          <button onClick={() => startCall(donor)} disabled={saving} className="fro-btn-call" style={saving ? { opacity: .5, cursor: 'not-allowed' } : undefined}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>call</span>
             Call Now
           </button>
@@ -1216,6 +1541,27 @@ export default function MyDonors() {
           </div>
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
             Total: ₹{Math.round(donations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
+          </div>
+        </div>
+      </div>
+    )}
+    {showConfirmPrev && (
+      <div className="modal-overlay" onClick={() => setShowConfirmPrev(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+          <div className="modal-body" style={{ textAlign: 'center', padding: '24px 22px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 36, color: '#f59e0b' }}>warning</span>
+            <h3 style={{ margin: '10px 0 4px', fontSize: 15, fontWeight: 700 }}>Discard Disposition?</h3>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>You have an unsaved disposition selection. Changing leads will discard it.</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 18 }}>
+              <button className="btn" onClick={() => setShowConfirmPrev(false)}
+                style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button className="btn" onClick={() => { setShowConfirmPrev(false); prevActionRef.current?.(); }}
+                style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', background: '#dc2626', color: '#fff', border: 'none' }}>
+                Discard
+              </button>
+            </div>
           </div>
         </div>
       </div>
