@@ -544,7 +544,6 @@ export const getMyDonors = async (req, res) => {
     const statusGroup = req.query.status_group;
 
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
-    if (stationNames.length === 0) return res.json([]);
 
     let effectiveScope = myScope;
     let effectiveStations = stationNames;
@@ -553,107 +552,131 @@ export const getMyDonors = async (req, res) => {
       effectiveStations = effectiveScope.map(s => s.station);
     }
 
-    let query = supabase
-      .from('fro_assignments')
-      .select('*, ngos(name)')
-      .in('station', effectiveStations)
-      .not('status', 'eq', 'reassigned');
-    query = withStationNgoPairs(query, effectiveScope);
-
-    if (req.query.station) {
-      query = query.eq('station', req.query.station);
-      effectiveScope = effectiveScope.filter(s => s.station === req.query.station);
-      effectiveStations = [req.query.station];
-    }
-
-    if (statusGroup === 'not_connected') {
-      query = query.in('status', NOT_CONNECTED_STATUSES);
-    } else if (statusGroup === 'connected') {
-      query = query.in('status', CONNECTED_STATUSES);
-    } else if (statusFilter) {
-      query = query.eq('status', statusFilter);
-    }
-
-    if (req.query.new_only === 'true') {
-      if (req.query.station) {
-        query = query.eq('batch_type', 'new_data');
-      } else {
-        const batchIds = [];
-        for (const sc of effectiveScope) {
-          try {
-            let batchQ = supabase
-              .from('fro_assignments')
-              .select('batch_id')
-              .eq('station', sc.station)
-              .eq('batch_type', 'new_data')
-              .not('status', 'eq', 'reassigned')
-              .order('assigned_at', { ascending: false })
-              .limit(1);
-            if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-            const { data: lb } = await batchQ.maybeSingle();
-            if (lb?.batch_id) batchIds.push(lb.batch_id);
-          } catch (e) {
-            console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-          }
-        }
-        if (batchIds.length > 0) {
-          query = query.in('batch_id', [...new Set(batchIds)]);
-        } else {
-          query = query.eq('batch_type', 'new_data');
-        }
-      }
-    } else if (req.query.old_only === 'true') {
-      if (req.query.station) {
-        query = query.eq('batch_type', 'old_data');
-      } else {
-        const batchIds = [];
-        for (const sc of effectiveScope) {
-          try {
-            let batchQ = supabase
-              .from('fro_assignments')
-              .select('batch_id')
-              .eq('station', sc.station)
-              .eq('batch_type', 'old_data')
-              .not('status', 'eq', 'reassigned')
-              .order('assigned_at', { ascending: false })
-              .limit(1);
-            if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-            const { data: lb } = await batchQ.maybeSingle();
-            if (lb?.batch_id) batchIds.push(lb.batch_id);
-          } catch (e) {
-            console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-          }
-        }
-        if (batchIds.length > 0) {
-          query = query.in('batch_id', [...new Set(batchIds)]);
-        } else {
-          query = query.eq('batch_type', 'old_data');
-        }
-      }
-    }
-
     const DONOR_LIMIT = 500;
-    query = query.limit(DONOR_LIMIT);
-    let { data: assignments, error: qErr } = await query;
-    if (qErr) {
-      console.error('getMyDonors main query error:', qErr);
-      query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+    let assignments = null;
+
+    // Primary: donors assigned to the worker's stations (fro_station_assignments scope)
+    if (effectiveStations.length > 0) {
+      let query = supabase
+        .from('fro_assignments')
+        .select('*, ngos(name)')
+        .in('station', effectiveStations)
+        .not('status', 'eq', 'reassigned');
       query = withStationNgoPairs(query, effectiveScope);
-      if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
-      else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
-      const { data: retry } = await query;
-      assignments = retry || [];
+
+      if (req.query.station) {
+        query = query.eq('station', req.query.station);
+        effectiveScope = effectiveScope.filter(s => s.station === req.query.station);
+        effectiveStations = [req.query.station];
+      }
+
+      if (statusGroup === 'not_connected') {
+        query = query.in('status', NOT_CONNECTED_STATUSES);
+      } else if (statusGroup === 'connected') {
+        query = query.in('status', CONNECTED_STATUSES);
+      } else if (statusFilter) {
+        query = query.eq('status', statusFilter);
+      }
+
+      if (req.query.new_only === 'true') {
+        if (req.query.station) {
+          query = query.eq('batch_type', 'new_data');
+        } else {
+          const batchIds = [];
+          for (const sc of effectiveScope) {
+            try {
+              let batchQ = supabase
+                .from('fro_assignments')
+                .select('batch_id')
+                .eq('station', sc.station)
+                .eq('batch_type', 'new_data')
+                .not('status', 'eq', 'reassigned')
+                .order('assigned_at', { ascending: false })
+                .limit(1);
+              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+              const { data: lb } = await batchQ.maybeSingle();
+              if (lb?.batch_id) batchIds.push(lb.batch_id);
+            } catch (e) {
+              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+            }
+          }
+          if (batchIds.length > 0) {
+            query = query.in('batch_id', [...new Set(batchIds)]);
+          } else {
+            query = query.eq('batch_type', 'new_data');
+          }
+        }
+      } else if (req.query.old_only === 'true') {
+        if (req.query.station) {
+          query = query.eq('batch_type', 'old_data');
+        } else {
+          const batchIds = [];
+          for (const sc of effectiveScope) {
+            try {
+              let batchQ = supabase
+                .from('fro_assignments')
+                .select('batch_id')
+                .eq('station', sc.station)
+                .eq('batch_type', 'old_data')
+                .not('status', 'eq', 'reassigned')
+                .order('assigned_at', { ascending: false })
+                .limit(1);
+              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+              const { data: lb } = await batchQ.maybeSingle();
+              if (lb?.batch_id) batchIds.push(lb.batch_id);
+            } catch (e) {
+              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+            }
+          }
+          if (batchIds.length > 0) {
+            query = query.in('batch_id', [...new Set(batchIds)]);
+          } else {
+            query = query.eq('batch_type', 'old_data');
+          }
+        }
+      }
+
+      query = query.limit(DONOR_LIMIT);
+      let { data, error: qErr } = await query;
+      if (qErr) {
+        console.error('getMyDonors main query error:', qErr);
+        query = supabase.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+        query = withStationNgoPairs(query, effectiveScope);
+        if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
+        else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
+        const { data: retry } = await query;
+        data = retry || [];
+      }
+      assignments = data || [];
     }
 
+    // Fallback: the worker's own assignments. This covers workers who have data
+    // assigned via fro_assignments.fro_worker_id but no matching row in
+    // fro_station_assignments (e.g. station assignment missing/mismatched),
+    // which previously made both tabs always empty.
     if (!assignments || assignments.length === 0) {
       let byWorkerQ = supabase
         .from('fro_assignments')
         .select('*, ngos(name)')
         .eq('fro_worker_id', workerId)
-        .in('station', effectiveStations)
         .not('status', 'eq', 'reassigned')
         .limit(DONOR_LIMIT);
-      byWorkerQ = withStationNgoPairs(byWorkerQ, effectiveScope);
+      if (effectiveStations.length > 0) {
+        byWorkerQ = byWorkerQ.in('station', effectiveStations);
+        byWorkerQ = withStationNgoPairs(byWorkerQ, effectiveScope);
+      } else {
+        if (req.query.station) byWorkerQ = byWorkerQ.eq('station', req.query.station);
+        if (req.query.ngo_id) byWorkerQ = byWorkerQ.eq('ngo_id', req.query.ngo_id);
+      }
+      if (statusGroup === 'not_connected') {
+        byWorkerQ = byWorkerQ.in('status', NOT_CONNECTED_STATUSES);
+      } else if (statusGroup === 'connected') {
+        byWorkerQ = byWorkerQ.in('status', CONNECTED_STATUSES);
+      } else if (statusFilter) {
+        byWorkerQ = byWorkerQ.eq('status', statusFilter);
+      }
+      if (req.query.new_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'new_data');
+      else if (req.query.old_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'old_data');
       const { data: byWorker } = await byWorkerQ;
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
