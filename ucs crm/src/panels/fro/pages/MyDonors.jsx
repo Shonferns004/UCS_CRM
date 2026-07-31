@@ -148,6 +148,7 @@ export default function MyDonors() {
   const searchRef = useRef(null);
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
+  const pendingSelectRef = useRef(null);
   const [stations, setStations] = useState([]);
   const VIEW_STATE_KEY = 'mydonors_view_state';
   const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
@@ -171,6 +172,19 @@ export default function MyDonors() {
         setDonors(sortedDonors);
         setMessage(null);
         let restored = false;
+
+        // Apply pending selection from Search All navigation (highest priority)
+        if (pendingSelectRef.current) {
+          const { donorId } = pendingSelectRef.current;
+          const found = sortedDonors.findIndex(d => d.id === donorId);
+          if (found >= 0) {
+            setIndex(found);
+            restored = true;
+          } else {
+            setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+          }
+          pendingSelectRef.current = null;
+        }
 
         // Restore from localStorage snapshot (captured before state changes)
         if (savedSnapshot) {
@@ -712,6 +726,22 @@ export default function MyDonors() {
     if (actualIdx >= 0) {
       setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
       setIndex(actualIdx);
+    } else if (donorId && (r?.batch_type || r?.station || r?.ngo_id)) {
+      const targetTab = r.batch_type === 'old_data' ? 'old' : 'new';
+      const targetNgo = r.ngo_id || selectedNgo;
+      const validStation = r.station && stations.some(s => s.station === r.station && (!targetNgo || s.ngo_id === targetNgo));
+      const targetStation = validStation ? r.station : 'all';
+      const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
+      if (!needsReload) {
+        setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+      } else {
+        if (donor) setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
+        pendingSelectRef.current = { donorId, ngoId: targetNgo };
+        if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); }
+        if (targetNgo !== selectedNgo) setSelectedNgo(targetNgo);
+        if (targetStation !== selectedStation) setSelectedStation(targetStation);
+        if (targetTab !== dataTab) switchTab(targetTab);
+      }
     } else {
       setMessage({ type: 'error', text: 'Donor not in current list. Try navigating to the correct view.' });
     }
