@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyDonors, getDonorDetail, getFullDonorHistory } from '../api/donors';
+import { getMyDonors, getDonorDetail, getFullDonorHistory, getDonorReceipts } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
 
@@ -31,6 +31,7 @@ export default function Donors() {
   const [modalDonor, setModalDonor] = useState(null);
   const [modalDetail, setModalDetail] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
+  const [receiptData, setReceiptData] = useState(null);
   const [historyFilter, setHistoryFilter] = useState('all');
   const [unlocked, setUnlocked] = useState(false);
   const [page, setPage] = useState(1);
@@ -54,6 +55,7 @@ export default function Donors() {
   const openModal = useCallback(async (d) => {
     setModalDonor(d);
     setModalDetail(null);
+    setReceiptData(null);
     setHistoryFilter('all');
     setUnlocked(false);
     setModalLoading(true);
@@ -63,12 +65,19 @@ export default function Donors() {
     } catch {
       setModalDetail({ logs: [] });
     }
+    try {
+      const data = await getDonorReceipts(d.id);
+      setReceiptData(data);
+    } catch {
+      // receipts optional
+    }
     setModalLoading(false);
   }, []);
 
   const closeModal = useCallback(() => {
     setModalDonor(null);
     setModalDetail(null);
+    setReceiptData(null);
     setHistoryFilter('all');
     setUnlocked(false);
   }, []);
@@ -368,6 +377,23 @@ export default function Donors() {
                 </table>
               )}
             </div>
+
+            {receiptData && receiptData.receipts && receiptData.receipts.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--line)', marginTop: 8 }}>
+                <div style={{ padding: '10px 16px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>
+                  Receipts from Accounts ({receiptData.count}) &middot; Total: ₹{receiptData.totalAmount.toLocaleString('en-IN')}
+                </div>
+                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {receiptData.receipts.map(r => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderTop: '1px solid var(--line)', fontSize: 11 }}>
+                      <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--ink)', minWidth: 70 }}>{r.receipt_no}</span>
+                      <span style={{ color: 'var(--ink-soft)', minWidth: 90 }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+                      <span style={{ fontWeight: 700, color: 'var(--sage)', marginLeft: 'auto' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

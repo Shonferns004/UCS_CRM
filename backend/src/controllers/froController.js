@@ -138,9 +138,16 @@ async function getMyStationScope(workerId) {
 
 function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol = 'ngo_id') {
   if (!scope || scope.length === 0) return queryBuilder;
-  const pairs = scope.filter(s => s.ngo_id && s.station).map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
-  if (pairs.length === 0) return queryBuilder;
-  return queryBuilder.or(pairs.join(','));
+  const validPairs = scope.filter(s => s.ngo_id && s.station);
+  if (validPairs.length === 0) return queryBuilder;
+  const stations = [...new Set(validPairs.map(s => s.station))];
+  queryBuilder = queryBuilder.in(stationCol, stations);
+  const hasDotCol = stationCol.includes('.') || ngoCol.includes('.');
+  if (!hasDotCol) {
+    const pairs = validPairs.map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
+    queryBuilder = queryBuilder.or(pairs.join(','));
+  }
+  return queryBuilder;
 }
 
 async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
@@ -1052,6 +1059,41 @@ export const getDonorLogs = async (req, res) => {
       logs = await findLogsByAssignment(assignment.id);
       totalCollected = await getTotalCollectedByAssignment(assignment.id);
       nextSchedule = await getScheduledByAssignment(assignment.id);
+    }
+
+    const { data: receipts } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    if (receipts && receipts.length > 0) {
+      const receiptLogs = receipts.map(r => ({
+        id: `receipt_${r.id}`,
+        assignment_id: assignment?.id || null,
+        amount_collected: parseFloat(r.amount || 0),
+        payment_mode: r.mode || '—',
+        mode: r.mode || '—',
+        accounts_status: 'verified',
+        created_at: r.receipt_date || r.created_at,
+        upi_transaction_id: r.payment_id || null,
+        payment_id: r.payment_id || null,
+        receipt_no: r.receipt_no || null,
+        donor_name: r.donor_name || null,
+        project_id: r.project_id || null,
+        action: 'donation',
+        transaction_datetime: r.receipt_date || r.created_at,
+        verified_at: r.receipt_date || r.created_at,
+        agent_name: r.agent_name || null,
+      }));
+      if (assignment) {
+        const nonDonationLogs = logs.filter(l => l.action !== 'donation' && !(l.disposition_detail === 'lead_done' && l.accounts_status === 'verified'));
+        logs = [...nonDonationLogs, ...receiptLogs];
+        logs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      } else {
+        logs = receiptLogs;
+      }
+      totalCollected = receipts.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
     }
 
     return res.json({ logs, total_collected: totalCollected, next_schedule: nextSchedule });
@@ -2175,21 +2217,25 @@ export const searchDonors = async (req, res) => {
 
     const searchTerm = `%${q.trim()}%`;
 
-    const { data: donorIdsFromStation } = await withStationNgoPairs(
-      supabase
-        .from('fro_assignments')
-        .select('donor_id')
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
-      myScope
-    );
-    const stationDonorIds = [...new Set((donorIdsFromStation || []).map(a => a.donor_id).filter(Boolean))];
-    if (stationDonorIds.length === 0) return res.json([]);
+    const { data: donorIdsFromStation } = await supabase
+      .from('fro_assignments')
+      .select('donor_id, ngo_id, station')
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
+
+    const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+    const donorIdsInScope = [...new Set(
+      (donorIdsFromStation || [])
+        .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
+        .map(a => a.donor_id)
+        .filter(Boolean)
+    )];
+    if (donorIdsInScope.length === 0) return res.json([]);
 
     const { data: donors, error } = await supabase
       .from('donor_profiles')
       .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
-      .in('id', stationDonorIds)
+      .in('id', donorIdsInScope)
       .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
       .limit(20);
 
@@ -2198,21 +2244,20 @@ export const searchDonors = async (req, res) => {
 
     const matchedIds = donors.map(d => d.id);
 
-    const { data: assignments, error: asgnError } = await withStationNgoPairs(
-      supabase
-        .from('fro_assignments')
-        .select('*, ngos!inner(name)')
-        .in('donor_id', matchedIds)
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
-      myScope
-    );
+    const { data: assignments, error: asgnError } = await supabase
+      .from('fro_assignments')
+      .select('*, ngos!inner(name)')
+      .in('donor_id', matchedIds)
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
     if (asgnError) throw asgnError;
+
+    const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
 
     const result = [];
     const seen = new Set();
     for (const d of donors) {
-      const matchingAssignments = (assignments || []).filter(a => a.donor_id === d.id);
+      const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
       if (matchingAssignments.length === 0) continue;
       for (const a of matchingAssignments) {
         const key = `${d.id}-${a.ngo_id}`;
@@ -2404,6 +2449,32 @@ export const getDonorDonations = async (req, res) => {
     return res.json(all);
   } catch (error) {
     console.error('getDonorDonations error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDonorReceipts = async (req, res) => {
+  try {
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+
+    const { data: receipts, error } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    if (error) throw error;
+
+    const totalAmount = (receipts || []).reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+
+    return res.json({
+      receipts: receipts || [],
+      count: receipts?.length || 0,
+      totalAmount,
+    });
+  } catch (error) {
+    console.error('getDonorReceipts error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

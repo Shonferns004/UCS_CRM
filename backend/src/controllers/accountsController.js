@@ -1238,6 +1238,62 @@ export const getDonorsList = async (req, res) => {
       .range(from, to);
 
     if (error) throw error;
+
+    const donorIds = (data || []).map(d => d.id).filter(Boolean);
+    if (donorIds.length > 0) {
+      const { data: assignments } = await supabase
+        .from('fro_assignments')
+        .select('donor_id, fro_worker_id, station, ngo_id')
+        .in('donor_id', donorIds)
+        .not('status', 'eq', 'reassigned');
+
+      const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
+      const ngoMap = {};
+      if (ngoIds.length > 0) {
+        const { data: ngos } = await supabase
+          .from('ngos')
+          .select('id, name')
+          .in('id', ngoIds);
+        for (const n of ngos || []) ngoMap[n.id] = n.name;
+      }
+
+      const workerIds = [...new Set((assignments || []).map(a => a.fro_worker_id).filter(Boolean))];
+      const workerMap = {};
+      if (workerIds.length > 0) {
+        const { data: workers } = await supabase
+          .from('workers')
+          .select('id, name')
+          .in('id', workerIds);
+        for (const w of workers || []) workerMap[w.id] = w.name;
+      }
+
+      const donorNgoMap = {};
+      const donorAssignmentMap = {};
+      for (const a of assignments || []) {
+        if (!donorNgoMap[a.donor_id]) donorNgoMap[a.donor_id] = new Set();
+        const ngoName = ngoMap[a.ngo_id];
+        if (ngoName) donorNgoMap[a.donor_id].add(ngoName);
+
+        if (!donorAssignmentMap[a.donor_id]) donorAssignmentMap[a.donor_id] = [];
+        const name = workerMap[a.fro_worker_id];
+        if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'}) — ${ngoName || a.ngo_id}`);
+      }
+
+      for (const d of data || []) {
+        const labels = donorAssignmentMap[d.id];
+        d.assigned_to = labels && labels.length > 0 ? [...new Set(labels)].join(', ') : null;
+
+        const ngoFromAssignments = donorNgoMap[d.id];
+        if (ngoFromAssignments && ngoFromAssignments.size > 0) {
+          if (d.ngo && ngoFromAssignments.has(d.ngo)) {
+            d.ngo = d.ngo;
+          } else {
+            d.ngo = [...ngoFromAssignments].join(', ');
+          }
+        }
+      }
+    }
+
     return res.json({ data: data || [], total: count || 0, page: pageNum, limit: limitNum });
   } catch (error) {
     return res.status(500).json({ message: error.message });
