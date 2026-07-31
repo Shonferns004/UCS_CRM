@@ -2231,6 +2231,7 @@ export const searchDonors = async (req, res) => {
           ngo_name: a.ngos?.name || 'Unknown',
           assignment_id: a.id,
           station: a.station || '',
+          batch_type: a.batch_type || '',
           donor_name: d.name || 'Unknown',
           donor_mobile: d.mobile_number || '',
           donor_city: d.city || '',
