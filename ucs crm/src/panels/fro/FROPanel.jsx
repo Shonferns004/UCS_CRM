@@ -605,7 +605,7 @@ export default function FROPanel() {
           donorName={modalDonor.donor_name}
           donorMobile={modalDonor.donor_mobile}
           scheduledAt={modalDonor.scheduled_at}
-          onClose={() => { setModalNotifId(null); setModalDonor(null); }}
+          onClose={() => { setModalNotifId(null); setModalDonor(null); poppedIds.current.clear(); }}
           onDone={handlePopDone}
         />
       )}

@@ -35,18 +35,6 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   const { data: existing } = await query.maybeSingle();
   if (existing) return existing;
 
-  // Fallback: try without ngo_id filter (handles UUID vs integer mismatch)
-  if (ngoId) {
-    const { data: fallback } = await supabase
-      .from('fro_assignments')
-      .select('id, station')
-      .eq('donor_id', donorId)
-      .eq('fro_worker_id', workerId)
-      .not('status', 'eq', 'reassigned')
-      .maybeSingle();
-    if (fallback) return fallback;
-  }
-
   // Fallback: claim unassigned lead (fro_worker_id is null) in this FRO's station
   if (ngoId) {
     const { data: unassigned } = await supabase
@@ -204,17 +192,38 @@ export const getDashboard = async (req, res) => {
     // Count donors by this FRO's stations (from fro_assignments)
     const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
     let totalDonors = 0;
+    let assignedByNgo = {};
+    let assignedByStation = {};
+    let assignedByType = {};
     if (stationNames.length > 0) {
-      const { data: donorIds } = await withStationNgoPairs(
+      const { data: assignedRows } = await withStationNgoPairs(
         supabase
           .from('fro_assignments')
-          .select('donor_id')
+          .select('donor_id, ngo_id, station, batch_type')
           .in('station', stationNames)
           .not('status', 'eq', 'reassigned'),
         myScope
       );
-      totalDonors = new Set((donorIds || []).map(a => a.donor_id)).size;
+      const rows = assignedRows || [];
+      totalDonors = new Set(rows.map(a => a.donor_id)).size;
+      for (const row of rows) {
+        if (row.ngo_id) assignedByNgo[row.ngo_id] = (assignedByNgo[row.ngo_id] || 0) + 1;
+        if (row.station) assignedByStation[row.station] = (assignedByStation[row.station] || 0) + 1;
+        const type = row.batch_type || 'unknown';
+        assignedByType[type] = (assignedByType[type] || 0) + 1;
+      }
     }
+    const ngoIds = Object.keys(assignedByNgo).filter(Boolean);
+    const ngoMap = {};
+    if (ngoIds.length > 0) {
+      const { data: ngos } = await supabase.from('ngos').select('id, name').in('id', ngoIds);
+      for (const n of ngos || []) ngoMap[n.id] = n.name;
+    }
+    const assignedData = {
+      byNgo: Object.entries(assignedByNgo).map(([id, count]) => ({ ngo_id: id, ngo_name: ngoMap[id] || 'Unknown', count })),
+      byStation: Object.entries(assignedByStation).map(([station, count]) => ({ station, count })),
+      byType: Object.entries(assignedByType).map(([type, count]) => ({ type, count })),
+    };
 
     const stats = await getDashboardStats(workerId);
     stats.total = totalDonors;
@@ -460,6 +469,7 @@ export const getDashboard = async (req, res) => {
         used: dataUsed,
         unused: dataUnused,
       },
+      assignedData,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -525,7 +535,7 @@ export const getReactivatedDonors = async (req, res) => {
 };
 
 const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected'];
-const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
+const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
 
 export const getMyDonors = async (req, res) => {
   try {
@@ -552,6 +562,8 @@ export const getMyDonors = async (req, res) => {
 
     if (req.query.station) {
       query = query.eq('station', req.query.station);
+      effectiveScope = effectiveScope.filter(s => s.station === req.query.station);
+      effectiveStations = [req.query.station];
     }
 
     if (statusGroup === 'not_connected') {
@@ -563,52 +575,60 @@ export const getMyDonors = async (req, res) => {
     }
 
     if (req.query.new_only === 'true') {
-      const batchIds = [];
-      for (const sc of effectiveScope) {
-        try {
-          let batchQ = supabase
-            .from('fro_assignments')
-            .select('batch_id')
-            .eq('station', sc.station)
-            .eq('batch_type', 'new_data')
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1);
-          if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-          const { data: lb } = await batchQ.maybeSingle();
-          if (lb?.batch_id) batchIds.push(lb.batch_id);
-        } catch (e) {
-          console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-        }
-      }
-      if (batchIds.length > 0) {
-        query = query.in('batch_id', [...new Set(batchIds)]);
-      } else {
+      if (req.query.station) {
         query = query.eq('batch_type', 'new_data');
+      } else {
+        const batchIds = [];
+        for (const sc of effectiveScope) {
+          try {
+            let batchQ = supabase
+              .from('fro_assignments')
+              .select('batch_id')
+              .eq('station', sc.station)
+              .eq('batch_type', 'new_data')
+              .not('status', 'eq', 'reassigned')
+              .order('assigned_at', { ascending: false })
+              .limit(1);
+            if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+            const { data: lb } = await batchQ.maybeSingle();
+            if (lb?.batch_id) batchIds.push(lb.batch_id);
+          } catch (e) {
+            console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+          }
+        }
+        if (batchIds.length > 0) {
+          query = query.in('batch_id', [...new Set(batchIds)]);
+        } else {
+          query = query.eq('batch_type', 'new_data');
+        }
       }
     } else if (req.query.old_only === 'true') {
-      const batchIds = [];
-      for (const sc of effectiveScope) {
-        try {
-          let batchQ = supabase
-            .from('fro_assignments')
-            .select('batch_id')
-            .eq('station', sc.station)
-            .eq('batch_type', 'old_data')
-            .not('status', 'eq', 'reassigned')
-            .order('assigned_at', { ascending: false })
-            .limit(1);
-          if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
-          const { data: lb } = await batchQ.maybeSingle();
-          if (lb?.batch_id) batchIds.push(lb.batch_id);
-        } catch (e) {
-          console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
-        }
-      }
-      if (batchIds.length > 0) {
-        query = query.in('batch_id', [...new Set(batchIds)]);
-      } else {
+      if (req.query.station) {
         query = query.eq('batch_type', 'old_data');
+      } else {
+        const batchIds = [];
+        for (const sc of effectiveScope) {
+          try {
+            let batchQ = supabase
+              .from('fro_assignments')
+              .select('batch_id')
+              .eq('station', sc.station)
+              .eq('batch_type', 'old_data')
+              .not('status', 'eq', 'reassigned')
+              .order('assigned_at', { ascending: false })
+              .limit(1);
+            if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+            const { data: lb } = await batchQ.maybeSingle();
+            if (lb?.batch_id) batchIds.push(lb.batch_id);
+          } catch (e) {
+            console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+          }
+        }
+        if (batchIds.length > 0) {
+          query = query.in('batch_id', [...new Set(batchIds)]);
+        } else {
+          query = query.eq('batch_type', 'old_data');
+        }
       }
     }
 
@@ -736,6 +756,7 @@ export const getMyDonors = async (req, res) => {
         total_donated: d.total_amount || 0,
         last_donation_date: d.last_donation_date || null,
         first_donation_date: d.first_donation_date || null,
+        donor_frequency: d.donation_frequency || '',
         has_donated_current_fy: activeDonorIds.has(a.donor_id),
         is_active: activeDonorIds.has(a.donor_id),
         status: a.status || 'pending',
@@ -999,9 +1020,9 @@ export const updateDonorType = async (req, res) => {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { donor_type } = req.body;
-    const validTypes = ['monthly', 'quarterly', 'yearly'];
+    const validTypes = ['monthly', 'quarterly', 'yearly', 'one_time'];
     if (!donor_type || !validTypes.includes(donor_type)) {
-      return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly' });
+      return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly, one_time' });
     }
 
     const { data, error } = await supabase
@@ -1160,22 +1181,6 @@ export const createDonorLogHandler = async (req, res) => {
       });
     } else if (action === 'disposition' && disposition_detail) {
       await completeAllScheduledByAssignment(assignment.id);
-
-      // Also complete orphaned schedules linked to other assignments for this donor+FRO
-      const { data: allAsgn } = await supabase
-        .from('fro_assignments')
-        .select('id')
-        .eq('donor_id', donorId)
-        .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned');
-      if (allAsgn && allAsgn.length > 1) {
-        const allIds = allAsgn.map(a => a.id);
-        await supabase
-          .from('fro_scheduled_contacts')
-          .update({ is_completed: true, reminded: true })
-          .in('assignment_id', allIds)
-          .eq('is_completed', false);
-      }
 
       const statusFromDetail = dispositionDetailToStatus(disposition_detail);
       const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
@@ -1345,6 +1350,7 @@ function dispositionDetailToStatus(detail) {
     invalid_number: 'invalid_number',
     rejected: 'rejected',
     lead_done: 'lead_done',
+    done: 'done',
     scheduled: 'scheduled',
     callback: 'callback',
     visit_donate: 'visit_donate',
@@ -2107,7 +2113,8 @@ export const getLiveStatuses = async (req, res) => {
         .in('fro_assignments.fro_worker_id', workerIds)
         .or(
           `and(action.eq.donation,created_at.gte.${todayStart},created_at.lte.${todayEnd}),` +
-          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart},verified_at.lte.${todayEnd})`
+          `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart},verified_at.lte.${todayEnd}),` +
+          `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${todayStart},created_at.lte.${todayEnd})`
         ),
       supabase
         .from('fro_assignments')
@@ -2142,7 +2149,7 @@ export const getLiveStatuses = async (req, res) => {
       if (['contacted', 'donation_collected', 'follow_up', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'visit_donate', 'promise_to_pay'].includes(status)) {
         s.contacted++;
       }
-      if (status === 'donation_collected' || status === 'lead_done') {
+      if (status === 'donation_collected' || status === 'lead_done' || status === 'done') {
         s.donation_collected++;
       }
       if (status === 'follow_up') {
@@ -2269,6 +2276,7 @@ export const searchDonors = async (req, res) => {
           ngo_name: a.ngos?.name || 'Unknown',
           assignment_id: a.id,
           station: a.station || '',
+          batch_type: a.batch_type || '',
           donor_name: d.name || 'Unknown',
           donor_mobile: d.mobile_number || '',
           donor_city: d.city || '',

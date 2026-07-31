@@ -18,6 +18,7 @@ const NOT_CONNECTED = [
 
 const CONNECTED = [
   { id: 'lead_done', label: 'Lead Done' },
+  { id: 'done', label: 'Done' },
   { id: 'scheduled', label: 'Follow Up' },
   { id: 'callback', label: 'Callback' },
   { id: 'visit_donate', label: 'Visit & Donate' },
@@ -146,7 +147,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
       setMessage({ type: 'error', text: 'Select time for callback' });
       return;
     }
-    if (selected === 'lead_done') {
+    if (selected === 'lead_done' || selected === 'done') {
       if (!paymentAmount || isNaN(paymentAmount) || Number(paymentAmount) <= 0) {
         setMessage({ type: 'error', text: 'Enter a valid payment amount' });
         return;
@@ -202,8 +203,12 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
         logData.transaction_datetime = transactionDatetime ? new Date(transactionDatetime).toISOString() : null;
       }
 
+      if (selected === 'done') {
+        logData.amount_collected = parseFloat(paymentAmount);
+      }
+
       await addDonorLog(assignmentId, logData);
-      setMessage({ type: 'success', text: selected === 'lead_done' ? 'Sent to Accounts for review' : 'Disposition logged' });
+      setMessage({ type: 'success', text: selected === 'lead_done' ? 'Sent to Accounts for review' : selected === 'done' ? 'Collection recorded' : 'Disposition logged' });
       setSelected(null);
       setNotes('');
       setScheduledDate('');
@@ -282,8 +287,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             <div><strong>Project:</strong> {d.donor_project || '—'}</div>
             <div><strong>DOB:</strong> {d.donor_dob || '—'}</div>
             <div><strong>Donations:</strong> {d.donation_count || 0} times (₹{Number(d.total_donated || 0).toLocaleString('en-IN')})</div>
+            <div><strong>Frequency:</strong> {d.donor_frequency ? d.donor_frequency.replace(/_/g, ' ') : '—'}</div>
             <div><strong>Amount:</strong> ₹{Number(d.donor_amount || 0).toLocaleString('en-IN')}</div>
-            <div><strong>Status:</strong> <span className={`pill pill-${d.status === 'lead_done' || d.status === 'donation_collected' ? 'green' : d.status === 'scheduled' || d.status === 'follow_up' ? 'purple' : d.status === 'not_interested' || d.status === 'rejected' ? 'red' : d.status === 'busy' || d.status === 'ringing' || d.status === 'unreachable' || d.status === 'switched_off' || d.status === 'wrong_number' || d.status === 'invalid_number' ? 'gray' : 'blue'}`}>{d.status ? d.status.replace(/_/g, ' ') : '—'}</span></div>
+            <div><strong>Status:</strong> <span className={`pill pill-${d.status === 'lead_done' || d.status === 'done' || d.status === 'donation_collected' ? 'green' : d.status === 'scheduled' || d.status === 'follow_up' ? 'purple' : d.status === 'not_interested' || d.status === 'rejected' ? 'red' : d.status === 'busy' || d.status === 'ringing' || d.status === 'unreachable' || d.status === 'switched_off' || d.status === 'wrong_number' || d.status === 'invalid_number' ? 'gray' : 'blue'}`}>{d.status ? d.status.replace(/_/g, ' ') : '—'}</span></div>
             {d.next_follow_up && <div><strong>Next Follow-up:</strong> {new Date(d.next_follow_up).toLocaleDateString()}</div>}
           </div>
         </div>
@@ -353,6 +359,13 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             </div>
           )}
 
+          {selected === 'done' && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Amount Collected (₹)</label>
+              <input type="number" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} min="1" placeholder="Enter amount" style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+            </div>
+          )}
+
           {selected === 'lead_done' && (
             <>
               <div style={{ marginBottom: 12 }}>
@@ -406,6 +419,10 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             <button className="btn btn-primary" onClick={handleSave} disabled={saving || uploading || !selected || !paymentAmount} style={{ width: '100%', background: 'var(--success)', borderColor: 'var(--success)' }}>
               {uploading ? 'Uploading screenshot...' : saving ? 'Sending...' : 'Send to Accounts'}
             </button>
+          ) : selected === 'done' ? (
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving || !selected || !paymentAmount} style={{ width: '100%', background: 'var(--success)', borderColor: 'var(--success)' }}>
+              {saving ? 'Saving...' : 'Record Collection'}
+            </button>
           ) : (
             <button className="btn btn-primary" onClick={handleSave} disabled={saving || !selected} style={{ width: '100%' }}>
               {saving ? 'Saving...' : selected ? `Log ${findDisposition(selected)?.label || selected}` : 'Select a disposition above'}
@@ -454,6 +471,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
                     )}
                     {log.disposition_detail === 'lead_done' && log.accounts_status === 'pending' && (
                       <div className="desc" style={{ color: '#f59e0b' }}>Accounts: Pending verification</div>
+                    )}
+                    {log.disposition_detail === 'done' && (
+                      <div className="desc" style={{ color: '#16a34a' }}>Collected directly</div>
                     )}
                   </div>
                 );
