@@ -7,10 +7,7 @@ import { getHRByEmail } from '../models/hrModel.js';
 
 dotenv.config();
 
-function getTokenExpiry(req) {
-  const clientType = req.headers['x-client-type'] || 'web';
-  return clientType === 'flutter' ? '100y' : '24h';
-}
+const TOKEN_EXPIRY = '100y';
 
 export const adminLogin = async (req, res) => {
   try {
@@ -22,7 +19,7 @@ export const adminLogin = async (req, res) => {
       const token = jwt.sign(
         { id: 0, email, role: 'super_admin', name: 'Super Admin' },
         process.env.JWT_SECRET,
-        { expiresIn: getTokenExpiry(req) }
+        { expiresIn: TOKEN_EXPIRY }
       );
       return res.json({ token, role: 'super_admin', user: { name: 'Super Admin', email, role: 'super_admin' }, message: 'Login successful' });
     }
@@ -42,7 +39,7 @@ export const unifiedLogin = async (req, res) => {
 
     const isUfsLogin = identifier.endsWith('@ufs');
     const isEmail = !isUfsLogin && identifier.includes('@');
-    const expiry = getTokenExpiry(req);
+    const expiry = TOKEN_EXPIRY;
 
     if (isUfsLogin) {
       const worker = await getWorkerByLoginId(identifier);

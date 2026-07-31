@@ -1155,6 +1155,28 @@
 .panel-accounts .modal-head, .panel-ngo-admin .modal-head, .panel-fro .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); }
 .panel-accounts .modal-head h3, .panel-ngo-admin .modal-head h3, .panel-fro .modal-head h3 { font-size:15px; font-weight:600; }
 .panel-accounts .modal-body, .panel-ngo-admin .modal-body, .panel-fro .modal-body { padding:18px; }
+.panel-accounts .accounts-donor-modal {
+  width:min(520px, calc(100vw - 40px));
+  max-width:520px;
+  max-height:min(80vh, 720px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.panel-accounts .accounts-donor-modal__body {
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.panel-accounts .accounts-donor-modal__footer {
+  flex:0 0 auto;
+  padding:14px 20px;
+  border-top:1px solid var(--line);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
 .panel-accounts .modal-actions, .panel-ngo-admin .modal-actions, .panel-fro .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
 .panel-event-head .loading, .panel-accounts .loading, .panel-ngo-admin .loading, .panel-fro .loading { display:flex; align-items:center; justify-content:center; padding:40px; color:var(--ink-soft); font-size:13px; }
 .panel-event-head .empty-state, .panel-accounts .empty-state, .panel-ngo-admin .empty-state, .panel-fro .empty-state { text-align:center; padding:40px; color:var(--ink-soft); }
@@ -1190,10 +1212,15 @@
 .panel-accounts .stat-card .stat-num { font-size:22px; font-weight:700; line-height:1.2; }
 .panel-accounts .stat-card .stat-lbl { font-size:11px; color:var(--ink-soft); margin-top:1px; }
 .panel-accounts .stat-card .stat-sub { font-size:10px; color:var(--ink-soft); opacity:.7; margin-top:1px; }
+.panel-accounts .receipt-history-stats { grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.panel-accounts .receipt-history-stat-card { min-width:0; padding:18px 20px; }
+.panel-accounts .receipt-history-stat-card .stat-num { font-size:clamp(19px,1.7vw,26px); white-space:nowrap; letter-spacing:-.02em; }
+@media (max-width:900px) { .panel-accounts .receipt-history-stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .panel-accounts .search-input { padding:7px 12px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:13px; font-family:inherit; outline:none; background:var(--card-bg); min-width:200px; transition:border-color .15s; }
 .panel-accounts .search-input:focus { border-color:var(--sage); }
 .panel-accounts .search-input::placeholder { color:var(--ink-soft); opacity:.6; }
 .panel-accounts .pagination { display:flex; align-items:center; justify-content:center; gap:6px; padding:12px 0 4px; }
+.panel-accounts .pagination > div { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center; }
 .panel-accounts .pagination button { min-width:32px; height:32px; border:1px solid var(--line); border-radius:6px; background:var(--card-bg); font-size:12px; font-family:inherit; cursor:pointer; color:var(--ink); transition:all .12s; display:flex; align-items:center; justify-content:center; }
 .panel-accounts .pagination button:hover:not(:disabled) { border-color:var(--sage); color:var(--sage); }
 .panel-accounts .pagination button:disabled { opacity:.4; cursor:not-allowed; }

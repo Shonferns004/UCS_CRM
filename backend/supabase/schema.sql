@@ -760,6 +760,7 @@ CREATE TABLE public.receipts (
   email             text,
   payment_id        text,
   bank_name         text,
+  agent_name        text,
   CONSTRAINT receipts_pkey PRIMARY KEY (id),
   CONSTRAINT receipts_log_id_fkey FOREIGN KEY (log_id) REFERENCES public.fro_donor_logs(id),
   CONSTRAINT receipts_generated_by_fkey FOREIGN KEY (generated_by) REFERENCES public.workers(id)

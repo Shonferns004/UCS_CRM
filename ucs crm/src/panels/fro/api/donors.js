@@ -42,10 +42,14 @@ export async function scheduleContact(donorId, data) {
   return api(`/fro/donors/${donorId}/schedule`, { method: 'POST', body: JSON.stringify(data), _prefix: 'ucs' })
 }
 
-export async function getDonorDonations(donorId, ngoId, yearFilter) {
+export async function getDonorDonations(donorId, ngoId, period) {
   const params = new URLSearchParams();
   if (ngoId) params.set('ngo_id', ngoId);
-  if (yearFilter) params.set('year', yearFilter);
+  if (period) params.set('period', period);
+  // The endpoint defaults to a short activity preview. The donation modal needs
+  // the full history so its rows always match the donor's donation count.
+  params.set('limit', '1000');
+  params.set('page_size', '1000');
   return api(`/fro/donors/${donorId}/donations?${params}`, { _prefix: 'ucs' })
 }
 
@@ -122,6 +126,10 @@ export async function getFullDonorHistory(donorId, ngoId, unlockAll) {
   if (ngoId) params.set('ngo_id', ngoId);
   if (unlockAll) params.set('unlock_all', 'true');
   return api(`/fro/donors/${donorId}/full-history?${params}`, { _prefix: 'ucs' })
+}
+
+export async function getDonorReceipts(donorId) {
+  return api(`/fro/donors/${donorId}/receipts`, { _prefix: 'ucs' })
 }
 
 export async function getReactivatedDonors(period) {

@@ -126,9 +126,16 @@ async function getMyStationScope(workerId) {
 
 function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol = 'ngo_id') {
   if (!scope || scope.length === 0) return queryBuilder;
-  const pairs = scope.filter(s => s.ngo_id && s.station).map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
-  if (pairs.length === 0) return queryBuilder;
-  return queryBuilder.or(pairs.join(','));
+  const validPairs = scope.filter(s => s.ngo_id && s.station);
+  if (validPairs.length === 0) return queryBuilder;
+  const stations = [...new Set(validPairs.map(s => s.station))];
+  queryBuilder = queryBuilder.in(stationCol, stations);
+  const hasDotCol = stationCol.includes('.') || ngoCol.includes('.');
+  if (!hasDotCol) {
+    const pairs = validPairs.map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
+    queryBuilder = queryBuilder.or(pairs.join(','));
+  }
+  return queryBuilder;
 }
 
 async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
@@ -1073,6 +1080,41 @@ export const getDonorLogs = async (req, res) => {
       logs = await findLogsByAssignment(assignment.id);
       totalCollected = await getTotalCollectedByAssignment(assignment.id);
       nextSchedule = await getScheduledByAssignment(assignment.id);
+    }
+
+    const { data: receipts } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    if (receipts && receipts.length > 0) {
+      const receiptLogs = receipts.map(r => ({
+        id: `receipt_${r.id}`,
+        assignment_id: assignment?.id || null,
+        amount_collected: parseFloat(r.amount || 0),
+        payment_mode: r.mode || '—',
+        mode: r.mode || '—',
+        accounts_status: 'verified',
+        created_at: r.receipt_date || r.created_at,
+        upi_transaction_id: r.payment_id || null,
+        payment_id: r.payment_id || null,
+        receipt_no: r.receipt_no || null,
+        donor_name: r.donor_name || null,
+        project_id: r.project_id || null,
+        action: 'donation',
+        transaction_datetime: r.receipt_date || r.created_at,
+        verified_at: r.receipt_date || r.created_at,
+        agent_name: r.agent_name || null,
+      }));
+      if (assignment) {
+        const nonDonationLogs = logs.filter(l => l.action !== 'donation' && !(l.disposition_detail === 'lead_done' && l.accounts_status === 'verified'));
+        logs = [...nonDonationLogs, ...receiptLogs];
+        logs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      } else {
+        logs = receiptLogs;
+      }
+      totalCollected = receipts.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
     }
 
     return res.json({ logs, total_collected: totalCollected, next_schedule: nextSchedule });
@@ -2182,21 +2224,25 @@ export const searchDonors = async (req, res) => {
 
     const searchTerm = `%${q.trim()}%`;
 
-    const { data: donorIdsFromStation } = await withStationNgoPairs(
-      supabase
-        .from('fro_assignments')
-        .select('donor_id')
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
-      myScope
-    );
-    const stationDonorIds = [...new Set((donorIdsFromStation || []).map(a => a.donor_id).filter(Boolean))];
-    if (stationDonorIds.length === 0) return res.json([]);
+    const { data: donorIdsFromStation } = await supabase
+      .from('fro_assignments')
+      .select('donor_id, ngo_id, station')
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
+
+    const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+    const donorIdsInScope = [...new Set(
+      (donorIdsFromStation || [])
+        .filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`))
+        .map(a => a.donor_id)
+        .filter(Boolean)
+    )];
+    if (donorIdsInScope.length === 0) return res.json([]);
 
     const { data: donors, error } = await supabase
       .from('donor_profiles')
       .select('id, name, mobile_number, city, amount, total_amount, donation_count, email, pan_number, address_1, birth_date, project_supported, last_donation_date, first_donation_date, donor_type')
-      .in('id', stationDonorIds)
+      .in('id', donorIdsInScope)
       .or(`name.ilike.${searchTerm},mobile_number.ilike.${searchTerm}`)
       .limit(20);
 
@@ -2205,21 +2251,20 @@ export const searchDonors = async (req, res) => {
 
     const matchedIds = donors.map(d => d.id);
 
-    const { data: assignments, error: asgnError } = await withStationNgoPairs(
-      supabase
-        .from('fro_assignments')
-        .select('*, ngos!inner(name)')
-        .in('donor_id', matchedIds)
-        .in('station', stationNames)
-        .not('status', 'eq', 'reassigned'),
-      myScope
-    );
+    const { data: assignments, error: asgnError } = await supabase
+      .from('fro_assignments')
+      .select('*, ngos!inner(name)')
+      .in('donor_id', matchedIds)
+      .in('station', stationNames)
+      .not('status', 'eq', 'reassigned');
     if (asgnError) throw asgnError;
+
+    const scopedAssignments = (assignments || []).filter(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
 
     const result = [];
     const seen = new Set();
     for (const d of donors) {
-      const matchingAssignments = (assignments || []).filter(a => a.donor_id === d.id);
+      const matchingAssignments = scopedAssignments.filter(a => a.donor_id === d.id);
       if (matchingAssignments.length === 0) continue;
       for (const a of matchingAssignments) {
         const key = `${d.id}-${a.ngo_id}`;
@@ -2315,24 +2360,129 @@ export const getFullDonorHistory = async (req, res) => {
   }
 };
 
-export const updateDonorFrequency = async (req, res) => {
+export const getDonorDonations = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+    const { ngo_id, period = 'this_year' } = req.query;
+
+    const { data: assignment } = await supabase
+      .from('fro_assignments')
+      .select('id')
+      .eq('donor_id', donorId)
+      .eq('fro_worker_id', workerId)
+      .not('status', 'eq', 'reassigned')
+      .limit(1)
+      .maybeSingle();
+    if (!assignment) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const now = new Date();
+    let startDate;
+    let endDate;
+    if (period === 'monthly') {
+      startDate = now.toISOString().slice(0, 7) + '-01';
+    } else if (period === 'yearly') {
+      startDate = now.getFullYear() + '-01-01';
+    } else if (period === 'all') {
+      startDate = null;
+    } else if (period === 'this_year') {
+      const year = now.getFullYear();
+      startDate = now.getMonth() < 3 ? `${year - 1}-04-01` : `${year}-04-01`;
+    } else if (period?.startsWith('fy_')) {
+      const parts = period.split('_');
+      startDate = `${parts[1]}-04-01`;
+      endDate = `${parts[2]}-03-31`;
+    } else {
+      startDate = now.toISOString().slice(0, 7) + '-01';
+    }
+
+    let query = supabase
+      .from('fro_donor_logs')
+      .select('*')
+      .eq('donor_id', donorId)
+      .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition)')
+      .order('created_at', { ascending: false });
+
+    if (startDate) {
+      query = query.gte('created_at', startDate);
+    }
+    if (endDate) {
+      query = query.lte('created_at', endDate + 'T23:59:59Z');
+    }
+
+    const { data: logs, error } = await query;
+    if (error) throw error;
+
+    let receiptQuery = supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
+    if (startDate) {
+      receiptQuery = receiptQuery.or(`receipt_date.gte.${startDate},receipt_date.is.null`);
+    } else {
+      receiptQuery = receiptQuery.or('receipt_date.gte.2000-01-01,receipt_date.is.null');
+    }
+    if (endDate) {
+      receiptQuery = receiptQuery.lte('receipt_date', endDate);
+    }
+
+    const { data: receipts } = await receiptQuery;
+
+    const donations = (logs || []).map(l => ({
+      date: l.transaction_datetime || l.verified_at || l.created_at,
+      amount: l.amount_collected || 0,
+      mode: l.payment_mode || null,
+      status: l.action === 'donation' ? 'verified' : (l.accounts_status || 'pending'),
+      upi_transaction_id: l.upi_transaction_id || null,
+      receipt_no: l.receipt_no || null,
+    }));
+
+    const receiptDonations = (receipts || []).map(r => ({
+      date: r.receipt_date || r.created_at,
+      amount: r.amount || 0,
+      mode: r.mode || null,
+      status: 'verified',
+      upi_transaction_id: r.upi_transaction_id || null,
+      receipt_no: r.receipt_no || null,
+    }));
+
+    const all = [...donations, ...receiptDonations];
+    all.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    return res.json(all);
+  } catch (error) {
+    console.error('getDonorDonations error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getDonorReceipts = async (req, res) => {
   try {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
-    const { frequency } = req.body;
-    const allowed = ['monthly', 'quarterly', 'yearly', 'one_time'];
-    if (!frequency || !allowed.includes(frequency)) {
-      return res.status(400).json({ message: `Frequency must be one of: ${allowed.join(', ')}` });
-    }
-    const { data, error } = await supabase
-      .from('donor_profiles')
-      .update({ donation_frequency: frequency })
-      .eq('id', donorId)
-      .select('donation_frequency')
-      .single();
+
+    const { data: receipts, error } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('donor_id', donorId)
+      .order('receipt_date', { ascending: false });
+
     if (error) throw error;
-    return res.json(data);
+
+    const totalAmount = (receipts || []).reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+
+    return res.json({
+      receipts: receipts || [],
+      count: receipts?.length || 0,
+      totalAmount,
+    });
   } catch (error) {
+    console.error('getDonorReceipts error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };

@@ -353,6 +353,8 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
   }
 });
 
+app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
+
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
   app.get('/whatsapp*', (req, res) => {
