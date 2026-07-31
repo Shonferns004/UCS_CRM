@@ -2,43 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { getTransferredLeads, getDonorDetail, addDonorLog, markDonorSeen, uploadPaymentScreenshot, getDonorDonations, getMyStations } from '../api/donors';
 import { SkeletonProfile } from '../../../components/Skeleton';
 import { extractTransactionData } from '../utils/ocr';
+import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_TYPES } from '../dispositions';
 
-const NOT_CONNECTED = [
-  { id: 'busy', label: 'Busy' }, { id: 'ringing', label: 'Ringing' },
-  { id: 'unreachable', label: 'Unreachable' }, { id: 'switched_off', label: 'Switched Off' },
-  { id: 'wrong_number', label: 'Wrong Number' }, { id: 'invalid', label: 'Invalid' },
-  { id: 'rejected', label: 'Rejected' },
-];
 const PROJECTS = [
   'Mission Annapurna', 'Mission Vidhya', 'Mission Aurat', 'Mission Bezubaan',
   'Mission Atmanirbhar', 'Mission Arogya', 'Sevak Seva Kendra', 'Mission Eco-Warriors',
 ];
-
-const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Schedule' },
-  { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
-  { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
-  { id: 'not_interested_now', label: 'Not Interested Now' }, { id: 'language_barrier', label: 'Language Barrier' },
-  { id: 'transferred_senior', label: 'Transferred to Senior' }, { id: 'query_complaint', label: 'Query/Complaint' },
-  { id: 'receipt_request', label: 'Request Receipt/Info' },
-];
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-
-const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
-const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
-const isConnected = (id) => CONNECTED_IDS.has(id);
-const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
-
-const STATUS_PILL_MAP = {
-  pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
-  follow_up: 'pill-purple', busy: 'pill-gray', ringing: 'pill-gray',
-  unreachable: 'pill-gray', switched_off: 'pill-gray', wrong_number: 'pill-gray',
-  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green', done: 'pill-green',
-  visit_donate: 'pill-green', donation_collected: 'pill-green', promise_to_pay: 'pill-blue',
-  payment_pending: 'pill-yellow', already_donated: 'pill-gray', not_interested: 'pill-red',
-  not_interested_now: 'pill-red', language_barrier: 'pill-gray', transferred_senior: 'pill-blue',
-  query_complaint: 'pill-yellow', receipt_request: 'pill-blue', payment_rejected: 'pill-red',
-};
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -135,7 +105,7 @@ export default function TransferredLeads() {
   const handleDropdownChange = (detailId) => {
     setSelected(detailId);
     setMessage(null);
-    if (detailId === 'scheduled') {
+    if (SCHEDULE_TYPES.has(detailId)) {
       const now = new Date();
       now.setMinutes(now.getMinutes() + 5 - now.getTimezoneOffset());
       setScheduledAt(now.toISOString().slice(0, 16));
@@ -215,7 +185,7 @@ export default function TransferredLeads() {
 
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
-    if (selected === 'scheduled' && !scheduledAt) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
+    if (SCHEDULE_TYPES.has(selected) && !scheduledAt) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
     if (selected === 'lead_done' && !leadScreenshot) { setMessage({ type: 'error', text: 'Upload a payment screenshot' }); return; }
     if (selected === 'lead_done' && (!leadPan || leadPan.length !== 10)) { setMessage({ type: 'error', text: 'Enter a valid 10-character PAN' }); return; }
@@ -231,7 +201,7 @@ export default function TransferredLeads() {
         notes: notes || null,
         ngo_id: donor.ngo_id,
       };
-      if (selected === 'scheduled') logData.scheduled_at = new Date(scheduledAt + ':00').toISOString();
+      if (SCHEDULE_TYPES.has(selected)) logData.scheduled_at = new Date(scheduledAt + ':00').toISOString();
       if (selected === 'lead_done') {
         if (leadScreenshot) {
           const uploadResult = await uploadPaymentScreenshot(leadScreenshot.base64, leadScreenshot.mime);
@@ -437,7 +407,7 @@ export default function TransferredLeads() {
                 </div>
               </div>
 
-              {selected === 'scheduled' && (
+              {SCHEDULE_TYPES.has(selected) && (
                 <div className="detail-field-row">
                   <div className="fld">
                     <label>Schedule Date & Time</label>

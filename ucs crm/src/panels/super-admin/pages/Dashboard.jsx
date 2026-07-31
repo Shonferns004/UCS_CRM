@@ -796,19 +796,23 @@ function PipelineFlow({ stages, color, height }) {
 /* ================= NGO STATION MODAL ================= */
 const NGO_DISPOSITION_LABELS = {
   pending: 'Pending', contacted: 'Contacted', follow_up: 'Follow Up', scheduled: 'Scheduled',
-  busy: 'Busy', ringing: 'Ringing', unreachable: 'Unreachable', switched_off: 'Switched Off',
-  wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected',
-  lead_done: 'Lead Done', visit_donate: 'Visit & Donate', promise_to_pay: 'Promise to Pay',
-  payment_pending: 'Payment Pending', already_donated: 'Already Donated',
-  not_interested: 'Not Interested', not_interested_now: 'Not Interested Now',
+  busy: 'Busy', ringing: 'Ringing', call_waiting: 'Call Waiting', unreachable: 'Unreachable',
+  switched_off: 'Switched Off', out_of_coverage: 'Out of Coverage', wrong_number: 'Wrong Number',
+  invalid_number: 'Invalid', rejected: 'Rejected', temporary_network_issue: 'Temporary Network Issue', voicemail: 'Voicemail',
+  lead_done: 'Lead Done', visit_donate: 'Visit & Donate', will_donate_online: 'Will Donate Online',
+  promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending', already_donated: 'Already Donated',
+  email_sent: 'Email Sent', whatsapp_sent: 'WhatsApp Sent', csr_inquiry: 'CSR Inquiry',
+  wants_80g_details: 'Wants 80G Details', wants_trust_documents: 'Wants Trust Documents',
+  not_interested: 'Not Interested', not_interested_now: 'Not Interested Now', dnd: 'DND',
+  wrong_person: 'Wrong Person', call_disconnected: 'Call Disconnected',
   language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
   query_complaint: 'Query/Complaint', receipt_request: 'Receipt Request',
   donation_collected: 'Donation Collected',
 }
 const NGO_DISPOSITION_GROUPS = [
-  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'visit_donate', 'payment_pending', 'already_donated'] },
-  { label: 'In Progress', color: '#d97706', bg: '#fffbeb', statuses: ['pending', 'contacted', 'follow_up', 'scheduled'] },
-  { label: 'Negative', color: '#dc2626', bg: '#fef2f2', statuses: ['not_interested', 'not_interested_now', 'rejected', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'language_barrier'] },
+  { label: 'Converted', color: '#16a34a', bg: '#f0fdf4', statuses: ['donation_collected', 'promise_to_pay', 'lead_done', 'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated'] },
+  { label: 'In Progress', color: '#d97706', bg: '#fffbeb', statuses: ['pending', 'contacted', 'follow_up', 'scheduled', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents'] },
+  { label: 'Negative', color: '#dc2626', bg: '#fef2f2', statuses: ['not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'call_disconnected', 'rejected', 'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'temporary_network_issue', 'voicemail', 'language_barrier'] },
   { label: 'Other', color: '#5B6B4E', bg: '#f0f2ee', statuses: ['transferred_senior', 'query_complaint', 'receipt_request'] },
 ]
 

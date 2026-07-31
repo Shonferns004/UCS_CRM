@@ -531,9 +531,10 @@ export const getDashboard = async (req, res) => {
     // Data used / unused — per unique donor
     const connectedStatuses = new Set([
       'contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled',
-      'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated',
+      'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated',
+      'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents',
       'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request',
-      'not_interested_now', 'callback',
+      'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback',
     ]);
     const donorInfo = new Map();
     for (const a of allAssignments || []) {
@@ -870,7 +871,7 @@ export const getFroPerformance = async (req, res) => {
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds);
-    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'callback']);
+    const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
     const workerAssignments = {};
     for (const a of faRows || []) {
       if (a.status === 'reassigned') continue;
@@ -2224,8 +2225,8 @@ export const resolveDataRequest = async (req, res) => {
   }
 };
 
-const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request'];
-const NOT_CONNECTED_DISPOSITIONS = ['busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid', 'invalid_number', 'rejected'];
+const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected'];
+const NOT_CONNECTED_DISPOSITIONS = ['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail'];
 
 export const masterSearch = async (req, res) => {
   try {
