@@ -11,7 +11,7 @@ const SkeletonNum = ({ w = 48 }) => (
 )
 
 const SkeletonRow = ({ cols }) => (
-  <tr>{Array.from({ length: cols }, (_, i) => <td key={i}><span className="sk-num" style={{ display: 'inline-block', width: i === 0 ? 140 : i === 1 ? 110 : i === 2 ? 80 : i === 3 ? 60 : 90, height: 14, borderRadius: 4, background: 'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} /></td>)}</tr>
+  <tr>{Array.from({ length: cols }, (_, i) => <td key={i}><span className="sk-num" style={{ display: 'inline-block', width: i === 0 ? 140 : i === 1 ? 110 : i === 2 ? 90 : i === 3 ? 80 : i === 4 ? 60 : 90, height: 14, borderRadius: 4, background: 'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} /></td>)}</tr>
 )
 
 const StatCard = ({ icon, label, value, color, loading: l }) => (
@@ -183,16 +183,15 @@ export default function Donors() {
               <tr>
                 <th>Donor</th>
                 <th>Mobile</th>
-                <th>Total Amount</th>
-                <th>Donations</th>
-                <th>Last Donation</th>
+                <th>Assigned To</th>
+                <th>NGO</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={5} />)
+                Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} cols={4} />)
               ) : donors.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
               ) : donors.map(d => {
                 const initial = (d.name || d.bank_donor_name || d.agent_donor_name || '?')[0].toUpperCase()
                 return (
@@ -204,9 +203,8 @@ export default function Donors() {
                       </div>
                     </td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--ink-soft)' }}>{d.mobile_number || '-'}</td>
-                    <td><strong style={{ color: 'var(--sage)' }}>{currency(d.total_amount)}</strong></td>
-                    <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.donation_count || 0}</td>
-                    <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.last_donation_date ? new Date(d.last_donation_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</td>
+                    <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.assigned_to || '—'}</td>
+                    <td><span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: 'var(--sage)', color: '#fff' }}>{d.ngo || '—'}</span></td>
                   </tr>
                 )
               })}
