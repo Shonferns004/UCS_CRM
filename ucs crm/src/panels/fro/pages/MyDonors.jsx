@@ -9,6 +9,7 @@ import { TimePicker } from '../components/TimePicker';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
+import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, DISPOSITION_ORDER, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -17,37 +18,13 @@ function callFmt(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-const NOT_CONNECTED = [
-  { id: 'busy', label: 'Busy' }, { id: 'ringing', label: 'Ringing' },
-  { id: 'unreachable', label: 'Unreachable' }, { id: 'switched_off', label: 'Switched Off' },
-  { id: 'wrong_number', label: 'Wrong Number' }, { id: 'invalid', label: 'Invalid' },
-  { id: 'rejected', label: 'Rejected' },
-];
 const PROJECTS = [
   'Mission Annapurna', 'Mission Vidhya', 'Mission Aurat', 'Mission Bezubaan',
   'Mission Atmanirbhar', 'Mission Arogya', 'Sevak Seva Kendra', 'Mission Eco-Warriors',
 ];
-
-const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' }, { id: 'done', label: 'Done' }, { id: 'scheduled', label: 'Follow Up' },
-  { id: 'callback', label: 'Callback' },
-  { id: 'visit_donate', label: 'Visit & Donate' }, { id: 'promise_to_pay', label: 'Promise to Pay' },
-  { id: 'payment_pending', label: 'Payment Pending' }, { id: 'already_donated', label: 'Already Donated' },
-  { id: 'not_interested_now', label: 'Not Interested Now' }, { id: 'language_barrier', label: 'Language Barrier' },
-  { id: 'transferred_senior', label: 'Transferred to Senior' }, { id: 'query_complaint', label: 'Query/Complaint' },
-  { id: 'receipt_request', label: 'Request Receipt/Info' },
-];
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
-const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
-const CONNECTED_IDS = new Set(CONNECTED.map(d => d.id));
-const NOT_CONNECTED_IDS = new Set(NOT_CONNECTED.map(d => d.id));
-const isConnected = (id) => CONNECTED_IDS.has(id);
-const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
 const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
-const DISPOSITION_ORDER = {};
-NOT_CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1; });
-CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1 + NOT_CONNECTED.length; });
 function filterAndSortDonors(list) {
   return list
     .filter(d => !HIDDEN_STATUSES.has(d.status))
@@ -62,17 +39,6 @@ function useTomorrowStr() {
   t.setDate(t.getDate() + 1);
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
-
-const STATUS_PILL_MAP = {
-  pending: 'pill-yellow', contacted: 'pill-blue', scheduled: 'pill-purple',
-  callback: 'pill-purple', follow_up: 'pill-purple', busy: 'pill-gray', ringing: 'pill-gray',
-  unreachable: 'pill-gray', switched_off: 'pill-gray', wrong_number: 'pill-gray',
-  invalid_number: 'pill-gray', rejected: 'pill-red', lead_done: 'pill-green', done: 'pill-green',
-  visit_donate: 'pill-green', donation_collected: 'pill-green', promise_to_pay: 'pill-blue',
-  payment_pending: 'pill-yellow', already_donated: 'pill-gray', not_interested: 'pill-red',
-  not_interested_now: 'pill-red', language_barrier: 'pill-gray', transferred_senior: 'pill-blue',
-  query_complaint: 'pill-yellow', receipt_request: 'pill-blue', payment_rejected: 'pill-red',
-};
 
 const WALKTHROUGH_STEPS = [
   { icon: 'call', title: 'Start Call', desc: 'Click the green Call button to initiate a call with the donor. The call timer starts automatically.', color: '#16a34a' },
@@ -542,14 +508,14 @@ export default function MyDonors() {
   const handleDropdownChange = (detailId) => {
     setSelected(detailId);
     setMessage(null);
-    if (detailId === 'scheduled') {
+    if (SCHEDULE_DATE_TYPES.has(detailId)) {
       const d = new Date();
       d.setDate(d.getDate() + 1);
       setScheduledDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
       setScheduledTime('');
       setDateConfirmed(false);
     }
-    if (detailId === 'callback') {
+    if (SCHEDULE_TIME_TYPES.has(detailId)) {
       const now = new Date();
       setCallbackTime(now.toTimeString().slice(0, 5));
     }
@@ -637,8 +603,8 @@ export default function MyDonors() {
 
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
-    if (selected === 'scheduled' && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
-    if (selected === 'callback' && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
+    if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
+    if (SCHEDULE_TIME_TYPES.has(selected) && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
     if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
 
     setSaving(true); setMessage(null);
@@ -650,12 +616,12 @@ export default function MyDonors() {
         notes: notes || null,
         ngo_id: donor.ngo_id,
       };
-      if (selected === 'scheduled') logData.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
-      if (selected === 'callback') {
-        const today = new Date();
+      if (SCHEDULE_DATE_TYPES.has(selected)) logData.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
+      if (SCHEDULE_TIME_TYPES.has(selected)) {
+        const target = selected === 'callback_tomorrow' ? (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })() : new Date();
         const [h, m] = callbackTime.split(':');
-        today.setHours(+h, +m, 0, 0);
-        logData.scheduled_at = today.toISOString();
+        target.setHours(+h, +m, 0, 0);
+        logData.scheduled_at = target.toISOString();
       }
       if (selected === 'lead_done') {
         if (leadScreenshot) {
@@ -810,9 +776,11 @@ export default function MyDonors() {
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No {dataTab === 'new' ? 'new' : 'old'} data assigned</div>
             <div style={{ fontSize: 11, color: 'var(--ink-soft)', maxWidth: 280, textAlign: 'center', lineHeight: 1.5 }}>
-              {dataTab === 'new'
-                ? 'New data will appear here once distributed to your station.'
-                : 'Old data will appear here once uploaded to your station.'}
+              {stations.length === 0
+                ? 'You are not assigned to any station yet. Ask your NGO admin to assign you to a station.'
+                : (dataTab === 'new'
+                  ? 'New data will appear here once distributed to your station.'
+                  : 'Old data will appear here once uploaded to your station.')}
             </div>
             {dataTab === 'new' ? (
               <button onClick={() => switchTab('old')} className="fro-empty-switch">
@@ -1238,7 +1206,7 @@ export default function MyDonors() {
                 </div>
               </div>
 
-              {selected === 'scheduled' && (
+              {SCHEDULE_DATE_TYPES.has(selected) && (
                 <>
                   <div className="detail-field-row">
                     <div className="fld">
@@ -1257,10 +1225,10 @@ export default function MyDonors() {
                 </>
               )}
 
-              {selected === 'callback' && (
+              {SCHEDULE_TIME_TYPES.has(selected) && (
                 <div className="detail-field-row">
                   <div className="fld">
-                    <label>Callback Time (Today)</label>
+                    <label>{selected === 'callback_tomorrow' ? 'Callback Time (Tomorrow)' : 'Callback Time (Today)'}</label>
                     <TimePicker value={callbackTime} onChange={e => setCallbackTime(e.target.value)} placeholder="Select time" />
                   </div>
                 </div>

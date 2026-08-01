@@ -7,23 +7,29 @@ const statusLabel = (s) => {
   const labels = {
     pending: 'Pending', contacted: 'Contacted', scheduled: 'Scheduled',
     callback: 'Callback', follow_up: 'Follow Up', busy: 'Busy',
-    ringing: 'Ringing', unreachable: 'Unreachable', switched_off: 'Switched Off',
+    ringing: 'Ringing', call_waiting: 'Call Waiting', unreachable: 'Unreachable',
+    switched_off: 'Switched Off', out_of_coverage: 'Out of Coverage',
     wrong_number: 'Wrong Number', invalid_number: 'Invalid', rejected: 'Rejected',
+    temporary_network_issue: 'Temporary Network Issue', voicemail: 'Voicemail',
     lead_done: 'Lead Done', done: 'Done', visit_donate: 'Visit & Donate',
-    promise_to_pay: 'Promise to Pay', payment_pending: 'Payment Pending',
-    already_donated: 'Already Donated', not_interested: 'Not Interested',
-    not_interested_now: 'Not Interested Now', language_barrier: 'Language Barrier',
-    transferred_senior: 'Transferred to Senior', query_complaint: 'Query/Complaint',
-    receipt_request: 'Receipt Request', donation_collected: 'Donation Collected',
+    will_donate_online: 'Will Donate Online', promise_to_pay: 'Promise to Pay',
+    payment_pending: 'Payment Pending', already_donated: 'Already Donated',
+    email_sent: 'Email Sent', whatsapp_sent: 'WhatsApp Sent', csr_inquiry: 'CSR Inquiry',
+    wants_80g_details: 'Wants 80G Details', wants_trust_documents: 'Wants Trust Documents',
+    not_interested: 'Not Interested', not_interested_now: 'Not Interested Now', dnd: 'DND',
+    wrong_person: 'Wrong Person', call_disconnected: 'Call Disconnected',
+    language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
+    query_complaint: 'Query/Complaint', receipt_request: 'Receipt Request',
+    donation_collected: 'Donation Collected',
   };
   return labels[s] || s || '\u2014';
 };
 
 const statusPillClass = (s) => {
   if (!s) return 'pill pill-gray';
-  if (['donation_collected', 'lead_done', 'done', 'already_donated'].includes(s)) return 'pill pill-green';
-  if (['pending', 'busy', 'ringing', 'unreachable', 'switched_off', 'wrong_number', 'invalid_number', 'rejected', 'not_interested'].includes(s)) return 'pill pill-red';
-  if (['scheduled', 'callback', 'follow_up', 'promise_to_pay', 'payment_pending', 'visit_donate'].includes(s)) return 'pill pill-yellow';
+  if (['donation_collected', 'lead_done', 'done', 'already_donated', 'visit_donate', 'will_donate_online'].includes(s)) return 'pill pill-green';
+  if (['pending', 'busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'not_interested', 'not_interested_now', 'dnd', 'wrong_person', 'call_disconnected', 'language_barrier'].includes(s)) return 'pill pill-red';
+  if (['scheduled', 'callback', 'follow_up', 'promise_to_pay', 'payment_pending'].includes(s)) return 'pill pill-yellow';
   return 'pill pill-blue';
 };
 
