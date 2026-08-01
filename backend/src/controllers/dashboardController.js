@@ -630,12 +630,17 @@ export const getFroLiveStatus = async (req, res) => {
 
     const keyMap = {
       pending: 'pending', contacted: 'contacted', follow_up: 'follow_up',
-      busy: 'not_reachable', ringing: 'not_reachable', unreachable: 'not_reachable',
-      switched_off: 'not_reachable', wrong_number: 'not_reachable', invalid_number: 'not_reachable', rejected: 'not_reachable',
+      busy: 'not_reachable', ringing: 'not_reachable', call_waiting: 'not_reachable',
+      unreachable: 'not_reachable', switched_off: 'not_reachable', out_of_coverage: 'not_reachable',
+      wrong_number: 'not_reachable', invalid_number: 'not_reachable', rejected: 'not_reachable',
+      temporary_network_issue: 'not_reachable', voicemail: 'not_reachable',
       not_interested: 'not_interested', not_interested_now: 'not_interested',
+      dnd: 'not_interested', wrong_person: 'not_interested', call_disconnected: 'contacted',
       donation_collected: 'donation_collected', lead_done: 'donation_collected', done: 'donation_collected',
-      scheduled: 'follow_up', visit_donate: 'contacted', promise_to_pay: 'contacted',
-      payment_pending: 'contacted', already_donated: 'contacted',
+      scheduled: 'follow_up', visit_donate: 'contacted', will_donate_online: 'contacted',
+      promise_to_pay: 'contacted', payment_pending: 'contacted', already_donated: 'contacted',
+      email_sent: 'contacted', whatsapp_sent: 'contacted', csr_inquiry: 'contacted',
+      wants_80g_details: 'contacted', wants_trust_documents: 'contacted',
       language_barrier: 'contacted', transferred_senior: 'contacted',
       query_complaint: 'contacted', receipt_request: 'contacted',
     };

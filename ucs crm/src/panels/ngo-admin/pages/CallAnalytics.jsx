@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getCallAnalytics } from '../api/auth'
 import { SkeletonTable } from '../../../components/Skeleton'
-
-const CONNECTED_DISPOSITIONS = ['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'promise_to_pay', 'payment_pending', 'already_donated', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request']
+import { CONNECTED_STATUSES as CONNECTED_DISPOSITIONS } from '../../fro/dispositions'
 
 function fmt(seconds) {
   if (!seconds) return '0m 0s'

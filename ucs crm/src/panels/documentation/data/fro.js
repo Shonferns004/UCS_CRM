@@ -13,8 +13,8 @@ Architecture:
 - Target system: Monthly targets with AKI incentive calculation based on achievement percentage.
 - Disposition state machine: Donor assignments go through a strict state machine: new → seen → contacted → disposition_recorded → lead_done/rejected/callback.`,
   "keyFeatures": [
-    "Connected dispositions: lead_done, scheduled, callback, promise_to_pay",
-    "Not-connected: busy, unreachable, switched_off, wrong_number",
+    "Connected dispositions: lead_done, done, scheduled, callback, callback_tomorrow, follow_up_next_day, office_visit_scheduled, program_visit_scheduled, visit_donate, will_donate_online, promise_to_pay, payment_pending, already_donated, email_sent, whatsapp_sent, csr_inquiry, wants_80g_details, wants_trust_documents, not_interested_now, not_interested, language_barrier, transferred_senior, query_complaint, receipt_request, dnd, wrong_person, call_disconnected",
+    "Not-connected: busy, ringing, call_waiting, switched_off, out_of_coverage, unreachable, wrong_number, invalid, rejected, temporary_network_issue, voicemail",
     "OCR screenshot processing for UPI extraction",
     "Call context with live status (online/on_call/idle/break)",
     "Monthly target vs achieved with AKI incentive",
