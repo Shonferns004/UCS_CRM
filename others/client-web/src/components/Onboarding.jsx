@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../store'
 import { api } from '../api'
 
 const STEPS = [
@@ -9,18 +8,39 @@ const STEPS = [
   'Declaration', 'Policies', 'Review'
 ]
 
+const DOC_TYPES = [
+  { key: 'aadhar_front', label: 'Aadhaar Card (Front)' },
+  { key: 'aadhar_back', label: 'Aadhaar Card (Back)' },
+  { key: 'pan_card', label: 'PAN Card' },
+  { key: 'bank_proof', label: 'Bank Proof' },
+  { key: 'light_bill', label: 'Light Bill' },
+]
+
 const INITIAL = {
-  name: '', email: '', phone: '', dob: '', gender: '', father: '', marital: '',
+  name: '', email: '', phone: '', alternate_phone: '', father_husband_name: '',
+  gender: '', marital_status: '', dob: '', aadhar_number: '', pan_number: '',
+  address: '', permanent_address: '', city: '', state: '', pincode: '',
+  bank_name: '', account_holder_name: '', ifsc_code: '', account_number: '',
+  declaration_place: '', declared: false,
   education: [{ level: '', institution: '', year: '' }],
   experience: [{ organization: '', role: '', years: '' }],
   family: [{ name: '', relation: '', phone: '' }],
   references: [{ name: '', relation: '', phone: '' }],
-  bank: { account: '', ifsc: '', bank_name: '' },
 }
+
+const readAsBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = reader.result
+    const idx = result.indexOf('base64,')
+    resolve({ base64: result.slice(idx + 7), mime: file.type || 'image/jpeg' })
+  }
+  reader.onerror = reject
+  reader.readAsDataURL(file)
+})
 
 export default function Onboarding() {
   const navigate = useNavigate()
-  const { user } = useAuth()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(INITIAL)
   const [loading, setLoading] = useState(false)
@@ -40,25 +60,51 @@ export default function Onboarding() {
     setLoading(true); setError('')
     try {
       if (photo) {
-        const fd = new FormData(); fd.append('photo', photo)
-        await api.uploadPhoto(fd)
+        const { base64, mime } = await readAsBase64(photo)
+        await api.uploadPhoto(base64, mime)
       }
-      await api.submitOnboarding({ ...form, policies_accepted: accepted })
+      for (const d of DOC_TYPES) {
+        if (docs[d.key]) {
+          const { base64, mime } = await readAsBase64(docs[d.key])
+          await api.uploadDocument(d.key, base64, mime)
+        }
+      }
+      const { education, experience, family, references, declared, ...personal } = form
+      await api.submitOnboarding({
+        personal_details: {
+          ...personal,
+          declaration_date: declared ? new Date().toISOString().slice(0, 10) : undefined,
+        },
+        education,
+        family,
+        references,
+        previous_organizations: experience,
+      })
       setStep(10)
     } catch (err) { setError(err.message) } finally { setLoading(false) }
   }
 
   const canNext = () => {
     if (step === 0) return form.name && form.email && form.phone
-    if (step === 9) return accepted.length === policies.length
+    if (step === 8) return form.declared
+    if (step === 9) return policies.length > 0 && accepted.length === policies.length
     return true
   }
+
+  const field = (key, { type = 'text', placeholder } = {}) => (
+    <div key={key}>
+      <label className="block text-xs text-[var(--ink-soft)] mb-0.5">{PLACEHOLDERS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</label>
+      <input type={type} placeholder={placeholder} value={form[key] || ''} onChange={e => update(key, e.target.value)}
+        className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm focus:outline-none focus:border-blue-500" />
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e3a5f] to-[#0f172a] flex flex-col">
       {/* Progress */}
       <div className="px-4 pt-6 pb-2">
-        <div className="flex items-center justify-between mb-3">
+        <div className="max-w-xl lg:max-w-2xl mx-auto">
+          <div className="flex items-center justify-between mb-3">
           <button onClick={() => step > 0 ? setStep(s => s - 1) : navigate('/home')} className="text-white/60 text-sm">&larr; Back</button>
           <span className="text-white/50 text-xs">Step {step + 1} of 11</span>
         </div>
@@ -68,41 +114,58 @@ export default function Onboarding() {
           ))}
         </div>
         <div className="text-white/70 text-sm font-medium mt-2">{STEPS[step]}</div>
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 pb-6">
-        <div className="bg-white rounded-2xl p-5 shadow-xl animate-fade-in min-h-[300px]">
+        <div className="w-full max-w-xl lg:max-w-2xl mx-auto bg-white rounded-2xl p-5 md:p-7 shadow-xl animate-fade-in min-h-[300px]">
           {error && <div className="mb-4 p-3 rounded-lg bg-[var(--red-bg)] text-[var(--red)] text-xs">{error}</div>}
 
           {step === 0 && (
             <div className="space-y-3">
               <h3 className="font-semibold text-sm mb-3">Personal Details</h3>
-              {['name', 'email', 'phone', 'dob', 'father'].map(f => (
-                <div key={f}>
-                  <label className="block text-xs text-[var(--ink-soft)] mb-0.5 capitalize">{f === 'father' ? "Father's Name" : f}</label>
-                  <input type={f === 'dob' ? 'date' : 'text'} value={form[f] || ''} onChange={e => update(f, e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm focus:outline-none focus:border-blue-500" />
+              {field('name')}
+              {field('email', { type: 'email' })}
+              <div className="grid grid-cols-2 gap-3">
+                {field('phone')}
+                {field('alternate_phone')}
+              </div>
+              {field('father_husband_name')}
+              <div className="grid grid-cols-2 gap-3">
+                {field('dob', { type: 'date' })}
+                <div>
+                  <label className="block text-xs text-[var(--ink-soft)] mb-0.5">Gender</label>
+                  <select value={form.gender} onChange={e => update('gender', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm">
+                    <option value="">Select</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
                 </div>
-              ))}
-              <div>
-                <label className="block text-xs text-[var(--ink-soft)] mb-0.5">Gender</label>
-                <select value={form.gender} onChange={e => update('gender', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm">
-                  <option value="">Select</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="other">Other</option>
-                </select>
               </div>
               <div>
                 <label className="block text-xs text-[var(--ink-soft)] mb-0.5">Marital Status</label>
-                <select value={form.marital} onChange={e => update('marital', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm">
+                <select value={form.marital_status} onChange={e => update('marital_status', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm">
                   <option value="">Select</option>
                   <option value="single">Single</option>
                   <option value="married">Married</option>
                   <option value="divorced">Divorced</option>
                   <option value="widowed">Widowed</option>
                 </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {field('aadhar_number')}
+                {field('pan_number')}
+              </div>
+              {field('address')}
+              <div className="grid grid-cols-2 gap-3">
+                {field('city')}
+                {field('state')}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {field('pincode')}
+                {field('permanent_address')}
               </div>
             </div>
           )}
@@ -152,10 +215,11 @@ export default function Onboarding() {
           {step === 6 && (
             <div>
               <h3 className="font-semibold text-sm mb-3">Documents</h3>
-              {['aadhaar', 'pan', 'bank_proof', 'light_bill'].map(d => (
-                <div key={d} className="mb-3">
-                  <label className="block text-xs text-[var(--ink-soft)] mb-0.5 capitalize">{d.replace('_', ' ')}</label>
-                  <input type="file" onChange={e => setDocs(f => ({ ...f, [d]: e.target.files[0] }))} className="w-full text-sm" />
+              {DOC_TYPES.map(d => (
+                <div key={d.key} className="mb-3">
+                  <label className="block text-xs text-[var(--ink-soft)] mb-0.5">{d.label}</label>
+                  <input type="file" accept="image/*" onChange={e => setDocs(f => ({ ...f, [d.key]: e.target.files[0] }))} className="w-full text-sm" />
+                  {docs[d.key] && <div className="mt-1 text-xs text-[var(--ink-soft)]">Selected: {docs[d.key].name}</div>}
                 </div>
               ))}
             </div>
@@ -164,13 +228,12 @@ export default function Onboarding() {
           {step === 7 && (
             <div className="space-y-3">
               <h3 className="font-semibold text-sm mb-3">Bank Account Details</h3>
-              {['bank_name', 'account', 'ifsc'].map(f => (
-                <div key={f}>
-                  <label className="block text-xs text-[var(--ink-soft)] mb-0.5 capitalize">{f.replace('_', ' ')}</label>
-                  <input value={form.bank[f] || ''} onChange={e => update('bank', { ...form.bank, [f]: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] text-sm focus:outline-none focus:border-blue-500" />
-                </div>
-              ))}
+              {field('bank_name')}
+              {field('account_holder_name')}
+              <div className="grid grid-cols-2 gap-3">
+                {field('ifsc_code')}
+                {field('account_number')}
+              </div>
             </div>
           )}
 
@@ -220,15 +283,30 @@ export default function Onboarding() {
       {/* Actions */}
       {step < 10 && (
         <div className="px-4 pb-6">
-          <button onClick={step === 9 ? handleSubmit : () => setStep(s => s + 1)}
-            disabled={!canNext() || loading}
-            className="w-full py-3 rounded-xl bg-blue-500 text-white font-semibold text-sm hover:bg-blue-600 transition-colors disabled:opacity-40">
-            {loading ? 'Submitting...' : step === 9 ? 'Submit' : 'Continue'}
-          </button>
+          <div className="max-w-xl lg:max-w-2xl mx-auto">
+            <button onClick={step === 9 ? handleSubmit : () => setStep(s => s + 1)}
+              disabled={!canNext() || loading}
+              className="w-full py-3 rounded-xl bg-blue-500 text-white font-semibold text-sm hover:bg-blue-600 transition-colors disabled:opacity-40">
+              {loading ? 'Submitting...' : step === 9 ? 'Submit' : 'Continue'}
+            </button>
+          </div>
         </div>
       )}
     </div>
   )
+}
+
+const PLACEHOLDERS = {
+  father_husband_name: 'Father / Husband Name',
+  alternate_phone: 'Alt. Phone',
+  aadhar_number: 'Aadhaar Number',
+  pan_number: 'PAN Number',
+  permanent_address: 'Permanent Address',
+  account_holder_name: 'Account Holder Name',
+  ifsc_code: 'IFSC Code',
+  account_number: 'Account Number',
+  bank_name: 'Bank Name',
+  declaration_place: 'Declaration Place',
 }
 
 function ArrayForm({ label, items, setItems, fields }) {

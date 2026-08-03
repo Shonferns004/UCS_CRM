@@ -8,7 +8,7 @@ const navItems = [
   { to: '/profile', label: 'Profile', icon: ProfileIcon },
 ]
 
-const backRoutes = ['/scanner', '/raise-ticket', '/edit-profile', '/print']
+const backRoutes = ['/scanner', '/raise-ticket', '/edit-profile']
 
 export default function Layout() {
   const { user, logout } = useAuth()
@@ -39,7 +39,7 @@ export default function Layout() {
   return (
     <div className="h-screen flex flex-col md:flex-row bg-[var(--surface)]">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex md:flex-col md:w-56 bg-[var(--primary)] text-white shrink-0">
+      <aside className="hidden md:flex md:flex-col md:w-56 xl:w-64 bg-[var(--primary)] text-white shrink-0">
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
           <div className="w-9 h-9 rounded-lg bg-[var(--primary-light)] flex items-center justify-center text-sm font-bold">U</div>
           <div>
