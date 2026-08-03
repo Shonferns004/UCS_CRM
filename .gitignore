@@ -21,5 +21,7 @@ client/assets/*.properties
 
 package.json
 package-lock.json
+!others/client-web/package.json
+!others/client-web/package-lock.json
 
 tmp_schema.sql
