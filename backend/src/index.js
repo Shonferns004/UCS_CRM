@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import supabase from './config/supabase.js';
 import authRoutes from './routes/authRoutes.js';
 import workerRoutes from './routes/workerRoutes.js';
+import workerBankImportRoutes from './routes/workerBankImportRoutes.js';
 import taskRoutes from './routes/taskRoutes.js';
 import qrRoutes from './routes/qrRoutes.js';
 import attendanceRoutes from './routes/attendanceRoutes.js';
@@ -84,6 +85,7 @@ const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
+app.use('/api/workers', workerBankImportRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/qr', qrRoutes);
 app.use('/api/attendance', attendanceRoutes);
@@ -355,6 +357,9 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
+const bankImportDist = path.resolve(__dirname, '../public/bank-import');
+app.use('/bank-import', express.static(bankImportDist));
+
 if (fs.existsSync(whatsappDist)) {
   app.use('/whatsapp/assets', express.static(path.join(whatsappDist, 'assets')));
   app.get('/whatsapp*', (req, res) => {
@@ -364,7 +369,7 @@ if (fs.existsSync(whatsappDist)) {
 
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {

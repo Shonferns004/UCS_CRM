@@ -9,7 +9,6 @@ import AttendanceList from './components/AttendanceList'
 import EditProfile from './components/EditProfile'
 import Scanner from './components/Scanner'
 import CorrectionTicket from './components/CorrectionTicket'
-import PrintForm from './components/PrintForm'
 import Onboarding from './components/Onboarding'
 
 function Protected({ children }) {
@@ -39,7 +38,6 @@ export default function App() {
         <Route path="/edit-profile" element={<EditProfile />} />
         <Route path="/scanner" element={<Scanner />} />
         <Route path="/raise-ticket" element={<CorrectionTicket />} />
-        <Route path="/print" element={<PrintForm />} />
       </Route>
     </Routes>
   )

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../store'
 import { api } from '../api'
+import { subscribeWorker } from '../realtime'
 import MiniCalendar from './MiniCalendar'
 import ProgressCircle from './ProgressCircle'
 import ConsistencyBar from './ConsistencyBar'
@@ -9,10 +10,14 @@ import ConsistencyBar from './ConsistencyBar'
 export default function Profile() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [history, setHistory] = useState([])
-  const [today, setToday] = useState({})
-  const [loans, setLoans] = useState([])
-  const [tickets, setTickets] = useState([])
+  const [history, setHistory] = useState(() => api.getCachedHistory())
+  const [today, setToday] = useState(() => {
+    const c = api.getCachedToday()
+    return c ? (c.attendance || c) : {}
+  })
+  const [loans, setLoans] = useState(() => api.getCachedLoans())
+  const [tickets, setTickets] = useState(() => api.getCachedTickets())
+  const [profileRequests, setProfileRequests] = useState(() => api.getCachedRequests())
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
   const [calYear, setCalYear] = useState(new Date().getFullYear())
@@ -21,17 +26,29 @@ export default function Profile() {
 
   const load = useCallback(async () => {
     try {
-      const [h, td, l, t] = await Promise.all([
-        api.history(), api.today(), api.myLoans().catch(() => []), api.myTickets().catch(() => [])
+      const [h, td, l, t, pr] = await Promise.all([
+        api.history(), api.today(), api.myLoans().catch(() => []), api.myTickets().catch(() => []),
+        api.myProfileUpdateRequests().catch(() => [])
       ])
       setHistory(Array.isArray(h) ? h : h?.history || [])
       setToday(td?.attendance || td || {})
       setLoans(Array.isArray(l) ? l : l?.loans || [])
       setTickets(Array.isArray(t) ? t : t?.tickets || [])
+      setProfileRequests(Array.isArray(pr) ? pr : pr?.requests || [])
     } catch (_) {} finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const off = subscribeWorker(user.id, (event) => {
+      if (event === 'attendance' || event === 'loans' || event === 'corrections') {
+        load()
+      }
+    })
+    return off
+  }, [user?.id, load])
 
   useEffect(() => {
     if ('permissions' in navigator) {
@@ -64,15 +81,15 @@ export default function Profile() {
   const initials = user?.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U'
 
   return (
-    <div className="p-4 max-w-lg mx-auto space-y-4 animate-fade-in">
+    <div className="app-container space-y-4 animate-fade-in">
       {/* Profile Card */}
       <div className="bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] rounded-2xl p-5 text-white">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-xl font-bold">{initials}</div>
           <div>
             <div className="font-bold text-base">{user?.name || 'Employee'}</div>
-            <div className="text-xs text-white/70">{user?.role || 'Employee'}</div>
-            <div className="text-[10px] text-white/50 mt-0.5">ID: {user?.id || user?.worker_id || '—'}</div>
+            <div className="text-xs text-white/70">{user?.role || user?.department || 'Employee'}</div>
+            <div className="text-[10px] text-white/50 mt-0.5">ID: {user?.login_id || user?.id || '—'}</div>
           </div>
         </div>
       </div>
@@ -169,6 +186,35 @@ export default function Profile() {
             }`}>{l.status || 'pending'}</span>
           </div>
         ))}
+      </div>
+
+      {/* Profile Update Requests */}
+      <div className="bg-white rounded-2xl shadow-sm border border-[var(--border)]">
+        <div className="px-4 py-3 border-b border-[var(--border)] text-[10px] font-semibold text-[var(--ink-muted)] uppercase tracking-wider">Profile Requests</div>
+        {profileRequests.length === 0 ? (
+          <div className="px-4 py-5 text-center text-sm text-[var(--ink-muted)]">No profile change requests</div>
+        ) : profileRequests.slice(0, 5).map((r, i) => {
+          const changes = r.requested_changes || {}
+          const fieldCount = Object.keys(changes).length
+          return (
+            <div key={r.id || i} className="px-4 py-3 border-b border-[var(--border)] last:border-0 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[var(--ink-soft)] min-w-0 flex-1">
+                  {fieldCount} field{fieldCount === 1 ? '' : 's'} requested
+                  {Object.keys(changes).length > 0 && (
+                    <div className="text-[10px] text-[var(--ink-muted)] truncate mt-0.5">{Object.keys(changes).join(', ')}</div>
+                  )}
+                </div>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${
+                  r.status === 'approved' ? 'bg-green-100 text-green-700' :
+                  r.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                  'bg-yellow-100 text-yellow-700'
+                }`}>{r.status || 'pending'}</span>
+              </div>
+              {r.reviewer_notes && <div className="mt-1.5 text-[11px] text-[var(--ink-soft)]">Note: {r.reviewer_notes}</div>}
+            </div>
+          )
+        })}
       </div>
 
       {/* Raise a Ticket */}
