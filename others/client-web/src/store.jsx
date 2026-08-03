@@ -4,11 +4,21 @@ import { api } from './api'
 
 const AuthContext = createContext(null)
 
+const readStoredUser = () => {
+  const raw = localStorage.getItem(CACHE_KEYS.WORKER)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && parsed.user && parsed.name === undefined) return parsed.user
+    if (parsed && parsed.worker) return parsed.worker
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    const raw = localStorage.getItem(CACHE_KEYS.WORKER)
-    return raw ? JSON.parse(raw) : null
-  })
+  const [user, setUser] = useState(() => readStoredUser())
   const [token, setToken] = useState(() => localStorage.getItem(CACHE_KEYS.TOKEN))
   const [loading, setLoading] = useState(true)
 
@@ -18,10 +28,10 @@ export function AuthProvider({ children }) {
       return
     }
     const t = localStorage.getItem(CACHE_KEYS.TOKEN)
-    const w = localStorage.getItem(CACHE_KEYS.WORKER)
+    const w = readStoredUser()
     if (t && w) {
       setToken(t)
-      setUser(JSON.parse(w))
+      setUser(w)
     }
     setLoading(false)
   }, [])
@@ -29,7 +39,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (identifier, password) => {
     const data = await api.login(identifier, password)
     const t = data.token || data.access_token
-    const w = data.worker || data
+    const w = data.user || data.worker || data
     localStorage.setItem(CACHE_KEYS.TOKEN, t)
     localStorage.setItem(CACHE_KEYS.WORKER, JSON.stringify(w))
     setToken(t)

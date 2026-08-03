@@ -2394,6 +2394,28 @@ export const getFullDonorHistory = async (req, res) => {
   }
 };
 
+export const updateDonorFrequency = async (req, res) => {
+  try {
+    const donorId = parseInt(req.params.id, 10);
+    if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
+    const { frequency } = req.body;
+    const allowed = ['monthly', 'quarterly', 'yearly', 'one_time'];
+    if (!frequency || !allowed.includes(frequency)) {
+      return res.status(400).json({ message: `Frequency must be one of: ${allowed.join(', ')}` });
+    }
+    const { data, error } = await supabase
+      .from('donor_profiles')
+      .update({ donation_frequency: frequency })
+      .eq('id', donorId)
+      .select('donation_frequency')
+      .single();
+    if (error) throw error;
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorDonations = async (req, res) => {
   try {
     const workerId = req.user.id;

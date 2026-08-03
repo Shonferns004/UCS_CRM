@@ -27,13 +27,13 @@ export default function Login() {
   }
 
   return (
-    <div className="h-screen flex items-center justify-center relative overflow-hidden"
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden"
       style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #2563eb 100%)' }}>
       {/* Decorative circles */}
       <div className="absolute top-[-80px] right-[-80px] w-64 h-64 rounded-full bg-white/5" />
       <div className="absolute bottom-[-60px] left-[-60px] w-48 h-48 rounded-full bg-white/5" />
 
-      <div ref={cardRef} className="relative w-full max-w-sm mx-4 bg-white rounded-2xl shadow-2xl p-8 animate-fade-in">
+      <div ref={cardRef} className="relative w-full max-w-sm md:max-w-md mx-4 my-8 bg-white rounded-2xl shadow-2xl p-8 md:p-10 animate-fade-in">
         <div className="text-center mb-6">
           <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-[var(--primary)] flex items-center justify-center">
             <span className="text-2xl font-bold text-white">U</span>

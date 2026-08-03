@@ -32,8 +32,11 @@ export default function AttendanceList() {
   const navigate = useNavigate()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
-  const [records, setRecords] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [records, setRecords] = useState(() => api.getCachedHistory())
+  const [loading, setLoading] = useState(() => {
+    const cached = api.getCachedHistory()
+    return !(Array.isArray(cached) && cached.length > 0)
+  })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,7 +62,7 @@ export default function AttendanceList() {
   const goNext = () => { if (canGoNext) { if (month === 12) { setMonth(1); setYear(y => y + 1) } else setMonth(m => m + 1) } }
 
   return (
-    <div className="p-4 max-w-lg mx-auto animate-fade-in">
+    <div className="app-container animate-fade-in">
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => navigate(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
           <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
