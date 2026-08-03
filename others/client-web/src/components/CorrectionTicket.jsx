@@ -36,7 +36,7 @@ export default function CorrectionTicket() {
   const dates = [...new Set(history.map(r => r.date).filter(Boolean))].sort().reverse()
 
   return (
-    <div className="p-4 max-w-lg mx-auto animate-fade-in">
+    <div className="app-container animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>

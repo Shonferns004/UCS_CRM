@@ -11,21 +11,14 @@ export default function Scanner() {
   const frameSkip = useRef(0)
   const streamRef = useRef(null)
   const animRef = useRef(null)
+  const mode = location.state?.mode || 'in'
+  const returnTo = location.state?.returnTo || '/home'
+  const isOut = mode === 'out'
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [started, setStarted] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [alreadyPunchedIn, setAlreadyPunchedIn] = useState(false)
-
-  useEffect(() => {
-    api.today().then(td => {
-      const att = td?.attendance || td
-      if (att?.punch_in_time && !att?.punch_out_time) {
-        setAlreadyPunchedIn(true)
-        setError('You are already punched in. Go back to punch out.')
-      }
-    }).catch(() => {})
-  }, [])
 
   const stopCamera = useCallback(() => {
     if (animRef.current) cancelAnimationFrame(animRef.current)
@@ -34,6 +27,7 @@ export default function Scanner() {
   }, [])
 
   const startCamera = useCallback(async () => {
+    stopCamera()
     setError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -59,7 +53,30 @@ export default function Scanner() {
         ? 'No camera found on this device.'
         : 'Could not access camera: ' + e.message)
     }
-  }, [])
+  }, [stopCamera])
+
+  useEffect(() => {
+    let cancelled = false
+    startCamera()
+    api.today().then(td => {
+      if (cancelled) return
+      const att = td?.attendance || td
+      if (isOut) {
+        if (att?.punch_out_time) {
+          stopCamera()
+          setError('You have already punched out today.')
+        } else if (!att?.punch_in_time) {
+          stopCamera()
+          setError('No punch in record for today. Go back to punch in first.')
+        }
+      } else if (att?.punch_in_time && !att?.punch_out_time) {
+        stopCamera()
+        setAlreadyPunchedIn(true)
+        setError('You are already punched in. Go back to punch out.')
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [isOut, startCamera, stopCamera])
 
   const getLocation = () => new Promise((res) => {
     if (!navigator.geolocation) {
@@ -119,7 +136,7 @@ export default function Scanner() {
     try {
       let parsed
       try { parsed = JSON.parse(data) } catch { parsed = { code: data } }
-      const code = parsed?.code || data
+      const code = parsed?.code || parsed?.dailyCode || parsed?.daily_code || data
       if (!code) {
         setError('Invalid QR code data. Try a plain QR code.')
         setLoading(false)
@@ -127,13 +144,18 @@ export default function Scanner() {
       }
       const pos = await getLocation()
       if (pos.error) {
-        setError('Location access is required to punch in. Please allow location permissions in your device settings.')
+        setError('Location access is required to punch in/out. Please allow location permissions in your device settings.')
         setLoading(false)
         return
       }
-      const returnTo = location.state?.returnTo || '/home'
-      await api.punchIn(code, pos.lat, pos.lng)
-      navigate(returnTo)
+      if (isOut) {
+        await api.punchOut(pos.lat, pos.lng)
+      } else {
+        const dailyCode = parsed?.dailyCode || parsed?.daily_code
+        if (dailyCode) await api.punchIn(code, pos.lat, pos.lng, dailyCode)
+        else await api.punchIn(code, pos.lat, pos.lng)
+      }
+      navigate(returnTo, { state: { refresh: true } })
     } catch (err) {
       setError(err.message || 'Punch failed. Try again.')
       setScanning(false)
@@ -149,7 +171,7 @@ export default function Scanner() {
         <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Start Screen — before camera permission is requested */}
+        {/* Start Screen — shown briefly while the camera is starting */}
         {!started && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black">
             <div className="w-20 h-20 mb-6 rounded-2xl bg-white/10 flex items-center justify-center">
@@ -159,26 +181,16 @@ export default function Scanner() {
                 <rect x="9" y="9" width="6" height="6" rx="1" />
               </svg>
             </div>
-            <h2 className="text-white text-lg font-semibold mb-2">Scan QR Code</h2>
-            <p className="text-white/50 text-sm mb-8 text-center px-8">Position the QR code within the frame to punch in</p>
-            {alreadyPunchedIn ? (
-              <button onClick={handleBack}
-                className="px-8 py-3 rounded-xl bg-blue-500 text-white font-semibold text-sm active:scale-95 transition-transform">
-                Go Back to Punch Out
-              </button>
-            ) : (
-              <button onClick={startCamera}
-                className="px-8 py-3 rounded-xl bg-white text-black font-semibold text-sm active:scale-95 transition-transform">
-                Start Camera
-              </button>
-            )}
+            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mb-4" />
+            <h2 className="text-white text-lg font-semibold mb-2">{isOut ? 'Scan QR to Punch Out' : 'Scan QR Code'}</h2>
+            <p className="text-white/50 text-sm mb-4 text-center px-8">Starting camera… Position the QR code within the frame to punch {isOut ? 'out' : 'in'}</p>
           </div>
         )}
 
         {/* Scanner Overlay — shown when camera is active */}
         {started && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="relative w-64 h-64">
+            <div className="relative w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 lg:w-80 lg:h-80">
               <div className="absolute inset-0 border-2 border-blue-400/60 rounded-xl" />
               <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-blue-400 rounded-tl-lg" />
               <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-blue-400 rounded-tr-lg" />
