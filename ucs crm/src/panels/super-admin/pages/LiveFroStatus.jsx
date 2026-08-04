@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useUcs } from '../../../store'
-import { supabase } from '../../../config/supabase'
+import { useRealtime } from '../../../hooks/useRealtime'
 import { api } from '../../../api/auth'
 import { fmt, STATUS_META } from '../components/froShared'
 import { FroDetailModal, FroDeepDetailModal } from '../components/FroModals'
@@ -28,14 +28,12 @@ export default function LiveFroStatus() {
 
   useEffect(() => {
     if (!user?.id) return
-    const channel = supabase
-      .channel('fro_live_status_sa_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'fro_live_status' },
-        () => loadStatuses()
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return useRealtime('fro_live_status', {
+      event: '*',
+      onInsert: () => loadStatuses(),
+      onUpdate: () => loadStatuses(),
+      onDelete: () => loadStatuses(),
+    })
   }, [user?.id])
 
   const onlineCount = statuses.filter(s => s.status === 'on_call' || s.status === 'online').length

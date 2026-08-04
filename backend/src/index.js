@@ -511,6 +511,27 @@ app.get('/api/db/capacity', async (req, res) => {
   }
 });
 
+// Customer provisioning: dedicated Postgres database + S3 bucket + IAM user.
+app.post('/api/customer/provision', async (req, res) => {
+  try {
+    const { provisionCustomer } = await import('./services/customerProvision.js');
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!name) return res.status(400).json({ message: 'Customer name is required' });
+    res.json(await provisionCustomer(name));
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get('/api/customer/list', async (req, res) => {
+  try {
+    const { listCustomers } = await import('./services/customerProvision.js');
+    res.json(await listCustomers());
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 const bankImportDist = path.resolve(__dirname, '../public/bank-import');
 app.use('/bank-import', express.static(bankImportDist));
 
@@ -655,11 +676,13 @@ async function checkLeavesTable() {
 }
 
 if (!process.env.VERCEL) {
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     _log(`Server running on port ${PORT}`);
     checkLeavesTable();
     import('./services/notificationScheduler.js');
   });
+  const { initRealtime } = await import('./socket.js');
+  initRealtime(server);
 }
 
 export default app;
