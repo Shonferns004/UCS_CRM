@@ -378,7 +378,7 @@ export const getMySalaryBreakdown = async (req, res) => {
 
     // ≥6 absence rule
     const regularAbsences = monthDays.filter(d => {
-      if (d.dayName === 'Sun' || beforeJoinSet.has(d.date)) return false;
+      if (d.dayName === 'Sun') return false;
       const rec = records.find(r => r.date === d.date);
       return rec?.status === 'absent';
     }).length;
