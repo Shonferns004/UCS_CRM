@@ -360,7 +360,7 @@ export default function Recruiters() {
 
               <div className="form-row">
                 <label className="field">Source
-                  <Dropdown value={form.source} onChange={v => setForm(f => ({ ...f, source: v, customSource: v !== 'Other' ? '' : f.customSource }))}
+                  <Dropdown value={form.source} onChange={v => { const val = v?.target?.value ?? v; setForm(f => ({ ...f, source: val, customSource: val !== 'Other' ? '' : f.customSource })); }}
                     options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
                 </label>
               </div>
@@ -370,7 +370,7 @@ export default function Recruiters() {
                   <div style={{display:'flex',gap:16}}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                      <Dropdown menuInset value={form.connectedOption} onChange={v => setForm(f => ({ ...f, connectedOption: v, followUpDateTime: '', callBackTime: '', scheduledDate: '' }))} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                      <Dropdown menuInset value={form.connectedOption} onChange={v => { const val = v?.target?.value ?? v; setForm(f => ({ ...f, connectedOption: val, followUpDateTime: '', callBackTime: '', scheduledDate: '' })); }} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
                       {form.connectedOption === 'follow_up' && (
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                           <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -392,7 +392,7 @@ export default function Recruiters() {
                     </div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                      <Dropdown menuInset value={form.notConnectedOption} onChange={v => setForm(f => ({ ...f, notConnectedOption: v }))}
+                      <Dropdown menuInset value={form.notConnectedOption} onChange={v => { const val = v?.target?.value ?? v; setForm(f => ({ ...f, notConnectedOption: val })); }}
                         options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))]} style={{width:'100%'}} />
                     </div>
                   </div>
