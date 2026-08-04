@@ -1,17 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  getConversations,
-  getMessages,
-  sendMessage as sendMsgApi,
-  createConversation,
-  markRead,
-  searchMessages,
-  uploadMedia,
-  getMyAccounts,
-} from '../../api/whatsappEnhanced'
-import { supabase } from '../../lib/supabase'
+import { getConversations, getMessages, sendMessage as sendMsgApi, createConversation, markRead, searchMessages, uploadMedia, getMyAccounts } from '../../api/whatsappEnhanced'
+import { useRealtime } from '../../../../hooks/useRealtime'
 import ConversationList from './ConversationList'
 import { MessageList } from './MessageBubble'
 import MessageComposer from './MessageComposer'
@@ -154,26 +145,9 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   useEffect(() => {
     if (!waUser?.id && !agentToken) return
-    if (agentToken) {
-      getMyAccounts(agentToken).then(accounts => {
-        if (accounts?.length) setMyAccounts(accounts)
-      }).catch(() => {})
-      return undefined
-    }
-    ;(async () => {
-      const { data: assigns } = await supabase
-        .from('agent_phone_assignments')
-        .select('account_id')
-        .eq('user_id', waUser.id)
-      if (assigns?.length) {
-        const ids = assigns.map(a => a.account_id)
-        const { data } = await supabase
-          .from('whatsapp_accounts')
-          .select('id, name, phone_number_id, project')
-          .in('id', ids)
-        if (data) setMyAccounts(data)
-      }
-    })()
+    getMyAccounts(agentToken).then(accounts => {
+      if (accounts?.length) setMyAccounts(accounts)
+    }).catch(() => {})
   }, [waUser?.id, agentToken])
 
   useEffect(() => {
@@ -189,28 +163,33 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
 
   useEffect(() => {
     if (!activeConv?.id) return
-    const channel = supabase
-      .channel(`wa-messages-${activeConv.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConv.id}` }, () => {
+    return useRealtime('messages', {
+      event: 'INSERT',
+      filter: `conversation_id=eq.${activeConv.id}`,
+      onInsert: () => {
         queryClient.invalidateQueries({ queryKey: ['wa-messages', activeConv.id] })
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+      },
+    })
   }, [activeConv?.id, queryClient])
 
   useEffect(() => {
-    const channel = supabase
-      .channel('wa-conversations-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+    return useRealtime('conversations', {
+      event: '*',
+      onInsert: () => queryClient.invalidateQueries({ queryKey: ['wa-conversations'] }),
+      onUpdate: () => queryClient.invalidateQueries({ queryKey: ['wa-conversations'] }),
+      onDelete: () => queryClient.invalidateQueries({ queryKey: ['wa-conversations'] }),
+    })
+  }, [queryClient])
+
+  useEffect(() => {
+    return useRealtime('messages', {
+      event: 'INSERT',
+      onInsert: (payload) => {
         if (payload.new?.conversation_id && payload.new?.conversation_id !== activeConv?.id) {
           queryClient.invalidateQueries({ queryKey: ['wa-conversations'] })
         }
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+      },
+    })
   }, [queryClient, activeConv?.id])
 
   const handleSelect = useCallback(async (conv) => {
@@ -236,37 +215,10 @@ export default function WhatsAppInbox({ waUser, onLogout, compact, agentToken, a
   const handleSendMedia = useCallback(async (files) => {
     if (!activeConv || !waUser) return
     const fileArr = Array.isArray(files) ? files : [files]
-    const contact = activeConv.contact || {}
-    const phoneNumber = contact.phone_normalized || contact.phone || ''
-    const mimeType = (f) => f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document'
     for (const f of fileArr) {
       const r = await uploadMedia(f, agentToken)
       if (r?.file_url) {
-        const { data: msg } = await supabase.from('messages').insert({
-          conversation_id: activeConv.id,
-          contact_id: activeConv.contact_id,
-          user_id: waUser.id,
-          direction: 'outbound',
-          message_type: mimeType(f),
-          media_url: r.file_url,
-          media_mime_type: f.type,
-          status: 'queued',
-        }).select('id').maybeSingle()
-        if (msg && phoneNumber) {
-          const baseUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
-          fetch(baseUrl + '/whatsapp/send', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', ...(agentToken ? { Authorization: `Bearer ${agentToken}` } : {}) },
-            body: JSON.stringify({
-              conversationId: activeConv.id,
-              contactId: activeConv.contact_id,
-              mediaUrl: r.file_url,
-              mediaMimeType: f.type,
-              userId: waUser.id,
-              phoneNumber,
-              messageId: msg.id,
-            }),
-          }).catch((err) => { console.error('Error:', err.message); })
-        }
+        await sendMsgApi(activeConv.id, '', agentToken, r.file_url)
         await new Promise(r => setTimeout(r, 200))
       }
     }

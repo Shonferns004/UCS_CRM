@@ -1,11 +1,21 @@
 import { useEffect, useRef } from 'react';
-import { supabase } from '../config/supabase';
+import { onDbChange } from '../lib/socket';
+
+function parseFilter(filter) {
+  if (!filter) return () => true
+  const match = String(filter).match(/^([A-Za-z_][A-Za-z0-9_]*)=eq\.(.+)$/)
+  if (!match) return () => true
+  const [, col, val] = match
+  return (payload) => {
+    const row = payload.new ?? payload.old ?? {}
+    return String(row[col]) === String(val)
+  }
+}
 
 export function useRealtime(
   table,
   { filter, event = '*', onInsert, onUpdate, onDelete, enabled = true }
 ) {
-  const channelRef = useRef(null);
   const onInsertRef = useRef(onInsert);
   const onUpdateRef = useRef(onUpdate);
   const onDeleteRef = useRef(onDelete);
@@ -17,23 +27,15 @@ export function useRealtime(
   useEffect(() => {
     if (!enabled) return;
 
-    let channel = supabase
-      .channel(`${table}_changes`)
-      .on(
-        'postgres_changes',
-        { event, schema: 'public', table, filter },
-        (payload) => {
-          if (payload.eventType === 'INSERT' && onInsertRef.current) onInsertRef.current(payload.new);
-          if (payload.eventType === 'UPDATE' && onUpdateRef.current) onUpdateRef.current(payload.new, payload.old);
-          if (payload.eventType === 'DELETE' && onDeleteRef.current) onDeleteRef.current(payload.old);
-        }
-      )
-      .subscribe();
+    const unsubscribe = onDbChange({
+      table,
+      event,
+      filter: parseFilter(filter),
+      onInsert: (row) => onInsertRef.current?.(row),
+      onUpdate: (row, old) => onUpdateRef.current?.(row, old),
+      onDelete: (old) => onDeleteRef.current?.(old),
+    });
 
-    channelRef.current = channel;
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return unsubscribe;
   }, [table, filter, event, enabled]);
 }

@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { emitDbChange } from '../socket.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -37,6 +38,22 @@ const pool = new pg.Pool(poolConfig);
 
 const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
 const PGRST116 = { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116', details: '', hint: '' };
+
+// -- Realtime -----------------------------------------------------------------
+// Tables whose row writes are broadcast to socket.io clients as db:change events.
+const REALTIME_TABLES = new Set([
+  'notification_log', 'fro_donor_logs', 'bank_audit_entries', 'rejected_lead_tickets',
+  'fro_assignments', 'fro_live_status', 'messages', 'conversations',
+  'attendance', 'leaves', 'loans', 'attendance_corrections',
+]);
+
+function emitRealtimeRows(table, eventType, rows) {
+  for (const row of rows) {
+    if (!row) continue;
+    if (eventType === 'DELETE') emitDbChange({ table, schema: 'public', eventType, new: null, old: row });
+    else emitDbChange({ table, schema: 'public', eventType, new: row, old: null });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Schema metadata caches
@@ -767,10 +784,11 @@ class QueryBuilder {
 
     let sql = `INSERT INTO ${q(this.table)} (${cols.map(q).join(', ')}) VALUES ${valueRows.join(', ')}`;
     if (this.ignoreDuplicates) sql += ' ON CONFLICT DO NOTHING';
-    if (this.selectAfterWrite) {
+    if (this.selectAfterWrite || REALTIME_TABLES.has(this.table)) {
       sql += ' RETURNING *';
       const res = await pool.query(sql, values);
-      return this._finishWrite(res.rows, true);
+      if (REALTIME_TABLES.has(this.table)) emitRealtimeRows(this.table, 'INSERT', res.rows);
+      return this.selectAfterWrite ? this._finishWrite(res.rows, true) : { data: null, count: null, error: null };
     }
     await pool.query(sql, values);
     return { data: null, count: null, error: null };
@@ -792,10 +810,11 @@ class QueryBuilder {
     const where = this.buildWhere(aliasMap, params, { forUpdateDelete: true });
 
     let sql = `UPDATE ${q(this.table)} SET ${sets.join(', ')} WHERE ${where.sql}`;
-    if (this.selectAfterWrite) {
+    if (this.selectAfterWrite || REALTIME_TABLES.has(this.table)) {
       sql += ' RETURNING *';
       const res = await pool.query(sql, where.params);
-      return this._finishWrite(res.rows, true);
+      if (REALTIME_TABLES.has(this.table)) emitRealtimeRows(this.table, 'UPDATE', res.rows);
+      return this.selectAfterWrite ? this._finishWrite(res.rows, true) : { data: null, count: null, error: null };
     }
     await pool.query(sql, where.params);
     return { data: null, count: null, error: null };
@@ -848,11 +867,20 @@ class QueryBuilder {
       }
     }
 
-    if (this.selectAfterWrite) {
+    const realtime = REALTIME_TABLES.has(this.table);
+    if (this.selectAfterWrite || realtime) {
       sql += ' RETURNING *';
+      if (realtime) sql += ', (xmax = 0) AS __rt_ins';
       try {
         const res = await pool.query(sql, values);
-        return this._finishWrite(res.rows, true);
+        if (realtime) {
+          for (const row of res.rows) {
+            const { __rt_ins, ...clean } = row;
+            emitRealtimeRows(this.table, __rt_ins ? 'INSERT' : 'UPDATE', [clean]);
+          }
+          res.rows = res.rows.map(({ __rt_ins, ...rest }) => rest);
+        }
+        return this.selectAfterWrite ? this._finishWrite(res.rows, true) : { data: null, count: null, error: null };
       } catch (err) {
         if (err.code === '23505' && !conflictCols) {
           const pk = (await getPrimaryKey(this.table))[0];
@@ -861,7 +889,8 @@ class QueryBuilder {
               `SELECT * FROM ${q(this.table)} WHERE ${pk} = $1`,
               [rows[0][pk]]
             );
-            return this._finishWrite(existing, true);
+            if (realtime) emitRealtimeRows(this.table, 'UPDATE', existing);
+            return this.selectAfterWrite ? this._finishWrite(existing, true) : { data: null, count: null, error: null };
           }
         }
         throw err;
@@ -878,10 +907,11 @@ class QueryBuilder {
     const aliasMap = new Map();
     const where = this.buildWhere(aliasMap, params, { forUpdateDelete: true });
     let sql = `DELETE FROM ${q(this.table)} WHERE ${where.sql}`;
-    if (this.selectAfterWrite) {
+    if (this.selectAfterWrite || REALTIME_TABLES.has(this.table)) {
       sql += ' RETURNING *';
       const res = await pool.query(sql, where.params);
-      return this._finishWrite(res.rows, true);
+      if (REALTIME_TABLES.has(this.table)) emitRealtimeRows(this.table, 'DELETE', res.rows);
+      return this.selectAfterWrite ? this._finishWrite(res.rows, true) : { data: null, count: null, error: null };
     }
     await pool.query(sql, where.params);
     return { data: null, count: null, error: null };

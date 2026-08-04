@@ -25,3 +25,4 @@ package-lock.json
 !others/client-web/package-lock.json
 
 tmp_schema.sql
+aws/main.md
