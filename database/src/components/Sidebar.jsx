@@ -1,6 +1,6 @@
 import Icon from './Icon.jsx';
 
-export default function Sidebar({ tables, activeTable, capOpen, filterText, setFilterText, onSelectTable, onNewTable, onOpenSqlEditor, onToggleCapacity }) {
+export default function Sidebar({ tables, activeTable, capOpen, provOpen, filterText, setFilterText, onSelectTable, onNewTable, onOpenSqlEditor, onToggleCapacity, onToggleProvision }) {
   const fmt = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n);
   const f = filterText.toLowerCase();
   const list = tables.filter((t) => t.name.toLowerCase().includes(f));
@@ -42,6 +42,10 @@ export default function Sidebar({ tables, activeTable, capOpen, filterText, setF
         <a onClick={(e) => { e.preventDefault(); onToggleCapacity(); }} className={`flex items-center gap-3 px-3 py-2 rounded font-body-sm text-body-sm cursor-pointer transition-colors duration-200 ${capOpen ? 'text-primary font-bold border-l-2 border-primary bg-on-primary-fixed-variant/10 rounded-r' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'}`} href="#">
           <Icon name="speed" size={18} />
           <span>Shon RDS</span>
+        </a>
+        <a onClick={(e) => { e.preventDefault(); onToggleProvision(); }} className={`flex items-center gap-3 px-3 py-2 rounded font-body-sm text-body-sm cursor-pointer transition-colors duration-200 ${provOpen ? 'text-primary font-bold border-l-2 border-primary bg-on-primary-fixed-variant/10 rounded-r' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'}`} href="#">
+          <Icon name="user_plus" size={18} />
+          <span>Provision Customer</span>
         </a>
 
         <div className="mt-8 mb-2 px-3">

@@ -199,13 +199,13 @@ export default function Attendance() {
       if (rows.length === 0) { alert('No workers match the selected filters for this period. Try clearing the Status/Department filter or picking a different month.'); return; }
       const cellDates = (arr) => (arr && arr.length) ? JSON.stringify(arr) : '';
       const wsData = [
-        ['Name', 'Department', 'Present', 'Half Day Dates', 'Half Day Count', 'Absent Dates', 'Absent Count', 'Leave', 'Total Days'],
-        ...rows.map(r => [r.Name, r.Department, r.Present, cellDates(r['Half Day Dates']), r['Half Day Count'], cellDates(r['Absent Dates']), r['Absent Count'], r.Leave, r.Total]),
+        ['Name', 'Department', 'Present', 'Half Day Dates', 'Half Day Count', 'Absent Dates', 'Absent Count', 'Leave', 'Late Deduction', 'Total Days'],
+        ...rows.map(r => [r.Name, r.Department, r.Present, cellDates(r['Half Day Dates']), r['Half Day Count'], cellDates(r['Absent Dates']), r['Absent Count'], r.Leave, r['Late Deduction'], r.Total]),
       ];
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       ws['!cols'] = [
         { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 28 },
-        { wch: 12 }, { wch: 32 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+        { wch: 12 }, { wch: 32 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 12 },
       ];
       const header = ws['A1'];
       header.s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };
@@ -215,8 +215,10 @@ export default function Attendance() {
         const halfDayCountCell = ws['E' + r];
         const absentCell = ws['F' + r];
         const absentCountCell = ws['G' + r];
+        const lateCell = ws['I' + r];
         const vH = wsData[i][3];
         const vA = wsData[i][5];
+        const vL = wsData[i][8];
         if (vH) {
           halfDayCell.s = { fill: { fgColor: { rgb: 'FFEBDDF7' } }, font: { bold: true, color: { rgb: 'FF7B3FB3' } } };
           halfDayCountCell.s = { fill: { fgColor: { rgb: 'FFEBDDF7' } }, font: { bold: true, color: { rgb: 'FF7B3FB3' } } };
@@ -224,6 +226,9 @@ export default function Attendance() {
         if (vA) {
           absentCell.s = { fill: { fgColor: { rgb: 'FFFBD7D7' } }, font: { bold: true, color: { rgb: 'FFC53030' } } };
           absentCountCell.s = { fill: { fgColor: { rgb: 'FFFBD7D7' } }, font: { bold: true, color: { rgb: 'FFC53030' } } };
+        }
+        if (vL) {
+          lateCell.s = { fill: { fgColor: { rgb: 'FFFFF3CD' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
         }
       }
       const wb = XLSX.utils.book_new();
@@ -289,6 +294,15 @@ export default function Attendance() {
       const joinDate = (w.created_at || '').slice(0, 10);
       const covered = new Set(records.map(r => r.date));
       let present = 0, late = 0, halfDay = 0, leave = 0, absent = 0;
+      const totalLateMinutes = records.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
+      let lateDeductionDays = 0;
+      if (totalLateMinutes > 480) {
+        lateDeductionDays = Math.round((totalLateMinutes / 480) * 2) / 2;
+      } else if (totalLateMinutes > 240) {
+        lateDeductionDays = 1;
+      } else if (totalLateMinutes > 180) {
+        lateDeductionDays = 0.5;
+      }
       const halfDayDates = [];
       const absentDates = [];
       for (const r of records) {
@@ -329,6 +343,34 @@ export default function Attendance() {
           }
         }
       }
+      const isDigital = (w.department || '') === 'Digital';
+      let sundayCount = 0;
+      if (!isDigital && startDate && periodEnd) {
+        const absentSetFinal = new Set(absentDates);
+        const curS = new Date(startDate + 'T00:00:00+05:30');
+        const stopS = new Date(periodEnd + 'T00:00:00+05:30');
+        let lastSunday = null;
+        for (let d = new Date(curS); d <= stopS; d.setUTCDate(d.getUTCDate() + 1)) {
+          const ds = toIST(d);
+          if (ds >= (joinDate || '0000-00-00') && isSunday(ds)) lastSunday = ds;
+        }
+        for (let d = new Date(curS); d <= stopS; d.setUTCDate(d.getUTCDate() + 1)) {
+          const ds = toIST(d);
+          if (ds < (joinDate || '0000-00-00') || !isSunday(ds)) continue;
+          if (absentSetFinal.has(ds)) continue;
+          if (ds === lastSunday) {
+            const rec = records.find(r => r.date === ds);
+            if (rec && (rec.status === 'present' || rec.status === 'late')) {
+              sundayCount += 1;
+            } else if (ds >= today) {
+              sundayCount += 1;
+            }
+            continue;
+          }
+          if (covered.has(ds)) continue;
+          sundayCount += 1;
+        }
+      }
       const matches = !statusActive || (
         (statusFilter === 'present' && present - late > 0)
         || (statusFilter === 'late' && late > 0)
@@ -346,7 +388,8 @@ export default function Attendance() {
           'Absent Dates': absentDates.sort(),
           'Absent Count': absent,
           Leave: leave,
-          Total: present + halfDay + absent + leave,
+          'Late Deduction': lateDeductionDays,
+          Total: Math.max(0, present + halfDay * 0.5 + leave + sundayCount - lateDeductionDays),
         });
       }
     }

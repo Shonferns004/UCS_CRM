@@ -8,6 +8,7 @@ import DataGrid from './components/DataGrid.jsx';
 import Pager from './components/Pager.jsx';
 import QueryRunner from './components/QueryRunner.jsx';
 import CapacityPanel from './components/CapacityPanel.jsx';
+import ProvisionPanel from './components/ProvisionPanel.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 
 const DESTRUCTIVE = /\b(DROP|DELETE|TRUNCATE|UPDATE|INSERT|ALTER|CREATE|GRANT|REVOKE|REINDEX|VACUUM|COPY)\b/i;
@@ -24,6 +25,7 @@ export default function App() {
 
   const [runnerOpen, setRunnerOpen] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
+  const [provOpen, setProvOpen] = useState(false);
 
   const [searchText, setSearchText] = useState('');
   const [searchCol, setSearchCol] = useState('');
@@ -199,6 +201,7 @@ export default function App() {
   const toggleRunner = () => {
     setRunnerOpen((o) => !o);
     setCapOpen(false);
+    setProvOpen(false);
   };
   const toggleCapacity = () => {
     setCapOpen((o) => {
@@ -206,6 +209,12 @@ export default function App() {
       return !o;
     });
     setRunnerOpen(false);
+    setProvOpen(false);
+  };
+  const toggleProvision = () => {
+    setProvOpen((o) => !o);
+    setRunnerOpen(false);
+    setCapOpen(false);
   };
   const newTable = () => {
     if (!runnerOpen) toggleRunner();
@@ -264,12 +273,14 @@ export default function App() {
         tables={tables}
         activeTable={view.table}
         capOpen={capOpen}
+        provOpen={provOpen}
         filterText={filterText}
         setFilterText={setFilterText}
         onSelectTable={openTable}
         onNewTable={newTable}
         onOpenSqlEditor={toggleRunner}
         onToggleCapacity={toggleCapacity}
+        onToggleProvision={toggleProvision}
       />
 
       <div className="flex-1 flex flex-col h-full bg-surface overflow-hidden relative z-10">
@@ -297,6 +308,7 @@ export default function App() {
           )}
 
           <CapacityPanel open={capOpen} data={capData} onRefresh={loadCapacity} />
+          <ProvisionPanel open={provOpen} onClose={() => setProvOpen(false)} />
           <QueryRunner
             open={runnerOpen}
             sqlText={sqlText}

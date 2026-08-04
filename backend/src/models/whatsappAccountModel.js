@@ -50,6 +50,17 @@ export async function getAccountByProject(project) {
   return data;
 }
 
+export async function getAccountByPhoneNumberId(phoneNumberId) {
+  const { data, error } = await supabase
+    .from('whatsapp_accounts')
+    .select('*')
+    .eq('phone_number_id', phoneNumberId)
+    .eq('is_active', true)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function getDefaultAccount() {
   const { data, error } = await supabase
     .from('whatsapp_accounts')

@@ -21,6 +21,7 @@ import {
   updateLabels,
   uploadMedia,
   listMyAccounts,
+  getMedia,
 } from '../controllers/froWhatsAppController.js';
 
 const router = Router();
@@ -51,6 +52,7 @@ router.get('/conversations/:id/messages', listMessages);
 router.post('/conversations/:id/send', sendMessage);
 router.put('/conversations/:id/read', markRead);
 router.get('/search', searchMessages);
+router.get('/media/:mediaId', getMedia);
 router.post('/upload-media', upload.single('file'), uploadMedia);
 router.post('/send-template', sendTemplate);
 router.get('/quick-replies', listQuickReplies);
