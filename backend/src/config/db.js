@@ -1,0 +1,1122 @@
+import pg from 'pg';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
+
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
+
+// ---------------------------------------------------------------------------
+// Type parsers — make node-postgres output match what supabase-js / PostgREST
+// returns (numbers for int8/numeric, ISO-8601 UTC strings for timestamptz).
+// ---------------------------------------------------------------------------
+pg.types.setTypeParser(20, (v) => parseInt(v, 10));            // int8   -> number
+pg.types.setTypeParser(1700, (v) => parseFloat(v));            // numeric-> number
+pg.types.setTypeParser(1184, (v) => new Date(v).toISOString()); // timestamptz -> ISO string
+pg.types.setTypeParser(1114, (v) => v);                        // timestamp -> raw string
+pg.types.setTypeParser(1082, (v) => v);                        // date -> string
+pg.types.setTypeParser(1083, (v) => v);                        // time -> string
+
+const poolConfig = { max: 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 15000 };
+if (process.env.DATABASE_URL) {
+  poolConfig.connectionString = process.env.DATABASE_URL;
+  poolConfig.ssl = process.env.DATABASE_SSL !== 'false' ? { rejectUnauthorized: false } : false;
+} else {
+  poolConfig.host = process.env.PGHOST || 'localhost';
+  poolConfig.port = parseInt(process.env.PGPORT || '5432', 10);
+  poolConfig.user = process.env.PGUSER;
+  poolConfig.password = process.env.PGPASSWORD;
+  poolConfig.database = process.env.PGDATABASE;
+  if (process.env.PGSSLMODE && process.env.PGSSLMODE !== 'disable') {
+    poolConfig.ssl = { rejectUnauthorized: false };
+  }
+}
+const pool = new pg.Pool(poolConfig);
+
+const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
+const PGRST116 = { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116', details: '', hint: '' };
+
+// ---------------------------------------------------------------------------
+// Schema metadata caches
+// ---------------------------------------------------------------------------
+let fkCache = null;
+const columnCache = {};
+const pkCache = {};
+
+// Manually-declared joins for tables that lost their FK constraints during the
+// RDS migration. Keyed by (child_table -> embed rel -> column mapping).
+const EMBED_JOINS = {
+  agent_phone_assignments: {
+    whatsapp_accounts: { childColumn: 'account_id', parentColumn: 'id' },
+  },
+};
+
+async function getForeignKeys() {
+  if (fkCache) return fkCache;
+  const { rows } = await pool.query(`
+    SELECT con.conname AS constraint,
+           child.relname AS child_table,
+           child_att.attname AS child_column,
+           parent.relname AS parent_table,
+           parent_att.attname AS parent_column
+    FROM pg_constraint con
+    JOIN pg_class child ON child.oid = con.conrelid
+    JOIN pg_class parent ON parent.oid = con.confrelid
+    JOIN pg_namespace cns ON cns.oid = child.relnamespace
+    CROSS JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY
+      AS ord(child_attnum, parent_attnum, pos)
+    JOIN pg_attribute child_att ON child_att.attrelid = con.conrelid AND child_att.attnum = ord.child_attnum
+    JOIN pg_attribute parent_att ON parent_att.attrelid = con.confrelid AND parent_att.attnum = ord.parent_attnum
+    WHERE con.contype = 'f' AND cns.nspname = 'public'
+  `);
+  fkCache = rows;
+  return fkCache;
+}
+
+async function getColumns(table) {
+  if (columnCache[table]) return columnCache[table];
+  const { rows } = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position`,
+    [table]
+  );
+  columnCache[table] = rows.map((r) => r.column_name);
+  return columnCache[table];
+}
+
+async function getPrimaryKey(table) {
+  if (pkCache[table] !== undefined) return pkCache[table];
+  const { rows } = await pool.query(
+    `SELECT kcu.column_name FROM information_schema.table_constraints tc
+     JOIN information_schema.key_column_usage kcu
+       ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+     WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' AND tc.table_name = $1
+     ORDER BY kcu.ordinal_position`,
+    [table]
+  );
+  pkCache[table] = rows.map((r) => r.column_name);
+  return pkCache[table];
+}
+
+// ---------------------------------------------------------------------------
+// Relationship resolution (to-one embeds)
+// ---------------------------------------------------------------------------
+async function guessChildColumn(childTable, parentTable) {
+  const cols = await getColumns(childTable);
+  const singular = parentTable.replace(/ies$/, 'y').replace(/s$/, '');
+  const candidates = [
+    `${parentTable}_id`,
+    `${singular}_id`,
+    `${parentTable}s_id`,
+    `${singular}s_id`,
+  ];
+  for (const c of candidates) if (cols.includes(c)) return c;
+  const matches = cols.filter((c) => c.endsWith('_id') && (c.startsWith(parentTable) || c.startsWith(singular)));
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
+async function resolveRelationship(childTable, rel, hint) {
+  const fks = await getForeignKeys();
+  const childFks = fks.filter((f) => f.child_table === childTable);
+  const hintIsMode = hint === 'inner' || hint === 'left';
+  const mode = hintIsMode ? hint : 'left';
+
+  const hintConstraint = !hintIsMode && hint ? childFks.find((f) => f.constraint === hint) : null;
+  const hintColumn = !hintIsMode && hint && !hintConstraint ? childFks.find((f) => f.child_column === hint) : null;
+
+  let chosen = null;
+  if (hintConstraint || hintColumn) {
+    chosen = hintConstraint || hintColumn;
+  } else {
+    const byTable = childFks.filter((f) => f.parent_table === rel);
+    if (byTable.length === 1) {
+      chosen = byTable[0];
+    } else if (byTable.length > 1) {
+      throw new Error(`Ambiguous relationship ${childTable} -> ${rel}`);
+    } else {
+      chosen = childFks.find((f) => f.constraint === rel) || childFks.find((f) => f.child_column === rel) || null;
+    }
+  }
+
+  if (!chosen) {
+    const guessed = await guessChildColumn(childTable, rel);
+    if (guessed) {
+      const pks = await getPrimaryKey(rel);
+      return { parentTable: rel, childColumn: guessed, parentColumn: pks.length ? pks[0] : 'id', mode };
+    }
+    // Tables without FK constraints (constraints dropped in the RDS migration).
+    const manual = EMBED_JOINS[childTable] && EMBED_JOINS[childTable][rel];
+    if (manual) {
+      return { parentTable: rel, childColumn: manual.childColumn, parentColumn: manual.parentColumn, mode };
+    }
+    throw new Error(`Could not resolve relationship ${childTable} -> ${rel}`);
+  }
+
+  return { parentTable: chosen.parent_table, childColumn: chosen.child_column, parentColumn: chosen.parent_column, mode };
+}
+
+// ---------------------------------------------------------------------------
+// Select-list parser: supports `*`, columns, and embeds of the form
+//   [alias:]table[!hint](...)
+//   [alias:]relationship(...)
+//   nested embeds and `*` inside embeds.
+// ---------------------------------------------------------------------------
+const OP_SET = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'is', 'in', 'not.in', 'not.is', 'cs', 'cd']);
+
+function parseSelectList(str) {
+  let i = 0;
+  const n = str.length;
+  const skipSpaces = () => { while (i < n && /\s/.test(str[i])) i++; };
+  const readName = () => {
+    skipSpaces();
+    const s = i;
+    while (i < n && /[A-Za-z0-9_]/.test(str[i])) i++;
+    return str.slice(s, i);
+  };
+  const expectParen = () => {
+    skipSpaces();
+    if (str[i] !== '(') throw new Error(`select parse error near "${str.slice(i, i + 20)}"`);
+    i++;
+  };
+  const parseItem = () => {
+    skipSpaces();
+    if (str[i] === '*') { i++; return { type: 'star' }; }
+    const first = readName();
+    skipSpaces();
+    if (str[i] === ':') {
+      i++;
+      const rel = readName();
+      let hint = null;
+      skipSpaces();
+      if (str[i] === '!') { i++; hint = readName(); }
+      expectParen();
+      const children = parseList();
+      skipSpaces();
+      if (str[i] !== ')') throw new Error('select parse: expected )');
+      i++;
+      return { type: 'embed', alias: first, rel, hint, children };
+    }
+    if (str[i] === '!') {
+      i++;
+      const hint = readName();
+      expectParen();
+      const children = parseList();
+      skipSpaces();
+      if (str[i] !== ')') throw new Error('select parse: expected )');
+      i++;
+      return { type: 'embed', alias: null, rel: first, hint, children };
+    }
+    if (str[i] === '(') {
+      i++;
+      const children = parseList();
+      skipSpaces();
+      if (str[i] !== ')') throw new Error('select parse: expected )');
+      i++;
+      return { type: 'embed', alias: null, rel: first, hint: null, children };
+    }
+    return { type: 'col', name: first };
+  };
+  const parseList = () => {
+    const out = [];
+    for (;;) {
+      skipSpaces();
+      if (i >= n) break;
+      out.push(parseItem());
+      skipSpaces();
+      if (str[i] === ',') { i++; continue; }
+      break;
+    }
+    return out;
+  };
+
+  return parseList();
+}
+
+// ---------------------------------------------------------------------------
+// or() string parser -> [{ conditions: [cond, ...], }, ...]  (OR of AND-groups)
+// ---------------------------------------------------------------------------
+function splitTopLevel(str, sep) {
+  const parts = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === sep && depth === 0) { parts.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+function parseCond(seg) {
+  const tokens = seg.split('.');
+  let opIdx = -1;
+  for (let i = 1; i < tokens.length; i++) {
+    if (OP_SET.has(tokens[i])) { opIdx = i; break; }
+  }
+  if (opIdx === -1) throw new Error(`Cannot parse or() condition "${seg}"`);
+  return {
+    col: tokens.slice(0, opIdx).join('.'),
+    op: tokens[opIdx],
+    value: tokens.slice(opIdx + 1).join('.'),
+  };
+}
+
+function parseOrString(str) {
+  const groups = splitTopLevel(str, ',');
+  return groups.map((group) => {
+    const trimmed = group.trim();
+    if (/^and\(/.test(trimmed) && trimmed.endsWith(')')) {
+      const inner = trimmed.slice(4, -1);
+      return splitTopLevel(inner, ',').map((c) => parseCond(c.trim()));
+    }
+    return [parseCond(trimmed)];
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Value helpers
+// ---------------------------------------------------------------------------
+function orValueParam(value) {
+  if (value === 'null') return null;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'not.null') return { __notNull: true };
+  return value;
+}
+
+function orListToParams(listStr) {
+  const inner = listStr.trim();
+  const body = inner.startsWith('(') && inner.endsWith(')') ? inner.slice(1, -1) : inner;
+  return body.split(',').map((v) => v.trim());
+}
+
+function likePattern(value) {
+  return value.replace(/\*/g, '%');
+}
+
+// ---------------------------------------------------------------------------
+// Row reconstruction: flatten "a.b.c" keys into nested objects and null out
+// empty/fully-null embed objects.
+// ---------------------------------------------------------------------------
+function setNullIfEmpty(obj, parts) {
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (cur[parts[i]] == null) return;
+    cur = cur[parts[i]];
+  }
+  const last = parts[parts.length - 1];
+  const val = cur[last];
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const vals = Object.values(val);
+    if (vals.length === 0 || vals.every((x) => x === null || x === undefined)) cur[last] = null;
+  }
+}
+
+function nestRows(rows, embedPaths) {
+  return rows.map((row) => {
+    const out = {};
+    for (const [k, v] of Object.entries(row)) {
+      if (k === '__pg_count' || k === '__count') continue;
+      if (k.includes('.')) {
+        const parts = k.split('.');
+        let obj = out;
+        for (let i = 0; i < parts.length - 1; i++) {
+          const seg = parts[i];
+          if (obj[seg] == null || typeof obj[seg] !== 'object') obj[seg] = {};
+          obj = obj[seg];
+        }
+        obj[parts[parts.length - 1]] = v;
+      } else {
+        out[k] = v;
+      }
+    }
+    for (const p of embedPaths) setNullIfEmpty(out, p.split('.'));
+    return out;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Query builder (thenable)
+// ---------------------------------------------------------------------------
+class QueryBuilder {
+  constructor(table) {
+    this.table = table;
+    this.op = 'select';
+    this.selectStr = null;
+    this.filters = [];
+    this.orGroups = [];
+    this.orders = [];
+    this.limitVal = null;
+    this.fromVal = null;
+    this.toVal = null;
+    this.singleFlag = false;
+    this.maybeSingleFlag = false;
+    this.countOpt = null;
+    this.head = false;
+    this.insertRows = null;
+    this.updateData = null;
+    this.upsertData = null;
+    this.onConflict = null;
+    this.ignoreDuplicates = false;
+    this.selectAfterWrite = false;
+  }
+
+  select(columns, opts = {}) {
+    this.selectStr = columns == null ? '*' : String(columns);
+    if (opts) {
+      if (opts.count === 'exact' || opts.count === 'planned' || opts.count === 'estimated') this.countOpt = opts.count;
+      if (opts.head) this.head = true;
+    }
+    return this;
+  }
+
+  eq(col, value) { this.filters.push({ col, op: 'eq', value }); return this; }
+  neq(col, value) { this.filters.push({ col, op: 'neq', value }); return this; }
+  gt(col, value) { this.filters.push({ col, op: 'gt', value }); return this; }
+  gte(col, value) { this.filters.push({ col, op: 'gte', value }); return this; }
+  lt(col, value) { this.filters.push({ col, op: 'lt', value }); return this; }
+  lte(col, value) { this.filters.push({ col, op: 'lte', value }); return this; }
+  is(col, value) { this.filters.push({ col, op: 'is', value }); return this; }
+  like(col, value) { this.filters.push({ col, op: 'like', value }); return this; }
+  ilike(col, value) { this.filters.push({ col, op: 'ilike', value }); return this; }
+  in(col, values) { this.filters.push({ col, op: 'in', value: Array.isArray(values) ? values : [values] }); return this; }
+  not(col, op, value) { this.filters.push({ col, op: `not_${op}`, value }); return this; }
+  or(str) { this.orGroups.push(String(str)); return this; }
+  order(col, opts = {}) {
+    this.orders.push({ col, ascending: opts.ascending !== false, nullsFirst: opts.nullsFirst });
+    return this;
+  }
+  limit(n) { this.limitVal = n; return this; }
+  range(from, to) { this.fromVal = from; this.toVal = to; return this; }
+  single() { this.singleFlag = true; return this; }
+  maybeSingle() { this.maybeSingleFlag = true; return this; }
+
+  insert(rows) { this.op = 'insert'; this.insertRows = Array.isArray(rows) ? rows : [rows]; return this; }
+  update(data) { this.op = 'update'; this.updateData = data || {}; return this; }
+  upsert(data, opts = {}) {
+    this.op = 'upsert';
+    this.upsertData = Array.isArray(data) ? data : [data];
+    this.onConflict = opts.onConflict || null;
+    this.ignoreDuplicates = !!opts.ignoreDuplicates;
+    return this;
+  }
+  ignoreDuplicates() { this.ignoreDuplicates = true; return this; }
+  delete() { this.op = 'delete'; return this; }
+
+  then(onFulfilled, onRejected) {
+    const p = this._execute();
+    return p.then(onFulfilled, onRejected);
+  }
+  catch(onRejected) {
+    return this._execute().then(undefined, onRejected);
+  }
+
+  async _execute() {
+    try {
+      if (this.op === 'select') return await this._execSelect();
+      if (this.op === 'insert') return await this._execInsert();
+      if (this.op === 'update') return await this._execUpdate();
+      if (this.op === 'upsert') return await this._execUpsert();
+      if (this.op === 'delete') return await this._execDelete();
+      return { data: null, error: null };
+    } catch (err) {
+      return {
+        data: null,
+        error: {
+          message: err && err.message ? err.message : String(err),
+          code: err && err.code ? err.code : 'UNKNOWN',
+          details: err && err.details ? err.details : '',
+          hint: err && err.hint ? err.hint : '',
+        },
+      };
+    }
+  }
+
+  // -- shared column-reference / filter builders ---------------------------
+
+  resolveCol(col, aliasMap) {
+    if (col.includes('.')) {
+      const parts = col.split('.');
+      for (let len = parts.length - 1; len >= 1; len--) {
+        const prefix = parts.slice(0, len).join('.');
+        if (aliasMap.has(prefix)) return { alias: aliasMap.get(prefix), column: parts.slice(len).join('.') };
+      }
+    }
+    return { alias: 't0', column: col };
+  }
+
+  buildCondSql(cond, aliasMap, params) {
+    const { alias, column } = this.resolveCol(cond.col, aliasMap);
+    const ref = `${alias}.${q(column)}`;
+    const op = cond.op;
+    if (op === 'is') {
+      if (cond.value === 'not.null') return `${ref} IS NOT NULL`;
+      if (cond.value === 'null') return `${ref} IS NULL`;
+      if (cond.value === 'true' || cond.value === 'false') {
+        params.push(cond.value === 'true');
+        return `${ref} = $${params.length}`;
+      }
+      params.push(cond.value);
+      return `${ref} = $${params.length}`;
+    }
+    if (op === 'in' || op === 'not_in') {
+      const list = Array.isArray(cond.value) ? cond.value : orListToParams(cond.value);
+      if (list.length === 0) return op === 'not_in' ? 'true' : 'false';
+      const ph = [];
+      for (const v of list) {
+        params.push(v);
+        ph.push(`$${params.length}`);
+      }
+      const inner = ph.join(', ');
+      return op === 'not_in' ? `${ref} NOT IN (${inner})` : `${ref} IN (${inner})`;
+    }
+    const map = {
+      eq: '=',
+      neq: '<>',
+      not_eq: '<>',
+      gt: '>',
+      not_gt: '<=',
+      gte: '>=',
+      not_gte: '<',
+      lt: '<',
+      not_lt: '>=',
+      lte: '<=',
+      not_lte: '>',
+      like: 'LIKE',
+      not_like: 'NOT LIKE',
+      ilike: 'ILIKE',
+      not_ilike: 'NOT ILIKE',
+    };
+    const sqlOp = map[op];
+    if (!sqlOp) throw new Error(`Unsupported filter operator "${op}"`);
+    if (op === 'not_eq' && cond.value === 'null') return `${ref} IS NOT NULL`;
+    if (op === 'eq' && cond.value === 'null') return `${ref} IS NULL`;
+    if (op === 'neq' && cond.value === 'null') return `${ref} IS NOT NULL`;
+    let v = orValueParam(cond.value);
+    if (v && typeof v === 'object' && v.__notNull) return `${ref} IS NOT NULL`;
+    if (op.endsWith('like') || op.endsWith('ilike')) v = likePattern(String(v));
+    params.push(v);
+    return `${ref} ${sqlOp} $${params.length}`;
+  }
+
+  buildWhere(aliasMap, params, { forUpdateDelete = false } = {}) {
+    const clauses = [];
+    for (const f of this.filters) {
+      const { alias, column } = this.resolveCol(f.col, aliasMap);
+      const ref = `${alias}.${q(column)}`;
+      const op = f.op;
+
+      if (op === 'in') {
+        const arr = f.value || [];
+        if (arr.length === 0) return { sql: '1 = 0', params };
+        const ph = arr.map((v) => { params.push(v); return `$${params.length}`; }).join(', ');
+        clauses.push(`${ref} IN (${ph})`);
+        continue;
+      }
+      if (op === 'is') {
+        clauses.push(f.value === null ? `${ref} IS NULL` : `${ref} = $${params.push(f.value)}`);
+        continue;
+      }
+      if (op === 'not_is') {
+        clauses.push(f.value === null ? `${ref} IS NOT NULL` : `${ref} <> $${params.push(f.value)}`);
+        continue;
+      }
+      if (op === 'like' || op === 'ilike') {
+        params.push(f.value);
+        clauses.push(`${ref} ${op.toUpperCase()} $${params.length}`);
+        continue;
+      }
+      if (op === 'not_like' || op === 'not_ilike') {
+        params.push(f.value);
+        clauses.push(`${ref} NOT ${op.slice(4).toUpperCase()} $${params.length}`);
+        continue;
+      }
+      if (op === 'not_in') {
+        const arr = Array.isArray(f.value) ? f.value : orListToParams(f.value);
+        if (arr.length === 0) continue;
+        const ph = arr.map((v) => { params.push(v); return `$${params.length}`; }).join(', ');
+        clauses.push(`${ref} NOT IN (${ph})`);
+        continue;
+      }
+      if (op === 'eq' || op === 'neq' || op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte') {
+        const neg = op === 'neq';
+        const sym = neg ? '<>' : op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : op === 'lte' ? '<=' : '=';
+        if (f.value === null) {
+          clauses.push(neg ? `${ref} IS NOT NULL` : `${ref} IS NULL`);
+        } else {
+          params.push(f.value);
+          clauses.push(`${ref} ${sym} $${params.length}`);
+        }
+        continue;
+      }
+      if (op === 'not_eq') {
+        if (f.value === null) clauses.push(`${ref} IS NOT NULL`);
+        else { params.push(f.value); clauses.push(`${ref} <> $${params.length}`); }
+        continue;
+      }
+      if (op === 'not_gt' || op === 'not_gte' || op === 'not_lt' || op === 'not_lte') {
+        const sym = op === 'not_gt' ? '<=' : op === 'not_gte' ? '<' : op === 'not_lt' ? '>=' : '>';
+        params.push(f.value);
+        clauses.push(`${ref} ${sym} $${params.length}`);
+        continue;
+      }
+      throw new Error(`Unsupported filter operator "${op}"`);
+    }
+
+    for (const orStr of this.orGroups) {
+      const groups = parseOrString(orStr);
+      const groupSql = groups.map((conds) => {
+        const inner = conds.map((c) => this.buildCondSql(c, aliasMap, params));
+        return `(${inner.join(' AND ')})`;
+      });
+      clauses.push(`(${groupSql.join(' OR ')})`);
+    }
+
+    if (forUpdateDelete && clauses.length === 0) {
+      throw Object.assign(new Error('Update/Delete requires a filter'), { code: 'PGRST100' });
+    }
+    return { sql: clauses.length ? clauses.map((c) => `(${c})`).join(' AND ') : 'true', params };
+  }
+
+  buildOrder(aliasMap) {
+    if (!this.orders.length) return '';
+    const parts = this.orders.map((o) => {
+      const { alias, column } = this.resolveCol(o.col, aliasMap);
+      const dir = o.ascending ? 'ASC' : 'DESC';
+      const nulls = o.nullsFirst === undefined ? '' : o.nullsFirst ? ' NULLS FIRST' : ' NULLS LAST';
+      return `${alias}.${q(column)} ${dir}${nulls}`;
+    });
+    return ` ORDER BY ${parts.join(', ')}`;
+  }
+
+  // -- SELECT ---------------------------------------------------------------
+
+  async _execSelect() {
+    const { items, grouped, hasCountCol } = this._parseReadSelect();
+    const embedPaths = [];
+    const joins = [];
+    const aliasMap = new Map();
+    const params = [];
+
+    const rootCols = [];
+    if (grouped) {
+      rootCols.push(...items.filter((it) => it.type === 'col' && it.name !== 'count').map((it) => it.name));
+    } else if (hasCountCol) {
+      // select('count') aggregate — no root columns
+    } else {
+      for (const it of items) {
+        if (it.type === 'star') {
+          for (const c of await getColumns(this.table)) if (!rootCols.includes(c)) rootCols.push(c);
+        } else if (it.type === 'col') {
+          if (!rootCols.includes(it.name)) rootCols.push(it.name);
+        }
+      }
+    }
+
+    const selectParts = [];
+    if (grouped) {
+      for (const c of rootCols) selectParts.push(`t0.${q(c)} AS ${q(c)}`);
+    } else {
+      for (const c of rootCols) selectParts.push(`t0.${q(c)} AS ${q(c)}`);
+    }
+
+    for (const it of items) {
+      if (it.type !== 'embed') continue;
+      await this._buildEmbed(it, this.table, null, null, joins, selectParts, aliasMap, embedPaths, params);
+    }
+
+    const fromSql = [`FROM ${q(this.table)} t0`];
+    for (const j of joins) {
+      const mode = j.mode === 'inner' ? 'INNER JOIN' : 'LEFT JOIN';
+      fromSql.push(`${mode} ${q(j.parentTable)} ${j.alias} ON ${j.alias}.${q(j.parentColumn)} = ${j.childAlias}.${q(j.childColumn)}`);
+    }
+
+    const where = this.buildWhere(aliasMap, params);
+
+    let count = null;
+    let rows;
+    const qlog = (sql) => { if (process.env.DEBUG_SQL) console.error('\n[SQL]', sql, '\n'); };
+    if (this.head) {
+      const res = await pool.query(`SELECT COUNT(*)::bigint AS __count ${fromSql.join(' ')} WHERE ${where.sql}`, where.params);
+      count = res.rows[0] ? res.rows[0].__count : 0;
+      rows = [];
+    } else if (grouped) {
+      const groupBy = rootCols.length ? ` GROUP BY ${rootCols.map((c) => `t0.${q(c)}`).join(', ')}` : '';
+      const agg = `COUNT(*) AS ${q('count')}`;
+      const extra = this.countOpt === 'exact' ? `, COUNT(*) OVER() AS __pg_count` : '';
+      const sql = `SELECT ${selectParts.join(', ')}${selectParts.length ? ', ' : ''}${agg}${extra} ${fromSql.join(' ')} WHERE ${where.sql}${groupBy}${this.buildOrder(aliasMap)}${this._buildLimitOffset()}`;
+      qlog(sql);
+      const res = await pool.query(sql, where.params);
+      rows = res.rows;
+      count = rows.length ? rows[0].__pg_count : 0;
+    } else if (hasCountCol) {
+      // select('count') aggregate — single row [{ count: N }]
+      const sql = `SELECT COUNT(*) AS ${q('count')} ${fromSql.join(' ')} WHERE ${where.sql}${this._buildLimitOffset()}`;
+      const res = await pool.query(sql, where.params);
+      rows = res.rows;
+      count = this.countOpt === 'exact' ? (rows.length ? rows[0].count : 0) : null;
+    } else {
+      const extra = this.countOpt === 'exact' ? `, COUNT(*) OVER() AS __pg_count` : '';
+      const sql = `SELECT ${selectParts.join(', ')}${extra} ${fromSql.join(' ')} WHERE ${where.sql}${this.buildOrder(aliasMap)}${this._buildLimitOffset()}`;
+      qlog(sql);
+      const res = await pool.query(sql, where.params);
+      rows = res.rows;
+      count = rows.length ? rows[0].__pg_count : 0;
+    }
+
+    const data = nestRows(rows, embedPaths);
+
+    let resultData = data;
+    if (this.singleFlag || this.maybeSingleFlag) {
+      if (data.length === 0) {
+        if (this.singleFlag) return { data: null, count, error: { ...PGRST116 } };
+        resultData = null;
+      } else if (data.length > 1) {
+        return { data: null, count, error: { ...PGRST116 } };
+      } else {
+        resultData = data[0];
+      }
+    }
+
+    return { data: resultData, count, error: null };
+  }
+
+  _parseReadSelect() {
+    const items = parseSelectList(this.selectStr || '*');
+    const rootCols = items.filter((it) => it.type === 'col').map((it) => it.name);
+    const hasCountCol = rootCols.includes('count');
+    const grouped = hasCountCol && rootCols.length > 1;
+    return { items, grouped, hasCountCol };
+  }
+
+  async _buildEmbed(embed, childTable, parentPathKey, parentSqlAlias, joins, selectParts, aliasMap, embedPaths, params) {
+    const res = await resolveRelationship(childTable, embed.rel, embed.hint);
+    const alias = `e${joins.length}`;
+    const key = embed.alias || res.parentTable;
+    const pathKey = parentPathKey ? `${parentPathKey}.${key}` : key;
+    embedPaths.push(pathKey);
+    joins.push({
+      alias,
+      parentTable: res.parentTable,
+      parentColumn: res.parentColumn,
+      childAlias: parentSqlAlias || 't0',
+      childColumn: res.childColumn,
+      mode: res.mode,
+    });
+    aliasMap.set(pathKey, alias);
+    aliasMap.set(`${key}`, alias);
+
+    for (const child of embed.children) {
+      if (child.type === 'star') {
+        for (const c of await getColumns(res.parentTable)) {
+          selectParts.push(`${alias}.${q(c)} AS ${q(`${pathKey}.${c}`)}`);
+        }
+      } else if (child.type === 'col') {
+        selectParts.push(`${alias}.${q(child.name)} AS ${q(`${pathKey}.${child.name}`)}`);
+      } else {
+        await this._buildEmbed(child, res.parentTable, pathKey, alias, joins, selectParts, aliasMap, embedPaths, params);
+      }
+    }
+  }
+
+  _buildLimitOffset() {
+    let s = '';
+    if (this.limitVal != null) s += ` LIMIT ${parseInt(this.limitVal, 10)}`;
+    if (this.fromVal != null) {
+      const from = parseInt(this.fromVal, 10);
+      const to = this.toVal != null ? parseInt(this.toVal, 10) : from;
+      s += ` OFFSET ${from} LIMIT ${Math.max(0, to - from + 1)}`;
+    }
+    return s;
+  }
+
+  // -- INSERT ---------------------------------------------------------------
+
+  async _execInsert() {
+    const rows = this.insertRows || [];
+    if (rows.length === 0) {
+      return this._finishWrite([], this.selectAfterWrite);
+    }
+    const cols = [];
+    const seen = new Set();
+    for (const r of rows) {
+      for (const k of Object.keys(r)) {
+        if (r[k] === undefined) continue;
+        if (!seen.has(k)) { seen.add(k); cols.push(k); }
+      }
+    }
+    if (cols.length === 0) throw new Error('Insert must contain at least one column');
+
+    const values = [];
+    const valueRows = [];
+    let p = 1;
+    for (const r of rows) {
+      const ph = [];
+      for (const c of cols) {
+        if (r[c] === undefined) { ph.push('DEFAULT'); continue; }
+        values.push(r[c]);
+        ph.push(`$${p++}`);
+      }
+      valueRows.push(`(${ph.join(', ')})`);
+    }
+
+    let sql = `INSERT INTO ${q(this.table)} (${cols.map(q).join(', ')}) VALUES ${valueRows.join(', ')}`;
+    if (this.ignoreDuplicates) sql += ' ON CONFLICT DO NOTHING';
+    if (this.selectAfterWrite) {
+      sql += ' RETURNING *';
+      const res = await pool.query(sql, values);
+      return this._finishWrite(res.rows, true);
+    }
+    await pool.query(sql, values);
+    return { data: null, count: null, error: null };
+  }
+
+  // -- UPDATE ---------------------------------------------------------------
+
+  async _execUpdate() {
+    const data = {};
+    for (const [k, v] of Object.entries(this.updateData || {})) {
+      if (v !== undefined) data[k] = v;
+    }
+    const cols = Object.keys(data);
+    if (cols.length === 0) throw new Error('Update must contain at least one column');
+
+    const params = [];
+    const sets = cols.map((c) => `${q(c)} = $${params.push(data[c])}`);
+    const aliasMap = new Map();
+    const where = this.buildWhere(aliasMap, params, { forUpdateDelete: true });
+
+    let sql = `UPDATE ${q(this.table)} SET ${sets.join(', ')} WHERE ${where.sql}`;
+    if (this.selectAfterWrite) {
+      sql += ' RETURNING *';
+      const res = await pool.query(sql, where.params);
+      return this._finishWrite(res.rows, true);
+    }
+    await pool.query(sql, where.params);
+    return { data: null, count: null, error: null };
+  }
+
+  // -- UPSERT ---------------------------------------------------------------
+
+  async _execUpsert() {
+    const rows = this.upsertData || [];
+    if (rows.length === 0) {
+      return this._finishWrite([], this.selectAfterWrite);
+    }
+    const cols = [];
+    const seen = new Set();
+    for (const r of rows) {
+      for (const k of Object.keys(r)) {
+        if (r[k] === undefined) continue;
+        if (!seen.has(k)) { seen.add(k); cols.push(k); }
+      }
+    }
+    if (cols.length === 0) throw new Error('Upsert must contain at least one column');
+
+    let conflictCols = this.onConflict ? this.onConflict.split(',').map((s) => s.trim()) : await getPrimaryKey(this.table);
+    if (conflictCols.length === 0) conflictCols = null;
+
+    const values = [];
+    const valueRows = [];
+    let p = 1;
+    for (const r of rows) {
+      const ph = [];
+      for (const c of cols) {
+        if (r[c] === undefined) { ph.push('DEFAULT'); continue; }
+        values.push(r[c]);
+        ph.push(`$${p++}`);
+      }
+      valueRows.push(`(${ph.join(', ')})`);
+    }
+
+    let sql = `INSERT INTO ${q(this.table)} (${cols.map(q).join(', ')}) VALUES ${valueRows.join(', ')}`;
+    if (conflictCols) {
+      if (this.ignoreDuplicates) {
+        sql += ` ON CONFLICT (${conflictCols.map(q).join(', ')}) DO NOTHING`;
+      } else {
+        const updateCols = cols.filter((c) => !conflictCols.includes(c));
+        if (updateCols.length > 0) {
+          sql += ` ON CONFLICT (${conflictCols.map(q).join(', ')}) DO UPDATE SET ${updateCols.map((c) => `${q(c)} = EXCLUDED.${q(c)}`).join(', ')}`;
+        } else {
+          sql += ` ON CONFLICT (${conflictCols.map(q).join(', ')}) DO NOTHING`;
+        }
+      }
+    }
+
+    if (this.selectAfterWrite) {
+      sql += ' RETURNING *';
+      try {
+        const res = await pool.query(sql, values);
+        return this._finishWrite(res.rows, true);
+      } catch (err) {
+        if (err.code === '23505' && !conflictCols) {
+          const pk = (await getPrimaryKey(this.table))[0];
+          if (pk) {
+            const { rows: existing } = await pool.query(
+              `SELECT * FROM ${q(this.table)} WHERE ${pk} = $1`,
+              [rows[0][pk]]
+            );
+            return this._finishWrite(existing, true);
+          }
+        }
+        throw err;
+      }
+    }
+    await pool.query(sql, values);
+    return { data: null, count: null, error: null };
+  }
+
+  // -- DELETE ---------------------------------------------------------------
+
+  async _execDelete() {
+    const params = [];
+    const aliasMap = new Map();
+    const where = this.buildWhere(aliasMap, params, { forUpdateDelete: true });
+    let sql = `DELETE FROM ${q(this.table)} WHERE ${where.sql}`;
+    if (this.selectAfterWrite) {
+      sql += ' RETURNING *';
+      const res = await pool.query(sql, where.params);
+      return this._finishWrite(res.rows, true);
+    }
+    await pool.query(sql, where.params);
+    return { data: null, count: null, error: null };
+  }
+
+  // -- write result materialization (with JS-side embed enrichment) ---------
+
+  async _finishWrite(rows, hasSelect) {
+    if (!hasSelect) return { data: null, count: null, error: null };
+    const items = parseSelectList(this.selectStr || '*');
+    const rootCols = [];
+    const embeds = [];
+    for (const it of items) {
+      if (it.type === 'star') rootCols.push('*');
+      else if (it.type === 'col') rootCols.push(it.name);
+      else embeds.push(it);
+    }
+
+    const data = [];
+    for (const row of rows) {
+      const out = {};
+      if (rootCols.includes('*')) Object.assign(out, row);
+      for (const c of rootCols) if (c !== '*') out[c] = row[c];
+      for (const emb of embeds) {
+        const key = emb.alias || (await resolveRelationship(this.table, emb.rel, emb.hint)).parentTable;
+        out[key] = await this._enrichWriteEmbed(row, emb, this.table);
+      }
+      data.push(out);
+    }
+
+    let result = data;
+    if (this.singleFlag || this.maybeSingleFlag) {
+      if (data.length === 0) {
+        if (this.singleFlag) return { data: null, count: null, error: { ...PGRST116 } };
+        result = null;
+      } else if (data.length > 1) {
+        return { data: null, count: null, error: { ...PGRST116 } };
+      } else {
+        result = data[0];
+      }
+    }
+    return { data: result, count: null, error: null };
+  }
+
+  async _enrichWriteEmbed(row, embed, childTable) {
+    const res = await resolveRelationship(childTable, embed.rel, embed.hint);
+    const childVal = row[res.childColumn];
+    if (childVal == null) return null;
+    const { rows } = await pool.query(
+      `SELECT * FROM ${q(res.parentTable)} WHERE ${q(res.parentColumn)} = $1 LIMIT 1`,
+      [childVal]
+    );
+    if (rows.length === 0) return null;
+    const prow = rows[0];
+    const out = {};
+    for (const it of embed.children) {
+      if (it.type === 'star') Object.assign(out, prow);
+      else if (it.type === 'col') out[it.name] = prow[it.name];
+      else {
+        const key = it.alias || (await resolveRelationship(res.parentTable, it.rel, it.hint)).parentTable;
+        out[key] = await this._enrichWriteEmbed(prow, it, res.parentTable);
+      }
+    }
+    return out;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// rpc()
+// ---------------------------------------------------------------------------
+const RPC_ARG_ORDER = {
+  verify_agent: ['p_email', 'p_password'],
+  get_whatsapp_user: ['p_id'],
+  get_worker_agents: ['p_worker_id'],
+  create_agent: ['p_email', 'p_password', 'p_name', 'p_role'],
+  promote_to_admin: ['p_id'],
+  get_station_disposition_stats: ['p_ngo_id', 'p_from', 'p_to'],
+  assign_agent_to_worker: ['p_worker_id', 'p_agent_id', 'p_account_id'],
+  claim_conversation: ['p_conversation_id', 'p_agent_id'],
+  create_whatsapp_user: ['p_id', 'p_email', 'p_name'],
+  delete_agent: ['p_id'],
+  delete_message: ['p_id'],
+  get_agent_workers: ['p_agent_id'],
+  list_whatsapp_users: [],
+  search_whatsapp_users: ['p_query'],
+  search_workers_for_agent: ['p_agent_id', 'p_search'],
+  transfer_conversation: ['p_conversation_id', 'p_target_agent_id'],
+  unassign_agent_from_worker: ['p_worker_id', 'p_agent_id'],
+  handle_new_user: [],
+};
+
+async function rpc(fn, args = {}) {
+  try {
+    const order = RPC_ARG_ORDER[fn];
+    const ordered = order ? order.map((k) => (args && k in args ? args[k] : null)) : Object.values(args || {});
+    const placeholders = ordered.map((_, i) => `$${i + 1}`).join(', ');
+
+    if (fn === 'get_station_disposition_stats') {
+      const { rows } = await pool.query(`SELECT * FROM ${q(fn)}(${placeholders})`, ordered);
+      return { data: rows, count: null, error: null };
+    }
+    if (fn === 'promote_to_admin') {
+      await pool.query(`SELECT ${q(fn)}(${placeholders})`, ordered);
+      return { data: null, count: null, error: null };
+    }
+
+    const { rows } = await pool.query(`SELECT ${q(fn)}(${placeholders}) AS result`, ordered);
+    const val = rows.length ? rows[0].result : null;
+    return { data: typeof val === 'string' ? JSON.parse(val) : val, count: null, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      count: null,
+      error: {
+        message: err && err.message ? err.message : String(err),
+        code: err && err.code ? err.code : 'PGRST202',
+        details: err && err.details ? err.details : '',
+        hint: err && err.hint ? err.hint : '',
+      },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// auth() stub — interim until Phase 5 custom JWT + verify_password
+// ---------------------------------------------------------------------------
+const auth = {
+  async signInWithPassword({ email, password }) {
+    const invalid = { data: { user: null, session: null }, error: { message: 'Invalid login credentials', code: 'invalid_credentials' } };
+    try {
+      const { rows } = await pool.query(
+        'SELECT id, email, name, role, is_active, created_at, password_hash FROM users WHERE email = $1',
+        [email]
+      );
+      const user = rows[0];
+      if (!user || !user.password_hash) return invalid;
+      const { rows: chk } = await pool.query('SELECT (crypt($1, $2) = $2) AS ok', [password, user.password_hash]);
+      if (!chk[0].ok) return invalid;
+      const publicUser = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        is_active: user.is_active,
+        created_at: user.created_at,
+        email_confirmed_at: user.created_at,
+      };
+      const access_token = jwt.sign(
+        { id: user.id, email: user.email, role: user.role || 'agent' },
+        process.env.JWT_SECRET || 'dev-secret',
+        { expiresIn: '100y' }
+      );
+      return { data: { user: publicUser, session: { access_token, refresh_token: null, expires_at: null } }, error: null };
+    } catch (e) {
+      return invalid;
+    }
+  },
+  async signUp() {
+    return { data: { user: null, session: null }, error: { message: 'Signup is unavailable until Phase 5 (auth migration). Use the agent import flow instead.', code: 'SIGNUP_DISABLED' } };
+  },
+  async signOut() {
+    return { data: { user: null, session: null }, error: null };
+  },
+  admin: {
+    async signOut() {
+      return { data: { user: null }, error: null };
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// storage() stub — local filesystem until S3 (Phase 3).
+// Files are written under <backend>/uploads/<bucket>/ and served by index.js
+// at /uploads (already wired at src/index.js line 358).
+// ---------------------------------------------------------------------------
+const uploadDir = process.env.UPLOAD_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
+const publicBase = process.env.PUBLIC_UPLOAD_URL || `http://localhost:${process.env.PORT || 5000}`;
+const safeBucket = (name) => String(name).replace(/[^a-zA-Z0-9._-]/g, '_');
+const bucketDir = (name) => path.join(uploadDir, safeBucket(name));
+
+async function ensureBucketDir(name) {
+  await fs.promises.mkdir(bucketDir(name), { recursive: true });
+}
+
+const storage = {
+  from(bucket) {
+    const b = safeBucket(bucket);
+    return {
+      async upload(fileName, buffer, opts = {}) {
+        try {
+          await ensureBucketDir(b);
+          const target = path.join(bucketDir(b), String(fileName));
+          await fs.promises.mkdir(path.dirname(target), { recursive: true });
+          await fs.promises.writeFile(target, buffer);
+          return { data: { path: String(fileName) }, error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_UPLOAD_FAILED' } };
+        }
+      },
+      getPublicUrl(fileName) {
+        return { data: { publicUrl: `${publicBase}/uploads/${b}/${String(fileName)}` } };
+      },
+      async remove(paths) {
+        const list = Array.isArray(paths) ? paths : [paths];
+        for (const p of list) {
+          await fs.promises.unlink(path.join(bucketDir(b), String(p))).catch(() => {});
+        }
+        return { data: null, error: null };
+      },
+    };
+  },
+  async createBucket(name, opts = {}) {
+    try {
+      await ensureBucketDir(name);
+      return { data: { name }, error: null };
+    } catch (e) {
+      return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
+    }
+  },
+  async listBuckets() {
+    try {
+      const entries = await fs.promises.readdir(uploadDir, { withFileTypes: true });
+      return { data: entries.filter((e) => e.isDirectory()).map((e) => ({ name: e.name })), error: null };
+    } catch (e) {
+      return { data: [], error: null };
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+const supabase = {
+  from(table) { return new QueryBuilder(table); },
+  rpc,
+  auth,
+  storage,
+  _pool: pool,
+};
+
+export default supabase;
