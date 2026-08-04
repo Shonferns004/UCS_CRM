@@ -49,7 +49,7 @@ function Sidebar({ open, onClose }) {
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark" style={{background:'#5B6B4E',borderRadius:10,width:40,height:40,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:18}}>U</div>
+          <div className="brand-mark">U</div>
           <div><h1>UFS</h1><span>HR Panel</span></div>
         </div>
         <nav className="sidebar-nav">
@@ -145,7 +145,7 @@ function HRPageShell({ children }) {
         <div className="mobile-top">
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
           <div className="mtop-brand">
-            <div className="brand-mark" style={{background:'#5B6B4E',borderRadius:8,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:14}}>U</div>
+            <div className="brand-mark" style={{width:30,height:30,borderRadius:8,fontSize:14}}>U</div>
             <span>UFS HR Panel</span>
           </div>
         </div>
@@ -173,7 +173,7 @@ function HRPageShell({ children }) {
               </div>
             </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
-            <div className="avatar" style={{ background:'#5B6B4E22', color:'#5B6B4E', width:36, height:36, cursor:'pointer' }}>{userInitials}</div>
+            <div className="avatar" style={{ background:'var(--sage-soft)', color:'var(--sage)', width:36, height:36, cursor:'pointer' }}>{userInitials}</div>
             {showMenu && (
               <div className="user-menu">
                 <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
