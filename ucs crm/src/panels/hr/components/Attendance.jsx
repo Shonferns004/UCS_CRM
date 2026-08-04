@@ -344,9 +344,7 @@ export default function Attendance() {
         }
       }
       const isDigital = (w.department || '') === 'Digital';
-      const sixPlusRule = absentDates.filter(d => !isSunday(d)).length >= 6;
       let sundayCount = 0;
-      let workedSundays = 0;
       if (!isDigital && startDate && periodEnd) {
         const absentSetFinal = new Set(absentDates);
         const curS = new Date(startDate + 'T00:00:00+05:30');
@@ -356,13 +354,9 @@ export default function Attendance() {
           const ds = toIST(d);
           if (ds >= (joinDate || '0000-00-00') && isSunday(ds)) lastSunday = ds;
         }
-        if (sixPlusRule) {
-          workedSundays = records.filter(r => r.date >= (joinDate || '0000-00-00') && isSunday(r.date) && (r.status === 'present' || r.status === 'late')).length;
-        }
         for (let d = new Date(curS); d <= stopS; d.setUTCDate(d.getUTCDate() + 1)) {
           const ds = toIST(d);
           if (ds < (joinDate || '0000-00-00') || !isSunday(ds)) continue;
-          if (sixPlusRule) continue;
           if (absentSetFinal.has(ds)) continue;
           if (covered.has(ds)) continue;
           if (ds === lastSunday && ds < today) continue;
@@ -387,7 +381,7 @@ export default function Attendance() {
           'Absent Count': absent,
           Leave: leave,
           'Late Deduction': lateDeductionDays,
-          Total: Math.max(0, present + halfDay * 0.5 + leave + sundayCount - lateDeductionDays - workedSundays),
+          Total: Math.max(0, present + halfDay * 0.5 + leave + sundayCount - lateDeductionDays),
         });
       }
     }
