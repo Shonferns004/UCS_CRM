@@ -306,6 +306,7 @@ export default function Attendance() {
       const halfDayDates = [];
       const absentDates = [];
       for (const r of records) {
+        if (r.date < (joinDate || '0000-00-00')) continue;
         if (r.status === 'present') present++;
         else if (r.status === 'late') { present++; late++; }
         else if (r.status === 'half-day') { halfDay++; halfDayDates.push(r.date); }
@@ -358,16 +359,8 @@ export default function Attendance() {
           const ds = toIST(d);
           if (ds < (joinDate || '0000-00-00') || !isSunday(ds)) continue;
           if (absentSetFinal.has(ds)) continue;
-          if (ds === lastSunday) {
-            const rec = records.find(r => r.date === ds);
-            if (rec && (rec.status === 'present' || rec.status === 'late')) {
-              sundayCount += 1;
-            } else if (ds >= today) {
-              sundayCount += 1;
-            }
-            continue;
-          }
           if (covered.has(ds)) continue;
+          if (ds === lastSunday && ds < today) continue;
           sundayCount += 1;
         }
       }
