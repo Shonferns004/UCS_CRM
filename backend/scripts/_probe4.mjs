@@ -1,0 +1,11 @@
+﻿import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+dotenv.config();
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+const { data: workers } = await supabase.from('workers').select('id, name, created_at').eq('employment_status', 'active');
+const { data: att } = await supabase.from('attendance').select('worker_id').gte('date', '2026-07-01').lte('date', '2026-07-31');
+const withAtt = new Set((att || []).map(r => r.worker_id));
+const none = workers.filter(w => !withAtt.has(w.id));
+console.log('active workers:', workers.length, '| with July att:', withAtt.size, '| none:', none.length);
+console.log('\nActive workers with NO July attendance:');
+for (const w of none) console.log(' ', (w.created_at||'').slice(0,10), w.name);

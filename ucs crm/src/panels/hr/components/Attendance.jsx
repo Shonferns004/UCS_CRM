@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
+import * as XLSX from 'xlsx-js-style';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 const API_BASE = import.meta.env.VITE_API_URL || 'https://attendance-roan-zeta.vercel.app/api';
@@ -192,6 +193,160 @@ export default function Attendance() {
     setSelectedWorker(null);
   };
 
+  const handleExportExcel = () => {
+    try {
+      const rows = buildSummaryRows();
+      if (rows.length === 0) { alert('No workers to export for the selected filters.'); return; }
+      const cellDates = (arr) => (arr && arr.length) ? JSON.stringify(arr) : '';
+      const wsData = [
+        ['Name', 'Department', 'Present', 'Half Day Dates', 'Half Day Count', 'Absent Dates', 'Absent Count', 'Leave', 'Total Days'],
+        ...rows.map(r => [r.Name, r.Department, r.Present, cellDates(r['Half Day Dates']), r['Half Day Count'], cellDates(r['Absent Dates']), r['Absent Count'], r.Leave, r.Total]),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [
+        { wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 28 },
+        { wch: 12 }, { wch: 32 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+      ];
+      const header = ws['A1'];
+      header.s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };
+      for (let i = 1; i < wsData.length; i++) {
+        const r = i + 1;
+        const halfDayCell = ws['D' + r];
+        const halfDayCountCell = ws['E' + r];
+        const absentCell = ws['F' + r];
+        const absentCountCell = ws['G' + r];
+        const vH = wsData[i][3];
+        const vA = wsData[i][5];
+        if (vH) {
+          halfDayCell.s = { fill: { fgColor: { rgb: 'FFEBDDF7' } }, font: { bold: true, color: { rgb: 'FF7B3FB3' } } };
+          halfDayCountCell.s = { fill: { fgColor: { rgb: 'FFEBDDF7' } }, font: { bold: true, color: { rgb: 'FF7B3FB3' } } };
+        }
+        if (vA) {
+          absentCell.s = { fill: { fgColor: { rgb: 'FFFBD7D7' } }, font: { bold: true, color: { rgb: 'FFC53030' } } };
+          absentCountCell.s = { fill: { fgColor: { rgb: 'FFFBD7D7' } }, font: { bold: true, color: { rgb: 'FFC53030' } } };
+        }
+      }
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance Summary');
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `attendance-summary-${monthFilter || 'history'}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
+  const handleExportJSON = () => {
+    try {
+      const rows = buildSummaryRows();
+      if (rows.length === 0) { alert('No workers to export for the selected filters.'); return; }
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' }));
+      link.download = `attendance-summary-${monthFilter || 'history'}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
+  const buildSummaryRows = () => {
+    const startDate = dayFilter || (monthFilter ? monthFilter + '-01' : '');
+    const endDate = dayFilter || (monthFilter
+      ? (() => { const [y, m] = monthFilter.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); })()
+      : '');
+    const today = todayIST;
+    const periodEnd = (endDate && endDate < today) ? endDate : today;
+    const statusActive = !!statusFilter;
+    const toIST = (date) => {
+      const d = new Date(date.getTime() + IST_OFFSET);
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    };
+    const weekdayIST = (dateStr) => {
+      const d = new Date(dateStr + 'T00:00:00+05:30');
+      return new Date(d.getTime() + IST_OFFSET).getUTCDay();
+    };
+    const isSunday = (dateStr) => weekdayIST(dateStr) === 0;
+    const addDays = (dateStr, n) => {
+      const d = new Date(dateStr + 'T00:00:00+05:30');
+      d.setUTCDate(d.getUTCDate() + n);
+      return toIST(d);
+    };
+    const rows = [];
+    for (const w of workers) {
+      if (deptFilterH && (w.department || '') !== deptFilterH) continue;
+      if (searchWorker) {
+        const n = (w.name || '').toLowerCase();
+        const lid = (w.login_id || '').toLowerCase();
+        const s = searchWorker.toLowerCase();
+        if (!n.includes(s) && !lid.includes(s)) continue;
+      }
+      const records = attendance.filter(r => r.worker_id === w.id
+        && (!startDate || r.date >= startDate)
+        && (!endDate || r.date <= endDate));
+      const joinDate = (w.created_at || '').slice(0, 10);
+      let present = 0, halfDay = 0, leave = 0, absent = 0;
+      const halfDayDates = [];
+      const absentDates = [];
+      const covered = new Set();
+      for (const r of records) {
+        if (statusActive && r.status !== statusFilter) continue;
+        covered.add(r.date);
+        if (r.status === 'present' || r.status === 'late') present++;
+        else if (r.status === 'half-day') { halfDay++; halfDayDates.push(r.date); }
+        else if (r.status === 'leave') leave++;
+        else if (r.status === 'absent') {
+          if (!isSunday(r.date)) { absent++; absentDates.push(r.date); }
+        }
+      }
+      if (!statusActive && startDate && periodEnd) {
+        const cursor = new Date(startDate + 'T00:00:00+05:30');
+        const stop = new Date(periodEnd + 'T00:00:00+05:30');
+        while (cursor <= stop) {
+          const ds = toIST(cursor);
+          if (ds < today && !isSunday(ds) && ds >= (joinDate || '0000-00-00') && !covered.has(ds)) { absent++; absentDates.push(ds); }
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        const inRange = (ds) => (!startDate || ds >= startDate) && (!endDate || ds <= endDate)
+          && ds < today && ds >= (joinDate || '0000-00-00');
+        const absentSet = new Set(absentDates);
+        const clubbed = [];
+        for (const d of absentSet) {
+          if (weekdayIST(d) === 1) {
+            const sun = addDays(d, -1);
+            if (inRange(sun)) clubbed.push(sun);
+          } else if (weekdayIST(d) === 6) {
+            const sun = addDays(d, 1);
+            if (inRange(sun)) clubbed.push(sun);
+          }
+        }
+        for (const sun of clubbed) {
+          if (!covered.has(sun) && !absentSet.has(sun)) {
+            absentSet.add(sun);
+            absent++;
+            absentDates.push(sun);
+          }
+        }
+      }
+      if (!statusActive || records.some(r => r.status === statusFilter)) {
+        rows.push({
+          Name: w.name || 'Unknown',
+          Department: w.department || '',
+          Present: present,
+          'Half Day Dates': halfDayDates.sort(),
+          'Half Day Count': halfDay,
+          'Absent Dates': absentDates.sort(),
+          'Absent Count': absent,
+          Leave: leave,
+          Total: present + halfDay + absent + leave,
+        });
+      }
+    }
+    return rows.sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
+  };
+
   const onTime = todayCombined.filter(r => r.status === 'present').length;
   const lateCount = todayCombined.filter(r => r.status === 'late').length;
   const absentCount = todayCombined.filter(r => r.status === 'absent').length;
@@ -376,7 +531,11 @@ export default function Attendance() {
               <div className="card" style={{ padding: '20px 22px' }}>
                 <div className="card-title" style={{ justifyContent: 'space-between' }}>
                   <span>Attendance History</span>
-                  <button className="btn btn-sm" onClick={() => window.print()}>Print</button>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button className="btn btn-sm" onClick={handleExportExcel}>Export Excel</button>
+                    <button className="btn btn-sm" onClick={handleExportJSON}>Export JSON</button>
+                    <button className="btn btn-sm" onClick={() => window.print()}>Print</button>
+                  </div>
                 </div>
                 {historyRecords.length === 0 ? (
                   <div className="empty-state">
