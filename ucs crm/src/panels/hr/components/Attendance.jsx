@@ -306,6 +306,7 @@ export default function Attendance() {
       const halfDayDates = [];
       const absentDates = [];
       for (const r of records) {
+        if (r.date < (joinDate || '0000-00-00')) continue;
         if (r.status === 'present') present++;
         else if (r.status === 'late') { present++; late++; }
         else if (r.status === 'half-day') { halfDay++; halfDayDates.push(r.date); }

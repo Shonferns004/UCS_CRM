@@ -24,7 +24,7 @@ export default function CorrectionTicket() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!date || !requestedTime || !reason) { setError('Please fill all fields'); return }
-    const rec = history.find(r => r.date === date)
+    const rec = history.find(r => r.date?.split('T')[0] === date)
     if (!rec) { setError('No attendance record found for this date'); return }
     setLoading(true); setError('')
     try {
@@ -33,7 +33,7 @@ export default function CorrectionTicket() {
     } catch (err) { setError(err.message) } finally { setLoading(false) }
   }
 
-  const dates = [...new Set(history.map(r => r.date).filter(Boolean))].sort().reverse()
+  const dates = [...new Set(history.map(r => r.date?.split('T')[0]).filter(Boolean))].sort().reverse()
 
   return (
     <div className="app-container animate-fade-in">
