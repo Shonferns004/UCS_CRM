@@ -1,15 +1,20 @@
 import {
   Bell,
+  Box,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
   CircleUser,
+  Copy,
   Database,
   DatabaseX,
   Gauge,
   HelpCircle,
+  KeyRound,
+  Loader2,
   Plus,
   Rows3,
   Search,
@@ -17,6 +22,7 @@ import {
   Table2,
   Terminal,
   Trash2,
+  UserPlus,
   X,
 } from 'lucide-react';
 
@@ -40,6 +46,12 @@ const map = {
   arrow_drop_up: ChevronUp,
   unfold_more: ChevronsUpDown,
   database_off: DatabaseX,
+  user_plus: UserPlus,
+  copy: Copy,
+  key: KeyRound,
+  check: CheckCircle2,
+  bucket: Box,
+  loader: Loader2,
 };
 
 export default function Icon({ name, className = '', size = 20 }) {

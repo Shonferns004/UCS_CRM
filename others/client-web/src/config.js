@@ -1,7 +1,9 @@
 export const API_BASE = 'https://attendance-roan-zeta.vercel.app/api'
 
-export const SUPABASE_URL = 'https://sqlbimnmhdvesudpxtbi.supabase.co'
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxbGJpbW5taGR2ZXN1ZHB4dGJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODA4NTMsImV4cCI6MjA5NjU1Njg1M30.5_Y3SqqiabByTeXZ9sTtF9AsQjCQ5ihmAG4dz7wnWdM'
+// Realtime socket URL (optional; defaults to API_BASE with /api stripped).
+// Can be overridden at build time via VITE_SOCKET_URL.
+export const SOCKET_URL =
+  (import.meta.env && import.meta.env.VITE_SOCKET_URL) || API_BASE.replace(/\/api\/?$/, '')
 
 export const OFFICE_START = '10:00'
 export const OFFICE_END = '19:00'

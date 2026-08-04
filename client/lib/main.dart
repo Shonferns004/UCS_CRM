@@ -7,7 +7,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
-import 'services/supabase_service.dart';
 import 'pages/login_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_page.dart';
@@ -23,11 +22,6 @@ void main() async {
     firebaseInitialized = true;
   } catch (e) {
     print('Firebase init error: $e');
-  }
-  try {
-    await SupabaseService.initialize();
-  } catch (e) {
-    print('Supabase init error (non-fatal): $e');
   }
   SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,

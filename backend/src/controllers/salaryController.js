@@ -341,6 +341,8 @@ export const getMySalaryBreakdown = async (req, res) => {
       .filter(r => r.status === 'absent')
       .map(r => r.date);
 
+    const halfDayCount = afterJoin.filter(r => r.status === 'half-day').length;
+
     const monthDays = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -392,7 +394,7 @@ export const getMySalaryBreakdown = async (req, res) => {
       }
     }
 
-    const paidDays = Math.max(0, daysInMonth - (joinedThisMonth ? (joinDay - 1) : 0) - deducted.size);
+    const paidDays = Math.max(0, daysInMonth - (joinedThisMonth ? (joinDay - 1) : 0) - deducted.size - halfDayCount * 0.5);
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
 
@@ -516,6 +518,7 @@ export const getMySalaryBreakdown = async (req, res) => {
       daysInMonth,
       availableDays: joinedThisMonth ? (daysInMonth - joinDay + 1) : daysInMonth,
       paidDays,
+      halfDayCount,
       totalLateMinutes,
       lateDeductionDays,
       joiningDeduction,

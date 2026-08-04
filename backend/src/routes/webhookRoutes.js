@@ -7,6 +7,7 @@ import {
   listRazorpayAccounts, createRazorpayAccount, updateRazorpayAccount,
   deleteRazorpayAccount, getRazorpayAccount,
 } from '../controllers/webhookController.js';
+import { verifyWhatsAppWebhook, whatsappWebhookEntry } from '../controllers/whatsappWebhookController.js';
 
 const router = Router();
 
@@ -33,5 +34,9 @@ router.post('/razorpay/accounts/:id/sync', authenticateRole('accounts', 'super_a
 router.post('/razorpay', razorpayWebhookEntry);            // legacy / .env fallback
 router.post('/razorpay/:accountId', razorpayWebhookForAccount); // per-account
 router.post('/paytm', paytmWebhookEntry);
+
+// WhatsApp (Meta) webhook — public; GET verifies the subscription, POST handles inbound.
+router.get('/whatsapp', verifyWhatsAppWebhook);
+router.post('/whatsapp', whatsappWebhookEntry);
 
 export default router;

@@ -30,10 +30,10 @@ export async function getMessages(conversationId, agentToken) {
   return agentApi(`/fro/whatsapp/conversations/${conversationId}/messages`, {}, agentToken)
 }
 
-export async function sendMessage(conversationId, text, agentToken) {
+export async function sendMessage(conversationId, text, agentToken, mediaUrl) {
   return agentApi(`/fro/whatsapp/conversations/${conversationId}/send`, {
     method: 'POST',
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, mediaUrl }),
   }, agentToken)
 }
 
