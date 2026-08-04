@@ -51,7 +51,8 @@ export default function AttendanceList() {
 
   const filtered = records.filter(r => {
     if (!r.date) return false
-    const [y, m] = r.date.split('-').map(Number)
+    const datePart = r.date.split('T')[0]
+    const [y, m] = datePart.split('-').map(Number)
     return y === year && m === month
   })
 
@@ -94,7 +95,7 @@ export default function AttendanceList() {
             <div key={r.id || i} className={`flex items-center gap-3 bg-white rounded-xl p-3.5 shadow-sm border border-[var(--border)] animate-fade-in`} style={{ animationDelay: `${i * 30}ms` }}>
               <div className="w-12 text-center">
                 <div className="text-xs text-[var(--ink-muted)]">{MONTHS[month - 1]}</div>
-                <div className="text-lg font-bold">{r.date?.split('-')[2]}</div>
+                <div className="text-lg font-bold">{r.date?.split('T')[0]?.split('-')[2]}</div>
               </div>
               <Badge status={r.status} />
               <div className="flex-1 text-right text-xs text-[var(--ink-soft)]">
