@@ -82,6 +82,7 @@ const froDist = path.resolve(__dirname, '../../fro-panel/dist');
 const ngoAdminDist = path.resolve(__dirname, '../../ngo-admin-panel/dist');
 const accountsDist = path.resolve(__dirname, '../../accounts-panel/dist');
 const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
+const databaseDist = path.resolve(__dirname, '../../database/dist');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
@@ -520,9 +521,16 @@ if (fs.existsSync(whatsappDist)) {
   });
 }
 
+if (fs.existsSync(databaseDist)) {
+  app.use('/database/assets', express.static(path.join(databaseDist, 'assets')));
+  app.get('/database*', (req, res) => {
+    res.sendFile(path.join(databaseDist, 'index.html'));
+  });
+}
+
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
