@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadBucketCommand, CreateBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -449,9 +450,9 @@ class QueryBuilder {
     return { alias: 't0', column: col };
   }
 
-  buildCondSql(cond, aliasMap, params) {
+  buildCondSql(cond, aliasMap, params, { forUpdateDelete = false } = {}) {
     const { alias, column } = this.resolveCol(cond.col, aliasMap);
-    const ref = `${alias}.${q(column)}`;
+    const ref = forUpdateDelete ? q(column) : `${alias}.${q(column)}`;
     const op = cond.op;
     if (op === 'is') {
       if (cond.value === 'not.null') return `${ref} IS NOT NULL`;
@@ -507,7 +508,7 @@ class QueryBuilder {
     const clauses = [];
     for (const f of this.filters) {
       const { alias, column } = this.resolveCol(f.col, aliasMap);
-      const ref = `${alias}.${q(column)}`;
+      const ref = forUpdateDelete ? q(column) : `${alias}.${q(column)}`;
       const op = f.op;
 
       if (op === 'in') {
@@ -570,7 +571,7 @@ class QueryBuilder {
     for (const orStr of this.orGroups) {
       const groups = parseOrString(orStr);
       const groupSql = groups.map((conds) => {
-        const inner = conds.map((c) => this.buildCondSql(c, aliasMap, params));
+        const inner = conds.map((c) => this.buildCondSql(c, aliasMap, params, { forUpdateDelete }));
         return `(${inner.join(' AND ')})`;
       });
       clauses.push(`(${groupSql.join(' OR ')})`);
@@ -1052,9 +1053,11 @@ const auth = {
 };
 
 // ---------------------------------------------------------------------------
-// storage() stub — local filesystem until S3 (Phase 3).
-// Files are written under <backend>/uploads/<bucket>/ and served by index.js
-// at /uploads (already wired at src/index.js line 358).
+// storage() — S3-backed file storage.
+// Files are stored in <S3_BUCKET>/<bucket>/<fileName> and exposed as public S3
+// object URLs. When S3_BUCKET (or usable AWS credentials) is unavailable it
+// falls back to the local filesystem under <backend>/uploads/<bucket>/, served
+// by index.js at /uploads (already wired at src/index.js line 358).
 // ---------------------------------------------------------------------------
 const uploadDir = process.env.UPLOAD_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 const publicBase = process.env.PUBLIC_UPLOAD_URL || `http://localhost:${process.env.PORT || 5000}`;
@@ -1065,11 +1068,39 @@ async function ensureBucketDir(name) {
   await fs.promises.mkdir(bucketDir(name), { recursive: true });
 }
 
+let _s3 = null;
+function getS3() {
+  if (!process.env.S3_BUCKET) return null;
+  if (_s3) return _s3;
+  try {
+    const region = process.env.S3_REGION || process.env.AWS_REGION || 'ap-northeast-2';
+    _s3 = { client: new S3Client({ region }), region, bucket: process.env.S3_BUCKET };
+    return _s3;
+  } catch {
+    return null;
+  }
+}
+const s3Key = (bucket, fileName) => `${safeBucket(bucket)}/${String(fileName)}`;
+
 const storage = {
   from(bucket) {
     const b = safeBucket(bucket);
     return {
       async upload(fileName, buffer, opts = {}) {
+        const s3 = getS3();
+        if (s3) {
+          try {
+            await s3.client.send(new PutObjectCommand({
+              Bucket: s3.bucket,
+              Key: s3Key(b, fileName),
+              Body: buffer,
+              ContentType: opts.contentType || opts.content_type || undefined,
+            }));
+            return { data: { path: String(fileName) }, error: null };
+          } catch (e) {
+            return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_UPLOAD_FAILED' } };
+          }
+        }
         try {
           await ensureBucketDir(b);
           const target = path.join(bucketDir(b), String(fileName));
@@ -1081,10 +1112,21 @@ const storage = {
         }
       },
       getPublicUrl(fileName) {
+        const s3 = getS3();
+        if (s3) return { data: { publicUrl: `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${s3Key(b, fileName)}` } };
         return { data: { publicUrl: `${publicBase}/uploads/${b}/${String(fileName)}` } };
       },
       async remove(paths) {
         const list = Array.isArray(paths) ? paths : [paths];
+        const s3 = getS3();
+        if (s3) {
+          try {
+            await Promise.all(list.map((p) => s3.client.send(new DeleteObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, p) }))));
+            return { data: null, error: null };
+          } catch (e) {
+            return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_REMOVE_FAILED' } };
+          }
+        }
         for (const p of list) {
           await fs.promises.unlink(path.join(bucketDir(b), String(p))).catch(() => {});
         }
@@ -1093,6 +1135,22 @@ const storage = {
     };
   },
   async createBucket(name, opts = {}) {
+    const s3 = getS3();
+    if (s3) {
+      try {
+        await s3.client.send(new HeadBucketCommand({ Bucket: s3.bucket }));
+      } catch {
+        try {
+          await s3.client.send(new CreateBucketCommand({
+            Bucket: s3.bucket,
+            ...(s3.region !== 'us-east-1' ? { CreateBucketConfiguration: { LocationConstraint: s3.region } } : {}),
+          }));
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
+        }
+      }
+      return { data: { name: String(name) }, error: null };
+    }
     try {
       await ensureBucketDir(name);
       return { data: { name }, error: null };
@@ -1101,6 +1159,16 @@ const storage = {
     }
   },
   async listBuckets() {
+    const s3 = getS3();
+    if (s3) {
+      try {
+        const r = await s3.client.send(new ListObjectsV2Command({ Bucket: s3.bucket, Delimiter: '/' }));
+        const names = (r.CommonPrefixes || []).map((p) => String(p.Prefix || '').replace(/\/$/, ''));
+        return { data: names.map((n) => ({ name: n })), error: null };
+      } catch (e) {
+        return { data: [], error: null };
+      }
+    }
     try {
       const entries = await fs.promises.readdir(uploadDir, { withFileTypes: true });
       return { data: entries.filter((e) => e.isDirectory()).map((e) => ({ name: e.name })), error: null };

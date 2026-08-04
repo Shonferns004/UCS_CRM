@@ -196,7 +196,7 @@ export default function Attendance() {
   const handleExportExcel = () => {
     try {
       const rows = buildSummaryRows();
-      if (rows.length === 0) { alert('No workers to export for the selected filters.'); return; }
+      if (rows.length === 0) { alert('No workers match the selected filters for this period. Try clearing the Status/Department filter or picking a different month.'); return; }
       const cellDates = (arr) => (arr && arr.length) ? JSON.stringify(arr) : '';
       const wsData = [
         ['Name', 'Department', 'Present', 'Half Day Dates', 'Half Day Count', 'Absent Dates', 'Absent Count', 'Leave', 'Total Days'],
@@ -240,7 +240,7 @@ export default function Attendance() {
   const handleExportJSON = () => {
     try {
       const rows = buildSummaryRows();
-      if (rows.length === 0) { alert('No workers to export for the selected filters.'); return; }
+      if (rows.length === 0) { alert('No workers match the selected filters for this period. Try clearing the Status/Department filter or picking a different month.'); return; }
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' }));
       link.download = `attendance-summary-${monthFilter || 'history'}.json`;
@@ -287,21 +287,20 @@ export default function Attendance() {
         && (!startDate || r.date >= startDate)
         && (!endDate || r.date <= endDate));
       const joinDate = (w.created_at || '').slice(0, 10);
-      let present = 0, halfDay = 0, leave = 0, absent = 0;
+      const covered = new Set(records.map(r => r.date));
+      let present = 0, late = 0, halfDay = 0, leave = 0, absent = 0;
       const halfDayDates = [];
       const absentDates = [];
-      const covered = new Set();
       for (const r of records) {
-        if (statusActive && r.status !== statusFilter) continue;
-        covered.add(r.date);
-        if (r.status === 'present' || r.status === 'late') present++;
+        if (r.status === 'present') present++;
+        else if (r.status === 'late') { present++; late++; }
         else if (r.status === 'half-day') { halfDay++; halfDayDates.push(r.date); }
         else if (r.status === 'leave') leave++;
         else if (r.status === 'absent') {
           if (!isSunday(r.date)) { absent++; absentDates.push(r.date); }
         }
       }
-      if (!statusActive && startDate && periodEnd) {
+      if (startDate && periodEnd) {
         const cursor = new Date(startDate + 'T00:00:00+05:30');
         const stop = new Date(periodEnd + 'T00:00:00+05:30');
         while (cursor <= stop) {
@@ -330,7 +329,14 @@ export default function Attendance() {
           }
         }
       }
-      if (!statusActive || records.some(r => r.status === statusFilter)) {
+      const matches = !statusActive || (
+        (statusFilter === 'present' && present - late > 0)
+        || (statusFilter === 'late' && late > 0)
+        || (statusFilter === 'half-day' && halfDay > 0)
+        || (statusFilter === 'leave' && leave > 0)
+        || (statusFilter === 'absent' && absent > 0)
+      );
+      if (matches) {
         rows.push({
           Name: w.name || 'Unknown',
           Department: w.department || '',
