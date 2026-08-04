@@ -330,7 +330,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
   const monSatAbsences = absentDates.filter(d => {
     const dt = new Date(d);
-    return dt.getDay() !== 0 && d >= joinCutoff;
+    return dt.getDay() !== 0;
   }).length;
 
   const extraSundays = [];
