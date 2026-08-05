@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
 import '../services/geofence_service.dart';
+import '../services/remote_config_service.dart';
 import '../widgets/skeleton_loader.dart';
 import '../main.dart';
 import '../utils/responsive.dart';
@@ -588,7 +589,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'HELLO THERE',
+                            RemoteConfigService.instance.uiText('home_hello') ?? 'HELLO THERE',
                             style: TextStyle(
                               fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w600, letterSpacing: 0.05,
                               color: const Color(0xFF00152a),
@@ -1071,7 +1072,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
-            if (_pendingLoans.isNotEmpty)
+            if (_pendingLoans.isNotEmpty &&
+                RemoteConfigService.instance.featureFlag('show_pending_loans'))
               SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 0)),
@@ -1115,50 +1117,51 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                   ),
                 ),
               ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 80)),
-                child: Container(
-                  padding: EdgeInsets.all(Responsive.pad(context, 16)),
-                  decoration: BoxDecoration(
-                    color: sc.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: colors.outline),
-                  ),
-                  child: InkWell(
-                    onTap: _openRequestSheet,
-                    child: Row(
-                      children: [
-                        Container(
-                          width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFd1e4ff),
-                            borderRadius: BorderRadius.circular(4),
+            if (RemoteConfigService.instance.featureFlag('show_requests'))
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 24), Responsive.pad(context, 16), Responsive.pad(context, 80)),
+                  child: Container(
+                    padding: EdgeInsets.all(Responsive.pad(context, 16)),
+                    decoration: BoxDecoration(
+                      color: sc.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: colors.outline),
+                    ),
+                    child: InkWell(
+                      onTap: _openRequestSheet,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: Responsive.sp(context, 48), height: Responsive.sp(context, 48),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFd1e4ff),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Icon(LucideIcons.sparkles, size: Responsive.sp(context, 22), color: Color(0xFF00152a)),
                           ),
-                          child: Icon(LucideIcons.sparkles, size: Responsive.sp(context, 22), color: Color(0xFF00152a)),
-                        ),
-                        SizedBox(width: Responsive.pad(context, 16)),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('New Request', style: GoogleFonts.hankenGrotesk(
-                                fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
-                              )),
-                              Text('Leave, advance, or loan', style: TextStyle(
-                                fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
-                                color: sc.onSurfaceVariant,
-                              )),
-                            ],
+                          SizedBox(width: Responsive.pad(context, 16)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('New Request', style: GoogleFonts.hankenGrotesk(
+                                  fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w600, color: sc.onSurface,
+                                )),
+                                Text('Leave, advance, or loan', style: TextStyle(
+                                  fontSize: Responsive.sp(context, 12), fontWeight: FontWeight.w500,
+                                  color: sc.onSurfaceVariant,
+                                )),
+                              ],
+                            ),
                           ),
-                        ),
-                        Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
-                      ],
+                          Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 20), color: sc.outline),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),
