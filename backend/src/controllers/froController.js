@@ -130,12 +130,19 @@ function withStationNgoPairs(queryBuilder, scope, stationCol = 'station', ngoCol
   if (validPairs.length === 0) return queryBuilder;
   const stations = [...new Set(validPairs.map(s => s.station))];
   queryBuilder = queryBuilder.in(stationCol, stations);
-  const hasDotCol = stationCol.includes('.') || ngoCol.includes('.');
-  if (!hasDotCol) {
-    const pairs = validPairs.map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
-    queryBuilder = queryBuilder.or(pairs.join(','));
-  }
+  const pairs = validPairs.map(s => `and(${stationCol}.eq.${s.station},${ngoCol}.eq.${s.ngo_id})`);
+  queryBuilder = queryBuilder.or(pairs.join(','));
   return queryBuilder;
+}
+
+// Defense-in-depth: withStationNgoPairs applies the strict (station, ngo_id) pair
+// filter at SQL level for all columns, but callers that join through an embedded
+// resource (e.g. fro_donor_logs -> fro_assignments) also enforce it here in JS so
+// other NGOs' donors in the same station can never leak into the response.
+function filterByScope(rows, scope, getPair) {
+  const pairs = new Set(scope.filter(s => s.station && s.ngo_id).map(s => `${s.station}|${s.ngo_id}`));
+  if (pairs.size === 0) return rows || [];
+  return (rows || []).filter(r => pairs.has(getPair(r)));
 }
 
 async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
@@ -278,17 +285,27 @@ export const getDashboard = async (req, res) => {
       leadDoneAllRes, fyDonorsRes, todayDonorsRes, monthDonorsRes,
     ] = stationNames.length > 0
       ? await Promise.all([
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(supabase.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'), myScope),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
         ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }];
+
+    const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
+    monthlyConnectedRes.data = filterByScope(monthlyConnectedRes.data, myScope, pairOf);
+    dailyConnectedRes.data = filterByScope(dailyConnectedRes.data, myScope, pairOf);
+    dailyDonationsRes.data = filterByScope(dailyDonationsRes.data, myScope, pairOf);
+    totalDonationsRes.data = filterByScope(totalDonationsRes.data, myScope, pairOf);
+    leadDoneAllRes.data = filterByScope(leadDoneAllRes.data, myScope, pairOf);
+    fyDonorsRes.data = filterByScope(fyDonorsRes.data, myScope, pairOf);
+    todayDonorsRes.data = filterByScope(todayDonorsRes.data, myScope, pairOf);
+    monthDonorsRes.data = filterByScope(monthDonorsRes.data, myScope, pairOf);
 
     const connectedStatuses = new Set(['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
     const donorInfo = new Map();
@@ -396,15 +413,19 @@ export const getDashboard = async (req, res) => {
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
     const donorsWithRecentDonations = stationNames.length > 0
-      ? (await withStationNgoPairs(
-          supabase
-            .from('fro_donor_logs')
-            .select('donor_id, fro_assignments!inner(station)')
-            .in('fro_assignments.station', stationNames)
-            .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-            .gte('created_at', oneYearAgo.toISOString()),
-          myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-        )).data || []
+      ? filterByScope(
+          (await withStationNgoPairs(
+            supabase
+              .from('fro_donor_logs')
+              .select('donor_id, fro_assignments!inner(station, ngo_id)')
+              .in('fro_assignments.station', stationNames)
+              .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+              .gte('created_at', oneYearAgo.toISOString()),
+            myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
+          )).data || [],
+          myScope,
+          l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`
+        )
       : [];
 
     const activeDonorIds = new Set(donorsWithRecentDonations.map(d => d.donor_id).filter(Boolean));
@@ -500,25 +521,28 @@ export const getReactivatedDonors = async (req, res) => {
 
     const [periodDonorsRes, fyDonorsRes] = await Promise.all([
       withStationNgoPairs(supabase.from('fro_donor_logs')
-        .select('donor_id, amount_collected, created_at, donor_profiles!inner(name, mobile_number), fro_assignments!inner(station)')
+        .select('donor_id, amount_collected, created_at, donor_profiles!inner(name, mobile_number), fro_assignments!inner(station, ngo_id)')
         .in('fro_assignments.station', stationNames)
         .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
         .gte('created_at', periodStart).lte('created_at', periodEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
       withStationNgoPairs(supabase.from('fro_donor_logs')
-        .select('donor_id, created_at, fro_assignments!inner(station)')
+        .select('donor_id, created_at, fro_assignments!inner(station, ngo_id)')
         .in('fro_assignments.station', stationNames)
         .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
         .gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
     ]);
 
+    const periodLogs = filterByScope(periodDonorsRes.data, myScope, l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`);
+    const fyLogs = filterByScope(fyDonorsRes.data, myScope, l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`);
+
     const fyBeforePeriodDonors = new Set();
-    for (const log of fyDonorsRes.data || []) {
+    for (const log of fyLogs || []) {
       if (log.created_at < fyBeforeEnd) fyBeforePeriodDonors.add(log.donor_id);
     }
 
     const seen = new Set();
     const donors = [];
-    for (const log of periodDonorsRes.data || []) {
+    for (const log of periodLogs || []) {
       if (!log.donor_id || fyBeforePeriodDonors.has(log.donor_id) || seen.has(log.donor_id)) continue;
       seen.add(log.donor_id);
       donors.push({
@@ -1596,7 +1620,9 @@ export const getFroScheduled = async (req, res) => {
 
     if (error) throw error;
 
-    const donorIds = [...new Set((contacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
+
+    const donorIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await supabase.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
       : { data: [] };
@@ -1605,7 +1631,7 @@ export const getFroScheduled = async (req, res) => {
 
     const seen = new Set();
     const result = [];
-    for (const c of contacts || []) {
+    for (const c of scopedContacts || []) {
       const a = c.fro_assignments;
       if (!a) continue;
       const d = donorMap[a.donor_id];
@@ -1797,7 +1823,9 @@ export const getFollowUps = async (req, res) => {
 
     if (error) throw error;
 
-    const donorIds = [...new Set((contacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
+    const scopedContacts = filterByScope(contacts, myScope, c => `${c.fro_assignments?.station}|${c.fro_assignments?.ngo_id}`);
+
+    const donorIds = [...new Set((scopedContacts || []).map(c => c.fro_assignments?.donor_id).filter(Boolean))];
     const { data: donors } = donorIds.length > 0
       ? await supabase.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
       : { data: [] };
@@ -1805,7 +1833,7 @@ export const getFollowUps = async (req, res) => {
     for (const d of donors || []) donorMap[d.id] = d;
 
     const now = new Date();
-    const result = (contacts || []).map(c => {
+    const result = (scopedContacts || []).map(c => {
       const a = c.fro_assignments;
       const d = donorMap[a?.donor_id] || {};
       return {
@@ -1842,7 +1870,7 @@ export const getLeadStats = async (req, res) => {
     const { data: logs, error } = await withStationNgoPairs(
       supabase
         .from('fro_donor_logs')
-        .select('donor_id, amount_collected, fro_assignments!inner(id, station, donor_id)')
+        .select('donor_id, amount_collected, fro_assignments!inner(id, station, donor_id, ngo_id)')
         .eq('action', 'donation')
         .in('fro_assignments.station', stationNames)
         .gte('created_at', monthStart)
@@ -1852,7 +1880,9 @@ export const getLeadStats = async (req, res) => {
 
     if (error) throw error;
 
-    const donorIds = [...new Set((logs || []).map(l => l.donor_id).filter(Boolean))];
+    const scopedLogs = filterByScope(logs, myScope, l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`);
+
+    const donorIds = [...new Set((scopedLogs || []).map(l => l.donor_id).filter(Boolean))];
     const { data: existingDonations } = donorIds.length > 0
       ? await supabase
           .from('fro_donor_logs')
@@ -1866,7 +1896,7 @@ export const getLeadStats = async (req, res) => {
 
     let newDonors = 0, newAmount = 0, existingDonors = 0, existingAmount = 0;
     const donorAmounts = new Map();
-    for (const l of logs || []) {
+    for (const l of scopedLogs || []) {
       const did = l.donor_id;
       const amount = parseFloat(l.amount_collected) || 0;
       donorAmounts.set(did, (donorAmounts.get(did) || 0) + amount);
