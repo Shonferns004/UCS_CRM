@@ -14,6 +14,7 @@ import { getAllocationsByWorker } from '../models/workerNgoAllocationModel.js';
 import { getTarget, upsertTarget } from '../models/incentiveModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { calculateAKI, getDayName, getMonthsEmployed } from '../utils/incentive.js';
+import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 
 export const getWorkerSalaries = async (req, res) => {
@@ -292,81 +293,6 @@ function getSundayCount(dateStrings) {
   return dateStrings.filter(d => new Date(d + 'T00:00:00Z').getUTCDay() === 0).length;
 }
 
-function shiftDate(dateStr, days) {
-  const dt = new Date(dateStr + 'T00:00:00Z');
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().split('T')[0];
-}
-
-function computeSundayStats({ year, month, daysInMonth, records, skipBeforeDate, lateJoin }) {
-  const inRange = (dateStr) => !skipBeforeDate || dateStr >= skipBeforeDate;
-  const dates = [];
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    dates.push({ date: dateStr, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(dateStr + 'T00:00:00Z').getUTCDay()] });
-  }
-
-  const sundays = [];
-  const cancelled = new Set();
-  let regularAbsences = 0;
-
-  for (const day of dates) {
-    if (day.dayName === 'Sun') { sundays.push(day.date); continue; }
-    if (!inRange(day.date)) continue;
-    const rec = records.find(r => r.date === day.date);
-    if (rec?.status === 'absent') {
-      regularAbsences++;
-      if (day.dayName === 'Sat') {
-        const ns = shiftDate(day.date, 1);
-        if (inRange(ns)) cancelled.add(ns);
-      } else if (day.dayName === 'Mon') {
-        const ps = shiftDate(day.date, -1);
-        if (inRange(ps)) cancelled.add(ps);
-      }
-    }
-  }
-
-  const totalSundays = sundays.filter(inRange);
-  const extraSundays = [];
-  if (regularAbsences >= 6 || lateJoin) {
-    for (const s of totalSundays) {
-      if (!cancelled.has(s)) {
-        cancelled.add(s);
-        extraSundays.push(s);
-      }
-    }
-  }
-
-  // Sunday rule: every worked Sunday (present/late, even a cancelled one) is paid;
-  // on top, (totalSundays - 1) are paid free from the non-cancelled, not-worked pool.
-  // Cap = total Sundays in the month.
-  const eligibleSundays = totalSundays.filter(s => !cancelled.has(s));
-  const isAttended = (s) => {
-    const rec = records.find(r => r.date === s);
-    return !!rec && (rec.status === 'present' || rec.status === 'late');
-  };
-  const attendedEligible = eligibleSundays.filter(isAttended);
-  const attendedCancelled = totalSundays.filter(s => cancelled.has(s) && isAttended(s));
-  const workedAll = attendedEligible.length + attendedCancelled.length;
-  const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
-  const baseline = Math.max(0, Math.min(totalSundays.length - 1, eligibleNotWorked));
-  const paidSundays = workedAll + baseline;
-  const unpaidCount = eligibleNotWorked - baseline;
-  const attendedEligibleSet = new Set(attendedEligible);
-  const unpaidSundays = eligibleSundays.filter(s => !attendedEligibleSet.has(s)).slice(0, unpaidCount);
-
-  return {
-    totalSundays: totalSundays.length,
-    attendedSundays: workedAll,
-    attendedCancelledDates: attendedCancelled,
-    paidSundays,
-    eligibleSundays,
-    cancelledSundays: totalSundays.filter(s => cancelled.has(s)),
-    extraSundays,
-    unpaidSundays,
-  };
-}
-
 export const getMySalaryBreakdown = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -379,85 +305,10 @@ export const getMySalaryBreakdown = async (req, res) => {
     const { year, month, startDate, endDate, daysInMonth } = getISTMonthBounds();
     const records = await getMonthlyAttendance(workerId, startDate, endDate);
 
-    // Joining month check
-    const createdAt = new Date(worker.created_at);
-    const joinedThisMonth = createdAt.getFullYear() === year && createdAt.getMonth() === month;
-    const joinDay = joinedThisMonth ? createdAt.getUTCDate() : 1;
-
-    // Build deducted set
-    const afterJoin = joinedThisMonth
-      ? records.filter(r => r.date >= `${year}-${String(month + 1).padStart(2, '0')}-${String(joinDay).padStart(2, '0')}`)
-      : records;
-    const afterJoinSet = new Set(afterJoin.map(r => r.date));
-
-    const absentDatesAfterJoin = afterJoin
-      .filter(r => r.status === 'absent')
-      .map(r => r.date);
-
-    const halfDayCount = afterJoin.filter(r => r.status === 'half-day').length;
-
-    const monthDays = [];
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      monthDays.push({ date: dateStr, day: d, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(dateStr + 'T00:00:00Z').getUTCDay()] });
-    }
-
-    const beforeJoin = joinedThisMonth ? monthDays.filter(d => d.date < `${year}-${String(month + 1).padStart(2, '0')}-${String(joinDay).padStart(2, '0')}`) : [];
-    const beforeJoinSet = new Set(beforeJoin.map(d => d.date));
-
-    const deducted = new Set();
-
-    for (const day of monthDays) {
-      if (beforeJoinSet.has(day.date)) { deducted.add(day.date); continue; }
-      if (day.dayName === 'Sun') continue;
-      const rec = records.find(r => r.date === day.date);
-      if (rec?.status === 'absent') {
-        deducted.add(day.date);
-        if (day.dayName === 'Sat') {
-          const ns = shiftDate(day.date, 1);
-          if (!beforeJoinSet.has(ns)) deducted.add(ns);
-        } else if (day.dayName === 'Mon') {
-          const ps = shiftDate(day.date, -1);
-          if (!beforeJoinSet.has(ps)) deducted.add(ps);
-        }
-      }
-    }
-
-    // ≥6 absence / late-join rule + new Sunday rule (worked Sundays paid, incl. cancelled ones)
-    const lateJoin = joinedThisMonth && joinDay > 10;
-    const sundayStats = computeSundayStats({
-      year,
-      month,
-      daysInMonth,
-      records,
-      skipBeforeDate: joinedThisMonth
-        ? `${year}-${String(month + 1).padStart(2, '0')}-${String(joinDay).padStart(2, '0')}`
-        : null,
-      lateJoin,
-    });
-    const extraSundays = sundayStats.extraSundays;
-    for (const d of sundayStats.unpaidSundays) deducted.add(d);
-    for (const d of extraSundays) deducted.add(d);
-
-    const paidDays = Math.max(0, daysInMonth - (joinedThisMonth ? (joinDay - 1) : 0) - deducted.size - halfDayCount * 0.5 + sundayStats.attendedCancelledDates.length);
+    const calc = computePaidDays({ year, month, daysInMonth, records, createdAt: worker.created_at });
+    const { paidDays, lateDeductionDays, joiningDeduction, halfDayCount, totalLateMinutes, joinedThisMonth, joinDay, deducted, absentDatesAfterJoin, extraSundays, sundayStats } = calc;
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
-
-    // Late minutes
-    const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
-
-    // Late deduction
-    let lateDeductionDays = 0;
-
-    if (totalLateMinutes > 480) {
-      lateDeductionDays = Math.round((totalLateMinutes / 480) * 2) / 2;
-    } else if (totalLateMinutes > 240) {
-      lateDeductionDays = 1;
-    } else if (totalLateMinutes > 180) {
-      lateDeductionDays = 0.5;
-    }
-
-    const joiningDeduction = (joinedThisMonth && getMonthsEmployed(worker.created_at) <= 3) ? 1.5 : 0;
 
     const totalDue = perDay * Math.max(0, paidDays - lateDeductionDays - joiningDeduction);
     const normalTotalDue = perDay * paidDays;

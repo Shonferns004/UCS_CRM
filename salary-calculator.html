@@ -58,7 +58,7 @@
       <button id="compute">Compute</button>
       <button class="ghost" id="csv">Export CSV</button>
     </div>
-    <div class="note">Auto-detects the current month's payroll sheet (latest date columns in the file). Formula used: <b>Salary &divide; days in month &times; DB Present Days</b>, where days in month come from the date columns in the sheet and DB Present Days = Present Days − Joining Deduction. <b>Joining Ded. (new)</b> = 1.5 days for employees who joined this month within 3 months of joining (backend rule), and it is subtracted straight from the DB Present Days column. Then Gross = Month Salary + 10% Incentive + Aaj Ka Incentive + Weekly Incentive; Net = Gross + OT/Extra + Pending Expenses − Advance.</div>
+    <div class="note">Auto-detects the current month's payroll sheet (latest date columns in the file). Formula used: <b>Salary &divide; days in month &times; DB Present Days</b>, where days in month come from the date columns in the sheet. <b>DB Present Days</b> from the Excel column = Present Days − Joining Deduction. When pulled from the database, it is the backend's <b>final</b> paid days: attendance present days minus absences, half-days, late-punch deduction, Sunday deductions, plus attended cancelled Sundays, minus the 1.5 joining deduction (already baked in). Then Gross = Month Salary + 10% Incentive + Aaj Ka Incentive + Weekly Incentive; Net = Gross + OT/Extra + Pending Expenses − Advance.</div>
     <div class="note">Columns highlighted in <span style="background:#e8f1fe; padding:0 5px; border-radius:3px;">blue</span> are calculated by this tool after upload; uncolored columns are read directly from the Excel file.</div>
   </div>
 
@@ -69,7 +69,7 @@
       </label>
       <button class="ghost" id="pullDb">Pull Present Days from DB</button>
     </div>
-    <div class="note" id="dbStatus">Present days will come from the Excel file until you pull them from the database.</div>
+    <div class="note" id="dbStatus">Present days will come from the Excel file until you pull them from the database (final paid days incl. absences, half-days, late & Sunday logic, joining deduction).</div>
   </div>
 
   <div class="stats" id="stats" hidden>
@@ -105,7 +105,7 @@ let WB = null;
 let lastMonthKey = null;
 let DB_PRESENT = {};
 try {
-  DB_PRESENT = JSON.parse(localStorage.getItem('salaryCalcDbMap') || '{}');
+  DB_PRESENT = JSON.parse(localStorage.getItem('salaryCalcDbMap2') || '{}');
 } catch (e) { DB_PRESENT = {}; }
 
 function normalizeName(name) {
@@ -146,9 +146,9 @@ async function pullDbPresent() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Fetch failed');
     const map = {};
-    for (const r of data.rows) map[normalizeName(r.name)] = r.worked_days;
+    for (const r of data.rows) map[normalizeName(r.name)] = { days: r.worked_days, joinDed: r.joining_deduction || 0 };
     DB_PRESENT[lastMonthKey] = map;
-    localStorage.setItem('salaryCalcDbMap', JSON.stringify(DB_PRESENT));
+    localStorage.setItem('salaryCalcDbMap2', JSON.stringify(DB_PRESENT));
     setDbStatus('DB present days loaded for ' + monthStr + ' (' + data.rows.length + ' workers, ' + data.days_in_month + ' days). Re-computing…', false);
     compute();
   } catch (err) {
@@ -465,15 +465,18 @@ function processSheet(wsName, wb) {
     const joinedThisMonth = joinDate && sheetRef
       ? joinDate.getFullYear() === sheetRef.y && joinDate.getMonth() === sheetRef.m
       : false;
-    const joiningDeduction = joinedThisMonth && isNewJoiner ? 1.5 : 0;
 
-    const presentFromDb = dbMap ? dbMap[normalizeName(name)] : undefined;
+    const dbEntry = dbMap ? dbMap[normalizeName(name)] : undefined;
+    const presentFromDb = dbEntry && typeof dbEntry === 'object' ? dbEntry.days : undefined;
     const present = presentFromDb !== undefined ? presentFromDb : num(g(cols.present));
+    const joiningDeduction = presentFromDb !== undefined
+      ? (dbEntry.joinDed || 0)
+      : (joinedThisMonth && isNewJoiner ? 1.5 : 0);
+    const dbPresent = presentFromDb !== undefined ? present : Math.max(0, present - joiningDeduction);
     const training = num(g(cols.training));
     const sundayAdd = num(g(cols.sundayAdd));
     const netPresent = cols.netPresent !== -1 ? num(g(cols.netPresent))
       : present - training + sundayAdd;
-    const dbPresent = Math.max(0, present - joiningDeduction);
     const perDay = salary / days;
     const calcSalary = perDay * dbPresent;
 
