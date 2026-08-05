@@ -318,6 +318,13 @@ export const getPresentDaysByMonth = async (month) => {
     .lte('date', endDate);
   if (aErr) throw aErr;
 
+  const { data: holidays, error: hErr } = await supabase
+    .from('holidays')
+    .select('date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
+
   const counts = {};
   const attByWorker = {};
   for (const r of attRecords) {
@@ -336,6 +343,7 @@ export const getPresentDaysByMonth = async (month) => {
       daysInMonth,
       records: attByWorker[w.id] || [],
       createdAt: w.created_at || '',
+      holidayDates,
     });
     return {
       worker_id: w.id,

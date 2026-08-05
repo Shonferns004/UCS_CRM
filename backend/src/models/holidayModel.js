@@ -21,6 +21,16 @@ export const getAllHolidays = async (ngo_id) => {
   return data;
 };
 
+export const getHolidaysInRange = async (startDate, endDate) => {
+  const { data, error } = await supabase
+    .from('holidays')
+    .select('date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  if (error) throw error;
+  return data || [];
+};
+
 export const getHolidayById = async (id) => {
   const { data, error } = await supabase
     .from('holidays')

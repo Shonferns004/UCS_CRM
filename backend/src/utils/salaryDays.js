@@ -1,5 +1,14 @@
 import { getMonthsEmployed } from './incentive.js';
 
+const pad = n => String(n).padStart(2, '0');
+
+// Current date in IST as { year, month (0-based), day }.
+export function getISTToday() {
+  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+  const now = new Date(Date.now() + IST_OFFSET);
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth(), day: now.getUTCDate() };
+}
+
 export function shiftDate(dateStr, days) {
   const dt = new Date(dateStr + 'T00:00:00Z');
   dt.setUTCDate(dt.getUTCDate() + days);
@@ -78,8 +87,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
 // salaryController.js. `records` are the worker's attendance rows
 // ({ date, status, late_minutes }) for the month; `createdAt` is the worker's
 // created_at. `month` is 0-based.
-export function computePaidDays({ year, month, daysInMonth, records, createdAt }) {
-  const pad = n => String(n).padStart(2, '0');
+export function computePaidDays({ year, month, daysInMonth, records, createdAt, holidayDates, viewingToday }) {
   const joinDate = createdAt ? new Date(createdAt) : null;
   const joinedThisMonth = joinDate && !isNaN(joinDate.getTime())
     ? joinDate.getFullYear() === year && joinDate.getMonth() === month
@@ -99,12 +107,31 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt }
   const beforeJoin = joinedThisMonth ? monthDays.filter(d => d.date < joinDateStr) : [];
   const beforeJoinSet = new Set(beforeJoin.map(d => d.date));
 
+  // A weekday with no attendance record counts as absent (same rule as the HR
+  // salary page), unless it is a holiday or still in the future of the month.
+  const holidaySet = new Set((holidayDates || []).map(d => String(d).slice(0, 10)));
+  const { year: ty, month: tm, day: td } = getISTToday();
+  const viewDay = viewingToday != null
+    ? viewingToday
+    : (ty === year && tm === month ? td : daysInMonth + 1);
+
+  const realByDate = new Set(records.map(r => r.date));
+  const fabricated = [];
+  for (const day of monthDays) {
+    if (beforeJoinSet.has(day.date)) continue;
+    if (day.dayName === 'Sun') continue;
+    if (holidaySet.has(day.date)) continue;
+    if (day.day > viewDay) continue;
+    if (!realByDate.has(day.date)) fabricated.push({ date: day.date, status: 'absent' });
+  }
+  const records2 = [...records, ...fabricated];
+
   const deducted = new Set();
 
   for (const day of monthDays) {
     if (beforeJoinSet.has(day.date)) { deducted.add(day.date); continue; }
     if (day.dayName === 'Sun') continue;
-    const rec = records.find(r => r.date === day.date);
+    const rec = records2.find(r => r.date === day.date);
     if (rec?.status === 'absent') {
       deducted.add(day.date);
       if (day.dayName === 'Sat') {
@@ -122,7 +149,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt }
     year,
     month,
     daysInMonth,
-    records,
+    records: records2,
     skipBeforeDate: joinedThisMonth ? joinDateStr : null,
     lateJoin,
   });
@@ -153,7 +180,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt }
     joiningDeduction,
     deducted,
     deductedCount: deducted.size,
-    absentDatesAfterJoin: afterJoin.filter(r => r.status === 'absent').map(r => r.date),
+    absentDatesAfterJoin: records2.filter(r => r.status === 'absent').map(r => r.date),
     sundayAdd: sundayStats.attendedCancelledDates.length,
     extraSundays: sundayStats.extraSundays,
     sundayStats,
