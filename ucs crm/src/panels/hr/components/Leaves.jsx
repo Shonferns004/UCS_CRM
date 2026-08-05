@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useHR } from '../store';
-import { Pill } from './ui';
+import { Pill, SkeletonRows } from './ui';
 import { Check, X } from '../icons';
 import { toast } from '../../../components/Toast';
 
@@ -9,10 +9,11 @@ export default function Leaves() {
   const [leaves, setLeaves] = useState([]);
   const [selectedLeave, setSelectedLeave] = useState(null);
   const [remark, setRemark] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetchLeaves().then(data => { if (!cancelled) setLeaves(data); }).catch((err) => { console.error('API error:', err.message); });
+    fetchLeaves().then(data => { if (!cancelled) setLeaves(data); }).catch((err) => { console.error('API error:', err.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -65,7 +66,10 @@ export default function Leaves() {
             </tr>
           </thead>
           <tbody>
-            {leaves.map(l => (
+            {loading ? (
+              <SkeletonRows rows={5} widths={[120, 70, 40, 80, 90]} />
+            ) : (
+              leaves.map(l => (
               <tr key={l.id} onClick={() => openLeaveDetail(l)} style={{ cursor: 'pointer' }}>
                 <td style={{ fontWeight: 500 }}>
                   {l.workers?.name || l.name || 'Unknown'}
@@ -78,8 +82,9 @@ export default function Leaves() {
                   color={l.status === 'approved' ? 'green' : (l.status === 'rejected' && l.admin_remark === 'Cancelled') ? 'grey' : l.status === 'rejected' ? 'red' : 'yellow'} 
                 /></td>
               </tr>
-            ))}
-            {!leaves.length && (
+              ))
+            )}
+            {!loading && !leaves.length && (
               <tr><td colSpan={5}><div className="empty">No leave requests.</div></td></tr>
             )}
           </tbody>

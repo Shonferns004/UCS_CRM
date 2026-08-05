@@ -19,11 +19,15 @@ export default function Holidays() {
   const [selectedDay, setSelectedDay] = useState(today.getDate());
   const [showForm, setShowForm] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetchWorkers().then(data => { if (!cancelled) setWorkers(data); }).catch((err) => { console.error('API error:', err.message); });
-    fetchHolidays().then(data => { if (!cancelled) setHolidays(data); }).catch((err) => { console.error('API error:', err.message); });
+    setLoading(true);
+    Promise.all([
+      fetchWorkers().catch(() => []),
+      fetchHolidays().catch(() => []),
+    ]).then(([w, h]) => { if (!cancelled) { setWorkers(w); setHolidays(h); } }).catch((err) => { console.error('API error:', err.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -105,7 +109,41 @@ export default function Holidays() {
 
   return (
     <div className="hol-wrap">
-      <div className="card hol-cal-card">
+      {loading && (
+        <>
+          <div className="card hol-cal-card">
+            <div className="card-head">
+              <div className="sk" style={{ width: 120, height: 18, borderRadius: 4 }} />
+              <div className="sk" style={{ width: 80, height: 14, borderRadius: 4 }} />
+            </div>
+            <div className="cal-grid" aria-hidden="true">
+              {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
+              {Array.from({ length: 35 }).map((_, i) => (
+                <div key={i} className="cal-cell">
+                  <div className="sk" style={{ width: '100%', height: 40, borderRadius: 6 }} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card hol-side">
+            <div className="card-head">
+              <div className="sk" style={{ width: 100, height: 18, borderRadius: 4 }} />
+            </div>
+            <div className="card-pad hol-side-body" aria-hidden="true">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="cal-side-item">
+                  <div className="sk" style={{ width: '70%', height: 12, borderRadius: 4 }} />
+                  <div className="sk" style={{ width: 24, height: 20, borderRadius: 6 }} />
+                </div>
+              ))}
+              <div className="sk" style={{ width: 80, height: 32, borderRadius: 8, marginTop: 12 }} />
+            </div>
+          </div>
+        </>
+      )}
+      {!loading && (
+        <>
+        <div className="card hol-cal-card">
         <div className="card-head">
           <h3>{MONTHS[calMonth]} {calYear}</h3>
           <div className="hol-head-right">
@@ -138,7 +176,7 @@ export default function Holidays() {
             </div>
           ))}
         </div>
-      </div>
+        </div>
 
       <div className="card hol-side">
         <div className="card-head">
@@ -200,6 +238,8 @@ export default function Holidays() {
           )}
         </div>
       </div>
+      </>
+      )}
 
       {confirmDelete && (
         <div onClick={() => setConfirmDelete(null)} style={{
