@@ -1,0 +1,21 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px}
+body{font-family:system-ui,-apple-system,sans-serif;background:#fff;min-height:100vh;color:#1e293b}
+input,select,button{font-family:inherit;font-size:inherit}
+input:focus,select:focus{outline:none!important;border-color:#3b82f6!important;box-shadow:0 0 0 3px rgba(59,130,246,0.1)!important}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%239CA3AF' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.anim{animation:fadeIn .3s ease both}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:8px;color:#fff;font-size:13px;font-weight:600;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.15)}
+.toast-success{background:#10b981}
+.toast-error{background:#ef4444}
+@media(min-width:1024px){
+  .field-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
+  .field-grid .full{grid-column:1/-1}
+  .field-grid .half{grid-column:span 2}
+  .wizard-wide{max-width:960px;padding-top:12px!important}
+  .step-card{padding:16px 20px!important}
+  .step-card .mb-4{margin-bottom:8px!important}
+  .step-card .form-label{font-size:11px!important}
+  .step-card input,.step-card select{padding-top:8px!important;padding-bottom:8px!important;font-size:13px!important}
+}
