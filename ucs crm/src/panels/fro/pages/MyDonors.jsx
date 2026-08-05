@@ -618,7 +618,7 @@ export default function MyDonors() {
       };
       if (SCHEDULE_DATE_TYPES.has(selected)) logData.scheduled_at = new Date(scheduledDate + 'T' + scheduledTime + ':00').toISOString();
       if (SCHEDULE_TIME_TYPES.has(selected)) {
-        const target = selected === 'callback_tomorrow' ? (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })() : new Date();
+        const target = new Date();
         const [h, m] = callbackTime.split(':');
         target.setHours(+h, +m, 0, 0);
         logData.scheduled_at = target.toISOString();
@@ -1228,7 +1228,7 @@ export default function MyDonors() {
               {SCHEDULE_TIME_TYPES.has(selected) && (
                 <div className="detail-field-row">
                   <div className="fld">
-                    <label>{selected === 'callback_tomorrow' ? 'Callback Time (Tomorrow)' : 'Callback Time (Today)'}</label>
+                    <label>Callback Time (Today)</label>
                     <TimePicker value={callbackTime} onChange={e => setCallbackTime(e.target.value)} placeholder="Select time" />
                   </div>
                 </div>

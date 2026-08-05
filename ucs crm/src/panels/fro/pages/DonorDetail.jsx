@@ -143,7 +143,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
       }
 
       if (SCHEDULE_TIME_TYPES.has(selected)) {
-        const target = selected === 'callback_tomorrow' ? (() => { const t = new Date(); t.setDate(t.getDate() + 1); return t; })() : new Date();
+        const target = new Date();
         const [h, m] = callbackTime.split(':');
         target.setHours(+h, +m, 0, 0);
         logData.scheduled_at = target.toISOString();
@@ -318,7 +318,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
 
           {SCHEDULE_TIME_TYPES.has(selected) && (
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>{selected === 'callback_tomorrow' ? 'Callback Time (Tomorrow)' : 'Callback Time (Today)'}</label>
+              <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--ink-soft)' }}>Callback Time (Today)</label>
               <TimePicker value={callbackTime} onChange={e => setCallbackTime(e.target.value)} placeholder="Select time" />
             </div>
           )}
