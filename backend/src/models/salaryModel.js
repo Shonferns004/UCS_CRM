@@ -292,3 +292,52 @@ export const deleteSalary = async (id) => {
   if (error) throw error;
   return { message: 'Salary record deleted' };
 };
+
+export const getPresentDaysByMonth = async (month) => {
+  const p = String(month || '').split('-');
+  if (p.length !== 2) throw new Error('month must be YYYY-MM');
+  const year = parseInt(p[0], 10);
+  const monthIdx = parseInt(p[1], 10) - 1;
+  if (!year || monthIdx < 0 || monthIdx > 11) throw new Error('month must be YYYY-MM');
+  const pad = n => String(n).padStart(2, '0');
+  const startDate = `${year}-${pad(monthIdx + 1)}-01`;
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const endDate = `${year}-${pad(monthIdx + 1)}-${pad(daysInMonth)}`;
+
+  const { data: workers, error: wErr } = await supabase
+    .from('workers')
+    .select('id, name, created_at');
+  if (wErr) throw wErr;
+
+  const { data: attRecords, error: aErr } = await supabase
+    .from('attendance')
+    .select('worker_id, status')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  if (aErr) throw aErr;
+
+  const counts = {};
+  for (const r of attRecords) {
+    if (!counts[r.worker_id]) counts[r.worker_id] = { present: 0, late: 0, half: 0, absent: 0, leave: 0 };
+    if (counts[r.worker_id][r.status] !== undefined) counts[r.worker_id][r.status]++;
+    else counts[r.worker_id][r.status] = 1;
+  }
+
+  const rows = workers.map(w => {
+    const c = counts[w.id] || { present: 0, late: 0, half: 0, absent: 0, leave: 0 };
+    return {
+      worker_id: w.id,
+      name: w.name,
+      date_of_joining: w.created_at || '',
+      present: c.present,
+      late: c.late,
+      half: c.half,
+      absent: c.absent,
+      leave: c.leave,
+      worked_days: c.present + c.late + c.half * 0.5,
+    };
+  });
+
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  return { month: startDate, days_in_month: daysInMonth, total_workers: rows.length, rows };
+};

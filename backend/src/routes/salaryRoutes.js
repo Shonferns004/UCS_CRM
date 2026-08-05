@@ -9,6 +9,7 @@ import {
   getMySalaryBreakdown,
   getWorkerSalaryWithAllocations,
   getPayrollExport,
+  getPresentDaysExport,
 } from '../controllers/salaryController.js';
 import { authenticateRole, authenticate } from '../middleware/authMiddleware.js';
 
@@ -18,6 +19,7 @@ const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
 
 router.get('/workers-summary', adminOrHrOrHo, getWorkersSummary);
 router.get('/payroll', adminOrHrOrHo, getPayrollExport);
+router.get('/present-days', getPresentDaysExport);
 router.get('/worker/:workerId', adminOrHrOrHo, getWorkerSalaries);
 router.post('/', adminOrHrOrHo, addSalary);
 router.put('/:id', adminOrHrOrHo, editSalary);

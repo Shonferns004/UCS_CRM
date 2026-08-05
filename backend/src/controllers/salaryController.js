@@ -6,6 +6,7 @@ import {
   deleteSalary,
   getAllWorkersSalarySummary,
   getPayrollData,
+  getPresentDaysByMonth,
 } from '../models/salaryModel.js';
 import { getMonthlyAttendance } from '../models/attendanceModel.js';
 import { getWorkerById } from '../models/workerModel.js';
@@ -258,6 +259,17 @@ export const getPayrollExport = async (req, res) => {
     const month = req.query.month;
     const extended = req.query.extended === 'true';
     const data = await getPayrollData(month, extended);
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getPresentDaysExport = async (req, res) => {
+  try {
+    const month = req.query.month;
+    if (!month) return res.status(400).json({ message: 'month query param is required (YYYY-MM)' });
+    const data = await getPresentDaysByMonth(month);
     return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
