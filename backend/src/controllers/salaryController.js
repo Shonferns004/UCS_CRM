@@ -110,17 +110,11 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
     // Attendance for the month
     const records = await getMonthlyAttendance(workerId, startDate, endDate);
 
-    // Sunday bonus (FRO only)
+    // Sunday rule (all workers): every worked Sunday (incl. a cancelled one) is paid + (total−1) free
     let sundayBonus = {
-      lastSundayDate: null,
-      cameOnLastSunday: false,
-      monthlyAchievement: 0,
-      currentTarget: 0,
-      targetPercentage: 0,
-      threshold: 60,
-      thresholdMet: false,
-      isNewJoiner: false,
-      bonusAmount: 0,
+      totalSundays: 0,
+      attendedSundays: 0,
+      paidSundays: 0,
       sundayAchievement: 0,
       sundayAKI: 0,
       incentiveAKI: 0,
@@ -128,70 +122,25 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
       incentiveTotal: 0,
     };
 
-    if (worker.department === 'FRO' && totalSalary > 0) {
+    if (totalSalary > 0) {
       try {
-        // Find last Sunday of this month
-        const IST_OFFSET = 5.5 * 60 * 60 * 1000;
-        const now = new Date();
-        const todayIST = new Date(now.getTime() + IST_OFFSET);
-        const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0));
-        let lastSunDate = null;
-        for (let d = lastDayOfMonth.getUTCDate(); d >= 1; d--) {
-          const dt = new Date(Date.UTC(year, month, d));
-          if (dt.getUTCDay() === 0) {
-            lastSunDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            break;
-          }
-        }
-
-        // Only skip Sunday bonus if the entire month is in the future
-        const monthStart = new Date(Date.UTC(year, month, 1));
-        const monthStartIST = new Date(monthStart.getTime() + IST_OFFSET);
-        if (monthStartIST > todayIST) { lastSunDate = null; }
-
-        if (lastSunDate) {
-
-        const sundayRecord = records.find(r => r.date === lastSunDate);
-        const cameOnLastSunday = sundayRecord?.status === 'present';
-
-        // Target + achievement
-        const monthStr = startDate;
-        let tgt = await getTarget(workerId, monthStr);
-        if (!tgt) {
-          const monthsEmployed = (() => {
-            const join = new Date(worker.created_at);
-            const now2 = new Date();
-            const m = (now2.getFullYear() - join.getFullYear()) * 12 + (now2.getMonth() - join.getMonth());
-            return now2.getDate() >= join.getDate() ? m + 1 : m;
-          })();
-          const multipliers = [1, 2.5, 3];
-          const idx = Math.min(Math.max(monthsEmployed - 1, 0), multipliers.length - 1);
-          tgt = await upsertTarget({
-            worker_id: workerId,
-            month: monthStr,
-            target_amount: Math.round(totalSalary * multipliers[idx]),
-            is_auto_generated: true,
-          });
-        }
-        const currentTarget = parseFloat(tgt.target_amount);
-
+        const createdAt = new Date(worker.created_at);
+        const joinedThisMonth = createdAt.getFullYear() === year && createdAt.getMonth() === month;
+        const joinDay = createdAt.getUTCDate();
+        const lateJoin = joinedThisMonth && joinDay > 10;
+        const sundayStats = computeSundayStats({
+          year,
+          month,
+          daysInMonth,
+          records,
+          skipBeforeDate: joinedThisMonth
+            ? `${year}-${String(month + 1).padStart(2, '0')}-${String(joinDay).padStart(2, '0')}`
+            : null,
+          lateJoin,
+        });
         const achievements = await getAchievements(workerId, startDate, endDate);
-        const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
 
-        const join = new Date(worker.created_at);
-        const now2 = new Date();
-        const m = (now2.getFullYear() - join.getFullYear()) * 12 + (now2.getMonth() - join.getMonth());
-        const monthsEmp = now2.getDate() >= join.getDate() ? m + 1 : m;
-        const isNewJoiner = monthsEmp <= 3;
-
-        const threshold = isNewJoiner ? 40 : 60;
-        const targetPercentage = currentTarget > 0 ? (monthlyAchievement / currentTarget) * 100 : 0;
-        const thresholdMet = targetPercentage >= threshold;
-        const bonusAmount = (cameOnLastSunday && thresholdMet) ? Math.round(perDay) : 0;
-
-        // Sunday AKI
-        const sundayAchievement = achievements.find(r => r.date === lastSunDate);
-        const sundayAchievementAmount = sundayAchievement ? parseFloat(sundayAchievement.amount || 0) : 0;
+        // Sunday AKI — each worked Sunday (including a cancelled one) earns its own AKI
         const SUNDAY_AKI_RANGES = [
           { min: 3750, max: 6999, incentive: 200 },
           { min: 7000, max: 11999, incentive: 400 },
@@ -199,40 +148,57 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           { min: 13750, max: 18999, incentive: 1100 },
           { min: 19000, max: Infinity, incentive: 1500 },
         ];
-        const sundayAKI = cameOnLastSunday && sundayAchievementAmount > 0
-          ? (SUNDAY_AKI_RANGES.find(r => sundayAchievementAmount >= r.min && sundayAchievementAmount <= r.max)?.incentive || 0)
-          : 0;
+        const isAttended = (s) => {
+          const rec = records.find(r => r.date === s);
+          return !!rec && (rec.status === 'present' || rec.status === 'late');
+        };
+        let sundayAchievement = 0;
+        let sundayAKI = 0;
+        for (const s of [...sundayStats.eligibleSundays, ...sundayStats.cancelledSundays]) {
+          if (!isAttended(s)) continue;
+          const ach = achievements.find(r => r.date === s);
+          const amt = ach ? parseFloat(ach.amount || 0) : 0;
+          sundayAchievement += amt;
+          sundayAKI += SUNDAY_AKI_RANGES.find(r => amt >= r.min && amt <= r.max)?.incentive || 0;
+        }
 
-        // Compute incentive totals (AKI + monthly)
-        const totalAKI = achievements.reduce((sum, r) => {
-          const amt = parseFloat(r.amount || 0);
-          return sum + calculateAKI(amt, getDayName(r.date));
-        }, 0);
-        const monthlyTargetMet = monthlyAchievement >= currentTarget;
-        let akiPayout = 0;
-        let monthlyIncentive = 0;
-        if (monthlyTargetMet) {
-          akiPayout = isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
-          monthlyIncentive = Math.round((monthlyAchievement - currentTarget) * 0.1);
+        // Incentive totals (AKI + monthly, FRO only)
+        let incentiveAKI = 0;
+        let incentiveMonthly = 0;
+        if (worker.department === 'FRO') {
+          const monthStr = startDate;
+          let tgt = await getTarget(workerId, monthStr);
+          if (!tgt) {
+            const monthsEmployed = getMonthsEmployed(worker.created_at);
+            const multipliers = [1, 2.5, 3];
+            const idx = Math.min(Math.max(monthsEmployed - 1, 0), multipliers.length - 1);
+            tgt = await upsertTarget({
+              worker_id: workerId,
+              month: monthStr,
+              target_amount: Math.round(totalSalary * multipliers[idx]),
+              is_auto_generated: true,
+            });
+          }
+          const currentTarget = parseFloat(tgt.target_amount);
+          const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+          const isNewJoiner = getMonthsEmployed(worker.created_at) <= 3;
+          const totalAKI = achievements.reduce((sum, r) => sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date)), 0);
+          if (monthlyAchievement >= currentTarget) {
+            incentiveAKI = isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
+            incentiveMonthly = Math.round((monthlyAchievement - currentTarget) * 0.1);
+          }
         }
 
         sundayBonus = {
-          lastSundayDate: lastSunDate,
-          cameOnLastSunday,
-          monthlyAchievement: Math.round(monthlyAchievement),
-          currentTarget,
-          targetPercentage: Math.round(targetPercentage * 10) / 10,
-          threshold,
-          thresholdMet,
-          isNewJoiner,
-          bonusAmount,
-          sundayAchievement: sundayAchievementAmount,
+          totalSundays: sundayStats.totalSundays,
+          attendedSundays: sundayStats.attendedSundays,
+          paidSundays: sundayStats.paidSundays,
+          sundayAchievement: Math.round(sundayAchievement),
           sundayAKI,
-          incentiveAKI: akiPayout,
-          incentiveMonthly: monthlyIncentive,
-          incentiveTotal: akiPayout + monthlyIncentive,
+          incentiveAKI,
+          incentiveMonthly,
+          incentiveTotal: incentiveAKI + incentiveMonthly,
         };
-        }
       } catch (err) { console.error('Sunday bonus calculation error:', err); }
     }
 
@@ -311,7 +277,82 @@ function getISTMonthBounds() {
 }
 
 function getSundayCount(dateStrings) {
-  return dateStrings.filter(d => new Date(d + 'T00:00:00+05:30').getDay() === 0).length;
+  return dateStrings.filter(d => new Date(d + 'T00:00:00Z').getUTCDay() === 0).length;
+}
+
+function shiftDate(dateStr, days) {
+  const dt = new Date(dateStr + 'T00:00:00Z');
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().split('T')[0];
+}
+
+function computeSundayStats({ year, month, daysInMonth, records, skipBeforeDate, lateJoin }) {
+  const inRange = (dateStr) => !skipBeforeDate || dateStr >= skipBeforeDate;
+  const dates = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    dates.push({ date: dateStr, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(dateStr + 'T00:00:00Z').getUTCDay()] });
+  }
+
+  const sundays = [];
+  const cancelled = new Set();
+  let regularAbsences = 0;
+
+  for (const day of dates) {
+    if (day.dayName === 'Sun') { sundays.push(day.date); continue; }
+    if (!inRange(day.date)) continue;
+    const rec = records.find(r => r.date === day.date);
+    if (rec?.status === 'absent') {
+      regularAbsences++;
+      if (day.dayName === 'Sat') {
+        const ns = shiftDate(day.date, 1);
+        if (inRange(ns)) cancelled.add(ns);
+      } else if (day.dayName === 'Mon') {
+        const ps = shiftDate(day.date, -1);
+        if (inRange(ps)) cancelled.add(ps);
+      }
+    }
+  }
+
+  const totalSundays = sundays.filter(inRange);
+  const extraSundays = [];
+  if (regularAbsences >= 6 || lateJoin) {
+    for (const s of totalSundays) {
+      if (!cancelled.has(s)) {
+        cancelled.add(s);
+        extraSundays.push(s);
+      }
+    }
+  }
+
+  // Sunday rule: every worked Sunday (present/late, even a cancelled one) is paid;
+  // on top, (totalSundays - 1) are paid free from the non-cancelled, not-worked pool.
+  // Cap = total Sundays in the month.
+  const eligibleSundays = totalSundays.filter(s => !cancelled.has(s));
+  const isAttended = (s) => {
+    const rec = records.find(r => r.date === s);
+    return !!rec && (rec.status === 'present' || rec.status === 'late');
+  };
+  const attendedEligible = eligibleSundays.filter(isAttended);
+  const attendedCancelled = totalSundays.filter(s => cancelled.has(s) && isAttended(s));
+  const workedAll = attendedEligible.length + attendedCancelled.length;
+  const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
+  const baseline = Math.max(0, Math.min(totalSundays.length - 1, eligibleNotWorked));
+  const paidSundays = workedAll + baseline;
+  const unpaidCount = eligibleNotWorked - baseline;
+  const attendedEligibleSet = new Set(attendedEligible);
+  const unpaidSundays = eligibleSundays.filter(s => !attendedEligibleSet.has(s)).slice(0, unpaidCount);
+
+  return {
+    totalSundays: totalSundays.length,
+    attendedSundays: workedAll,
+    attendedCancelledDates: attendedCancelled,
+    paidSundays,
+    eligibleSundays,
+    cancelledSundays: totalSundays.filter(s => cancelled.has(s)),
+    extraSundays,
+    unpaidSundays,
+  };
 }
 
 export const getMySalaryBreakdown = async (req, res) => {
@@ -346,15 +387,13 @@ export const getMySalaryBreakdown = async (req, res) => {
     const monthDays = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dt = new Date(dateStr + 'T00:00:00+05:30');
-      monthDays.push({ date: dateStr, day: dt.getUTCDate(), dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getUTCDay()] });
+      monthDays.push({ date: dateStr, day: d, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(dateStr + 'T00:00:00Z').getUTCDay()] });
     }
 
     const beforeJoin = joinedThisMonth ? monthDays.filter(d => d.date < `${year}-${String(month + 1).padStart(2, '0')}-${String(joinDay).padStart(2, '0')}`) : [];
     const beforeJoinSet = new Set(beforeJoin.map(d => d.date));
 
     const deducted = new Set();
-    const extraSundays = [];
 
     for (const day of monthDays) {
       if (beforeJoinSet.has(day.date)) { deducted.add(day.date); continue; }
@@ -363,38 +402,32 @@ export const getMySalaryBreakdown = async (req, res) => {
       if (rec?.status === 'absent') {
         deducted.add(day.date);
         if (day.dayName === 'Sat') {
-          const nextSun = new Date(day.date + 'T00:00:00+05:30');
-          nextSun.setUTCDate(nextSun.getUTCDate() + 1);
-          const ns = nextSun.toISOString().split('T')[0];
+          const ns = shiftDate(day.date, 1);
           if (!beforeJoinSet.has(ns)) deducted.add(ns);
         } else if (day.dayName === 'Mon') {
-          const prevSun = new Date(day.date + 'T00:00:00+05:30');
-          prevSun.setUTCDate(prevSun.getUTCDate() - 1);
-          const ps = prevSun.toISOString().split('T')[0];
+          const ps = shiftDate(day.date, -1);
           if (!beforeJoinSet.has(ps)) deducted.add(ps);
         }
       }
     }
 
-    // ≥6 absence rule
-    const regularAbsences = monthDays.filter(d => {
-      if (d.dayName === 'Sun' || beforeJoinSet.has(d.date)) return false;
-      const rec = records.find(r => r.date === d.date);
-      return rec?.status === 'absent';
-    }).length;
+    // ≥6 absence / late-join rule + new Sunday rule (worked Sundays paid, incl. cancelled ones)
+    const lateJoin = joinedThisMonth && joinDay > 10;
+    const sundayStats = computeSundayStats({
+      year,
+      month,
+      daysInMonth,
+      records,
+      skipBeforeDate: joinedThisMonth
+        ? `${year}-${String(month + 1).padStart(2, '0')}-${String(joinDay).padStart(2, '0')}`
+        : null,
+      lateJoin,
+    });
+    const extraSundays = sundayStats.extraSundays;
+    for (const d of sundayStats.unpaidSundays) deducted.add(d);
+    for (const d of extraSundays) deducted.add(d);
 
-    if (regularAbsences >= 6) {
-      for (const day of monthDays) {
-        if (day.dayName === 'Sun' && !beforeJoinSet.has(day.date)) {
-          if (!deducted.has(day.date)) {
-            deducted.add(day.date);
-            extraSundays.push(day.date);
-          }
-        }
-      }
-    }
-
-    const paidDays = Math.max(0, daysInMonth - (joinedThisMonth ? (joinDay - 1) : 0) - deducted.size - halfDayCount * 0.5);
+    const paidDays = Math.max(0, daysInMonth - (joinedThisMonth ? (joinDay - 1) : 0) - deducted.size - halfDayCount * 0.5 + sundayStats.attendedCancelledDates.length);
     const perDay = parseFloat(activeSalary.salary) / daysInMonth;
     const salary = parseFloat(activeSalary.salary);
 
@@ -530,6 +563,9 @@ export const getMySalaryBreakdown = async (req, res) => {
       absentCount: absentDatesAfterJoin.length,
       absentDates: absentDatesAfterJoin,
       extraSundayCount: extraSundays.length,
+      sundayCount: sundayStats.totalSundays,
+      attendedSundayCount: sundayStats.attendedSundays,
+      paidSundayCount: sundayStats.paidSundays,
       currentTarget,
       incentiveAKI,
       incentiveAKIPayout,
