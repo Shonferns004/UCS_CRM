@@ -25,6 +25,7 @@ import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
 
 async function findOrCreateAssignment(donorId, workerId, ngoId) {
+  // 1) Worker already owns an active assignment for this donor (and ngo).
   let query = supabase
     .from('fro_assignments')
     .select('id, station')
@@ -35,25 +36,7 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   const { data: existing } = await query.maybeSingle();
   if (existing) return existing;
 
-  // Fallback: claim unassigned lead (fro_worker_id is null) in this FRO's station
-  if (ngoId) {
-    const { data: unassigned } = await supabase
-      .from('fro_assignments')
-      .select('id, station')
-      .eq('donor_id', donorId)
-      .is('fro_worker_id', null)
-      .eq('ngo_id', ngoId)
-      .not('status', 'eq', 'reassigned')
-      .maybeSingle();
-    if (unassigned) {
-      await supabase
-        .from('fro_assignments')
-        .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
-        .eq('id', unassigned.id);
-      return unassigned;
-    }
-  }
-
+  // 2) Resolve ngo from the donor profile when the caller did not pass one.
   if (!ngoId) {
     const { data: donor } = await supabase
       .from('donor_profiles')
@@ -68,34 +51,76 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
       .maybeSingle();
     ngoId = ngo?.id || null;
   }
+  if (!ngoId) return null;
 
-  // Look up FRO's station from fro_station_assignments
-  let station = null;
-  if (ngoId) {
-    const { data: sa } = await supabase
-      .from('fro_station_assignments')
-      .select('station')
-      .eq('fro_worker_id', workerId)
-      .eq('ngo_id', ngoId)
-      .maybeSingle();
-    station = sa?.station || null;
-  }
-
-  // Create this FRO's own assignment row. Note: fro_assignments has no unique
-  // constraint on (donor_id, fro_worker_id, ngo_id), so an ON CONFLICT upsert
-  // fails (Postgres 42P10, swallowed by the QueryBuilder into data:null) and
-  // would 404 the save. Plain insert avoids that; races self-heal via the
-  // re-query below.
-  if (ngoId) {
-    const { data: created } = await supabase
+  // 3) Claim an unassigned lead (fro_worker_id is null) for this ngo.
+  const { data: unassigned } = await supabase
+    .from('fro_assignments')
+    .select('id, station')
+    .eq('donor_id', donorId)
+    .is('fro_worker_id', null)
+    .eq('ngo_id', ngoId)
+    .not('status', 'eq', 'reassigned')
+    .maybeSingle();
+  if (unassigned) {
+    await supabase
       .from('fro_assignments')
-      .insert({ donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() })
-      .select('id, station')
-      .single();
-    if (created) return created;
+      .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
+      .eq('id', unassigned.id);
+    return unassigned;
   }
 
-  // Fallback: re-query if insert returned no data (e.g., concurrent conflict)
+  // 4) Claim the donor's existing assignment for this ngo when it falls in the
+  //    worker's (station, ngo) scope and the current owner no longer covers
+  //    that scope (orphaned rows left behind by staff changes). Creating a new
+  //    row instead would violate fro_assignments' unique (donor_id, ngo_id)
+  //    constraint, and reassigning from an active co-worker would steal it.
+  const { data: myStationRows } = await supabase
+    .from('fro_station_assignments')
+    .select('station, ngo_id')
+    .eq('fro_worker_id', workerId);
+  const scopePairs = new Set((myStationRows || [])
+    .filter(s => s.ngo_id && s.station)
+    .map(s => `${s.station}|${s.ngo_id}`));
+  if (scopePairs.size > 0) {
+    const { data: candidates } = await supabase
+      .from('fro_assignments')
+      .select('id, station, fro_worker_id')
+      .eq('donor_id', donorId)
+      .eq('ngo_id', ngoId)
+      .not('status', 'eq', 'reassigned')
+      .limit(20);
+    for (const c of candidates || []) {
+      if (!c.fro_worker_id || c.fro_worker_id === workerId) continue;
+      if (!scopePairs.has(`${c.station}|${ngoId}`)) continue;
+      const { data: ownerScope } = await supabase
+        .from('fro_station_assignments')
+        .select('id')
+        .eq('fro_worker_id', c.fro_worker_id)
+        .eq('station', c.station)
+        .eq('ngo_id', ngoId)
+        .limit(1);
+      if (!ownerScope || ownerScope.length === 0) {
+        await supabase
+          .from('fro_assignments')
+          .update({ fro_worker_id: workerId, assigned_at: new Date().toISOString() })
+          .eq('id', c.id);
+        return { id: c.id, station: c.station };
+      }
+    }
+  }
+
+  // 5) Create the worker's own row (only possible when no (donor_id, ngo_id)
+  //    row exists yet).
+  const myStation = (myStationRows || []).find(s => s.ngo_id === ngoId);
+  const { data: created } = await supabase
+    .from('fro_assignments')
+    .insert({ donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station: myStation?.station || null, assigned_at: new Date().toISOString() })
+    .select('id, station')
+    .single();
+  if (created) return created;
+
+  // 6) Re-query fallback (e.g., concurrent create).
   const { data: retry } = await supabase
     .from('fro_assignments')
     .select('id, station')
