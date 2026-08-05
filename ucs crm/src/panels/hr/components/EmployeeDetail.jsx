@@ -132,23 +132,25 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     return () => { cancelled = true; };
   }, [worker.id]);
 
-  // Fetch Sunday bonus + incentive data whenever the viewing month changes
+  // Fetch Sunday pay + incentive data whenever the viewing month changes
   useEffect(() => {
-    if (data?.department === 'FRO') {
+    if (data) {
       const monthKey = viewingMonthKey || defaultMonthKey;
       const month = monthKey + '-01';
       fetchWorkerSalaryAllocations(worker.id, month)
         .then(r => setSundayBonus(r?.sundayBonus || null))
         .catch((err) => { console.error('API error:', err.message); });
-      fetchWorkerTargetForMonth(worker.id, month)
-        .then(t => setCurrentTarget(t?.target_amount || null))
-        .catch((err) => { console.error('API error:', err.message); });
-      fetchWorkerAchievements(worker.id, month)
-        .then(a => setWorkerAchs(Array.isArray(a) ? a : []))
-        .catch((err) => { console.error('API error:', err.message); });
-      fetchIncentiveSummary(worker.id, month)
-        .then(s => setIncSummary(s?.hasIncentive ? s : null))
-        .catch((err) => { console.error('API error:', err.message); });
+      if (data.department === 'FRO') {
+        fetchWorkerTargetForMonth(worker.id, month)
+          .then(t => setCurrentTarget(t?.target_amount || null))
+          .catch((err) => { console.error('API error:', err.message); });
+        fetchWorkerAchievements(worker.id, month)
+          .then(a => setWorkerAchs(Array.isArray(a) ? a : []))
+          .catch((err) => { console.error('API error:', err.message); });
+        fetchIncentiveSummary(worker.id, month)
+          .then(s => setIncSummary(s?.hasIncentive ? s : null))
+          .catch((err) => { console.error('API error:', err.message); });
+      }
     }
   }, [viewingMonthKey, worker.id, data?.department]);
 
@@ -334,7 +336,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   }).length;
 
   const extraSundays = [];
-  if (monSatAbsences >= 6) {
+  if (monSatAbsences >= 6 || (joinedThisMonth && joinDayNum > 10)) {
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = new Date(yr, mo - 1, d);
       if (dt.getDay() === 0) {
@@ -373,8 +375,27 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     if (joinedThisMonth && i + 1 < joinDayNum) return 0;
     return new Date(yr, mo - 1, i + 1).getDay() === 0 ? 1 : 0;
   }).reduce((a, b) => a + b, 0);
-  const sundayDeductions = [...deducted].filter(d => new Date(d).getDay() === 0).length;
-  let paidDays = noAttendanceData ? 0 : presentDays + (halfDayCount * 0.5) + Math.max(0, sundayCount - sundayDeductions);
+  const sundayDates = Array.from({ length: daysInMonth }, (_, i) => {
+    const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+    if (joinedThisMonth && dateStr < joinCutoff) return null;
+    return new Date(yr, mo - 1, i + 1).getDay() === 0 ? dateStr : null;
+  }).filter(Boolean);
+  const eligibleSundays = sundayDates.filter(d => !deducted.has(d));
+  const attendedEligible = eligibleSundays.filter(d =>
+    monthAttendance.some(a => a.date === d && (a.status === 'present' || a.status === 'late'))
+  );
+  const attendedCancelledList = sundayDates.filter(d =>
+    deducted.has(d) && monthAttendance.some(a => a.date === d && (a.status === 'present' || a.status === 'late'))
+  );
+  const attendedAll = attendedEligible.length + attendedCancelledList.length;
+  const eligibleNotWorked = eligibleSundays.length - attendedEligible.length;
+  const freeCount = Math.max(0, Math.min(sundayCount - 1, eligibleNotWorked));
+  const paidSundayCount = attendedAll + freeCount;
+  const unpaidSundays = eligibleSundays
+    .filter(d => !attendedEligible.includes(d))
+    .slice(0, Math.max(0, eligibleNotWorked - freeCount));
+  for (const d of unpaidSundays) deducted.add(d);
+  let paidDays = noAttendanceData ? 0 : presentDays - attendedAll + (halfDayCount * 0.5) + paidSundayCount;
   if (paidDays < 0) paidDays = 0;
   const JOINING_DEDUCTION = 1.5;
   const joiningDeduction = (joinedThisMonth && monthsEmployed <= 3) ? JOINING_DEDUCTION : 0;
@@ -905,7 +926,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           })()}
                         </svg>
                         <div className="salary-visual-main">
-                          <div className="salary-visual-total">₹{(Math.round(totalDue) + parseFloat(activeSalary?.extra_amount || 0) + (sundayBonus?.bonusAmount || 0) + (sundayBonus?.incentiveAKI || 0) + (sundayBonus?.incentiveMonthly || 0) - loanDeductionTotal).toLocaleString('en-IN')}</div>
+                          <div className="salary-visual-total">₹{(Math.round(totalDue) + parseFloat(activeSalary?.extra_amount || 0) + (sundayBonus?.incentiveAKI || 0) + (sundayBonus?.incentiveMonthly || 0) - loanDeductionTotal).toLocaleString('en-IN')}</div>
                           <div className="salary-visual-label">Total Due</div>
                         </div>
                       </div>
@@ -928,7 +949,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                             <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'var(--ink-soft)', marginBottom:4 }}>
                               <span>Available: {availableDays}d</span>
                               <span>Present: {(presentDays + halfDayCount * 0.5).toFixed(1)}d</span>
-                              <span>Sundays: {sundayCount}d</span>
+                              <span>Sundays paid: {paidSundayCount}/{sundayCount}d</span>
                               <span>Deducted: {ded}d</span>
                             </div>
                             <div className="salary-breakdown-bar">
@@ -962,8 +983,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                           <div className="salary-metric-lbl">Days Worked</div>
                         </div>
                         <div className="salary-metric">
-                          <div className="salary-metric-num" style={{ color:'#f59e0b' }}>{sundayCount}</div>
-                          <div className="salary-metric-lbl">Sundays</div>
+                          <div className="salary-metric-num" style={{ color:'#f59e0b' }}>{paidSundayCount}/{sundayCount}</div>
+                          <div className="salary-metric-lbl">Sundays Paid</div>
                         </div>
                         <div className="salary-metric">
                           <div className="salary-metric-num" style={{ color:'var(--danger)' }}>{totalLateMinutes}</div>
@@ -1038,90 +1059,82 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         {joiningDeduction > 0 && <><Arrow /><Box num={'−' + joiningDeduction + 'd'} label={'Join\nDeduction'} color="#8B5CF6" /></>}
 {(() => {
                            const sb = sundayBonus || {};
-                           const bonusAmt = sb.bonusAmount || 0;
                            const akiAmt = sb.incentiveAKI || 0;
                            const monthlyAmt = sb.incentiveMonthly || 0;
                            const baseDue = Math.round(totalDue);
                            const loanDed = loanDeductionTotal;
-                           const total = baseDue + bonusAmt + akiAmt + monthlyAmt - loanDed;
+                           const total = baseDue + akiAmt + monthlyAmt - loanDed;
                            const isFRO = data.department === 'FRO';
 
                            return (
                              <>
                                <Box num={'₹' + baseDue.toLocaleString('en-IN')} label={'Salary\\nDue'} color="#5B6B4E" big />
                                {loanDed > 0 && <><Arrow /><Box num={'−₹' + loanDed.toLocaleString('en-IN')} label={'Loan/\\nAdvance'} color="#e67e22" /></>}
-                               {isFRO && <><Arrow /><Box num={'+₹' + bonusAmt.toLocaleString('en-IN')} label={'Sunday\\nBonus'} color={bonusAmt > 0 ? '#f59e0b' : '#ddd'} /></>}
                                {isFRO && <><Arrow /><Box num={'+₹' + akiAmt.toLocaleString('en-IN')} label={'Incentive\\nAKI'} color={akiAmt > 0 ? '#8B5CF6' : '#ddd'} /></>}
                                {isFRO && <><Arrow /><Box num={'+₹' + monthlyAmt.toLocaleString('en-IN')} label={'Incentive\\nMonthly'} color={monthlyAmt > 0 ? '#3B82F6' : '#ddd'} /></>}
                                <Equals />
                                <Box num={'₹' + total.toLocaleString('en-IN')} label={'Total\\nDue'} color="#16a34a" big />
                              </>
                            );
-                         })()}
+                          })()}
                       </div>
 
-                      {/* Sunday bonus explanation */}
-                      {data.department === 'FRO' && sundayBonus && (
+                      {/* Sunday pay explanation */}
+                      {activeSalary && sundayBonus && (
                         <div style={{ marginBottom:14, padding:'10px 14px', border:'1px solid #f59e0b', borderRadius:8, background:'#fffbeb', fontSize:12 }}>
                           <div style={{ fontWeight:600, color:'#92400e', marginBottom:6, fontSize:11, textTransform:'uppercase', letterSpacing:0.5 }}>
-                            Why Sunday Bonus {sundayBonus.bonusAmount > 0 ? 'applied' : 'was not applied'}
+                            Sunday pay — {sundayBonus.paidSundays}/{sundayBonus.totalSundays} Sundays paid this month
                           </div>
                           <table style={{ width:'100%', borderCollapse:'collapse' }}>
                             <tbody>
                               <tr>
                                 <td style={{ padding:'2px 6px 2px 0', width:80, verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                  <span style={{ display:'inline-block', width:8, height:8, background: sundayBonus.cameOnLastSunday ? '#bbf7d0' : '#fecaca', borderRadius:2, marginRight:4 }} />
-                                  <strong>Last Sunday</strong>
+                                  <span style={{ display:'inline-block', width:8, height:8, background:'#bbf7d0', borderRadius:2, marginRight:4 }} />
+                                  <strong>Rule</strong>
                                 </td>
                                 <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                  {sundayBonus.lastSundayDate
-                                    ? new Date(sundayBonus.lastSundayDate + 'T00:00:00+05:30').toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })
-                                    : '\u2014'}
-                                  {' — '}
-                                  <span style={{ color: sundayBonus.cameOnLastSunday ? '#16a34a' : '#dc2626', fontWeight:600 }}>
-                                    {sundayBonus.cameOnLastSunday ? 'Came to work' : 'Did not come'}
-                                  </span>
+                                  Every Sunday worked (present/late, even a cancelled one) is paid. On top, {sundayBonus.totalSundays - 1} Sundays are paid free, capped at all {sundayBonus.totalSundays} Sundays in the month.
                                 </td>
                               </tr>
-                              {sundayBonus.cameOnLastSunday && sundayBonus.sundayAchievement > 0 && (
+                              <tr>
+                                <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
+                                  <span style={{ display:'inline-block', width:8, height:8, background: sundayBonus.attendedSundays > 0 ? '#bbf7d0' : '#f0f0f0', borderRadius:2, marginRight:4 }} />
+                                  <strong>Sundays</strong>
+                                </td>
+                                <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
+                                  Total {sundayBonus.totalSundays} · Attended {sundayBonus.attendedSundays} · Paid {sundayBonus.paidSundays}
+                                </td>
+                              </tr>
+                              {sundayBonus.sundayAKI > 0 && (
                                 <tr>
                                   <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
                                     <span style={{ display:'inline-block', width:8, height:8, background:'#bbf7d0', borderRadius:2, marginRight:4 }} />
-                                    <strong>Achievement</strong>
+                                    <strong>Sunday AKI</strong>
                                   </td>
                                   <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                    ₹{sundayBonus.sundayAchievement.toLocaleString('en-IN')} → AKI +₹{sundayBonus.sundayAKI.toLocaleString('en-IN')}
+                                    ₹{sundayBonus.sundayAchievement.toLocaleString('en-IN')} achieved on attended Sundays → AKI +₹{sundayBonus.sundayAKI.toLocaleString('en-IN')}
                                   </td>
                                 </tr>
                               )}
-                              <tr>
-                                <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                  <span style={{ display:'inline-block', width:8, height:8, background: sundayBonus.thresholdMet ? '#bbf7d0' : '#fecaca', borderRadius:2, marginRight:4 }} />
-                                  <strong>Target</strong>
-                                </td>
-                                <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
-                                  {sundayBonus.targetPercentage.toFixed(1)}% achieved — needs {sundayBonus.threshold}%
-                                  {' — '}
-                                  <span style={{ color: sundayBonus.thresholdMet ? '#16a34a' : '#dc2626', fontWeight:600 }}>
-                                    {sundayBonus.thresholdMet ? 'Threshold met' : 'Threshold not met'}
-                                  </span>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
-                                  <span style={{ display:'inline-block', width:8, height:8, background: sundayBonus.bonusAmount > 0 ? '#bbf7d0' : '#f0f0f0', borderRadius:2, marginRight:4 }} />
-                                  <strong>Bonus</strong>
-                                </td>
-                                <td style={{ padding:'2px 0', fontWeight:700, color: sundayBonus.bonusAmount > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
-                                  {sundayBonus.bonusAmount > 0
-                                    ? '₹' + sundayBonus.bonusAmount.toLocaleString('en-IN') + ' extra (1 day pay)'
-                                    : 'Not eligible'}
-                                </td>
-                              </tr>
-                              {sundayBonus.isNewJoiner && (
+                              {unpaidSundays.length > 0 && (
                                 <tr>
-                                  <td colSpan={2} style={{ padding:'4px 0 0', fontSize:11, color:'#92400e' }}>
-                                    New joiner (≤3 months) — 40% threshold applies instead of 60%
+                                  <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
+                                    <span style={{ display:'inline-block', width:8, height:8, background:'#fecaca', borderRadius:2, marginRight:4 }} />
+                                    <strong>Not paid</strong>
+                                  </td>
+                                  <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
+                                    {unpaidSundays.map(d => 'Sun ' + new Date(d).getDate()).join(', ')} — beyond the free + attended Sundays
+                                  </td>
+                                </tr>
+                              )}
+                              {data.department === 'FRO' && (sundayBonus.incentiveAKI > 0 || sundayBonus.incentiveMonthly > 0) && (
+                                <tr>
+                                  <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
+                                    <span style={{ display:'inline-block', width:8, height:8, background:'#bbf7d0', borderRadius:2, marginRight:4 }} />
+                                    <strong>Incentive</strong>
+                                  </td>
+                                  <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
+                                    Target met → AKI +₹{sundayBonus.incentiveAKI.toLocaleString('en-IN')} · Monthly +₹{sundayBonus.incentiveMonthly.toLocaleString('en-IN')}
                                   </td>
                                 </tr>
                               )}
@@ -1182,9 +1195,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         const autoSundays = [...deducted].filter(d =>
                           !absentDatesAfterJoin.includes(d) &&
                           new Date(d).getDay() === 0 &&
-                          !extraSundays.includes(d)
+                          !extraSundays.includes(d) &&
+                          !unpaidSundays.includes(d)
                         );
-                        const hasAny = absentDatesAfterJoin.length > 0 || autoSundays.length > 0 || extraSundays.length > 0 || lateDeductionDays > 0 || joiningDeduction > 0;
+                        const hasAny = absentDatesAfterJoin.length > 0 || autoSundays.length > 0 || extraSundays.length > 0 || unpaidSundays.length > 0 || lateDeductionDays > 0 || joiningDeduction > 0;
                         if (!hasAny) return null;
                         return (
                           <div style={{ marginBottom:14, padding:'10px 14px', border:'1px solid var(--danger)', borderRadius:8, background:'#fff5f5', fontSize:12 }}>
@@ -1233,6 +1247,21 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                                         const dt = new Date(d);
                                         return 'Sun ' + dt.getDate();
                                       }).join(', ')}
+                                    </td>
+                                  </tr>
+                                )}
+                                {unpaidSundays.length > 0 && (
+                                  <tr>
+                                    <td style={{ padding:'2px 6px 2px 0', verticalAlign:'top', whiteSpace:'nowrap' }}>
+                                      <span style={{ display:'inline-block', width:8, height:8, background:'#fce4b0', borderRadius:2, marginRight:4 }} />
+                                      <strong>{unpaidSundays.length} Sun</strong>
+                                    </td>
+                                    <td style={{ padding:'2px 0', color:'var(--ink-soft)' }}>
+                                      {unpaidSundays.map(d => {
+                                        const dt = new Date(d);
+                                        return 'Sun ' + dt.getDate();
+                                      }).join(', ')}
+                                      {' (beyond free + attended Sundays)'}
                                     </td>
                                   </tr>
                                 )}
@@ -1368,7 +1397,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         const totalSalaryVal = parseFloat(activeSalary?.salary || 0);
                         const totAKI = sundayBonus?.incentiveAKI || 0;
                         const totMonthly = sundayBonus?.incentiveMonthly || 0;
-                        const totSunday = sundayBonus?.bonusAmount || 0;
+                        const totSunday = sundayBonus?.sundayAKI || 0;
                         const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0 || totSunday > 0);
 
                         return allocations.map(a => {
@@ -1410,7 +1439,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                         const totalSalaryVal = parseFloat(activeSalary?.salary || 0);
                         const totAKI = sundayBonus?.incentiveAKI || 0;
                         const totMonthly = sundayBonus?.incentiveMonthly || 0;
-                        const totSunday = sundayBonus?.bonusAmount || 0;
+                        const totSunday = sundayBonus?.sundayAKI || 0;
                         const isIncentive = data.department === 'FRO' && (totAKI > 0 || totMonthly > 0 || totSunday > 0);
                         const sumDue = Math.round(allocations.reduce((s, a) => {
                           const portion = parseFloat(a.salary_portion);
@@ -1455,8 +1484,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                   </table>
                   <div style={{ marginTop:8, fontSize:11, color:'var(--ink-soft)' }}>
                     Attendance is shared across all allocations. Deductions affect each portion equally.
-                    {data.department === 'FRO' && sundayBonus?.bonusAmount > 0 && (
-                      <> Incentives (AKI, Monthly, Sunday) are split proportionally by salary portion.</>
+                    {data.department === 'FRO' && (sundayBonus?.incentiveAKI > 0 || sundayBonus?.incentiveMonthly > 0 || sundayBonus?.sundayAKI > 0) && (
+                      <> Incentives (AKI, Monthly, Sunday AKI) are split proportionally by salary portion.</>
                     )}
                   </div>
                 </div>
