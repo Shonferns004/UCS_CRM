@@ -225,6 +225,9 @@ export const api = {
 
   salaryBreakdown: () => request('GET', 'salary/my-breakdown'),
 
+  notices: () => request('GET', 'notices'),
+  holidays: () => request('GET', 'holidays'),
+
   calendar: () => request('GET', 'calendar'),
 
   policies: () => request('GET', 'onboarding/policies'),
