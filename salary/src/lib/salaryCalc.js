@@ -132,6 +132,7 @@ const HEADER_PATTERNS = {
   salary: [/^salary$/i, /base\s*salary/i],
   target: [/^target$/i, /new\s*target/i, /monthly\s*target/i],
   achieved: [/^achieved$/i, /total\s*bsct.*achieved/i, /bsct\s*achieved/i, /total\s*bsct/i],
+  totalAchieved: [/total\s*bsct.*(?:aflf|mann).*achieved/i, /total\s*bsct.*achieved/i],
   doj: [/date\s*of\s*joining/i, /^doj$/i],
   present: [/present\s*days/i],
   netPresent: [/^net\b.*present\s*days/i, /^net\b.*present\b/i],
@@ -193,6 +194,7 @@ function detectHeader(headers) {
     salary: find(HEADER_PATTERNS.salary[0]) !== -1 ? find(HEADER_PATTERNS.salary[0]) : find(HEADER_PATTERNS.salary[1]),
     target: find(HEADER_PATTERNS.target[0]) !== -1 ? find(HEADER_PATTERNS.target[0]) : (find(HEADER_PATTERNS.target[1]) !== -1 ? find(HEADER_PATTERNS.target[1]) : find(HEADER_PATTERNS.target[2])),
     achieved: find(HEADER_PATTERNS.achieved[0]) !== -1 ? find(HEADER_PATTERNS.achieved[0]) : (find(HEADER_PATTERNS.achieved[1]) !== -1 ? find(HEADER_PATTERNS.achieved[1]) : (find(HEADER_PATTERNS.achieved[2]) !== -1 ? find(HEADER_PATTERNS.achieved[2]) : find(HEADER_PATTERNS.achieved[3]))),
+    totalAchieved: find(HEADER_PATTERNS.totalAchieved[0]) !== -1 ? find(HEADER_PATTERNS.totalAchieved[0]) : find(HEADER_PATTERNS.totalAchieved[1]),
     doj: find(HEADER_PATTERNS.doj[0]) !== -1 ? find(HEADER_PATTERNS.doj[0]) : find(HEADER_PATTERNS.doj[1]),
     present: find(HEADER_PATTERNS.present[0]),
     netPresent: find(HEADER_PATTERNS.netPresent[0]) !== -1 ? find(HEADER_PATTERNS.netPresent[0]) : find(HEADER_PATTERNS.netPresent[1]),
@@ -350,16 +352,14 @@ function processSheet(wsName, wb, dbPresent) {
       ? (dbEntry.joinDed || 0)
       : (joinedThisMonth && isNewJoiner ? 1.5 : 0);
     const lateDeduction = presentFromDb !== undefined ? (dbEntry.lateDed || 0) : 0;
-    const dbPresent = presentFromDb !== undefined ? present : Math.max(0, present - joiningDeduction);
-    const netDays = presentFromDb !== undefined
-      ? Math.max(0, present - joiningDeduction - lateDeduction)
-      : dbPresent;
+    const dbPresent = present;
     const training = num(g(cols.training));
     const sundayAdd = num(g(cols.sundayAdd));
+    const totalPresentDays = Math.max(0, dbPresent - joiningDeduction - lateDeduction - training);
     const netPresent = cols.netPresent !== -1 ? num(g(cols.netPresent))
       : present - training + sundayAdd;
     const perDay = salary / days;
-    const calcSalary = perDay * netDays;
+    const calcSalary = perDay * totalPresentDays;
 
     const rawTotalAki = dateColumns.length ? calculateDailyAki(g, dateColumns) : num(g(cols.aajKa));
     const monthlyTargetMet = target > 0 && achieved >= target;
@@ -372,22 +372,33 @@ function processSheet(wsName, wb, dbPresent) {
     const advance = num(g(cols.advance));
     const otExtra = num(g(cols.otExtra));
     const fileNetPresent = cols.netPresent !== -1 ? num(g(cols.netPresent)) : null;
-    const presentMatch = fileNetPresent !== null ? Math.abs(dbPresent - fileNetPresent) < 0.01 : null;
+    const presentMatch = fileNetPresent !== null ? Math.abs(totalPresentDays - fileNetPresent) < 0.01 : null;
     const eligibleMonthly = monthlyTargetMet;
     const eligibleAki = monthlyTargetMet;
     const netPayable = gross + otExtra + pending - advance;
 
     const fileSalary = cols.monthSalary !== -1 ? num(g(cols.monthSalary)) : null;
     const fileNet = cols.netPayable !== -1 ? num(g(cols.netPayable)) : null;
+    const diff = fileNet !== null ? fileNet - netPayable : null;
 
     rows.push({
       sheet: wsName,
       name, mkey, presentSource: presentFromDb !== undefined ? 'db' : 'excel',
       doj: cols.doj !== -1 ? String(g(cols.doj) || '').slice(0, 10) : '',
-      salary, present, dbPresent, training, sundayAdd, netPresent, days,
-      calcSalary, joiningDeduction, lateDeduction, netDays, joinedThisMonth, isNewJoiner,
+      salary, present, dbPresent, dbPresentCount: dbEntry && dbEntry.present !== undefined ? dbEntry.present : null,
+      dbAbsent: dbEntry && dbEntry.absent !== undefined ? dbEntry.absent : null,
+      dbHalf: dbEntry && dbEntry.half !== undefined ? dbEntry.half : null,
+      dbAvailable: dbEntry && dbEntry.available !== undefined ? dbEntry.available : null,
+      dbSunAttended: dbEntry && dbEntry.sunAttended !== undefined ? dbEntry.sunAttended : null,
+      dbSunUnpaid: dbEntry && dbEntry.sunUnpaid !== undefined ? dbEntry.sunUnpaid : null,
+      dbSunDeducted: dbEntry && dbEntry.sunDeducted !== undefined ? dbEntry.sunDeducted : null,
+      collection: cols.totalAchieved !== -1
+        ? num(g(cols.totalAchieved))
+        : (dbEntry && dbEntry.collection !== undefined ? dbEntry.collection : 0),
+      training, sundayAdd, totalPresentDays, netPresent, days,
+      calcSalary, joiningDeduction, lateDeduction, joinedThisMonth, isNewJoiner,
       monthly10, totalAki: rawTotalAki, akiPayout, incentiveTotal, weekly, gross, otExtra, pending, advance, netPayable,
-      fileSalary, fileNet, fileNetPresent, presentMatch, eligibleMonthly, eligibleAki, monthlyTargetMet, target, achieved,
+      fileSalary, fileNet, fileNetPresent, presentMatch, eligibleMonthly, eligibleAki, monthlyTargetMet, target, achieved, diff,
     });
   }
   return rows;
@@ -422,7 +433,7 @@ export function computeWorkbook(wb, dbPresent) {
     const range = XLSX.utils.decode_range(ws['!ref']);
     const width = range.e.c - range.s.c + 1;
     const nonZeroRows = rows.reduce((acc, r) => acc + (r.salary > 0 || r.calcSalary > 0 || r.gross > 0 || r.netPayable > 0 ? 1 : 0), 0);
-    const filledCols = Object.values(detectHeader((() => {
+    const detected = detectHeader((() => {
       const r = findHeaderRow(ws);
       const maxCol = Math.min(range.e.c, 255);
       const hdr = [];
@@ -431,25 +442,43 @@ export function computeWorkbook(wb, dbPresent) {
         hdr.push(cell && cell.v !== undefined ? cell.v : '');
       }
       return hdr;
-    })())).filter(v => v !== -1).length;
-    candidates.push({ name, rows, monthKey: sheetMonthKey(name, wb), width, rowCount: rows.length, nonZeroRows, filledCols });
+    })());
+    const filledCols = Object.values(detected).filter(v => v !== -1).length;
+    const RESULT_KEYS = ['present', 'netPresent', 'training', 'sundayAdd', 'monthSalary', 'monthly10', 'aajKa', 'weekly', 'gross', 'otExtra', 'pending', 'advance', 'netPayable'];
+    const resultCols = RESULT_KEYS.filter(k => detected[k] !== -1).length;
+    const dataCols = rows.reduce((acc, r) => acc + ((r.presentSource === 'excel' && r.present > 0) || r.netPresent > 0 || (r.fileSalary || 0) > 0 || (r.fileNet || 0) > 0 ? 1 : 0), 0);
+    candidates.push({ name, rows, monthKey: sheetMonthKey(name, wb), width, rowCount: rows.length, nonZeroRows, filledCols, resultCols, dataCols });
   }
   if (!candidates.length) return null;
-  candidates.sort((a, b) => (b.monthKey || 0) - (a.monthKey || 0) || (b.width || 0) - (a.width || 0) || (b.rowCount || 0) - (a.rowCount || 0) || (b.nonZeroRows || 0) - (a.nonZeroRows || 0) || (b.filledCols || 0) - (a.filledCols || 0) || a.name.localeCompare(b.name));
+  candidates.sort((a, b) => (b.monthKey || 0) - (a.monthKey || 0) || (b.dataCols || 0) - (a.dataCols || 0) || (b.resultCols || 0) - (a.resultCols || 0) || (b.width || 0) - (a.width || 0) || (b.rowCount || 0) - (a.rowCount || 0) || (b.nonZeroRows || 0) - (a.nonZeroRows || 0) || (b.filledCols || 0) - (a.filledCols || 0) || a.name.localeCompare(b.name));
   const pick = candidates[0];
+  pick.rows.sort((a, b) => a.name.localeCompare(b.name));
   return { rows: pick.rows, lastMonthKey: pick.rows[0].mkey || null };
 }
 
 export function buildCsv(rows) {
   const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const lines = [];
-  lines.push(['Sheet', 'Employee', 'Date of Joining', 'Salary', 'Days in Month', 'DB Present Days', 'Match?', 'Training & Sun Ded', 'Sunday To Add', 'Net Present Days', 'Joining Ded (new)', 'Late Deduction', 'Computed Salary', '10% Incentive', 'Monthly Eligible?', 'Total AKI', 'AKI Eligible?', 'Total Incentive', 'Weekly Incentive', 'Gross Payable', 'OT/Extra (manual)', 'Pending Expenses', 'Advance', 'Net Payable'].join(','));
+  lines.push(['Employee', 'Date of Joining', 'Salary', 'Days in Month', 'DB Present Days', 'Half Day', 'Absent', 'Deducted Sun.', 'Joining Ded (new)', 'Late Deduction', 'Training & Sun Ded', 'Total Days', 'Net Present Days', 'Match?', 'Computed Salary', 'File Month Salary', 'Match?', 'Monthly Eligible?', '10% Incentive', 'AKI Eligible?', 'Total AKI', 'Total Incentive', 'Gross Payable', 'OT/Extra (manual)', 'Pending Expenses', 'Advance', 'Net Payable', 'File Net Payable', 'Match?', 'Difference'].join(','));
   for (const r of rows) {
-    lines.push([r.sheet, r.name, r.doj, r.salary, r.days, r.dbPresent, r.presentMatch === null ? '' : (r.presentMatch ? 'match' : 'diff'), r.training, r.sundayAdd, r.netPresent,
-      r.joiningDeduction || 0,
-      r.lateDeduction || 0,
-      r.calcSalary.toFixed(2), r.monthly10.toFixed(2), r.eligibleMonthly ? 'yes' : 'no', r.totalAki.toFixed(2), r.eligibleAki ? 'yes' : 'no', r.incentiveTotal.toFixed(2), r.weekly.toFixed(2),
-      r.gross.toFixed(2), '', r.pending.toFixed(2), r.advance.toFixed(2), r.netPayable.toFixed(2)].map(esc).join(','));
+    lines.push([
+      r.name, r.doj, r.salary, r.days,
+      r.dbPresent,
+      r.dbHalf != null ? (r.dbHalf * 0.5) : '', r.dbAbsent != null ? r.dbAbsent : '', r.dbSunDeducted != null ? r.dbSunDeducted : '',
+      r.joiningDeduction || 0, r.lateDeduction || 0, r.training,
+      r.totalPresentDays.toFixed(2), r.netPresent,
+      r.presentMatch === null ? '' : (r.presentMatch ? 'match' : 'diff'),
+      r.calcSalary.toFixed(2),
+      r.fileSalary !== null ? r.fileSalary.toFixed(2) : '',
+      r.fileSalary !== null ? (Math.abs(r.calcSalary - r.fileSalary) < 0.01 ? 'match' : 'diff') : '',
+      r.eligibleMonthly ? 'yes' : 'no', r.monthly10.toFixed(2),
+      r.eligibleAki ? 'yes' : 'no', r.totalAki.toFixed(2),
+      r.incentiveTotal.toFixed(2), r.gross.toFixed(2),
+      r.otExtra.toFixed(2), r.pending.toFixed(2), r.advance.toFixed(2), r.netPayable.toFixed(2),
+      r.fileNet !== null ? r.fileNet.toFixed(2) : '',
+      r.fileNet !== null ? (Math.abs(r.netPayable - r.fileNet) < 0.01 ? 'match' : 'diff') : '',
+      r.diff !== null ? r.diff.toFixed(2) : '',
+    ].map(esc).join(','));
   }
   return lines.join('\n');
 }
