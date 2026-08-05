@@ -82,6 +82,7 @@ const froDist = path.resolve(__dirname, '../../fro-panel/dist');
 const ngoAdminDist = path.resolve(__dirname, '../../ngo-admin-panel/dist');
 const accountsDist = path.resolve(__dirname, '../../accounts-panel/dist');
 const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
+const databaseDist = path.resolve(__dirname, '../../database/dist');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
@@ -357,6 +358,180 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
+// ---------------------------------------------------------------------------
+// DB viewer (dev/debug tool): read-only table browser.
+//   GET /db-viewer                  -> the HTML page
+//   GET /api/db/tables              -> [{ name, approx_rows }]
+//   GET /api/db/table/:table        -> { columns, rows, count } with optional
+//                                      ?limit, ?offset, ?order, ?desc, ?search, ?column
+// ---------------------------------------------------------------------------
+app.get('/db-viewer', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '../../db-viewer.html'));
+});
+
+app.get('/api/db/tables', async (req, res) => {
+  try {
+    const { rows } = await supabase._pool.query(`
+      SELECT c.relname AS name,
+             (CASE WHEN c.reltuples > 0 THEN c.reltuples::bigint ELSE 0 END) AS approx_rows
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r' AND n.nspname = 'public'
+      ORDER BY c.relname
+    `);
+    res.json({ data: rows });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/db/table/:table', async (req, res) => {
+  try {
+    const t = String(req.params.table);
+    const schema = await supabase._pool.query(
+      `SELECT column_name, data_type
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = $1
+       ORDER BY ordinal_position`,
+      [t]
+    );
+    if (schema.rows.length === 0) return res.status(404).json({ message: `Table "${t}" not found` });
+    const cols = schema.rows.map((r) => r.column_name);
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    let order = cols.includes('created_at') ? 'created_at' : cols[0];
+    if (req.query.order && cols.includes(String(req.query.order))) order = String(req.query.order);
+    const ascending = req.query.desc !== '1';
+
+    const q = supabase.from(t).select('*', { count: 'exact', head: false });
+    if (req.query.search && req.query.column && cols.includes(String(req.query.column))) {
+      q.ilike(String(req.query.column), `%${String(req.query.search)}%`);
+    } else if (req.query.search) {
+      const textCol = cols.find((c) => c !== 'id' && c !== 'created_at' && !c.endsWith('_id'));
+      if (textCol) q.ilike(textCol, `%${String(req.query.search)}%`);
+    }
+
+    const pk = await getPkCols(t);
+    const { data, count, error } = await q.order(order, { ascending }).range(offset, offset + limit - 1);
+    if (error) return res.status(500).json({ message: error.message });
+    res.json({ table: t, columns: schema.rows, pk, rows: data, count, limit, offset, order });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+async function getPkCols(table) {
+  const { rows } = await supabase._pool.query(
+    `SELECT kcu.column_name
+     FROM information_schema.table_constraints tc
+     JOIN information_schema.key_column_usage kcu
+       ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+     WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' AND tc.table_name = $1
+     ORDER BY kcu.ordinal_position`,
+    [table]
+  );
+  return rows.map((r) => r.column_name);
+}
+
+async function tableExists(name) {
+  const { rows } = await supabase._pool.query(
+    `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+    [name]
+  );
+  return rows.length > 0;
+}
+
+// Run arbitrary SQL (dev tool). Returns a result set if the query produces one.
+app.post('/api/db/query', async (req, res) => {
+  try {
+    const sql = String(req.body && req.body.sql || '').trim();
+    if (!sql) return res.status(400).json({ message: 'No SQL provided' });
+    const r = await supabase._pool.query(sql);
+    const columns = (r.fields || []).map((f) => ({ name: f.name, dataTypeID: f.dataTypeID }));
+    res.json({ command: r.command, rowCount: r.rowCount, columns, rows: r.rows || [] });
+  } catch (err) {
+    res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
+  }
+});
+
+// Drop an entire table (dev tool).
+app.post('/api/db/drop-table', async (req, res) => {
+  try {
+    const t = String(req.body && req.body.table || '').trim();
+    if (!/^[A-Za-z0-9_]+$/.test(t)) return res.status(400).json({ message: 'Invalid table name' });
+    if (!(await tableExists(t))) return res.status(404).json({ message: `Table "${t}" not found` });
+    await supabase._pool.query(`DROP TABLE "${t}"`);
+    res.json({ ok: true, table: t });
+  } catch (err) {
+    res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
+  }
+});
+
+// Delete specific rows by primary key (dev tool).
+app.post('/api/db/rows/delete', async (req, res) => {
+  try {
+    const t = String(req.body && req.body.table || '').trim();
+    const rows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+    if (!/^[A-Za-z0-9_]+$/.test(t)) return res.status(400).json({ message: 'Invalid table name' });
+    if (rows.length === 0) return res.status(400).json({ message: 'No rows selected' });
+    if (!(await tableExists(t))) return res.status(404).json({ message: `Table "${t}" not found` });
+
+    const pk = await getPkCols(t);
+    if (pk.length === 0) return res.status(400).json({ message: 'Table has no primary key — use the query runner to delete rows' });
+
+    const params = [];
+    const clauses = [];
+    for (const row of rows) {
+      const conds = [];
+      for (const col of pk) {
+        const val = row[col];
+        if (val === undefined) return res.status(400).json({ message: `Selected row is missing PK column "${col}"` });
+        params.push(val);
+        conds.push(`"${col}" = $${params.length}`);
+      }
+      clauses.push(`(${conds.join(' AND ')})`);
+    }
+    const sql = `DELETE FROM "${t}" WHERE ${clauses.join(' OR ')}`;
+    const r = await supabase._pool.query(sql, params);
+    res.json({ ok: true, table: t, rowCount: r.rowCount });
+  } catch (err) {
+    res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
+  }
+});
+
+// Amazon RDS instance capacity (storage / CPU / memory / connections).
+app.get('/api/db/capacity', async (req, res) => {
+  try {
+    const { getRDSCapacity } = await import('./services/rdsCapacity.js');
+    res.json(await getRDSCapacity());
+  } catch (err) {
+    res.status(500).json({ ok: false, configured: false, reason: err.message });
+  }
+});
+
+// Customer provisioning: dedicated Postgres database + S3 bucket + IAM user.
+app.post('/api/customer/provision', async (req, res) => {
+  try {
+    const { provisionCustomer } = await import('./services/customerProvision.js');
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!name) return res.status(400).json({ message: 'Customer name is required' });
+    res.json(await provisionCustomer(name));
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get('/api/customer/list', async (req, res) => {
+  try {
+    const { listCustomers } = await import('./services/customerProvision.js');
+    res.json(await listCustomers());
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 const bankImportDist = path.resolve(__dirname, '../public/bank-import');
 app.use('/bank-import', express.static(bankImportDist));
 
@@ -367,9 +542,16 @@ if (fs.existsSync(whatsappDist)) {
   });
 }
 
+if (fs.existsSync(databaseDist)) {
+  app.use('/database/assets', express.static(path.join(databaseDist, 'assets')));
+  app.get('/database*', (req, res) => {
+    res.sendFile(path.join(databaseDist, 'index.html'));
+  });
+}
+
 if (fs.existsSync(froDist)) {
   app.use('/assets', express.static(path.join(froDist, 'assets')));
-  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import).*$/, (req, res) => {
+  app.get(/^\/(?!api\/|admin$|admin\/|accounts$|accounts\/|whatsapp|bank-import|database).*$/, (req, res) => {
     res.sendFile(path.join(froDist, 'index.html'));
   });
   app.get('/', (req, res) => {
@@ -494,11 +676,13 @@ async function checkLeavesTable() {
 }
 
 if (!process.env.VERCEL) {
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     _log(`Server running on port ${PORT}`);
     checkLeavesTable();
     import('./services/notificationScheduler.js');
   });
+  const { initRealtime } = await import('./socket.js');
+  initRealtime(server);
 }
 
 export default app;

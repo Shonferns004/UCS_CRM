@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
 import MediaPreviewModal from './MediaPreviewModal'
 
 function MessageStatusIcon({ status }) {
@@ -84,23 +83,15 @@ function MediaFromMeta({ mediaId, mimeType }) {
 
   useEffect(() => {
     let cancelled = false
+    const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+    const token = (() => { try { return localStorage.getItem('ucs_token') } catch { return null } })()
     ;(async () => {
-      const { data: accounts } = await supabase
-        .from('whatsapp_accounts')
-        .select('access_token')
-        .eq('is_active', true)
-        .limit(1)
-      if (!accounts?.[0] || cancelled) { setLoading(false); return }
-      const token = accounts[0].access_token
       try {
-        const infoRes = await fetch(`https://graph.facebook.com/v23.0/${mediaId}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await fetch(`${apiBase}/fro/whatsapp/media/${encodeURIComponent(mediaId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
-        const info = await infoRes.json()
-        if (cancelled || !info.url) { setLoading(false); return }
-        const dlRes = await fetch(info.url, { headers: { Authorization: `Bearer ${token}` } })
-        if (cancelled || !dlRes.ok) { setLoading(false); return }
-        const blob = await dlRes.blob()
+        if (cancelled || !res.ok) { setLoading(false); return }
+        const blob = await res.blob()
         if (!cancelled) setBlobUrl(URL.createObjectURL(blob))
       } catch (e) { console.error('Error:', e.message); } finally { if (!cancelled) setLoading(false) }
     })()

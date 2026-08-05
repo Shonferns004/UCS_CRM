@@ -75,13 +75,20 @@ export const updateNewDataStatusByNgoAndMobiles = async (ngoName, mobiles, statu
   return data;
 };
 
-export const getAllExistingMobiles = async () => {
-  const { data, error } = await supabase
-    .from('new_data')
-    .select('mobile_number')
-    .not('mobile_number', 'is', null);
-  if (error) throw error;
-  return new Set((data || []).map(r => r.mobile_number));
+export const getExistingMobiles = async (mobiles) => {
+  const existing = new Set();
+  if (!mobiles || mobiles.length === 0) return existing;
+  const BATCH = 1000;
+  for (let i = 0; i < mobiles.length; i += BATCH) {
+    const chunk = mobiles.slice(i, i + BATCH);
+    const { data, error } = await supabase
+      .from('new_data')
+      .select('mobile_number')
+      .in('mobile_number', chunk);
+    if (error) throw error;
+    for (const r of data || []) existing.add(r.mobile_number);
+  }
+  return existing;
 };
 
 export const getBatchById = async (batchId) => {

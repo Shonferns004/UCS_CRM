@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getAllExistingMobiles } from '../models/newDataModel.js';
-import { upsertDonorProfile } from '../models/donorProfileModel.js';
+import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getExistingMobiles } from '../models/newDataModel.js';
+import { upsertDonorProfilesBatch } from '../models/donorProfileModel.js';
 import supabase from '../config/supabase.js';
 import {
   parseImportFile,
@@ -61,7 +61,7 @@ export const uploadImport = async (req, res) => {
     const { deduped, duplicatesRemoved } = dedupRows(validRows);
 
     // Cross-batch dedup: remove mobiles already existing in any previous import
-    const existingMobiles = await getAllExistingMobiles();
+    const existingMobiles = await getExistingMobiles(deduped.map(r => r.mobile_number));
     const trulyNew = deduped.filter(r => !existingMobiles.has(r.mobile_number));
     const crossBatchDups = deduped.length - trulyNew.length;
 
@@ -306,7 +306,7 @@ export const uploadOldDataImport = async (req, res) => {
     }
 
     // Cross-batch dedup
-    const existingMobiles = await getAllExistingMobiles();
+    const existingMobiles = await getExistingMobiles(validRows.map(r => r.mobile_number));
     const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
     const crossBatchDups = validRows.length - trulyNew.length;
 
@@ -371,51 +371,41 @@ export const uploadOldDataImport = async (req, res) => {
 
     let profilesCreated = 0;
     const errors = [];
-    const BATCH_SIZE = 10;
     // Only create profiles for first NGO entry to avoid duplicates
     const firstNgoName = ngoNames[0] || 'Default';
-    for (let i = 0; i < trulyNew.length; i += BATCH_SIZE) {
-      const batch = trulyNew.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(row => {
-          const profile = {
-            mobile_number: row.mobile_number,
-            name: row.name || null,
-            bank_donor_name: row.bank_donor_name || null,
-            agent_donor_name: row.agent_donor_name || null,
-            mobile_2: row.mobile_2 || null,
-            address_1: row.address_1 || null,
-            address_2: row.address_2 || null,
-            city: row.city || null,
-            pin_code: row.pin_code || null,
-            pan_number: row.pan_number || null,
-            email: row.email || null,
-            birth_date: row.birth_date || null,
-            data_category: row.data_category || null,
-            team: row.team || null,
-            agent_name: row.agent_name || null,
-            mop: row.mop || null,
-            donors_bank_name: row.donors_bank_name || null,
-            project_supported: row.project_supported || null,
-            account_of: row.account_of || null,
-            raw_data: row,
-            import_batch_id: importBatchId,
-            category: row.category || '',
-            amount: row.amount || 0,
-            transaction_date: row.transaction_date || null,
-            station: row.station || null,
-            ngo: firstNgoName,
-          };
-          return upsertDonorProfile(profile);
-        })
-      );
-      for (const r of results) {
-        if (r.status === 'fulfilled') {
-          if (r.value && r.value.first_import_batch_id === importBatchId) profilesCreated++;
-        } else {
-          errors.push({ row: 'batch item', reason: r.reason?.message || 'Unknown error' });
-        }
-      }
+    const profiles = trulyNew.map(row => ({
+      mobile_number: row.mobile_number,
+      name: row.name || null,
+      bank_donor_name: row.bank_donor_name || null,
+      agent_donor_name: row.agent_donor_name || null,
+      mobile_2: row.mobile_2 || null,
+      address_1: row.address_1 || null,
+      address_2: row.address_2 || null,
+      city: row.city || null,
+      pin_code: row.pin_code || null,
+      pan_number: row.pan_number || null,
+      email: row.email || null,
+      birth_date: row.birth_date || null,
+      data_category: row.data_category || null,
+      team: row.team || null,
+      agent_name: row.agent_name || null,
+      mop: row.mop || null,
+      donors_bank_name: row.donors_bank_name || null,
+      project_supported: row.project_supported || null,
+      account_of: row.account_of || null,
+      raw_data: row,
+      import_batch_id: importBatchId,
+      category: row.category || '',
+      amount: row.amount || 0,
+      transaction_date: row.transaction_date || null,
+      station: row.station || null,
+      ngo: firstNgoName,
+    }));
+    try {
+      profilesCreated = await upsertDonorProfilesBatch(profiles, importBatchId);
+    } catch (profileErr) {
+      console.error('Donor profile bulk upsert failed:', profileErr.message);
+      errors.push({ row: 'bulk', reason: profileErr.message });
     }
 
     // Auto-assign donors to FROs via stations
