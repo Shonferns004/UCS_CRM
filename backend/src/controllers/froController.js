@@ -81,18 +81,21 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
     station = sa?.station || null;
   }
 
-  // Use upsert to avoid race condition on concurrent creates
-  const { data: created } = await supabase
-    .from('fro_assignments')
-    .upsert(
-      { donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() },
-      { onConflict: 'donor_id,fro_worker_id,ngo_id', ignoreDuplicates: false }
-    )
-    .select('id, station')
-    .single();
-  if (created) return created;
+  // Create this FRO's own assignment row. Note: fro_assignments has no unique
+  // constraint on (donor_id, fro_worker_id, ngo_id), so an ON CONFLICT upsert
+  // fails (Postgres 42P10, swallowed by the QueryBuilder into data:null) and
+  // would 404 the save. Plain insert avoids that; races self-heal via the
+  // re-query below.
+  if (ngoId) {
+    const { data: created } = await supabase
+      .from('fro_assignments')
+      .insert({ donor_id: donorId, fro_worker_id: workerId, ngo_id: ngoId, status: 'pending', station, assigned_at: new Date().toISOString() })
+      .select('id, station')
+      .single();
+    if (created) return created;
+  }
 
-  // Fallback: re-query if upsert returned no data (e.g., conflict ignored)
+  // Fallback: re-query if insert returned no data (e.g., concurrent conflict)
   const { data: retry } = await supabase
     .from('fro_assignments')
     .select('id, station')
