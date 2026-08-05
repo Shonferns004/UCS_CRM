@@ -171,6 +171,34 @@ export function Pill({ label, color }) {
   )
 }
 
+export function SkeletonRows({ rows = 6, widths = [], avatarCol = -1 }) {
+  return Array.from({ length: rows }).map((_, i) => (
+    <tr key={i} aria-hidden="true">
+      {widths.map((w, c) => (
+        <td key={c}>
+          {c === avatarCol ? (
+            <>
+              <span className="sk" style={{ display: 'inline-block', width: 26, height: 26, borderRadius: '50%', marginRight: 8, verticalAlign: 'middle' }} />
+              <span className="sk" style={{ display: 'inline-block', width: w, height: 13, verticalAlign: 'middle' }} />
+            </>
+          ) : (
+            <span className="sk" style={{ display: 'inline-block', width: w, height: 12 }} />
+          )}
+        </td>
+      ))}
+    </tr>
+  ))
+}
+
+export function SkeletonStats({ count = 4 }) {
+  return Array.from({ length: count }).map((_, i) => (
+    <div className="stat" key={i} aria-hidden="true">
+      <div className="sk" style={{ width: 64, height: 11, margin: '0 auto 6px', borderRadius: 4 }} />
+      <div className="sk" style={{ width: 34, height: 18, margin: '0 auto', borderRadius: 4 }} />
+    </div>
+  ))
+}
+
 export function Who({ name, role }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

@@ -61,6 +61,7 @@ function emitRealtimeRows(table, eventType, rows) {
 let fkCache = null;
 const columnCache = {};
 const pkCache = {};
+const jsonColumnCache = {};
 
 // Manually-declared joins for tables that lost their FK constraints during the
 // RDS migration. Keyed by (child_table -> embed rel -> column mapping).
@@ -100,6 +101,24 @@ async function getColumns(table) {
   );
   columnCache[table] = rows.map((r) => r.column_name);
   return columnCache[table];
+}
+
+async function getJsonColumns(table) {
+  if (jsonColumnCache[table]) return jsonColumnCache[table];
+  const { rows } = await pool.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema='public' AND table_name=$1 AND data_type IN ('json', 'jsonb')`,
+    [table]
+  );
+  jsonColumnCache[table] = new Set(rows.map((r) => r.column_name));
+  return jsonColumnCache[table];
+}
+
+// pg serializes JS arrays as Postgres array literals ({...}), not JSON ([...]),
+// which Postgres rejects when the target column is json/jsonb. Pre-serialize.
+function toJsonParam(value) {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
 }
 
 async function getPrimaryKey(table) {
@@ -385,6 +404,7 @@ class QueryBuilder {
 
   select(columns, opts = {}) {
     this.selectStr = columns == null ? '*' : String(columns);
+    this.selectAfterWrite = true;
     if (opts) {
       if (opts.count === 'exact' || opts.count === 'planned' || opts.count === 'estimated') this.countOpt = opts.count;
       if (opts.head) this.head = true;
@@ -772,11 +792,12 @@ class QueryBuilder {
     const values = [];
     const valueRows = [];
     let p = 1;
+    const jsonCols = await getJsonColumns(this.table);
     for (const r of rows) {
       const ph = [];
       for (const c of cols) {
         if (r[c] === undefined) { ph.push('DEFAULT'); continue; }
-        values.push(r[c]);
+        values.push(jsonCols.has(c) ? toJsonParam(r[c]) : r[c]);
         ph.push(`$${p++}`);
       }
       valueRows.push(`(${ph.join(', ')})`);
@@ -805,7 +826,8 @@ class QueryBuilder {
     if (cols.length === 0) throw new Error('Update must contain at least one column');
 
     const params = [];
-    const sets = cols.map((c) => `${q(c)} = $${params.push(data[c])}`);
+    const jsonCols = await getJsonColumns(this.table);
+    const sets = cols.map((c) => `${q(c)} = $${params.push(jsonCols.has(c) ? toJsonParam(data[c]) : data[c])}`);
     const aliasMap = new Map();
     const where = this.buildWhere(aliasMap, params, { forUpdateDelete: true });
 
@@ -843,11 +865,12 @@ class QueryBuilder {
     const values = [];
     const valueRows = [];
     let p = 1;
+    const jsonCols = await getJsonColumns(this.table);
     for (const r of rows) {
       const ph = [];
       for (const c of cols) {
         if (r[c] === undefined) { ph.push('DEFAULT'); continue; }
-        values.push(r[c]);
+        values.push(jsonCols.has(c) ? toJsonParam(r[c]) : r[c]);
         ph.push(`$${p++}`);
       }
       valueRows.push(`(${ph.join(', ')})`);

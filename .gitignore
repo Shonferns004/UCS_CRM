@@ -1,7 +1,10 @@
 node_modules/
 .env
+.env.local
 ufs crm/dist/
+others/hr form/dist/
 *.log
+backend/backend-log.txt
 .DS_Store
 backend/private-key.json
 app-debug.apk
@@ -24,6 +27,8 @@ package-lock.json
 !others/client-web/package-lock.json
 !others/admin-attendance/package.json
 !others/admin-attendance/package-lock.json
+!others/hr form/package.json
+!others/hr form/package-lock.json
 
 tmp_schema.sql
 aws/main.md

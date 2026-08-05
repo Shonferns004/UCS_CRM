@@ -118,6 +118,7 @@ export default function Visualizations() {
   const [noticeErr, setNoticeErr] = useState('')
   const [noticeRefresh, setNoticeRefresh] = useState(0)
   const [noticeSuccess, setNoticeSuccess] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   const publishNotice = useCallback(async () => {
     if (!noticeForm.title.trim()) { setNoticeErr('Please enter a title for the notice'); return }
@@ -132,14 +133,18 @@ export default function Visualizations() {
   }, [noticeForm])
 
   useEffect(() => {
+    setLoading(true);
     const token = localStorage.getItem('ucs_token');
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
-    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
-    fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
-    fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); });
-    fetch(API_BASE + '/salary/workers-summary', { headers })
-      .then(r => r.json()).then(setSalSum).catch((err) => { console.error('API error:', err.message); });
+    Promise.all([
+      fetchWorkers().catch(() => []),
+      fetchAttendance().catch(() => []),
+      fetchLeaves().catch(() => []),
+      fetchHolidays().catch(() => []),
+      fetch(API_BASE + '/salary/workers-summary', { headers }).then(r => r.json()).catch(() => []),
+    ]).then(([w, a, l, h, s]) => {
+      setWorkers(w); setAttendance(a); setLeaves(l); setHolidays(h); setSalSum(s);
+    }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false));
   }, []);
 
   const w = workers || [], a = attendance || [], l = leaves || [], h = holidays || [];
@@ -223,6 +228,34 @@ export default function Visualizations() {
     a.forEach(x => { if (x.date < ss || x.date > today) return; for (const d of Object.values(bm)) { if (d.ids.has(x.worker_id)) { d.ta++; if (x.status === 'present' || x.status === 'late') d.pa++; if (x.status === 'late') { d.ls += parseInt(x.late_minutes) || 0; d.lc++; } break; } } });
     return Object.values(bm).map(d => ({ dept: d.dept, ar: d.ta ? Math.round(d.pa / d.ta * 100) : 0, al: d.lc ? Math.round(d.ls / d.lc) : 0, n: d.ids.size }));
   }, [w, a]);
+
+  if (loading) {
+    return (
+      <div className="dash-grid" aria-hidden="true">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="mc" style={{ justifyContent: 'center' }}>
+            <div className="sk" style={{ width: 110, height: 12, marginBottom: 8, borderRadius: 4 }} />
+            <div className="sk" style={{ width: 56, height: 20, borderRadius: 4 }} />
+          </div>
+        ))}
+        <div className="mc w-2 h-2">
+          <div className="sk" style={{ width: '100%', height: '100%', borderRadius: 8 }} />
+        </div>
+        <div className="vstack" style={{ gridRow: 'span 2' }}>
+          <div className="mc"><div className="sk" style={{ width: '100%', height: '100%', borderRadius: 8 }} /></div>
+          <div className="mc"><div className="sk" style={{ width: '100%', height: '100%', borderRadius: 8 }} /></div>
+        </div>
+        <div className="mc events-card"><div className="sk" style={{ width: '100%', height: '100%', borderRadius: 8 }} /></div>
+        <div className="mc w-3" style={{ gridColumn: '1 / -1' }}><div className="sk" style={{ width: '100%', height: 150, borderRadius: 8 }} /></div>
+        <div className="mc w-2"><div className="sk" style={{ width: '100%', height: 110, borderRadius: 8 }} /></div>
+        <div className="mc"><div className="sk" style={{ width: '100%', height: 110, borderRadius: 8 }} /></div>
+        <div className="vstack leaves-stack">
+          <div className="mc"><div className="sk" style={{ width: '100%', height: '100%', borderRadius: 8 }} /></div>
+          <div className="mc"><div className="sk" style={{ width: '100%', height: '100%', borderRadius: 8 }} /></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="dash-grid">

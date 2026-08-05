@@ -135,12 +135,13 @@ export default function Letters() {
   const [extraRoles, setExtraRoles] = useState([]);
   const [out, setOut] = useState(null);
   const [showDownload, setShowDownload] = useState(false);
+  const [loading, setLoading] = useState(true);
   const pdfRef = useRef(null);
   const pdfDocRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetchWorkers().then(data => { if (!cancelled) setWorkers(data); }).catch((err) => { console.error('API error:', err.message); });
+    fetchWorkers().then(data => { if (!cancelled) setWorkers(data); }).catch((err) => { console.error('API error:', err.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -232,6 +233,16 @@ export default function Letters() {
     <div className="card">
       <div className="card-head"><h3>Generate a letter</h3><span className="sub">auto-fills name &amp; role</span></div>
       <div className="card-pad">
+        {loading ? (
+          <div className="form-row" aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <label className="field" key={i} style={{ flex: 1, minWidth: 150 }}>
+                <div className="sk" style={{ width: 60, height: 10, marginBottom: 6, borderRadius: 4 }} />
+                <div className="sk" style={{ width: '100%', height: 36, borderRadius: 6 }} />
+              </label>
+            ))}
+          </div>
+        ) : (
         <div className="form-row">
           <label className="field">NGOs
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
@@ -254,6 +265,7 @@ export default function Letters() {
           </label>
           <label className="field btn-field"><span>&nbsp;</span>{!showDownload ? <button className="btn btn-primary" onClick={generate}><FileTxt width={16}/> Generate</button> : <button className="btn btn-primary" onClick={downloadPdf} style={{background:'#dc2626',color:'#fff',fontWeight:600,border:'1px solid #b91c1c'}}><FileTxt width={16}/> Download PDF</button>}</label>
         </div>
+        )}
 
         {out && (
           <div className="letter">
