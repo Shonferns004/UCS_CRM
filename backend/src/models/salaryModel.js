@@ -293,6 +293,60 @@ export const deleteSalary = async (id) => {
   return { message: 'Salary record deleted' };
 };
 
+function shiftDate(dateStr, days) {
+  const dt = new Date(dateStr + 'T00:00:00Z');
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Mirrors computeSundayStats() in salaryController.js: attended cancelled Sundays
+// (present/late on a Sunday whose Sat is absent, Mon is absent, or with >=6
+// absences / late join) are extra paid days.
+function sundayAddCount(records, { year, monthIdx, daysInMonth, skipBeforeDate, lateJoin }) {
+  const pad = n => String(n).padStart(2, '0');
+  const monthStr = `${year}-${pad(monthIdx + 1)}`;
+  const inRange = (dateStr) => !skipBeforeDate || dateStr >= skipBeforeDate;
+  const recByDate = new Map();
+  for (const r of records) recByDate.set(r.date, r.status);
+
+  const dates = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${monthStr}-${pad(d)}`;
+    dates.push({ date: dateStr, dayName: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(dateStr + 'T00:00:00Z').getUTCDay()] });
+  }
+
+  const sundays = [];
+  const cancelled = new Set();
+  let regularAbsences = 0;
+
+  for (const day of dates) {
+    if (day.dayName === 'Sun') { sundays.push(day.date); continue; }
+    if (!inRange(day.date)) continue;
+    const status = recByDate.get(day.date);
+    if (status === 'absent') {
+      regularAbsences++;
+      if (day.dayName === 'Sat') {
+        const ns = shiftDate(day.date, 1);
+        if (inRange(ns)) cancelled.add(ns);
+      } else if (day.dayName === 'Mon') {
+        const ps = shiftDate(day.date, -1);
+        if (inRange(ps)) cancelled.add(ps);
+      }
+    }
+  }
+
+  const totalSundays = sundays.filter(inRange);
+  if (regularAbsences >= 6 || lateJoin) {
+    for (const s of totalSundays) if (!cancelled.has(s)) cancelled.add(s);
+  }
+
+  const isAttended = (s) => {
+    const st = recByDate.get(s);
+    return st === 'present' || st === 'late';
+  };
+  return totalSundays.filter(s => cancelled.has(s) && isAttended(s)).length;
+}
+
 export const getPresentDaysByMonth = async (month) => {
   const p = String(month || '').split('-');
   if (p.length !== 2) throw new Error('month must be YYYY-MM');
@@ -300,9 +354,10 @@ export const getPresentDaysByMonth = async (month) => {
   const monthIdx = parseInt(p[1], 10) - 1;
   if (!year || monthIdx < 0 || monthIdx > 11) throw new Error('month must be YYYY-MM');
   const pad = n => String(n).padStart(2, '0');
-  const startDate = `${year}-${pad(monthIdx + 1)}-01`;
+  const monthStr = `${year}-${pad(monthIdx + 1)}`;
+  const startDate = `${monthStr}-01`;
   const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
-  const endDate = `${year}-${pad(monthIdx + 1)}-${pad(daysInMonth)}`;
+  const endDate = `${monthStr}-${pad(daysInMonth)}`;
 
   const { data: workers, error: wErr } = await supabase
     .from('workers')
@@ -311,13 +366,16 @@ export const getPresentDaysByMonth = async (month) => {
 
   const { data: attRecords, error: aErr } = await supabase
     .from('attendance')
-    .select('worker_id, status')
+    .select('worker_id, status, date')
     .gte('date', startDate)
     .lte('date', endDate);
   if (aErr) throw aErr;
 
   const counts = {};
+  const attByWorker = {};
   for (const r of attRecords) {
+    if (!attByWorker[r.worker_id]) attByWorker[r.worker_id] = [];
+    attByWorker[r.worker_id].push(r);
     if (!counts[r.worker_id]) counts[r.worker_id] = { present: 0, late: 0, half: 0, absent: 0, leave: 0 };
     if (counts[r.worker_id][r.status] !== undefined) counts[r.worker_id][r.status]++;
     else counts[r.worker_id][r.status] = 1;
@@ -325,16 +383,23 @@ export const getPresentDaysByMonth = async (month) => {
 
   const rows = workers.map(w => {
     const c = counts[w.id] || { present: 0, late: 0, half: 0, absent: 0, leave: 0 };
+    const createdStr = w.created_at || '';
+    const joinedThisMonth = createdStr.startsWith(monthStr);
+    const joinDay = createdStr ? new Date(createdStr).getUTCDate() : 1;
+    const skipBeforeDate = joinedThisMonth ? `${monthStr}-${pad(joinDay)}` : null;
+    const lateJoin = joinedThisMonth && joinDay > 10;
+    const sundayAdd = sundayAddCount(attByWorker[w.id] || [], { year, monthIdx, daysInMonth, skipBeforeDate, lateJoin });
     return {
       worker_id: w.id,
       name: w.name,
-      date_of_joining: w.created_at || '',
+      date_of_joining: createdStr,
       present: c.present,
       late: c.late,
       half: c.half,
       absent: c.absent,
       leave: c.leave,
-      worked_days: c.present + c.late + c.half * 0.5,
+      sunday_add: sundayAdd,
+      worked_days: c.present + sundayAdd,
     };
   });
 
