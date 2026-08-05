@@ -189,9 +189,10 @@ export default function HRForms() {
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message));
+    fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message)).finally(() => setLoading(false));
   }, []);
 
   const filtered = workers.filter((w) =>
@@ -258,7 +259,18 @@ export default function HRForms() {
                 gap: 24,
               }}
             >
-              {filtered.map((w) => {
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} aria-hidden="true" style={{ borderRadius: 16, overflow: 'hidden', background: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.08)' }}>
+                    <div className="sk" style={{ height: 280, borderRadius: 0 }} />
+                    <div style={{ padding: 20 }}>
+                      <div className="sk" style={{ width: '60%', height: 20, marginBottom: 8, borderRadius: 4 }} />
+                      <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4 }} />
+                    </div>
+                  </div>
+                ))
+              ) : (
+              filtered.map((w) => {
                 const name = w.name || 'Unknown';
                 const color = avatarColorLocal(name);
                 const age = w.dob ? Math.floor((Date.now() - new Date(w.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
@@ -337,8 +349,9 @@ export default function HRForms() {
                     </div>
                   </div>
                 );
-              })}
-              {filtered.length === 0 && (
+              })
+              )}
+              {!loading && filtered.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 0', color: 'var(--ink-soft)' }}>
                   No employees found
                 </div>

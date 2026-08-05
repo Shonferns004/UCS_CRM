@@ -35,6 +35,21 @@ export default function Home() {
   const [successMsg, setSuccessMsg] = useState('')
   const pollRef = useRef(null)
   const notifPollRef = useRef(null)
+  const [installEvt, setInstallEvt] = useState(null)
+  const [showInstall, setShowInstall] = useState(false)
+
+  useEffect(() => {
+    const onBip = (e) => { e.preventDefault(); setInstallEvt(e); setShowInstall(true) }
+    window.addEventListener('beforeinstallprompt', onBip)
+    return () => window.removeEventListener('beforeinstallprompt', onBip)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!installEvt) return
+    installEvt.prompt()
+    const { outcome } = await installEvt.userChoice
+    if (outcome === 'accepted') setShowInstall(false)
+  }
 
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t) }, [])
 
@@ -267,6 +282,23 @@ export default function Home() {
           </div>
         )}
 
+        {/* Install Prompt */}
+        {showInstall && installEvt && (
+          <div className="bg-white rounded-2xl p-4 shadow-md border border-[var(--border)] flex items-center gap-3 animate-fade-in">
+            <div className="w-11 h-11 rounded-xl bg-[var(--primary)] flex items-center justify-center shrink-0">
+              <img src="/logo/logo.png" alt="" className="w-8 h-8" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold">Install UCS Attendance</div>
+              <div className="text-xs text-[var(--ink-soft)]">Get the app on your home screen</div>
+            </div>
+            <button onClick={handleInstall} className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-xs font-semibold min-h-[44px] flex items-center">
+              Install
+            </button>
+            <button onClick={() => setShowInstall(false)} className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--ink-muted)] text-lg">&times;</button>
+          </div>
+        )}
+
         {/* Shift Badge */}
         <div className="inline-block px-3 py-1 rounded-full bg-[var(--primary)]/5 text-[10px] font-semibold text-[var(--primary)] tracking-wider">
           SHIFT {shiftStart} - {shiftEnd}
@@ -370,6 +402,21 @@ export default function Home() {
 
         {/* Action Links */}
         <div className="bg-white rounded-xl shadow-sm border border-[var(--border)] divide-y divide-[var(--border)]">
+          <button onClick={() => navigate('/payslip')} className="flex items-center gap-3 px-4 py-3.5 w-full text-left hover:bg-[var(--surface)] transition-colors min-h-[52px]">
+            <WalletSvg className="w-5 h-5 text-[var(--primary-light)] shrink-0" />
+            <span className="text-sm flex-1">View Payslip</span>
+            <ChevronSvg className="w-4 h-4 text-[var(--ink-muted)]" />
+          </button>
+          <button onClick={() => navigate('/notices')} className="flex items-center gap-3 px-4 py-3.5 w-full text-left hover:bg-[var(--surface)] transition-colors min-h-[52px]">
+            <MegaphoneSvg className="w-5 h-5 text-[var(--primary-light)] shrink-0" />
+            <span className="text-sm flex-1">Notices</span>
+            <ChevronSvg className="w-4 h-4 text-[var(--ink-muted)]" />
+          </button>
+          <button onClick={() => navigate('/holidays')} className="flex items-center gap-3 px-4 py-3.5 w-full text-left hover:bg-[var(--surface)] transition-colors min-h-[52px]">
+            <CalendarSvg className="w-5 h-5 text-[var(--primary-light)] shrink-0" />
+            <span className="text-sm flex-1">Holidays</span>
+            <ChevronSvg className="w-4 h-4 text-[var(--ink-muted)]" />
+          </button>
           <button onClick={() => setShowLeave(true)} className="flex items-center gap-3 px-4 py-3.5 w-full text-left hover:bg-[var(--surface)] transition-colors min-h-[52px]">
             <PlaneSvg className="w-5 h-5 text-[var(--primary-light)] shrink-0" />
             <span className="text-sm flex-1">Take a break or leave</span>
@@ -392,6 +439,8 @@ function BellSvg({ className }) { return <svg width={20} height={20} className={
 function PlaneSvg({ className }) { return <svg width={20} height={20} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg> }
 function DollarSvg({ className }) { return <svg width={20} height={20} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg> }
 function WalletSvg({ className }) { return <svg width={20} height={20} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 7V5a2 2 0 00-2-2H4a2 2 0 00-2 2v14a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2h-2"/><rect x="14" y="11" width="8" height="4" rx="1"/><line x1="18" y1="11" x2="18.01" y2="11"/></svg> }
+function MegaphoneSvg({ className }) { return <svg width={20} height={20} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 11l18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 11-5.8-1.6"/></svg> }
+function CalendarSvg({ className }) { return <svg width={20} height={20} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> }
 function ChevronSvg({ className }) { return <svg width={14} height={14} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg> }
 function CheckSvg({ className }) { return <svg width={14} height={14} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg> }
 function TrashSvg({ className }) { return <svg width={14} height={14} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg> }

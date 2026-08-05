@@ -185,7 +185,15 @@ export default function GenerateQR() {
           <span className="count">{codes.length} total</span>
         </div>
         {loading ? (
-          <div className="card-pad"><div className="loading">Loading...</div></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, padding: 16 }} aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="card" style={{ padding: 14, textAlign: 'center', boxShadow: 'none' }}>
+                <div className="sk" style={{ width: 120, height: 120, margin: '0 auto', borderRadius: 8 }} />
+                <div className="sk" style={{ width: '70%', height: 12, margin: '8px auto 4px', borderRadius: 4 }} />
+                <div className="sk" style={{ width: '50%', height: 10, margin: '0 auto', borderRadius: 4 }} />
+              </div>
+            ))}
+          </div>
         ) : codes.length === 0 ? (
           <div className="card-pad"><div className="loading">No QR codes generated yet</div></div>
         ) : (

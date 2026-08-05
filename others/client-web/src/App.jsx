@@ -10,6 +10,9 @@ import EditProfile from './components/EditProfile'
 import Scanner from './components/Scanner'
 import CorrectionTicket from './components/CorrectionTicket'
 import Onboarding from './components/Onboarding'
+import Payslip from './components/Payslip'
+import Notices from './components/Notices'
+import Holidays from './components/Holidays'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -38,6 +41,9 @@ export default function App() {
         <Route path="/edit-profile" element={<EditProfile />} />
         <Route path="/scanner" element={<Scanner />} />
         <Route path="/raise-ticket" element={<CorrectionTicket />} />
+        <Route path="/payslip" element={<Payslip />} />
+        <Route path="/notices" element={<Notices />} />
+        <Route path="/holidays" element={<Holidays />} />
       </Route>
     </Routes>
   )

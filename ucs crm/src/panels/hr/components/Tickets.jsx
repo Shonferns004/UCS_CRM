@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { fetchPendingTickets, fetchAllTickets, verifyTicket, rejectTicket } from '../store'
+import { SkeletonRows } from './ui'
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000
 
@@ -109,7 +110,18 @@ export default function Tickets() {
 
       {tab === 'pending' && (
         <div className="card" style={{ padding: '20px 22px' }}>
-          {loading ? <div className="loading"><div className="spinner" /></div> : pending.length === 0 ? (
+          {loading ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>#</th><th>Date</th><th>Worker</th><th>Department</th><th>Field</th><th>Current</th><th>Claimed</th><th>Reason</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  <SkeletonRows rows={5} widths={[30, 90, 120, 90, 70, 70, 70, 130, 80]} />
+                </tbody>
+              </table>
+            </div>
+          ) : pending.length === 0 ? (
             <div className="empty-state"><p>No pending tickets.</p></div>
           ) : (
             <div className="table-wrap">
@@ -142,7 +154,18 @@ export default function Tickets() {
 
       {tab === 'all' && (
         <div className="card" style={{ padding: '20px 22px' }}>
-          {loading ? <div className="loading"><div className="spinner" /></div> : allTickets.length === 0 ? (
+          {loading ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>#</th><th>Date</th><th>Worker</th><th>Field</th><th>Status</th><th>Reason</th><th>HR Remark</th></tr>
+                </thead>
+                <tbody>
+                  <SkeletonRows rows={5} widths={[30, 90, 120, 90, 90, 140, 120]} />
+                </tbody>
+              </table>
+            </div>
+          ) : allTickets.length === 0 ? (
             <div className="empty-state"><p>No tickets yet.</p></div>
           ) : (
             <div className="table-wrap">
