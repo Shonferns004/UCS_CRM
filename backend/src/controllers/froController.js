@@ -1211,7 +1211,7 @@ export const createDonorLogHandler = async (req, res) => {
       const statusFromDetail = dispositionDetailToStatus(disposition_detail);
       const statusUpdates = { status: statusFromDetail, last_contacted_at: now };
 
-      if (['scheduled', 'follow_up_next_day', 'office_visit_scheduled', 'program_visit_scheduled', 'callback', 'callback_tomorrow'].includes(disposition_detail) && scheduled_at) {
+      if (['scheduled', 'office_visit_scheduled', 'program_visit_scheduled', 'callback'].includes(disposition_detail) && scheduled_at) {
         await createScheduledContact({
           assignment_id: assignment.id,
           scheduled_at,
@@ -1369,12 +1369,11 @@ function dispositionDetailToStatus(detail) {
     rejected: 'rejected',
     temporary_network_issue: 'temporary_network_issue',
     voicemail: 'voicemail',
+    incoming_out: 'incoming_out',
     lead_done: 'lead_done',
     done: 'done',
     scheduled: 'scheduled',
     callback: 'callback',
-    callback_tomorrow: 'callback',
-    follow_up_next_day: 'follow_up',
     office_visit_scheduled: 'scheduled',
     program_visit_scheduled: 'scheduled',
     visit_donate: 'visit_donate',

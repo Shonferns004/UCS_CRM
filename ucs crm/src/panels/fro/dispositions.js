@@ -10,6 +10,7 @@ export const NOT_CONNECTED = [
   { id: 'rejected', label: 'Rejected' },
   { id: 'temporary_network_issue', label: 'Temporary Network Issue' },
   { id: 'voicemail', label: 'Voicemail' },
+  { id: 'incoming_out', label: 'Incoming Out' },
 ];
 
 export const CONNECTED = [
@@ -17,8 +18,6 @@ export const CONNECTED = [
   { id: 'done', label: 'Done' },
   { id: 'scheduled', label: 'Follow Up' },
   { id: 'callback', label: 'Callback' },
-  { id: 'callback_tomorrow', label: 'Callback Tomorrow' },
-  { id: 'follow_up_next_day', label: 'Follow Up Next Day' },
   { id: 'office_visit_scheduled', label: 'Office Visit Scheduled' },
   { id: 'program_visit_scheduled', label: 'Program Visit Scheduled' },
   { id: 'visit_donate', label: 'Visit & Donate' },
@@ -49,7 +48,7 @@ export const isConnected = (id) => CONNECTED_IDS.has(id);
 export const findDisp = (id) => ALL_DISPOSITIONS.find(d => d.id === id);
 
 // Assignment status values (as stored in fro_assignments.status).
-export const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail'];
+export const NOT_CONNECTED_STATUSES = ['busy', 'ringing', 'call_waiting', 'unreachable', 'switched_off', 'out_of_coverage', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out'];
 export const CONNECTED_STATUSES = ['contacted', 'donation_collected', 'lead_done', 'done', 'follow_up', 'scheduled', 'callback', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected'];
 
 export const DISPOSITION_ORDER = {};
@@ -57,9 +56,9 @@ NOT_CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1; });
 CONNECTED.forEach((d, i) => { DISPOSITION_ORDER[d.id] = i + 1 + NOT_CONNECTED.length; });
 
 // Dispositions that need a date + time picker when scheduling.
-export const SCHEDULE_DATE_TYPES = new Set(['scheduled', 'follow_up_next_day', 'office_visit_scheduled', 'program_visit_scheduled']);
+export const SCHEDULE_DATE_TYPES = new Set(['scheduled', 'office_visit_scheduled', 'program_visit_scheduled']);
 // Dispositions that need only a time picker (stamped on today/tomorrow).
-export const SCHEDULE_TIME_TYPES = new Set(['callback', 'callback_tomorrow']);
+export const SCHEDULE_TIME_TYPES = new Set(['callback']);
 // All dispositions that result in a scheduled contact entry.
 export const SCHEDULE_TYPES = new Set([...SCHEDULE_DATE_TYPES, ...SCHEDULE_TIME_TYPES]);
 
@@ -69,6 +68,7 @@ export const STATUS_PILL_MAP = {
   call_waiting: 'pill-gray', unreachable: 'pill-gray', switched_off: 'pill-gray',
   out_of_coverage: 'pill-gray', wrong_number: 'pill-gray', invalid_number: 'pill-gray',
   rejected: 'pill-red', temporary_network_issue: 'pill-gray', voicemail: 'pill-gray',
+  incoming_out: 'pill-gray',
   lead_done: 'pill-green', done: 'pill-green', visit_donate: 'pill-green',
   will_donate_online: 'pill-blue', donation_collected: 'pill-green', promise_to_pay: 'pill-blue',
   payment_pending: 'pill-yellow', already_donated: 'pill-gray', email_sent: 'pill-blue',
