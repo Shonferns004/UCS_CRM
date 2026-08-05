@@ -1,6 +1,5 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
@@ -1106,20 +1105,13 @@ const auth = {
 };
 
 // ---------------------------------------------------------------------------
-// storage() — S3-backed file storage.
+// storage() — AWS S3-backed file storage.
 // Files are stored in <S3_BUCKET>/<bucket>/<fileName> and exposed as public S3
-// object URLs. When S3_BUCKET (or usable AWS credentials) is unavailable it
-// falls back to the local filesystem under <backend>/uploads/<bucket>/, served
-// by index.js at /uploads (already wired at src/index.js line 358).
+// object URLs. S3_BUCKET (plus AWS credentials) is required; there is no
+// local-filesystem fallback, so uploads fail loudly with a clear message when
+// S3 is not configured.
 // ---------------------------------------------------------------------------
-const uploadDir = process.env.UPLOAD_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
-const publicBase = process.env.PUBLIC_UPLOAD_URL || `http://localhost:${process.env.PORT || 5000}`;
 const safeBucket = (name) => String(name).replace(/[^a-zA-Z0-9._-]/g, '_');
-const bucketDir = (name) => path.join(uploadDir, safeBucket(name));
-
-async function ensureBucketDir(name) {
-  await fs.promises.mkdir(bucketDir(name), { recursive: true });
-}
 
 let _s3 = null;
 function getS3() {
@@ -1135,30 +1127,22 @@ function getS3() {
 }
 const s3Key = (bucket, fileName) => `${safeBucket(bucket)}/${String(fileName)}`;
 
+const STORAGE_NOT_CONFIGURED = 'S3 storage is not configured. Set S3_BUCKET (and AWS credentials) to enable file uploads.';
+
 const storage = {
   from(bucket) {
     const b = safeBucket(bucket);
     return {
       async upload(fileName, buffer, opts = {}) {
         const s3 = getS3();
-        if (s3) {
-          try {
-            await s3.client.send(new PutObjectCommand({
-              Bucket: s3.bucket,
-              Key: s3Key(b, fileName),
-              Body: buffer,
-              ContentType: opts.contentType || opts.content_type || undefined,
-            }));
-            return { data: { path: String(fileName) }, error: null };
-          } catch (e) {
-            return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_UPLOAD_FAILED' } };
-          }
-        }
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
         try {
-          await ensureBucketDir(b);
-          const target = path.join(bucketDir(b), String(fileName));
-          await fs.promises.mkdir(path.dirname(target), { recursive: true });
-          await fs.promises.writeFile(target, buffer);
+          await s3.client.send(new PutObjectCommand({
+            Bucket: s3.bucket,
+            Key: s3Key(b, fileName),
+            Body: buffer,
+            ContentType: opts.contentType || opts.content_type || undefined,
+          }));
           return { data: { path: String(fileName) }, error: null };
         } catch (e) {
           return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_UPLOAD_FAILED' } };
@@ -1166,65 +1150,46 @@ const storage = {
       },
       getPublicUrl(fileName) {
         const s3 = getS3();
-        if (s3) return { data: { publicUrl: `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${s3Key(b, fileName)}` } };
-        return { data: { publicUrl: `${publicBase}/uploads/${b}/${String(fileName)}` } };
+        if (!s3) return { data: { publicUrl: '' } };
+        return { data: { publicUrl: `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${s3Key(b, fileName)}` } };
       },
       async remove(paths) {
         const list = Array.isArray(paths) ? paths : [paths];
         const s3 = getS3();
-        if (s3) {
-          try {
-            await Promise.all(list.map((p) => s3.client.send(new DeleteObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, p) }))));
-            return { data: null, error: null };
-          } catch (e) {
-            return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_REMOVE_FAILED' } };
-          }
+        if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
+        try {
+          await Promise.all(list.map((p) => s3.client.send(new DeleteObjectCommand({ Bucket: s3.bucket, Key: s3Key(b, p) }))));
+          return { data: null, error: null };
+        } catch (e) {
+          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_REMOVE_FAILED' } };
         }
-        for (const p of list) {
-          await fs.promises.unlink(path.join(bucketDir(b), String(p))).catch(() => {});
-        }
-        return { data: null, error: null };
       },
     };
   },
   async createBucket(name, opts = {}) {
     const s3 = getS3();
-    if (s3) {
-      try {
-        await s3.client.send(new HeadBucketCommand({ Bucket: s3.bucket }));
-      } catch {
-        try {
-          await s3.client.send(new CreateBucketCommand({
-            Bucket: s3.bucket,
-            ...(s3.region !== 'us-east-1' ? { CreateBucketConfiguration: { LocationConstraint: s3.region } } : {}),
-          }));
-        } catch (e) {
-          return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
-        }
-      }
-      return { data: { name: String(name) }, error: null };
-    }
+    if (!s3) return { data: null, error: { message: STORAGE_NOT_CONFIGURED, code: 'STORAGE_NOT_CONFIGURED' } };
     try {
-      await ensureBucketDir(name);
-      return { data: { name }, error: null };
-    } catch (e) {
-      return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
+      await s3.client.send(new HeadBucketCommand({ Bucket: s3.bucket }));
+    } catch {
+      try {
+        await s3.client.send(new CreateBucketCommand({
+          Bucket: s3.bucket,
+          ...(s3.region !== 'us-east-1' ? { CreateBucketConfiguration: { LocationConstraint: s3.region } } : {}),
+        }));
+      } catch (e) {
+        return { data: null, error: { message: e && e.message ? e.message : String(e), code: 'STORAGE_BUCKET_FAILED' } };
+      }
     }
+    return { data: { name: String(name) }, error: null };
   },
   async listBuckets() {
     const s3 = getS3();
-    if (s3) {
-      try {
-        const r = await s3.client.send(new ListObjectsV2Command({ Bucket: s3.bucket, Delimiter: '/' }));
-        const names = (r.CommonPrefixes || []).map((p) => String(p.Prefix || '').replace(/\/$/, ''));
-        return { data: names.map((n) => ({ name: n })), error: null };
-      } catch (e) {
-        return { data: [], error: null };
-      }
-    }
+    if (!s3) return { data: [], error: null };
     try {
-      const entries = await fs.promises.readdir(uploadDir, { withFileTypes: true });
-      return { data: entries.filter((e) => e.isDirectory()).map((e) => ({ name: e.name })), error: null };
+      const r = await s3.client.send(new ListObjectsV2Command({ Bucket: s3.bucket, Delimiter: '/' }));
+      const names = (r.CommonPrefixes || []).map((p) => String(p.Prefix || '').replace(/\/$/, ''));
+      return { data: names.map((n) => ({ name: n })), error: null };
     } catch (e) {
       return { data: [], error: null };
     }
