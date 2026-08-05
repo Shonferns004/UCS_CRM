@@ -1,6 +1,6 @@
 import supabase from '../config/supabase.js';
 
-const VALID_ROLES = ['all', 'super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'fro', 'ngo'];
+const VALID_ROLES = ['all', 'super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'worker', 'fro', 'ngo'];
 
 function sanitizeRole(role) {
   return VALID_ROLES.includes(role) ? role : null;

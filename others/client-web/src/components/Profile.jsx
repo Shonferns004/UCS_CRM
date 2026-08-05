@@ -18,6 +18,7 @@ export default function Profile() {
   const [loans, setLoans] = useState(() => api.getCachedLoans())
   const [tickets, setTickets] = useState(() => api.getCachedTickets())
   const [profileRequests, setProfileRequests] = useState(() => api.getCachedRequests())
+  const [leaves, setLeaves] = useState(() => api.getCachedLeaves())
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(null)
   const [calYear, setCalYear] = useState(new Date().getFullYear())
@@ -26,15 +27,16 @@ export default function Profile() {
 
   const load = useCallback(async () => {
     try {
-      const [h, td, l, t, pr] = await Promise.all([
+      const [h, td, l, t, pr, lv] = await Promise.all([
         api.history(), api.today(), api.myLoans().catch(() => []), api.myTickets().catch(() => []),
-        api.myProfileUpdateRequests().catch(() => [])
+        api.myProfileUpdateRequests().catch(() => []), api.myLeaves().catch(() => [])
       ])
       setHistory(Array.isArray(h) ? h : h?.history || [])
       setToday(td?.attendance || td || {})
       setLoans(Array.isArray(l) ? l : l?.loans || [])
       setTickets(Array.isArray(t) ? t : t?.tickets || [])
       setProfileRequests(Array.isArray(pr) ? pr : pr?.requests || [])
+      setLeaves(Array.isArray(lv) ? lv : lv?.leaves || [])
     } catch (_) {} finally { setLoading(false) }
   }, [])
 
@@ -184,6 +186,26 @@ export default function Profile() {
               l.status === 'rejected' ? 'bg-red-100 text-red-700' :
               'bg-yellow-100 text-yellow-700'
             }`}>{l.status || 'pending'}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Leave Requests */}
+      <div className="bg-white rounded-2xl shadow-sm border border-[var(--border)] overflow-hidden">
+        <div className="px-4 py-3 border-b border-[var(--border)] text-[10px] font-semibold text-[var(--ink-muted)] uppercase tracking-wider">Leave Usage</div>
+        {leaves.length === 0 ? (
+          <div className="px-4 py-6 text-center text-sm text-[var(--ink-muted)]">No leave taken yet</div>
+        ) : leaves.slice(0, 6).map((lv, i) => (
+          <div key={lv.id || i} className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] last:border-0 text-sm">
+            <div>
+              <div className="font-medium">{lv.reason || lv.type || 'Leave'}</div>
+              <div className="text-[10px] text-[var(--ink-soft)]">{lv.leave_date || lv.date}{lv.end_date ? ` → ${lv.end_date}` : ''}</div>
+            </div>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+              lv.status === 'approved' ? 'bg-green-100 text-green-700' :
+              lv.status === 'rejected' ? 'bg-red-100 text-red-700' :
+              'bg-yellow-100 text-yellow-700'
+            }`}>{lv.status || 'pending'}</span>
           </div>
         ))}
       </div>
