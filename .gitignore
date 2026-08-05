@@ -22,6 +22,8 @@ package.json
 package-lock.json
 !others/client-web/package.json
 !others/client-web/package-lock.json
+!others/admin-attendance/package.json
+!others/admin-attendance/package-lock.json
 
 tmp_schema.sql
 aws/main.md
