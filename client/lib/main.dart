@@ -4,9 +4,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
+import 'services/remote_config_service.dart';
 import 'pages/login_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_page.dart';
@@ -17,6 +20,7 @@ bool firebaseInitialized = false;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await RemoteConfigService.instance.init();
   try {
     await Firebase.initializeApp();
     firebaseInitialized = true;
@@ -287,11 +291,23 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool? _loggedIn;
   bool _showOnboarding = false;
+  bool _forceUpdate = false;
 
   @override
   void initState() {
     super.initState();
+    _checkVersion();
     _checkAuth();
+  }
+
+  Future<void> _checkVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final cfg = RemoteConfigService.instance;
+      if (cfg.isBelowMinimum(info.version)) {
+        if (mounted) setState(() => _forceUpdate = true);
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkAuth() async {
@@ -379,6 +395,9 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
+    if (_forceUpdate) {
+      return const ForceUpdatePage();
+    }
     if (_loggedIn == null) {
       return const SplashPage();
     }
@@ -403,15 +422,54 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   int _tabChangeVersion = 0;
+  Map<String, dynamic>? _announcement;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAnnouncement();
+  }
+
+  Future<void> _loadAnnouncement() async {
+    final announcement = RemoteConfigService.instance.announcement;
+    if (announcement == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final dismissedId = prefs.getString('announcement_dismissed_id');
+    final id = announcement['id']?.toString() ?? '';
+    if (id.isEmpty || dismissedId != id) {
+      if (mounted) setState(() => _announcement = announcement);
+    }
+  }
+
+  void _dismissAnnouncement() async {
+    final id = _announcement?['id']?.toString() ?? '';
+    if (id.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('announcement_dismissed_id', id);
+    }
+    setState(() => _announcement = null);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final announcementVisible = _announcement != null;
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Column(
         children: [
-          HomePage(tabChangeVersion: _tabChangeVersion),
-          ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
+          if (announcementVisible)
+            _AnnouncementBanner(
+              announcement: _announcement!,
+              onDismiss: _dismissAnnouncement,
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                HomePage(tabChangeVersion: _tabChangeVersion),
+                ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: SafeArea(
@@ -446,6 +504,68 @@ class _MainShellState extends State<MainShell> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnnouncementBanner extends StatelessWidget {
+  final Map<String, dynamic> announcement;
+  final VoidCallback onDismiss;
+
+  const _AnnouncementBanner({
+    required this.announcement,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = announcement['title']?.toString() ?? 'Announcement';
+    final body = announcement['body']?.toString() ?? '';
+    final dismissible = announcement['dismissible'] != false;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: const Color(0xFF00152a),
+      child: SafeArea(
+        bottom: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(LucideIcons.megaphone, size: 20, color: Color(0xFF93c5fd)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white,
+                    ),
+                  ),
+                  if (body.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      body,
+                      style: GoogleFonts.manrope(
+                        fontSize: 13, fontWeight: FontWeight.w400, color: const Color(0xFFd7dee8),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (dismissible)
+              GestureDetector(
+                onTap: onDismiss,
+                child: const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(LucideIcons.x, size: 18, color: Color(0xFFd7dee8)),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -492,5 +612,69 @@ class _NavItem extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class ForceUpdatePage extends StatelessWidget {
+  const ForceUpdatePage({super.key});
+
+  static const String _playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.ucs.attendance';
+
+  @override
+  Widget build(BuildContext context) {
+    final cfg = RemoteConfigService.instance;
+    return Scaffold(
+      backgroundColor: const Color(0xFFf6fafe),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(LucideIcons.packageOpen, size: 72, color: const Color(0xFF2563eb)),
+                const SizedBox(height: 24),
+                Text(
+                  'Update required',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.hankenGrotesk(
+                    fontSize: 24, fontWeight: FontWeight.w700, color: const Color(0xFF00152a),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'A new version (${cfg.minimumVersion}) of UFS Attend is available. Please update to continue.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.manrope(
+                    fontSize: 14, fontWeight: FontWeight.w400, color: const Color(0xFF474d57),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _openStore,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563eb),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Update Now'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStore() async {
+    final cfg = RemoteConfigService.instance;
+    final url = cfg.updateUrl.isNotEmpty ? cfg.updateUrl : _playStoreUrl;
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 }
