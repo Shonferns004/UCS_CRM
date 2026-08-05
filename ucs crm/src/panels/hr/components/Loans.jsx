@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useHR } from '../store';
 import { Check, X } from '../icons';
+import { SkeletonRows } from './ui';
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -30,10 +31,11 @@ export default function Loans() {
   const [monthlyDeduction, setMonthlyDeduction] = useState('');
   const [hrRemark, setHrRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetchLoans().then(data => { if (!cancelled) setLoans(data); }).catch((err) => { console.error('API error:', err.message); });
+    fetchLoans().then(data => { if (!cancelled) setLoans(data); }).catch((err) => { console.error('API error:', err.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -97,7 +99,10 @@ export default function Loans() {
             </tr>
           </thead>
           <tbody>
-            {pending.map(l => (
+            {loading ? (
+              <SkeletonRows rows={4} widths={[120, 60, 70, 130, 80, 70, 80]} />
+            ) : (
+              pending.map(l => (
               <tr key={l.id}>
                 <td style={{ fontWeight: 500 }}>{l.workers?.name || 'Unknown'}</td>
                 <td style={{ textTransform:'capitalize' }}>{l.type}</td>
@@ -147,8 +152,9 @@ export default function Loans() {
                   )}
                 </td>
               </tr>
-            ))}
-            {!pending.length && (
+              ))
+            )}
+            {!loading && !pending.length && (
               <tr><td colSpan={7}><div className="empty">No pending requests.</div></td></tr>
             )}
           </tbody>

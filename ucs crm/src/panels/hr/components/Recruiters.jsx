@@ -43,6 +43,7 @@ export default function Recruiters() {
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [recruiters, setRecruiters] = useState([]);
+  const [recruitersLoading, setRecruitersLoading] = useState(true);
   const [recruiterFilter, setRecruiterFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
@@ -57,7 +58,7 @@ export default function Recruiters() {
   useEffect(() => {
     setLeadsLoading(true);
     fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
-    fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); });
+    fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); }).finally(() => setRecruitersLoading(false));
   }, []);
 
   const filteredLeads = leads.filter(l => {
@@ -177,7 +178,16 @@ export default function Recruiters() {
           <h3>Recruiters</h3>
         </div>
         <div className="card-pad">
-          {recruiters.length === 0 ? (
+          {recruitersLoading ? (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }} aria-hidden="true">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="recruiter-card">
+                  <div className="sk" style={{ width: 90, height: 14, marginBottom: 8, borderRadius: 4 }} />
+                  <div className="sk" style={{ width: 130, height: 11, borderRadius: 4 }} />
+                </div>
+              ))}
+            </div>
+          ) : recruiters.length === 0 ? (
             <div className="empty">No recruiters found.</div>
           ) : (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

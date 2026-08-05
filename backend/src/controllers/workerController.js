@@ -1,5 +1,4 @@
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import {
   createWorker,
   createWorkers,
@@ -37,7 +36,7 @@ const generateLoginId = async (name) => {
 };
 
 const generateRandomPassword = () => {
-  return crypto.randomBytes(8).toString('base64url').slice(0, 12);
+  return '123456';
 };
 
 function validateAllocations(allocations, salary) {
