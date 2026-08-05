@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useUcs } from '../../../store'
-import { supabase } from '../../../config/supabase'
+import { useRealtime } from '../../../hooks/useRealtime'
 import { api } from '../../../api/auth'
 import { fmt, STATUS_META } from '../../super-admin/components/froShared'
 
@@ -42,14 +42,12 @@ export default function FroLiveStatus() {
   }, [selectedNgoId, froId])
 
   useEffect(() => {
-    const channel = supabase
-      .channel('fro_live_status_ngo_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'fro_live_status' },
-        () => loadStatuses()
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return useRealtime('fro_live_status', {
+      event: '*',
+      onInsert: () => loadStatuses(),
+      onUpdate: () => loadStatuses(),
+      onDelete: () => loadStatuses(),
+    })
   }, [])
 
   useEffect(() => {

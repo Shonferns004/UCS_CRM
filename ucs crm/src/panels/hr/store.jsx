@@ -24,7 +24,6 @@ export function useHR() {
 }
 
 import { api } from '../../api/auth'
-import { supabase } from '../../config/supabase'
 export const apiGet = (path) => api(path, { _prefix: 'ucs' })
 export const apiPost = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body), _prefix: 'ucs' })
 export const apiDelete = (path) => api(path, { method: 'DELETE', _prefix: 'ucs' })
@@ -58,16 +57,10 @@ export const fetchAttendance = () => apiGet('/attendance/all');
 export const fetchLeaves = () => apiGet('/leaves');
 export const decideLeave = (id, status) => {
   if (status === 'Cancelled') {
-    return supabase.from('leaves').update({ status: 'rejected', admin_remark: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', id).select().single().then(({ data, error }) => {
-      if (error) throw error;
-      return data;
-    });
+    return apiPut('/leaves/' + id + '/status', { status: 'cancelled' });
   }
   if (status === 'Approved') {
-    return supabase.from('leaves').update({ status: 'approved', admin_remark: null, updated_at: new Date().toISOString() }).eq('id', id).select().single().then(({ data, error }) => {
-      if (error) throw error;
-      return data;
-    });
+    return apiPut('/leaves/' + id + '/status', { status: 'approved', admin_remark: null });
   }
   return apiPut('/leaves/' + id + '/status', { status: 'rejected' });
 };

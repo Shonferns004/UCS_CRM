@@ -16,6 +16,72 @@ import {
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
 import supabase from '../config/supabase.js';
+import config from '../config/whatsappConfig.js';
+
+export async function getMedia(req, res) {
+  try {
+    const { mediaId } = req.params;
+    if (!mediaId) return res.status(400).json({ message: 'mediaId is required' });
+
+    let accessToken = null;
+    const { data: message } = await supabase
+      .from('messages')
+      .select('conversation_id')
+      .eq('media_id', mediaId)
+      .limit(1)
+      .maybeSingle();
+
+    if (message?.conversation_id) {
+      const { data: conversation } = await supabase
+        .from('conversations')
+        .select('project')
+        .eq('id', message.conversation_id)
+        .maybeSingle();
+      if (conversation?.project) {
+        const { data: account } = await supabase
+          .from('whatsapp_accounts')
+          .select('access_token')
+          .eq('project', conversation.project)
+          .eq('is_active', true)
+          .maybeSingle();
+        accessToken = account?.access_token;
+      }
+    }
+
+    if (!accessToken) {
+      const { data: anyAccount } = await supabase
+        .from('whatsapp_accounts')
+        .select('access_token')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      accessToken = anyAccount?.access_token;
+    }
+
+    if (!accessToken) return res.status(400).json({ message: 'No WhatsApp account configured' });
+
+    const infoRes = await fetch(`https://graph.facebook.com/${config.apiVersion}/${encodeURIComponent(mediaId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const info = await infoRes.json();
+    if (!infoRes.ok || !info.url) {
+      return res.status(infoRes.status || 500).json({ message: info.error?.message || 'Failed to resolve media' });
+    }
+
+    const dlRes = await fetch(info.url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!dlRes.ok) return res.status(502).json({ message: 'Failed to download media' });
+
+    const contentType = info.mime_type || dlRes.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    const filename = info.filename || `media-${mediaId}`;
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+    res.status(200);
+    dlRes.body.pipe(res);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+}
 
 export async function listAgentConversations(req, res) {
   try {

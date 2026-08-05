@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../store'
 import { api } from '../api'
-import { subscribeWorker } from '../realtime'
+import { subscribeWorker } from '../socket'
 import HomeModals from './HomeModals'
 
 export default function Home() {

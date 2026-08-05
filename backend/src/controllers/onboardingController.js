@@ -133,7 +133,7 @@ export const uploadPhoto = async (req, res) => {
       .from('worker-documents')
       .getPublicUrl(fileName);
 
-    const photoUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+    const photoUrl = publicUrlData?.publicUrl;
 
     // Save photo URL to worker record
     await updateWorkerPersonalDetails(workerId, { photo_url: photoUrl });
@@ -195,7 +195,7 @@ export const uploadDocument = async (req, res) => {
       .from('worker-documents')
       .getPublicUrl(fileName);
 
-    const documentUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+    const documentUrl = publicUrlData?.publicUrl;
 
     return res.json({
       message: 'Document uploaded successfully',
@@ -249,7 +249,7 @@ export const adminUploadPhoto = async (req, res) => {
       .from('worker-documents')
       .getPublicUrl(fileName);
 
-    const photoUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+    const photoUrl = publicUrlData?.publicUrl;
 
     await updateWorkerPersonalDetails(workerId, { photo_url: photoUrl });
 
@@ -305,7 +305,7 @@ export const uploadWorkerSignature = async (req, res) => {
       .from('worker-documents')
       .getPublicUrl(fileName);
 
-    const signatureUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+    const signatureUrl = publicUrlData?.publicUrl;
 
     await updateWorkerPersonalDetails(workerId, { signature_url: signatureUrl });
 
@@ -361,7 +361,7 @@ export const uploadSignature = async (req, res) => {
       .from('worker-documents')
       .getPublicUrl(fileName);
 
-    const signatureUrl = publicUrlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/worker-documents/${fileName}`;
+    const signatureUrl = publicUrlData?.publicUrl;
 
     await updateWorkerPersonalDetails(workerId, { signature_url: signatureUrl });
 
