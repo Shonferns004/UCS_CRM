@@ -129,7 +129,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   const deducted = new Set();
 
   for (const day of monthDays) {
-    if (beforeJoinSet.has(day.date)) { deducted.add(day.date); continue; }
+    if (beforeJoinSet.has(day.date)) continue;
     if (day.dayName === 'Sun') continue;
     const rec = records2.find(r => r.date === day.date);
     if (rec?.status === 'absent') {
