@@ -382,25 +382,38 @@ export default function Attendance() {
           }
         }
       }
-      const isDigital = (w.department || '') === 'Digital';
       let sundayCount = 0;
-      if (!isDigital && startDate && periodEnd) {
+      if (startDate && periodEnd) {
         const absentSetFinal = new Set(absentDates);
         const curS = new Date(startDate + 'T00:00:00+05:30');
         const stopS = new Date(periodEnd + 'T00:00:00+05:30');
-        let lastSunday = null;
+        const sundays = [];
         for (let d = new Date(curS); d <= stopS; d.setUTCDate(d.getUTCDate() + 1)) {
           const ds = toIST(d);
-          if (ds >= (joinDate || '0000-00-00') && isSunday(ds)) lastSunday = ds;
+          if (ds >= (joinDate || '0000-00-00') && isSunday(ds)) sundays.push(ds);
         }
-        for (let d = new Date(curS); d <= stopS; d.setUTCDate(d.getUTCDate() + 1)) {
-          const ds = toIST(d);
-          if (ds < (joinDate || '0000-00-00') || !isSunday(ds)) continue;
-          if (absentSetFinal.has(ds)) continue;
-          if (covered.has(ds)) continue;
-          if (ds === lastSunday && ds < today) continue;
-          sundayCount += 1;
+        const regularAbsences = absentSetFinal.size > 0
+          ? [...absentSetFinal].filter(ds => !isSunday(ds)).length
+          : 0;
+        const joinedThisMonth = !!(joinDate && startDate && joinDate.slice(0, 7) === startDate.slice(0, 7));
+        const joinDay = joinDate ? parseInt(joinDate.slice(8, 10), 10) : 0;
+        if (regularAbsences >= 6 || (joinedThisMonth && joinDay > 10)) {
+          for (const ds of sundays) {
+            if (!absentSetFinal.has(ds)) {
+              absentSetFinal.add(ds);
+              absent++;
+              absentDates.push(ds);
+            }
+          }
         }
+        const eligible = sundays.filter(ds => !absentSetFinal.has(ds));
+        const attended = eligible.filter(ds => covered.has(ds));
+        const attendedCancelled = sundays.filter(ds => absentSetFinal.has(ds) && covered.has(ds)).length;
+        const attendedAll = attended.length + attendedCancelled;
+        const eligibleNotWorked = eligible.length - attended.length;
+        const freeCount = Math.max(0, Math.min(sundays.length - 1, eligibleNotWorked));
+        const paid = attendedAll + freeCount;
+        sundayCount = Math.max(0, paid - attendedAll);
       }
       const matches = !statusActive || (
         (statusFilter === 'present' && present - late > 0)

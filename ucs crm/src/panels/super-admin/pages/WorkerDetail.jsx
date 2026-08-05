@@ -117,11 +117,18 @@ export default function WorkerDetail({ workerId, onBack }) {
                 <div className="sa-stat-value" style={{color:'#42A5F5'}}>{formatMoney(salary.sundayBonus.incentiveMonthly)}</div>
               </div>
             </div> : null}
-            {salary.sundayBonus?.bonusAmount ? <div className="salary-stat-card">
+            {salary.sundayBonus?.sundayAKI ? <div className="salary-stat-card">
               <span className="material-symbols-outlined sal-icon" style={{color:'#FFA726'}}>celebration</span>
               <div className="fro-card-body">
-                <div className="sa-stat-label">Sunday Bonus</div>
-                <div className="sa-stat-value" style={{color:'#FFA726'}}>{formatMoney(salary.sundayBonus.bonusAmount)}</div>
+                <div className="sa-stat-label">Sunday AKI</div>
+                <div className="sa-stat-value" style={{color:'#FFA726'}}>{formatMoney(salary.sundayBonus.sundayAKI)}</div>
+              </div>
+            </div> : null}
+            {salary.sundayBonus?.paidSundays ? <div className="salary-stat-card">
+              <span className="material-symbols-outlined sal-icon" style={{color:'#FFA726'}}>wb_sunny</span>
+              <div className="fro-card-body">
+                <div className="sa-stat-label">Sundays Paid</div>
+                <div className="sa-stat-value" style={{color:'#FFA726'}}>{salary.sundayBonus.paidSundays}/{salary.sundayBonus.totalSundays}</div>
               </div>
             </div> : null}
           </div>

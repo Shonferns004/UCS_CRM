@@ -61,7 +61,8 @@ export default function Salary() {
             <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))'}}>
               <div className="sa-stat-card"><div className="sa-stat-label">AKI Incentive</div><div className="sa-stat-value">{formatMoney(detail.sundayBonus.incentiveAKI || 0)}</div></div>
               <div className="sa-stat-card"><div className="sa-stat-label">Monthly Incentive</div><div className="sa-stat-value">{formatMoney(detail.sundayBonus.incentiveMonthly || 0)}</div></div>
-              <div className="sa-stat-card"><div className="sa-stat-label">Sunday Bonus</div><div className="sa-stat-value">{formatMoney(detail.sundayBonus.bonusAmount || 0)}</div></div>
+              <div className="sa-stat-card"><div className="sa-stat-label">Sunday AKI</div><div className="sa-stat-value">{formatMoney(detail.sundayBonus.sundayAKI || 0)}</div></div>
+              <div className="sa-stat-card"><div className="sa-stat-label">Sundays Paid</div><div className="sa-stat-value">{detail.sundayBonus.paidSundays || 0}/{detail.sundayBonus.totalSundays || 0}</div></div>
             </div>
           </div>
         )}
