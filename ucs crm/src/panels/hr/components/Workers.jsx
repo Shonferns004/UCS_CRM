@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useHR } from '../store';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check } from '../icons';
@@ -81,14 +81,20 @@ function t6bBody(w,tc,d,pl){return`<div class="t6b"><h1>Being Sevak Charitable T
 
 function WhoWithPhoto({ name, role, photo_url }) {
   const [photoErr, setPhotoErr] = useState(false);
+  const [photoLoaded, setPhotoLoaded] = useState(false);
   const hasPhoto = photo_url && !photoErr;
+  const imgLoading = hasPhoto && !photoLoaded;
+  useEffect(() => { setPhotoErr(false); setPhotoLoaded(false); }, [photo_url]);
   return (
     <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-      {hasPhoto ? (
-        <img src={photo_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} onError={() => setPhotoErr(true)} />
+      {imgLoading ? (
+        <div className="sk" style={{ width:36, height:36, borderRadius:'50%', flexShrink:0 }} />
+      ) : hasPhoto ? (
+        <img src={photo_url} alt="" style={{ width:36, height:36, borderRadius:'50%', objectFit:'cover', flexShrink:0 }}
+          onLoad={() => setPhotoLoaded(true)} onError={() => { setPhotoErr(true); setPhotoLoaded(true); }} />
       ) : null}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {!hasPhoto ? <Avatar name={name} /> : null}
+        {!hasPhoto && !imgLoading ? <Avatar name={name} /> : null}
         <div>
           <div style={{ fontWeight: 600, fontSize: 14, color: '#111' }}>{name}</div>
           <div style={{ fontSize: 12, color: '#666' }}>{role}</div>
@@ -101,6 +107,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
 export default function Workers({ onSelect, onOffboard }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs } = useHR();
   const [workers, setWorkers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
   const [err, setErr] = useState('');
@@ -117,9 +124,17 @@ export default function Workers({ onSelect, onOffboard }) {
   const PAGE_SIZE = 20;
   const tableRef = useRef(null);
 
+  const reload = useCallback(() => {
+    setLoading(true);
+    return fetchWorkers('all').then(list => {
+      setWorkers(list || []);
+      setLoading(false);
+      return list || [];
+    }).catch((err) => { console.error('API error:', err.message); setLoading(false); return []; });
+  }, [fetchWorkers]);
+
   useEffect(() => {
-    fetchWorkers('all').then(list => {
-      setWorkers(list);
+    reload().then(list => {
       Promise.all((list || []).map(w =>
         api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })
       )).then(details => {
@@ -127,7 +142,7 @@ export default function Workers({ onSelect, onOffboard }) {
         for (const d of details) { if (d) map[d.id] = d; }
         setWorkerDetails(map);
       });
-    }).catch((err) => { console.error('API error:', err.message); });
+    });
     fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
     api('/salary/workers-summary', { _prefix: 'ucs' })
       .then(data => {
@@ -136,7 +151,7 @@ export default function Workers({ onSelect, onOffboard }) {
         setSalaryMap(map);
       })
       .catch((err) => { console.error('Error:', err.message); });
-  }, []);
+  }, [reload]);
 
   const roles = [...new Set(workers.map(w => (w.department || 'Team Member')).filter(Boolean))].sort();
   const filtered = workers.filter(w => {
@@ -180,7 +195,7 @@ export default function Workers({ onSelect, onOffboard }) {
       setName('');
       setDept(DEPTS?.[0] || '');
       setSelectedNgos([]);
-      fetchWorkers('all').then(setWorkers).catch((err) => { console.error('API error:', err.message); });
+      reload();
     } catch (e) {
       setErr(e.message);
     }
@@ -502,44 +517,66 @@ export default function Workers({ onSelect, onOffboard }) {
         <table>
           <thead><tr><th>Name</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {paginated.map(w => {
-              const sw = salaryMap[w.id];
-              const paid = sw?.current_salary_paid;
-              const currentMonth = new Date().toISOString().slice(0, 7);
-              const salaryFromMonth = sw?.current_salary_from?.slice(0, 7);
-              const isCurrent = salaryFromMonth && salaryFromMonth <= currentMonth;
-              return (
-                <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
-                  style={{ cursor:'pointer' }}>
+            {loading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} aria-hidden="true">
                   <td>
-                    <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                      <WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} />
-                      {isComplete(workerDetails[w.id] || w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div className="sk" style={{ width:36, height:36, borderRadius:'50%', flexShrink:0 }} />
+                      <div>
+                        <div className="sk" style={{ width:120, height:14, marginBottom:6, borderRadius:4 }} />
+                        <div className="sk" style={{ width:70, height:11, borderRadius:4 }} />
+                      </div>
                     </div>
                   </td>
-                  <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
-                  <td>
-                    {sw?.current_salary ? (
-                      <span style={{ fontWeight:600 }}>
-                        ₹{parseFloat(sw.current_salary).toLocaleString('en-IN')}
-                        {paid && <span className="pill pill-green" style={{ marginLeft:6, fontSize:10 }}>Paid</span>}
-                      </span>
-                    ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
-                  </td>
-                  <td>
-                    <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
-                      background: w.employment_status === 'absconded' ? '#fff3e0' : w.employment_status === 'offboarded' ? '#fce4ec' : '#e8f5e9',
-                      color: w.employment_status === 'absconded' ? '#e65100' : w.employment_status === 'offboarded' ? '#c62828' : '#2e7d32' }}>
-                      {w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active'}
-                    </span>
-                  </td>
-                  <td style={{ textAlign:'right' }}>
-                    <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee" style={{ color:'#dc2626' }}><Trash width={16}/></button>
-                  </td>
+                  <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
+                  <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
+                  <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
+                  <td style={{ textAlign:'right' }}><div className="sk" style={{ width:28, height:28, borderRadius:'50%', marginLeft:'auto' }} /></td>
                 </tr>
-              );
-            })}
-            {!filtered.length && <tr><td colSpan={5}><div className="empty">No employees found.</div></td></tr>}
+              ))
+            ) : (
+              <>
+                {paginated.map(w => {
+                  const sw = salaryMap[w.id];
+                  const paid = sw?.current_salary_paid;
+                  const currentMonth = new Date().toISOString().slice(0, 7);
+                  const salaryFromMonth = sw?.current_salary_from?.slice(0, 7);
+                  const isCurrent = salaryFromMonth && salaryFromMonth <= currentMonth;
+                  return (
+                    <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
+                      style={{ cursor:'pointer' }}>
+                      <td>
+                        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                          <WhoWithPhoto name={w.name} role={w.department || 'Team Member'} photo_url={w.photo_url} />
+                          {isComplete(workerDetails[w.id] || w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
+                        </div>
+                      </td>
+                      <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
+                      <td>
+                        {sw?.current_salary ? (
+                          <span style={{ fontWeight:600 }}>
+                            ₹{parseFloat(sw.current_salary).toLocaleString('en-IN')}
+                            {paid && <span className="pill pill-green" style={{ marginLeft:6, fontSize:10 }}>Paid</span>}
+                          </span>
+                        ) : <span style={{ color:'var(--ink-soft)', fontSize:12 }}>—</span>}
+                      </td>
+                      <td>
+                        <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block',
+                          background: w.employment_status === 'absconded' ? '#fff3e0' : w.employment_status === 'offboarded' ? '#fce4ec' : '#e8f5e9',
+                          color: w.employment_status === 'absconded' ? '#e65100' : w.employment_status === 'offboarded' ? '#c62828' : '#2e7d32' }}>
+                          {w.employment_status === 'absconded' ? 'Absconded' : w.employment_status === 'offboarded' ? 'Offboarded' : 'Active'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign:'right' }}>
+                        <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee" style={{ color:'#dc2626' }}><Trash width={16}/></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!filtered.length && <tr><td colSpan={5}><div className="empty">No employees found.</div></td></tr>}
+              </>
+            )}
           </tbody>
         </table>
         {totalPages > 1 && (

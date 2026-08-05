@@ -59,10 +59,43 @@ function Badge({ status }) {
   return <span className={`badge ${cls}`}>{lbl}</span>;
 }
 
+function SkeletonRows({ rows = 8, widths = [], avatarCol = 0 }) {
+  return (
+    Array.from({ length: rows }).map((_, i) => (
+      <tr key={i} aria-hidden="true">
+        {widths.map((w, c) => (
+          <td key={c}>
+            {c === avatarCol ? (
+              <>
+                <span className="sk" style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', marginRight:6, verticalAlign:'middle' }} />
+                <span className="sk" style={{ display:'inline-block', width:w, height:13, verticalAlign:'middle' }} />
+              </>
+            ) : (
+              <span className="sk" style={{ display:'inline-block', width:w, height:12 }} />
+            )}
+          </td>
+        ))}
+      </tr>
+    ))
+  );
+}
+
+function SkeletonStats() {
+  return (
+    Array.from({ length: 4 }).map((_, i) => (
+      <div className="stat" key={i}>
+        <div className="sk" style={{ width:64, height:11, margin:'0 auto 6px', borderRadius:4 }} />
+        <div className="sk" style={{ width:34, height:18, margin:'0 auto', borderRadius:4 }} />
+      </div>
+    ))
+  );
+}
+
 export default function Attendance() {
   const { fetchAttendance, fetchWorkers } = useHR();
   const [attendance, setAttendance] = useState([]);
   const [workers, setWorkers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('today');
   const [punchStatus, setPunchStatus] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -131,8 +164,11 @@ export default function Attendance() {
     const d = new Date();
     const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     setMonthFilter(m);
-    fetchAttendance().then(setAttendance).catch((err) => { console.error('API error:', err.message); });
-    fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); });
+    Promise.all([fetchAttendance(), fetchWorkers()]).then(([a, w]) => {
+      setAttendance(Array.isArray(a) ? a : []);
+      setWorkers(Array.isArray(w) ? w : []);
+      setLoading(false);
+    }).catch((err) => { console.error('API error:', err.message); setLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -148,6 +184,7 @@ export default function Attendance() {
 
   const refreshData = async () => {
     setRefreshing(true);
+    setLoading(true);
     try {
       const [a, w] = await Promise.all([fetchAttendance(), fetchWorkers()]);
       setAttendance(Array.isArray(a) ? a : []);
@@ -157,6 +194,7 @@ export default function Attendance() {
       alert('Failed to refresh data. Please try again.');
     } finally {
       setRefreshing(false);
+      setLoading(false);
     }
   };
 
@@ -430,7 +468,18 @@ export default function Attendance() {
           </div>
 
           <div className="card" style={{ padding: '20px 22px' }}>
-            {workerAttendance.length === 0 ? (
+            {loading ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Date</th><th>Punch In</th><th>Punch Out</th></tr>
+                  </thead>
+                  <tbody>
+                    <SkeletonRows rows={6} widths={[110, 58, 58]} avatarCol={-1} />
+                  </tbody>
+                </table>
+              </div>
+            ) : workerAttendance.length === 0 ? (
               <div className="empty-state">
                 <p>No attendance records found for this worker.</p>
               </div>
@@ -464,10 +513,16 @@ export default function Attendance() {
           {tab === 'today' && (
             <div>
               <div className="stats">
-                <div className="stat"><div className="stat-label">Total Workers</div><div className="stat-value info">{total}</div></div>
-                <div className="stat"><div className="stat-label">Present</div><div className="stat-value success">{onTime + lateCount}</div></div>
-                <div className="stat"><div className="stat-label">Late</div><div className="stat-value warning">{lateCount}</div></div>
-                <div className="stat"><div className="stat-label">Absent</div><div className="stat-value error">{absentCount}</div></div>
+                {loading ? (
+                  <SkeletonStats />
+                ) : (
+                  <>
+                    <div className="stat"><div className="stat-label">Total Workers</div><div className="stat-value info">{total}</div></div>
+                    <div className="stat"><div className="stat-label">Present</div><div className="stat-value success">{onTime + lateCount}</div></div>
+                    <div className="stat"><div className="stat-label">Late</div><div className="stat-value warning">{lateCount}</div></div>
+                    <div className="stat"><div className="stat-label">Absent</div><div className="stat-value error">{absentCount}</div></div>
+                  </>
+                )}
               </div>
 
               <div className="card" style={{ padding: '20px 22px' }}>
@@ -486,7 +541,18 @@ export default function Attendance() {
                   </div>
                 </div>
 
-                {todayRecords.length === 0 ? (
+                {loading ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>Name</th><th>Punch In</th><th>Punch Out</th></tr>
+                      </thead>
+                      <tbody>
+                        <SkeletonRows rows={8} widths={[130, 58, 58]} avatarCol={0} />
+                      </tbody>
+                    </table>
+                  </div>
+                ) : todayRecords.length === 0 ? (
                   <div className="empty-state">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <p>No attendance records for today yet.</p>
@@ -564,10 +630,16 @@ export default function Attendance() {
               </div>
 
               <div className="stats">
-                <div className="stat"><div className="stat-label">Total Records</div><div className="stat-value info">{historyRecords.length}</div></div>
-                <div className="stat"><div className="stat-label">Present</div><div className="stat-value success">{hPresent}</div></div>
-                <div className="stat"><div className="stat-label">Late</div><div className="stat-value warning">{hLate}</div></div>
-                <div className="stat"><div className="stat-label">Absent</div><div className="stat-value error">{hAbsent}</div></div>
+                {loading ? (
+                  <SkeletonStats />
+                ) : (
+                  <>
+                    <div className="stat"><div className="stat-label">Total Records</div><div className="stat-value info">{historyRecords.length}</div></div>
+                    <div className="stat"><div className="stat-label">Present</div><div className="stat-value success">{hPresent}</div></div>
+                    <div className="stat"><div className="stat-label">Late</div><div className="stat-value warning">{hLate}</div></div>
+                    <div className="stat"><div className="stat-label">Absent</div><div className="stat-value error">{hAbsent}</div></div>
+                  </>
+                )}
               </div>
 
               <div className="card" style={{ padding: '20px 22px' }}>
@@ -579,7 +651,18 @@ export default function Attendance() {
                     <button className="btn btn-sm" onClick={() => window.print()}>Print</button>
                   </div>
                 </div>
-                {historyRecords.length === 0 ? (
+                {loading ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr><th>Date</th><th>Name</th><th>Punch In</th><th>Punch Out</th></tr>
+                      </thead>
+                      <tbody>
+                        <SkeletonRows rows={8} widths={[90, 130, 58, 58]} avatarCol={1} />
+                      </tbody>
+                    </table>
+                  </div>
+                ) : historyRecords.length === 0 ? (
                   <div className="empty-state">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                     <p>No records found for the selected filters.</p>

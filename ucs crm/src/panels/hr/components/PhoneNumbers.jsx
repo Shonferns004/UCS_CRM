@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useHR } from '../store'
+import { SkeletonRows, SkeletonStats } from './ui'
 
 export default function PhoneNumbers() {
   const { fetchWorkers, bulkUpdateWorkers } = useHR()
@@ -7,9 +8,10 @@ export default function PhoneNumbers() {
   const [edits, setEdits] = useState({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-      fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); })
+      fetchWorkers().then(setWorkers).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false))
   }, [])
 
   const changeCount = Object.keys(edits).length
@@ -34,6 +36,10 @@ export default function PhoneNumbers() {
   return (
     <>
       <div className="stats">
+        {loading ? (
+          <SkeletonStats />
+        ) : (
+        <>
         <div className="stat">
           <div className="stat-num">{workers.length}</div>
           <div className="stat-lbl">Total Workers</div>
@@ -46,6 +52,8 @@ export default function PhoneNumbers() {
           <div className="stat-num">{changeCount}</div>
           <div className="stat-lbl">Unsaved Changes</div>
         </div>
+        </>
+        )}
       </div>
 
       {message && (
@@ -78,7 +86,10 @@ export default function PhoneNumbers() {
               </tr>
             </thead>
             <tbody>
-              {workers.map((w, i) => (
+              {loading ? (
+                <SkeletonRows rows={6} widths={[30, 140, 110, 120, 160]} />
+              ) : (
+              workers.map((w, i) => (
                 <tr key={w.id}>
                   <td style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{i + 1}</td>
                   <td style={{ fontWeight: 500 }}>{w.name}</td>
@@ -112,7 +123,8 @@ export default function PhoneNumbers() {
                     />
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

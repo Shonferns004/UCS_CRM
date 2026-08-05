@@ -7,12 +7,13 @@ export default function Settings({ onClose }) {
   const [endTime, setEndTime] = useState('19:00');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchSettings().then(s => {
       if (s.office_start_time) setStartTime(s.office_start_time);
       if (s.office_end_time) setEndTime(s.office_end_time);
-    }).catch((err) => { console.error('Error:', err.message); });
+    }).catch((err) => { console.error('Error:', err.message); }).finally(() => setLoading(false));
   }, [fetchSettings]);
 
   const calcHours = (s, e) => {
@@ -41,6 +42,19 @@ export default function Settings({ onClose }) {
           These timings are used to calculate late minutes when workers punch in, and for notification reminders.
         </p>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {loading ? (
+            <>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div className="sk" style={{ width: 120, height: 10, marginBottom: 6, borderRadius: 4 }} />
+                <div className="sk" style={{ width: '100%', height: 38, borderRadius: 6 }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div className="sk" style={{ width: 120, height: 10, marginBottom: 6, borderRadius: 4 }} />
+                <div className="sk" style={{ width: '100%', height: 38, borderRadius: 6 }} />
+              </div>
+            </>
+          ) : (
+          <>
           <label className="field" style={{ flex: 1, minWidth: 180 }}>
             Office Start Time
             <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
@@ -49,6 +63,8 @@ export default function Settings({ onClose }) {
             Office End Time
             <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
           </label>
+          </>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center' }}>
           <button className="btn btn-primary" onClick={handleSave} disabled={busy}>
