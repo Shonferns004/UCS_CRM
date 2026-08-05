@@ -47,6 +47,7 @@ export default function Onboarding() {
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraCaptureData, setCameraCaptureData] = useState(null)
   const [showCamera, setShowCamera] = useState(false)
+  const [showPhotoPreview, setShowPhotoPreview] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -461,7 +462,9 @@ export default function Onboarding() {
         <div>
           {capturedPhoto ? (
             <div className="text-center">
-              <div className="w-36 h-36 mx-auto rounded-full overflow-hidden border-2 border-blue-400 mb-4"><img src={capturedPhoto} className="w-full h-full object-cover" /></div>
+              <div className="w-36 h-36 mx-auto rounded-full overflow-hidden border-2 border-blue-400 mb-4 cursor-pointer" onClick={() => setShowPhotoPreview(true)} title="Tap to view full size">
+                <img src={capturedPhoto} className="w-full h-full object-cover" />
+              </div>
               <div className="flex gap-3 justify-center">
                 <button className="rounded-lg border border-gray-300 bg-white text-gray-700 text-sm px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => openCamera('photo')}>Retake</button>
                 <button className="rounded-lg border border-red-200 bg-red-50 text-red-500 text-sm px-4 py-2 hover:bg-red-100 cursor-pointer transition-colors" onClick={() => { setCapturedPhoto(null); saveState() }}>Remove</button>
@@ -589,7 +592,7 @@ export default function Onboarding() {
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <div>
-              {capturedPhoto && <img src={capturedPhoto} className="w-7 h-7 rounded-full object-cover border-2 border-blue-400" />}
+              {capturedPhoto && <img src={capturedPhoto} className="w-7 h-7 rounded-full object-cover border-2 border-blue-400 cursor-pointer" onClick={() => setStep(5)} title="Edit photo" />}
             </div>
             <button onClick={doLogout} title="Logout" className="w-8 h-8 rounded-full border border-gray-200 bg-transparent cursor-pointer flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
@@ -686,6 +689,23 @@ export default function Onboarding() {
         </div>
       </div>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      {/* Photo Full-Screen Preview */}
+      <div className={`fixed inset-0 z-[200] bg-black ${showPhotoPreview ? 'flex' : 'hidden'} flex-col`}>
+        <div className="flex items-center justify-between p-4">
+          <span className="text-white font-semibold text-sm">Profile Photo</span>
+          <button onClick={() => setShowPhotoPreview(false)} className="w-9 h-9 rounded-full bg-white/10 border-none text-white cursor-pointer flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <img src={capturedPhoto} className="max-w-full max-h-[70vh] rounded-2xl object-contain" />
+        </div>
+        <div className="flex gap-4 justify-center p-4">
+          <button onClick={() => { setShowPhotoPreview(false); openCamera('photo') }} className="rounded-xl border border-white/30 text-white font-medium text-sm px-8 py-2.5 hover:bg-white/10 cursor-pointer transition-colors">Retake</button>
+          <button onClick={() => setShowPhotoPreview(false)} className="rounded-xl bg-emerald-500 text-white font-medium text-sm px-8 py-2.5 hover:bg-emerald-600 cursor-pointer transition-colors">Close</button>
+        </div>
+      </div>
     </div>
   )
 }
