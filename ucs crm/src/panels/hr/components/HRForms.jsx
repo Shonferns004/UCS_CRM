@@ -297,6 +297,9 @@ export default function HRForms() {
   const removeArrayItem = (key) => (i) =>
     setForm((f) => ({ ...f, [key]: (f[key] || []).filter((_, idx) => idx !== i) }));
 
+  const addArrayItem = (key) => () =>
+    setForm((f) => ({ ...f, [key]: [...(f[key] || []), {}] }));
+
   const save = async () => {
     setSaving(true);
     setSaveMsg('');
@@ -571,7 +574,12 @@ export default function HRForms() {
                 )}
 
                 {/* Education */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Education</h3>
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>
+                  Education
+                  {(!f.education || f.education.length === 0) && (
+                    <button className="btn" onClick={addArrayItem('education')} style={{ fontSize: 12, marginLeft: 12 }}>+ Add Education</button>
+                  )}
+                </h3>
                 {!f.education || f.education.length === 0 ? (
                   <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p>
                 ) : f.education.map((e, i) => (
