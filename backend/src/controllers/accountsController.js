@@ -1328,3 +1328,76 @@ export const getDonorDetail = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// ─── Donor Profile Update ───────────────────────────────────
+
+const EDITABLE_DONOR_FIELDS = {
+  name: 'name',
+  mobile_number: 'mobile_number',
+  mobile_2: 'mobile_2',
+  email: 'email',
+  pan_number: 'pan_number',
+  address_1: 'address_1',
+  address_2: 'address_2',
+  city: 'city',
+  pin_code: 'pin_code',
+  bank_donor_name: 'bank_donor_name',
+  agent_donor_name: 'agent_donor_name',
+  donors_bank_name: 'donors_bank_name',
+  project_supported: 'project_supported',
+  ngo: 'ngo',
+  station: 'station',
+  category: 'category',
+  data_category: 'data_category',
+  team: 'team',
+  agent_name: 'agent_name',
+  mop: 'mop',
+  birth_date: 'birth_date',
+};
+
+export const updateDonor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No fields provided to update' });
+    }
+
+    const { data: existing, error: fetchErr } = await supabase
+      .from('donor_profiles')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!existing) {
+      return res.status(404).json({ message: 'Donor not found' });
+    }
+
+    const updateData = { updated_at: new Date().toISOString() };
+    let changed = false;
+    for (const [field, column] of Object.entries(EDITABLE_DONOR_FIELDS)) {
+      if (field in updates) {
+        const value = updates[field];
+        updateData[column] = (value === '' || value === null) ? null : value;
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return res.status(400).json({ message: 'No editable donor fields provided' });
+    }
+
+    const { data: donor, error: updateErr } = await supabase
+      .from('donor_profiles')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    if (updateErr) throw updateErr;
+
+    return res.json({ donor, message: 'Donor updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
