@@ -41,6 +41,39 @@ export const getAttendanceById = async (id) => {
   return data;
 };
 
+export const getAttendanceByWorkerDate = async (worker_id, date) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('worker_id', worker_id)
+    .eq('date', date)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+export const upsertAttendanceStatus = async (worker_id, date, status, lateMinutes) => {
+  const existing = await getAttendanceByWorkerDate(worker_id, date);
+  const updates = { status, late_minutes: lateMinutes != null ? lateMinutes : (existing?.late_minutes || 0) };
+  if (existing) {
+    const { data, error } = await supabase
+      .from('attendance')
+      .update(updates)
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+  const { data, error } = await supabase
+    .from('attendance')
+    .insert([{ worker_id, date, status, late_minutes: lateMinutes != null ? lateMinutes : 0 }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const updateAttendance = async (id, updates) => {
   const { data, error } = await supabase
     .from('attendance')

@@ -120,6 +120,28 @@ function parseAnyDateValue(raw) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+export function formatDoj(raw) {
+  if (raw === null || raw === undefined || raw === '') return '';
+  if (typeof raw === 'number') {
+    const d = XLSX.SSF.parse_date_code(raw);
+    if (d) return d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
+    return '';
+  }
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    return raw.getFullYear() + '-' + String(raw.getMonth() + 1).padStart(2, '0') + '-' + String(raw.getDate()).padStart(2, '0');
+  }
+  const s = String(raw).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return s.slice(0, 10);
+  m = s.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
+  if (m) {
+    let y = +m[3];
+    if (y < 100) y += 2000;
+    return y + '-' + String(+m[2]).padStart(2, '0') + '-' + String(+m[1]).padStart(2, '0');
+  }
+  return '';
+}
+
 export function getMonthsEmployedFromDate(joinDate, refDate = new Date()) {
   if (!(joinDate instanceof Date) || isNaN(joinDate.getTime())) return null;
   const months = (refDate.getFullYear() - joinDate.getFullYear()) * 12 + (refDate.getMonth() - joinDate.getMonth());
@@ -338,14 +360,18 @@ function processSheet(wsName, wb, dbPresent) {
 
     const target = num(g(cols.target));
     const achieved = num(g(cols.achieved));
-    const joinDate = parseAnyDateValue(g(cols.doj));
+    const dbEntry = resolveDbEntry(dbMap, name);
+    let joinDate = parseAnyDateValue(g(cols.doj));
+    if (dbEntry && typeof dbEntry === 'object' && dbEntry.doj) {
+      const dbJoin = parseAnyDateValue(dbEntry.doj);
+      if (dbJoin) joinDate = dbJoin;
+    }
     const monthsEmployed = getMonthsEmployedFromDate(joinDate);
     const isNewJoiner = monthsEmployed !== null ? monthsEmployed <= 3 : false;
     const joinedThisMonth = joinDate && sheetRef
       ? joinDate.getFullYear() === sheetRef.y && joinDate.getMonth() === sheetRef.m
       : false;
 
-    const dbEntry = resolveDbEntry(dbMap, name);
     const presentFromDb = dbEntry && typeof dbEntry === 'object' ? dbEntry.days : undefined;
     const present = presentFromDb !== undefined ? presentFromDb : num(g(cols.present));
     const joiningDeduction = presentFromDb !== undefined
@@ -384,7 +410,7 @@ function processSheet(wsName, wb, dbPresent) {
     rows.push({
       sheet: wsName,
       name, mkey, presentSource: presentFromDb !== undefined ? 'db' : 'excel',
-      doj: cols.doj !== -1 ? String(g(cols.doj) || '').slice(0, 10) : '',
+      doj: joinDate ? formatDoj(joinDate) : (cols.doj !== -1 ? formatDoj(g(cols.doj)) : ''),
       salary, present, dbPresent, dbPresentCount: dbEntry && dbEntry.present !== undefined ? dbEntry.present : null,
       dbAbsent: dbEntry && dbEntry.absent !== undefined ? dbEntry.absent : null,
       dbHalf: dbEntry && dbEntry.half !== undefined ? dbEntry.half : null,
