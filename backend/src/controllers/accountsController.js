@@ -989,24 +989,44 @@ export const importReceipts = async (req, res) => {
       .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
       .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
     if (agentUpdates.length > 0) {
-      await Promise.all(agentUpdates.map(({ id, agent_name }) =>
+      await mapLimit(agentUpdates.map(({ id, agent_name }) =>
         supabase.from('receipts').update({ agent_name }).eq('id', id)
-      ));
+      ), MAX_QUERY_CONCURRENCY, (q) => q);
     }
 
     // ─── Insert + match + link (with retry) ───
     const MAX_RETRIES = 3;
+    const MAX_QUERY_CONCURRENCY = 6;
     const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
     const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    const mapLimit = async (items, limit, fn) => {
+      const results = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < items.length) {
+          const idx = next++;
+          results.push(await fn(items[idx], idx));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+      return results;
+    };
+
+    const isConnExhausted = (err) => {
+      const m = (err && err.message ? err.message : '').toLowerCase();
+      return (err && err.code === '53300') || m.includes('remaining connection slots') || m.includes('rds_reserved') || m.includes('too many connections');
+    };
 
     let inserted = [];
     let matchedCount = 0;
     let withBankCount = 0;
+    let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 1) {
         console.log(`Import retry attempt ${attempt}/${MAX_RETRIES}`);
-        await sleep(attempt * 1000);
+        await sleep((isConnExhausted(lastError) ? attempt * 4000 : attempt * 1000));
       }
 
       try {
@@ -1025,12 +1045,15 @@ export const importReceipts = async (req, res) => {
 
         if (toInsert.length > 0) {
           console.time('import-insert');
-          const { data, error } = await supabase
-            .from('receipts')
-            .insert(toInsert)
-            .select();
-          if (error) throw error;
-          inserted = data || [];
+          const INSERT_BATCH = 500;
+          const chunks = [];
+          for (let i = 0; i < toInsert.length; i += INSERT_BATCH) chunks.push(toInsert.slice(i, i + INSERT_BATCH));
+          const insertedChunks = await mapLimit(chunks, 2, async (chunk) => {
+            const { data, error } = await supabase.from('receipts').insert(chunk).select();
+            if (error) throw error;
+            return data || [];
+          });
+          inserted = insertedChunks.flat();
           console.timeEnd('import-insert');
         }
 
@@ -1087,7 +1110,7 @@ export const importReceipts = async (req, res) => {
                 updated_at: new Date().toISOString(),
               }).eq('id', donorId));
             }
-            await Promise.allSettled(updates);
+            await mapLimit(updates, MAX_QUERY_CONCURRENCY, (q) => q);
             console.timeEnd('import-updates');
           }
           withBankCount = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
@@ -1102,9 +1125,11 @@ export const importReceipts = async (req, res) => {
         });
 
       } catch (err) {
+        lastError = err;
         console.warn(`Import attempt ${attempt} failed:`, err.message);
         if (attempt === MAX_RETRIES) {
-          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}` });
+          const hint = isConnExhausted(err) ? ' The database connection limit is reached; wait a moment and try again.' : '';
+          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}${hint}` });
         }
       }
     }
@@ -1318,11 +1343,49 @@ export const getDonorDetail = async (req, res) => {
       .order('receipt_date', { ascending: false });
     if (recErr) throw recErr;
 
+    let assigned_agent = null;
+    let assignment_station = null;
+    let assignment_ngo = null;
+    try {
+      const { data: assignments } = await supabase
+        .from('fro_assignments')
+        .select('fro_worker_id, station, ngo_id')
+        .eq('donor_id', id)
+        .not('status', 'eq', 'reassigned')
+        .order('created_at', { ascending: false });
+
+      if (assignments && assignments.length > 0) {
+        const a = assignments[0];
+        if (a.fro_worker_id) {
+          const { data: worker } = await supabase
+            .from('workers')
+            .select('name')
+            .eq('id', a.fro_worker_id)
+            .maybeSingle();
+          assigned_agent = worker?.name || null;
+        }
+        assignment_station = a.station || null;
+        if (a.ngo_id) {
+          const { data: ngo } = await supabase
+            .from('ngos')
+            .select('name')
+            .eq('id', a.ngo_id)
+            .maybeSingle();
+          assignment_ngo = ngo?.name || null;
+        }
+      }
+    } catch (assignErr) {
+      console.error('getDonorDetail: failed to load assignment:', assignErr.message);
+    }
+
     return res.json({
       donor,
       receipts: receipts || [],
       receiptCount: receipts?.length || 0,
       totalAmount: (receipts || []).reduce((s, r) => s + parseFloat(r.amount || 0), 0),
+      assigned_agent,
+      assignment_station,
+      assignment_ngo,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

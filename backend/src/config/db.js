@@ -19,7 +19,7 @@ pg.types.setTypeParser(1114, (v) => v);                        // timestamp -> r
 pg.types.setTypeParser(1082, (v) => v);                        // date -> string
 pg.types.setTypeParser(1083, (v) => v);                        // time -> string
 
-const poolConfig = { max: 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 15000 };
+const poolConfig = { max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 20000, maxUses: 1000 };
 if (process.env.DATABASE_URL) {
   poolConfig.connectionString = process.env.DATABASE_URL;
   poolConfig.ssl = process.env.DATABASE_SSL !== 'false' ? { rejectUnauthorized: false } : false;
@@ -34,6 +34,7 @@ if (process.env.DATABASE_URL) {
   }
 }
 const pool = new pg.Pool(poolConfig);
+pool.on('error', (err) => console.error('pg pool idle client error:', err.message));
 
 const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
 const PGRST116 = { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116', details: '', hint: '' };

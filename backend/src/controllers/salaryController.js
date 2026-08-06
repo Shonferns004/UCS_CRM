@@ -9,7 +9,7 @@ import {
   getPresentDaysByMonth,
   getWorkerAttendanceByName,
 } from '../models/salaryModel.js';
-import { getMonthlyAttendance } from '../models/attendanceModel.js';
+import { getMonthlyAttendance, upsertAttendanceStatus } from '../models/attendanceModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getAllocationsByWorker } from '../models/workerNgoAllocationModel.js';
 import { getTarget, upsertTarget } from '../models/incentiveModel.js';
@@ -285,6 +285,32 @@ export const getWorkerAttendance = async (req, res) => {
     if (!month || !name) return res.status(400).json({ message: 'month and name query params are required (YYYY-MM)' });
     const data = await getWorkerAttendanceByName(month, name);
     return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const ATTENDANCE_STATUSES = ['present', 'late', 'half-day', 'absent'];
+
+export const updateWorkerAttendance = async (req, res) => {
+  try {
+    const { worker_id, date, status, late_minutes } = req.body;
+    if (!worker_id || !date) {
+      return res.status(400).json({ message: 'worker_id and date are required' });
+    }
+    if (!ATTENDANCE_STATUSES.includes(status)) {
+      return res.status(400).json({ message: `status must be one of: ${ATTENDANCE_STATUSES.join(', ')}` });
+    }
+    if (late_minutes != null && (!Number.isFinite(Number(late_minutes)) || Number(late_minutes) < 0)) {
+      return res.status(400).json({ message: 'late_minutes must be a non-negative number' });
+    }
+    const record = await upsertAttendanceStatus(
+      worker_id,
+      date,
+      status,
+      late_minutes != null ? Number(late_minutes) : null
+    );
+    return res.json({ message: 'Attendance updated', attendance: record });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
