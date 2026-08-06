@@ -1,5 +1,10 @@
 import { useState } from 'react'
 
+async function parseJson(res) {
+  const text = await res.text()
+  return text ? JSON.parse(text) : {}
+}
+
 export default function Login({ apiUrl, onLogin }) {
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
@@ -12,12 +17,12 @@ export default function Login({ apiUrl, onLogin }) {
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(apiUrl + '/api/auth/salary-login', {
+      const res = await fetch(apiUrl + '/auth/salary-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier, password }),
       })
-      const data = await res.json()
+      const data = await parseJson(res)
       if (!res.ok) throw new Error(data.message || 'Login failed')
       onLogin(data)
     } catch (err) {
