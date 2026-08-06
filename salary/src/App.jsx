@@ -5,7 +5,7 @@ import Login from './Login'
 
 const XLSX = XLSX_NS.default || XLSX_NS
 
-const DB_KEY = 'salaryCalcDbMap5'
+const DB_KEY = 'salaryCalcDbMap6'
 const AUTH_KEY = 'salaryCalcAuth'
 
 const BASE_API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
@@ -47,14 +47,22 @@ export default function App() {
   const [attendance, setAttendance] = useState(null)
   const [attBusy, setAttBusy] = useState(false)
   const [attError, setAttError] = useState('')
+  const [attMonth, setAttMonth] = useState('')
+  const [attWorkerId, setAttWorkerId] = useState(null)
+  const [attEditDate, setAttEditDate] = useState(null)
+  const [attEditStatus, setAttEditStatus] = useState('present')
+  const [attEditMinutes, setAttEditMinutes] = useState('')
+  const [attSaving, setAttSaving] = useState(null)
   const [auth, setAuth] = useState(loadAuth)
   const wbRef = useRef(null)
   const dbPresentRef = useRef(dbPresent)
   const authRef = useRef(auth)
+  const modalRowRef = useRef(null)
   const fileInput = useRef(null)
 
   useEffect(() => { dbPresentRef.current = dbPresent }, [dbPresent])
   useEffect(() => { authRef.current = auth }, [auth])
+  useEffect(() => { modalRowRef.current = modalRow }, [modalRow])
 
   const handleLogin = useCallback((data) => {
     const next = { token: data.token, role: data.role, user: data.user }
@@ -73,6 +81,10 @@ export default function App() {
     setModalRow(null)
     setAttendance(null)
     setAttError('')
+    setAttMonth('')
+    setAttWorkerId(null)
+    setAttEditDate(null)
+    setAttSaving(null)
   }, [])
 
   const authHeaders = useCallback(() => {
@@ -110,6 +122,7 @@ export default function App() {
       const map = {}
       for (const r of data.rows) map[normalizeName(r.name)] = {
         days: r.paid_days,
+        doj: r.date_of_joining || '',
         joinDed: r.joining_deduction || 0,
         lateDed: r.late_deduction_days || 0,
         absent: r.absent_count || 0,
@@ -173,6 +186,10 @@ export default function App() {
     setModalRow(null)
     setAttendance(null)
     setAttError('')
+    setAttMonth('')
+    setAttWorkerId(null)
+    setAttEditDate(null)
+    setAttSaving(null)
   }, [])
 
   const onDrop = useCallback((e) => {
@@ -199,23 +216,22 @@ export default function App() {
     setModalRow(null)
     setAttendance(null)
     setAttError('')
+    setAttMonth('')
+    setAttWorkerId(null)
+    setAttEditDate(null)
+    setAttSaving(null)
   }, [])
 
-  const openAttendance = useCallback(async (row) => {
-    setModalRow(row)
-    setAttendance(null)
-    setAttError('')
-    if (row.mkey == null) { setAttError('Month is unknown for this row.'); return }
-    if (!BASE_API_URL) { setAttError('API URL not set in .env (VITE_API_URL).'); return }
-    const year = Math.floor(row.mkey / 12)
-    const monthIdx = row.mkey % 12
-    const monthStr = year + '-' + String(monthIdx + 1).padStart(2, '0')
+  const loadAttendance = useCallback(async (monthStr, name) => {
     setAttBusy(true)
+    setAttError('')
     try {
-      const res = await fetch(BASE_API_URL + '/salary/attendance?month=' + monthStr + '&name=' + encodeURIComponent(row.name), { headers: authHeaders() })
+      const res = await fetch(BASE_API_URL + '/salary/attendance?month=' + monthStr + '&name=' + encodeURIComponent(name), { headers: authHeaders() })
       const data = await parseJson(res)
       if (!res.ok) throw new Error(data.message || 'Fetch failed')
-      if (!data.worker) { setAttError('No matching worker in the database for "' + row.name + '".'); return }
+      if (!data.worker) { setAttError('No matching worker in the database for "' + name + '".'); return }
+      setAttMonth(monthStr)
+      setAttWorkerId(data.worker.id)
       setAttendance(data)
     } catch (err) {
       setAttError(err.message)
@@ -223,6 +239,50 @@ export default function App() {
       setAttBusy(false)
     }
   }, [authHeaders])
+
+  const openAttendance = useCallback(async (row) => {
+    setModalRow(row)
+    setAttendance(null)
+    setAttError('')
+    setAttEditDate(null)
+    setAttSaving(null)
+    if (row.mkey == null) { setAttError('Month is unknown for this row.'); return }
+    if (!BASE_API_URL) { setAttError('API URL not set in .env (VITE_API_URL).'); return }
+    const year = Math.floor(row.mkey / 12)
+    const monthIdx = row.mkey % 12
+    const monthStr = year + '-' + String(monthIdx + 1).padStart(2, '0')
+    await loadAttendance(monthStr, row.name)
+  }, [loadAttendance])
+
+  const saveAttendance = useCallback(async (date, status, lateMinutes) => {
+    if (!attendance || !attWorkerId || !attMonth) return
+    setAttSaving(date)
+    setAttError('')
+    try {
+      const res = await fetch(BASE_API_URL + '/salary/attendance', {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ worker_id: attWorkerId, date, status, late_minutes: lateMinutes }),
+      })
+      const data = await parseJson(res)
+      if (!res.ok) throw new Error(data.message || 'Save failed')
+      setAttEditDate(null)
+      await loadAttendance(attMonth, attendance.worker.name)
+      if (modalRowRef.current && modalRowRef.current.mkey != null) {
+        fetchPresentDays(modalRowRef.current.mkey)
+      }
+    } catch (err) {
+      setAttError(err.message)
+    } finally {
+      setAttSaving(null)
+    }
+  }, [attendance, attWorkerId, attMonth, authHeaders, loadAttendance, fetchPresentDays])
+
+  const editAttendance = useCallback((date, status, lateMinutes) => {
+    setAttEditDate(date)
+    setAttEditStatus(status)
+    setAttEditMinutes(lateMinutes > 0 ? String(lateMinutes) : '')
+  }, [])
 
   const monthLabel = (mkey) => {
     if (mkey == null) return '—'
@@ -506,7 +566,7 @@ export default function App() {
                     {attendance.rows.map((d) => {
                       const cls = d.status === 'half-day' ? 'half' : d.status
                       return (
-                        <div key={d.date} className={'att-cell st-' + cls} title={attTitle(d)}>
+                        <div key={d.date} className={'att-cell st-' + cls + (attEditDate === d.date ? ' att-edit-on' : '')} title={attTitle(d)} onClick={() => editAttendance(d.date, d.status, d.late_minutes)}>
                           <span className="att-num">{Number(d.date.slice(8))}</span>
                           <span className="att-day">{DAY_NAMES[d.day]}</span>
                           <span className="att-status">{statusLabel(d)}</span>
@@ -515,6 +575,36 @@ export default function App() {
                       )
                     })}
                   </div>
+                  {attEditDate && (
+                    <div className="att-editor">
+                      <div className="att-editor-head">
+                        <strong>Edit {attEditDate}</strong>
+                        <button className="icon-btn" onClick={() => setAttEditDate(null)} title="Cancel" aria-label="Cancel">
+                          <span className="material-symbols-outlined">close</span>
+                        </button>
+                      </div>
+                      <div className="att-status-options">
+                        {['present', 'half-day', 'late', 'absent'].map((s) => (
+                          <button
+                            key={s}
+                            className={'att-status-opt' + (attEditStatus === s ? ' active' : '')}
+                            onClick={() => setAttEditStatus(s)}
+                          >
+                            {s === 'half-day' ? 'Half Day' : s.charAt(0).toUpperCase() + s.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+                      {attEditStatus === 'late' && (
+                        <label className="att-minutes">
+                          Late minutes
+                          <input type="number" min="0" step="1" value={attEditMinutes} onChange={(e) => setAttEditMinutes(e.target.value)} />
+                        </label>
+                      )}
+                      <button className="btn-primary att-save" disabled={attSaving === attEditDate} onClick={() => saveAttendance(attEditDate, attEditStatus, attEditStatus === 'late' ? attEditMinutes : null)}>
+                        {attSaving === attEditDate ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  )}
                   <div className="att-legend">
                     <span className="legend-item"><span className="dot p-present"></span>Present</span>
                     <span className="legend-item"><span className="dot p-late"></span>Late</span>
@@ -522,7 +612,7 @@ export default function App() {
                     <span className="legend-item"><span className="dot p-absent"></span>Absent</span>
                     <span className="legend-item"><span className="dot p-leave"></span>Leave</span>
                     <span className="legend-item"><span className="dot p-sunday"></span>Sunday / Off</span>
-                    <span className="legend-item">Hover a day for punch in / out.</span>
+                    <span className="legend-item">Hover a day for punch in / out · Click a day to change its status.</span>
                   </div>
                 </>
               )}

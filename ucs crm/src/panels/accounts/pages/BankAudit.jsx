@@ -321,7 +321,7 @@ export default function BankAudit(){
     {mt==='statement'&&is.bankStatement&&<StatementTab/>}
 
     {/* Add/Edit Modal */}
-    {(sa||se)&&(()=>{const isEdit=!!se;return <div className="modal-overlay" onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:580,borderRadius:14,overflow:'hidden'}}>
+    {(sa||se)&&(()=>{const isEdit=!!se;return <div className="modal-overlay" onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden'}}>
       <div style={{padding:'16px 20px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f9fafb'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:36,height:36,borderRadius:10,background:isEdit?'#2563eb18':'var(--sage-light, #e8f0e4)',display:'flex',alignItems:'center',justifyContent:'center'}}>

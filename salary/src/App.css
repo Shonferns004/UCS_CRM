@@ -345,6 +345,42 @@ tr.total td.c { background: #dbeafe; }
 .st-absent { background: #fee2e2; color: #991b1b; }
 .st-leave { background: #ede9fe; color: #5b21b6; }
 .st-sunday { background: #f3f4f6; color: #6b7280; }
+.att-cell { cursor: pointer; transition: box-shadow .12s ease, transform .12s ease; }
+.att-cell:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, .12); transform: translateY(-1px); }
+.att-cell.att-edit-on { outline: 2px solid #2563eb; }
+.att-editor {
+  margin-top: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.att-editor-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #111827; }
+.att-status-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.att-status-opt {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+.att-status-opt:hover { border-color: #9ca3af; }
+.att-status-opt.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.att-minutes { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #374151; font-weight: 600; }
+.att-minutes input {
+  width: 90px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.att-save { align-self: flex-start; }
 .att-legend { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 11px; color: #6b7280; align-items: center; }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .legend-item .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }

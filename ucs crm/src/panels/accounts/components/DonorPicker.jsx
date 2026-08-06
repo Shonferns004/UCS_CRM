@@ -42,6 +42,7 @@ export default function DonorPicker({ onPick }) {
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [assign, setAssign] = useState(null);
   const [form, setForm] = useState({});
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -78,6 +79,11 @@ export default function DonorPicker({ onPick }) {
       const res = await apiGet('/accounts/donors/' + d.id);
       const donor = res?.donor || {};
       setDetail(donor);
+      setAssign({
+        agent: res?.assigned_agent || donor.agent_name || null,
+        station: res?.assignment_station || null,
+        ngo: res?.assignment_ngo || null,
+      });
       setForm({
         name: donor.name || '',
         mobile_number: donor.mobile_number || '',
@@ -107,7 +113,7 @@ export default function DonorPicker({ onPick }) {
   };
 
   const clearSelection = () => {
-    setDetail(null); setForm({}); setResults([]); setSearched(false); setQ('');
+    setDetail(null); setForm({}); setResults([]); setSearched(false); setQ(''); setAssign(null);
     if (inputRef.current) inputRef.current.focus();
   };
 
@@ -190,6 +196,7 @@ export default function DonorPicker({ onPick }) {
                       <div style={{ fontSize: 10, color: '#6b7280', marginTop: 1, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {d.mobile_number && <span>{d.mobile_number}</span>}
                         {d.city && <span>{d.city}</span>}
+                        {d.assigned_to && <span style={{ color: '#B5603A', fontWeight: 600 }}>Agent: {d.assigned_to}</span>}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -215,6 +222,13 @@ export default function DonorPicker({ onPick }) {
                 <div style={{ fontSize: 10, color: '#6b7280', marginTop: 1 }}>
                   {[form.mobile_number, form.email, form.city].filter(Boolean).join(' \u00B7 ') || '\u2014'}
                 </div>
+                {(assign?.agent || form.agent_name) && (
+                  <div style={{ fontSize: 10, marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ color: '#B5603A', fontWeight: 700 }}>Agent: {assign?.agent || form.agent_name}</span>
+                    {assign?.station && <span style={{ color: '#6b7280' }}>{assign.station}</span>}
+                    {assign?.ngo && <span style={{ color: '#6b7280' }}>{assign.ngo}</span>}
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)' }}>{curr(detail.total_amount)}</div>

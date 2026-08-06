@@ -11,6 +11,7 @@ import {
   getPayrollExport,
   getPresentDaysExport,
   getWorkerAttendance,
+  updateWorkerAttendance,
 } from '../controllers/salaryController.js';
 import { authenticateRole, authenticate, authenticateSalary } from '../middleware/authMiddleware.js';
 
@@ -22,6 +23,7 @@ router.get('/workers-summary', adminOrHrOrHo, getWorkersSummary);
 router.get('/payroll', adminOrHrOrHo, getPayrollExport);
 router.get('/present-days', authenticateSalary, getPresentDaysExport);
 router.get('/attendance', authenticateSalary, getWorkerAttendance);
+router.patch('/attendance', authenticateSalary, updateWorkerAttendance);
 router.get('/worker/:workerId', adminOrHrOrHo, getWorkerSalaries);
 router.post('/', adminOrHrOrHo, addSalary);
 router.put('/:id', adminOrHrOrHo, editSalary);

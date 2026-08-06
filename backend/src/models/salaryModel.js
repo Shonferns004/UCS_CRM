@@ -512,6 +512,7 @@ export const getWorkerAttendanceByName = async (month, name) => {
       date: dateStr,
       day: dow,
       status,
+      id: rec ? rec.id : null,
       late_minutes: rec ? (rec.late_minutes || 0) : 0,
       punch_in: fmtTime(rec && rec.punch_in_time),
       punch_out: fmtTime(rec && rec.punch_out_time),
