@@ -33,3 +33,17 @@ export const authenticate = (req, res, next) => {
 
 export const authenticateAdmin = authenticateRole('master', 'super_admin');
 export const authenticateWorker = authenticateRole('worker', 'fro');
+
+// Salary calculator app — Accounts department or super admin only.
+export const authenticateSalary = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) { return res.status(401).json({ message: 'No token provided' }); }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.role !== 'accounts' && decoded.role !== 'super_admin') {
+      return res.status(403).json({ message: 'Access denied. Accounts department or super admin only.' });
+    }
+    req.user = decoded;
+    next();
+  } catch { return res.status(401).json({ message: 'Invalid token' }); }
+};
