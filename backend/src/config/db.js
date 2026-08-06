@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { AsyncLocalStorage } from 'async_hooks';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -33,8 +34,21 @@ if (process.env.DATABASE_URL) {
     poolConfig.ssl = { rejectUnauthorized: false };
   }
 }
-const pool = new pg.Pool(poolConfig);
-pool.on('error', (err) => console.error('pg pool idle client error:', err.message));
+const pgPool = new pg.Pool(poolConfig);
+pgPool.on('error', (err) => console.error('pg pool idle client error:', err.message));
+
+// Route every pool.query() call through the active transaction's connection
+// when one is open, so queries issued inside supabase.transaction() all run on
+// the same client (all-or-nothing) instead of the shared pool.
+const txStore = new AsyncLocalStorage();
+const pool = new Proxy(pgPool, {
+  get(target, prop) {
+    const ctx = txStore.getStore();
+    if (prop === 'query' && ctx && ctx.client) return ctx.client.query.bind(ctx.client);
+    const v = target[prop];
+    return typeof v === 'function' ? v.bind(target) : v;
+  },
+});
 
 const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
 const PGRST116 = { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116', details: '', hint: '' };
@@ -1200,6 +1214,22 @@ const storage = {
 // ---------------------------------------------------------------------------
 const supabase = {
   from(table) { return new QueryBuilder(table); },
+  async transaction(callback) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await txStore.run({ client }, async () => {
+        return await callback({ from: (table) => new QueryBuilder(table) });
+      });
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* connection already dead */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
   rpc,
   auth,
   storage,
