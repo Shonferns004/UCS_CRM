@@ -29,6 +29,11 @@ function loadAuth() {
   }
 }
 
+async function parseJson(res) {
+  const text = await res.text()
+  return text ? JSON.parse(text) : {}
+}
+
 export default function App() {
   const [rows, setRows] = useState(null)
   const [dbPresent, setDbPresent] = useState(loadDbPresent)
@@ -99,8 +104,8 @@ export default function App() {
     const monthIdx = monthKey % 12
     const monthStr = year + '-' + String(monthIdx + 1).padStart(2, '0')
     try {
-      const res = await fetch(BASE_API_URL + '/api/salary/present-days?month=' + monthStr, { headers: authHeaders() })
-      const data = await res.json()
+      const res = await fetch(BASE_API_URL + '/salary/present-days?month=' + monthStr, { headers: authHeaders() })
+      const data = await parseJson(res)
       if (!res.ok) throw new Error(data.message || 'Fetch failed')
       const map = {}
       for (const r of data.rows) map[normalizeName(r.name)] = {
@@ -207,8 +212,8 @@ export default function App() {
     const monthStr = year + '-' + String(monthIdx + 1).padStart(2, '0')
     setAttBusy(true)
     try {
-      const res = await fetch(BASE_API_URL + '/api/salary/attendance?month=' + monthStr + '&name=' + encodeURIComponent(row.name), { headers: authHeaders() })
-      const data = await res.json()
+      const res = await fetch(BASE_API_URL + '/salary/attendance?month=' + monthStr + '&name=' + encodeURIComponent(row.name), { headers: authHeaders() })
+      const data = await parseJson(res)
       if (!res.ok) throw new Error(data.message || 'Fetch failed')
       if (!data.worker) { setAttError('No matching worker in the database for "' + row.name + '".'); return }
       setAttendance(data)
