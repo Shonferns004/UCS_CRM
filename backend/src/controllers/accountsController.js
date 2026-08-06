@@ -983,21 +983,21 @@ export const importReceipts = async (req, res) => {
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
 
-    // A repeat upload must not create a duplicate receipt, but it can enrich an
-    // existing receipt with the FSE/agent name supplied in the newer sheet.
-    const agentUpdates = parsed
-      .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
-      .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
-    if (agentUpdates.length > 0) {
-      await mapLimit(agentUpdates.map(({ id, agent_name }) =>
-        supabase.from('receipts').update({ agent_name }).eq('id', id)
-      ), MAX_QUERY_CONCURRENCY, (q) => q);
+    // Durability safety net: persist the exact rows we intend to insert BEFORE
+    // any DB write, so a crash mid-import can never lose the source data.
+    const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
+    let manifestPath = null;
+    try {
+      fs.mkdirSync(FAILED_DIR, { recursive: true });
+      manifestPath = path.join(FAILED_DIR, `receipt_import_${Date.now()}.json`);
+      fs.writeFileSync(manifestPath, JSON.stringify({ imported_at: new Date().toISOString(), rows: uniqueRows }, null, 2));
+    } catch (e) {
+      console.warn('Could not persist import manifest:', e.message);
     }
 
-    // ─── Insert + match + link (with retry) ───
+    // ─── Insert + match + link — one atomic transaction, with retry ───
     const MAX_RETRIES = 3;
     const MAX_QUERY_CONCURRENCY = 6;
-    const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
     const mapLimit = async (items, limit, fn) => {
@@ -1018,9 +1018,6 @@ export const importReceipts = async (req, res) => {
       return (err && err.code === '53300') || m.includes('remaining connection slots') || m.includes('rds_reserved') || m.includes('too many connections');
     };
 
-    let inserted = [];
-    let matchedCount = 0;
-    let withBankCount = 0;
     let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -1030,98 +1027,119 @@ export const importReceipts = async (req, res) => {
       }
 
       try {
-        console.time('import-dedup');
-        const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
-        let alreadyInserted = new Set();
-        if (nos.length > 0) {
-          const { data: existing } = await supabase
-            .from('receipts')
-            .select('receipt_no')
-            .in('receipt_no', nos);
-          for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
-        }
-        const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
-        console.timeEnd('import-dedup');
+        console.time('import-tx');
+        const result = await supabase.transaction(async ({ from }) => {
+          // Retry-safe dedupe: anything already in the DB is skipped, so a
+          // re-upload (or a partial previous run) never creates duplicates.
+          const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
+          const alreadyInserted = new Set();
+          if (nos.length > 0) {
+            const { data: existing, error: dedupeErr } = await from('receipts').select('receipt_no').in('receipt_no', nos);
+            if (dedupeErr) throw new Error(dedupeErr.message);
+            for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
+          }
+          const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
 
-        if (toInsert.length > 0) {
-          console.time('import-insert');
-          const INSERT_BATCH = 500;
-          const chunks = [];
-          for (let i = 0; i < toInsert.length; i += INSERT_BATCH) chunks.push(toInsert.slice(i, i + INSERT_BATCH));
-          const insertedChunks = await mapLimit(chunks, 2, async (chunk) => {
-            const { data, error } = await supabase.from('receipts').insert(chunk).select();
-            if (error) throw error;
-            return data || [];
+          // A repeat upload must not create a duplicate receipt, but it can
+          // enrich an existing receipt with the FSE/agent name from the newer sheet.
+          const agentUpdates = parsed
+            .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
+            .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
+          await mapLimit(agentUpdates.map(({ id, agent_name }) =>
+            from('receipts').update({ agent_name }).eq('id', id)
+          ), MAX_QUERY_CONCURRENCY, async (q) => {
+            const { error } = await q;
+            if (error) throw new Error(error.message);
           });
-          inserted = insertedChunks.flat();
-          console.timeEnd('import-insert');
-        }
 
-        if (inserted.length > 0) {
-          console.time('import-match');
-          const mobiles = [...new Set(
-            inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
-          )];
+          let inserted = [];
+          if (toInsert.length > 0) {
+            const INSERT_BATCH = 500;
+            const chunks = [];
+            for (let i = 0; i < toInsert.length; i += INSERT_BATCH) chunks.push(toInsert.slice(i, i + INSERT_BATCH));
+            const insertedChunks = await mapLimit(chunks, 2, async (chunk) => {
+              const { data, error } = await from('receipts').insert(chunk).select();
+              if (error) throw error;
+              return data || [];
+            });
+            inserted = insertedChunks.flat();
+          }
 
-          const donorByMobile = {};
-          if (mobiles.length > 0) {
-            for (let i = 0; i < mobiles.length; i += 100) {
-              const batch = mobiles.slice(i, i + 100);
-              const { data: donors } = await supabase
-                .from('donor_profiles')
-                .select('id, mobile_number, total_amount, donation_count, last_donation_date')
-                .in('mobile_number', batch);
-              for (const d of (donors || [])) {
-                donorByMobile[(d.mobile_number || '').replace(/\D/g, '')] = d;
+          let matched = 0;
+          let withBank = 0;
+          if (inserted.length > 0) {
+            const mobiles = [...new Set(
+              inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
+            )];
+
+            const donorByMobile = {};
+            if (mobiles.length > 0) {
+              for (let i = 0; i < mobiles.length; i += 100) {
+                const batch = mobiles.slice(i, i + 100);
+                const { data: donors, error: donorErr } = await from('donor_profiles')
+                  .select('id, mobile_number, total_amount, donation_count, last_donation_date')
+                  .in('mobile_number', batch);
+                if (donorErr) throw new Error(donorErr.message);
+                for (const d of (donors || [])) {
+                  donorByMobile[(d.mobile_number || '').replace(/\D/g, '')] = d;
+                }
               }
             }
-          }
 
-          const receiptsByDonor = {};
-          for (const receipt of inserted) {
-            const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
-            if (mobile.length < 10) continue;
-            const donor = donorByMobile[mobile];
-            if (!donor) continue;
-            matchedCount++;
-            if (!receiptsByDonor[donor.id]) {
-              receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
-            }
-            receiptsByDonor[donor.id].ids.push(receipt.id);
-            receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
-            receiptsByDonor[donor.id].donation_count += 1;
-            if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
-              receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
-            }
-          }
-          console.timeEnd('import-match');
-
-          if (Object.keys(receiptsByDonor).length > 0) {
-            console.time('import-updates');
-            const updates = [];
-            for (const [donorId, info] of Object.entries(receiptsByDonor)) {
-              for (let i = 0; i < info.ids.length; i += 50) {
-                updates.push(supabase.from('receipts').update({ donor_id: parseInt(donorId) }).in('id', info.ids.slice(i, i + 50)));
+            const receiptsByDonor = {};
+            for (const receipt of inserted) {
+              const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
+              if (mobile.length < 10) continue;
+              const donor = donorByMobile[mobile];
+              if (!donor) continue;
+              matched++;
+              if (!receiptsByDonor[donor.id]) {
+                receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
               }
-              updates.push(supabase.from('donor_profiles').update({
-                total_amount: Math.round(info.total_amount * 100) / 100,
-                donation_count: info.donation_count,
-                last_donation_date: info.last_donation_date,
-                updated_at: new Date().toISOString(),
-              }).eq('id', donorId));
+              receiptsByDonor[donor.id].ids.push(receipt.id);
+              receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
+              receiptsByDonor[donor.id].donation_count += 1;
+              if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
+                receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+              }
             }
-            await mapLimit(updates, MAX_QUERY_CONCURRENCY, (q) => q);
-            console.timeEnd('import-updates');
-          }
-          withBankCount = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
-        }
 
-        console.log(`Import OK: ${inserted.length} rows, ${matchedCount} matched`);
+            if (Object.keys(receiptsByDonor).length > 0) {
+              const updates = [];
+              for (const [donorId, info] of Object.entries(receiptsByDonor)) {
+                for (let i = 0; i < info.ids.length; i += 50) {
+                  updates.push(from('receipts').update({ donor_id: parseInt(donorId) }).in('id', info.ids.slice(i, i + 50)));
+                }
+                updates.push(from('donor_profiles').update({
+                  total_amount: Math.round(info.total_amount * 100) / 100,
+                  donation_count: info.donation_count,
+                  last_donation_date: info.last_donation_date,
+                  updated_at: new Date().toISOString(),
+                }).eq('id', donorId));
+              }
+              // A failed link/donor update aborts the whole import (rollback) —
+              // it must never silently leave an unlinked receipt behind.
+              await mapLimit(updates, MAX_QUERY_CONCURRENCY, async (q) => {
+                const { error } = await q;
+                if (error) throw new Error(error.message);
+              });
+            }
+            withBank = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+          }
+
+          return { imported: inserted.length, matched, withBank };
+        });
+        console.timeEnd('import-tx');
+        console.log(`Import OK: ${result.imported} rows, ${result.matched} matched`);
+
+        // All-or-nothing committed — the safety manifest is no longer needed.
+        try { if (manifestPath) fs.unlinkSync(manifestPath); } catch (_) { /* best effort */ }
+
         return res.status(201).json({
-          message: `${inserted.length} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${matchedCount > 0 ? `, ${matchedCount} linked to donors` : ''}`,
-          imported: inserted.length,
-          withBank: withBankCount,
-          matchedDonors: matchedCount,
+          message: `${result.imported} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}`,
+          imported: result.imported,
+          withBank: result.withBank,
+          matchedDonors: result.matched,
         });
 
       } catch (err) {
@@ -1129,7 +1147,7 @@ export const importReceipts = async (req, res) => {
         console.warn(`Import attempt ${attempt} failed:`, err.message);
         if (attempt === MAX_RETRIES) {
           const hint = isConnExhausted(err) ? ' The database connection limit is reached; wait a moment and try again.' : '';
-          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}${hint}` });
+          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}${hint}${manifestPath ? ` Your data is safe and saved at: ${manifestPath}` : ''}` });
         }
       }
     }
