@@ -29,6 +29,92 @@ export const adminLogin = async (req, res) => {
   }
 };
 
+// Restricted login for the salary calculator app — only the Accounts
+// department (workers with department account/accounts/admin or users with
+// role accounts) and the super admin may log in.
+export const salaryLogin = async (req, res) => {
+  try {
+    const { identifier, password } = req.body;
+    if (!identifier || !password) {
+      return res.status(400).json({ message: 'Identifier and password are required' });
+    }
+    const isEmail = identifier.includes('@');
+
+    if (
+      isEmail &&
+      identifier === process.env.ADMIN_EMAIL &&
+      password === process.env.ADMIN_PASSWORD
+    ) {
+      const role = 'super_admin';
+      const token = jwt.sign(
+        { id: 0, email: identifier, role, name: 'Super Admin' },
+        process.env.JWT_SECRET,
+        { expiresIn: TOKEN_EXPIRY }
+      );
+      return res.json({ token, role, user: { name: 'Super Admin', email: identifier, role }, message: 'Login successful' });
+    }
+
+    const deptIsAccount = (d) => {
+      const x = String(d || '').toLowerCase().trim();
+      return x === 'account' || x === 'accounts' || x === 'admin';
+    };
+
+    const worker = await getWorkerByLoginId(identifier);
+    if (worker) {
+      if (worker.is_active === false || worker.employment_status === 'terminated') {
+        return res.status(403).json({ message: 'Account is deactivated' });
+      }
+      if (!deptIsAccount(worker.department)) {
+        return res.status(403).json({ message: 'Access denied. Only the Accounts department or Super Admin can log in.' });
+      }
+      const isMatch = await bcrypt.compare(password, worker.password);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid password' });
+      }
+      const role = 'accounts';
+      const token = jwt.sign(
+        { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
+        process.env.JWT_SECRET,
+        { expiresIn: TOKEN_EXPIRY }
+      );
+      return res.json({
+        token,
+        role,
+        user: { id: worker.id, name: worker.name, email: worker.email, login_id: worker.login_id, department: worker.department },
+        message: 'Login successful',
+      });
+    }
+
+    const userByEmail = isEmail ? await getUserByEmail(identifier) : null;
+    const userByName = !isEmail ? await getUserByName(identifier) : null;
+    const userRow = userByEmail || userByName;
+    if (userRow) {
+      if (userRow.is_active === false) {
+        return res.status(403).json({ message: 'Account is deactivated' });
+      }
+      if (userRow.role !== 'accounts' && userRow.role !== 'super_admin') {
+        return res.status(403).json({ message: 'Access denied. Only the Accounts department or Super Admin can log in.' });
+      }
+      const isMatch = await bcrypt.compare(password, userRow.password_hash);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid password' });
+      }
+      const role = userRow.role;
+      const token = jwt.sign(
+        { id: userRow.id, ngo_id: userRow.ngo_id, email: userRow.email, role, name: userRow.name },
+        process.env.JWT_SECRET,
+        { expiresIn: TOKEN_EXPIRY }
+      );
+      const { password_hash, ...safeUser } = userRow;
+      return res.json({ token, role, user: safeUser, message: 'Login successful' });
+    }
+
+    return res.status(401).json({ message: 'Invalid credentials' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Login failed' });
+  }
+};
+
 export const unifiedLogin = async (req, res) => {
   try {
     const { identifier, password } = req.body;
