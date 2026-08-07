@@ -1034,9 +1034,14 @@ export const importReceipts = async (req, res) => {
           const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
           const alreadyInserted = new Set();
           if (nos.length > 0) {
-            const { data: existing, error: dedupeErr } = await from('receipts').select('receipt_no').in('receipt_no', nos);
-            if (dedupeErr) throw new Error(dedupeErr.message);
-            for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
+            const DEDUPE_BATCH = 1000;
+            for (let i = 0; i < nos.length; i += DEDUPE_BATCH) {
+              const { data: existing, error: dedupeErr } = await from('receipts')
+                .select('receipt_no')
+                .in('receipt_no', nos.slice(i, i + DEDUPE_BATCH));
+              if (dedupeErr) throw new Error(dedupeErr.message);
+              for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
+            }
           }
           const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
 
@@ -1067,6 +1072,7 @@ export const importReceipts = async (req, res) => {
 
           let matched = 0;
           let withBank = 0;
+          let receiptsByDonor = {};
           if (inserted.length > 0) {
             const mobiles = [...new Set(
               inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
@@ -1086,7 +1092,7 @@ export const importReceipts = async (req, res) => {
               }
             }
 
-            const receiptsByDonor = {};
+            receiptsByDonor = {};
             for (const receipt of inserted) {
               const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
               if (mobile.length < 10) continue;
@@ -1144,17 +1150,22 @@ export const importReceipts = async (req, res) => {
           const credits = new Map();
           if (creditable.length > 0) {
             const donorIds = [...new Set(creditable.map(r => donorIdByReceiptId.get(r.id)))];
-            const { data: openAssignments, error: asgnErr } = await from('fro_assignments')
-              .select('id, donor_id, fro_worker_id, assigned_at')
-              .in('donor_id', donorIds)
-              .not('status', 'eq', 'reassigned')
-              .not('status', 'eq', 'donation_collected')
-              .not('status', 'eq', 'lead_done')
-              .not('status', 'eq', 'done');
-            if (asgnErr) throw new Error(asgnErr.message);
+            const openAssignments = [];
+            const ASSIGN_BATCH = 1000;
+            for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
+              const { data, error: asgnErr } = await from('fro_assignments')
+                .select('id, donor_id, fro_worker_id, assigned_at')
+                .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
+                .not('status', 'eq', 'reassigned')
+                .not('status', 'eq', 'donation_collected')
+                .not('status', 'eq', 'lead_done')
+                .not('status', 'eq', 'done');
+              if (asgnErr) throw new Error(asgnErr.message);
+              openAssignments.push(...(data || []));
+            }
 
             const assignmentByDonor = {};
-            for (const a of (openAssignments || [])) {
+            for (const a of openAssignments) {
               if (!a.fro_worker_id) continue;
               const cur = assignmentByDonor[a.donor_id];
               if (!cur || new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) assignmentByDonor[a.donor_id] = a;
