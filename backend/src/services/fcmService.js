@@ -1,13 +1,21 @@
 import { messaging } from '../config/firebase.js';
 import { logNotification } from '../models/notificationModel.js';
 
-// ==== MASTER SWITCH: NOTIFICATIONS DISABLED ====
-// Flip to true to re-enable all FCM push delivery + notification_log writes.
-const NOTIFICATIONS_ENABLED = false;
+// ==== MASTER SWITCH ====
+// Notifications are ON by default. Set NOTIFICATIONS_ENABLED=false in the
+// environment to disable all FCM push delivery + notification_log writes.
+const NOTIFICATIONS_ENABLED = process.env.NOTIFICATIONS_ENABLED !== 'false';
 
 export const sendPushNotification = async (workerId, title, body, type, referenceId = null) => {
   try {
     if (!NOTIFICATIONS_ENABLED) {
+      return null;
+    }
+
+    const cleanTitle = String(title == null ? '' : title).trim();
+    const cleanBody = String(body == null ? '' : body).trim();
+    if (!cleanTitle) {
+      console.log('Skipping push: empty notification title');
       return null;
     }
 
@@ -25,7 +33,7 @@ export const sendPushNotification = async (workerId, title, body, type, referenc
 
     const message = {
       token: tokenData.token,
-      notification: { title, body },
+      notification: { title: cleanTitle, body: cleanBody },
       data: {
         type: type || 'general',
         referenceId: referenceId || '',
@@ -38,8 +46,8 @@ export const sendPushNotification = async (workerId, title, body, type, referenc
     await logNotification({
       worker_id: workerId,
       type: type || 'general',
-      title,
-      body,
+      title: cleanTitle,
+      body: cleanBody,
       reference_id: referenceId,
     });
 
