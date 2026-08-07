@@ -252,7 +252,6 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
             <div><strong>DOB:</strong> {d.donor_dob || '—'}</div>
             <div><strong>Donations:</strong> {d.donation_count || 0} times (₹{Number(d.total_donated || 0).toLocaleString('en-IN')})</div>
             <div><strong>Frequency:</strong> {d.donor_frequency ? d.donor_frequency.replace(/_/g, ' ') : '—'}</div>
-            <div><strong>Amount:</strong> ₹{Number(d.donor_amount || 0).toLocaleString('en-IN')}</div>
             <div><strong>Status:</strong> <span className={`pill pill-${d.status === 'lead_done' || d.status === 'done' || d.status === 'donation_collected' ? 'green' : d.status === 'scheduled' || d.status === 'follow_up' ? 'purple' : d.status === 'not_interested' || d.status === 'rejected' ? 'red' : d.status === 'busy' || d.status === 'ringing' || d.status === 'unreachable' || d.status === 'switched_off' || d.status === 'wrong_number' || d.status === 'invalid_number' ? 'gray' : 'blue'}`}>{d.status ? d.status.replace(/_/g, ' ') : '—'}</span></div>
             {d.next_follow_up && <div><strong>Next Follow-up:</strong> {new Date(d.next_follow_up).toLocaleDateString()}</div>}
           </div>
