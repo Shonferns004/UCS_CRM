@@ -34,6 +34,13 @@ function filterAndSortDonors(list) {
       return oa - ob;
     });
 }
+
+const PAGE_SIZE = 200;
+
+function normalizeDonorResponse(r) {
+  if (Array.isArray(r)) return { donors: r, total: r.length };
+  return { donors: r?.donors || [], total: r?.total ?? (r?.donors?.length || 0) };
+}
 function useTomorrowStr() {
   const t = new Date();
   t.setDate(t.getDate() + 1);
@@ -71,6 +78,8 @@ const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).jo
 export default function MyDonors() {
   const navigate = useNavigate()
   const [donors, setDonors] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [dataTab, setDataTab] = useState('new');
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
@@ -112,6 +121,7 @@ export default function MyDonors() {
   const [showWalkthrough, setShowWalkthrough] = useState(() => !localStorage.getItem('fro_walkthrough_seen'));
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const searchRef = useRef(null);
+  const backendSearchTimerRef = useRef(null);
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
   const pendingSelectRef = useRef(null);
@@ -134,8 +144,10 @@ export default function MyDonors() {
 
         const r = await getMyDonors(null, null, stationOpts(tab, selectedStation));
         if (cancelled) return;
-        const sortedDonors = filterAndSortDonors(r);
+        const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
+        const sortedDonors = filterAndSortDonors(loaded);
         setDonors(sortedDonors);
+        setTotal(rTotal);
         setMessage(null);
         let restored = false;
 
@@ -245,20 +257,76 @@ export default function MyDonors() {
   }, []);
 
   const stationOpts = (tab, station) => {
-    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old' };
+    const opts = { newOnly: tab === 'new', oldOnly: tab === 'old', limit: PAGE_SIZE, offset: 0 };
     if (station && station !== 'all') opts.station = station;
     if (selectedNgo) opts.ngoId = selectedNgo;
     return opts;
   };
 
   const reloadDonors = useCallback(() => {
-    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => { setDonors(filterAndSortDonors(r)); }).catch((err) => { console.error('API error:', err.message); });
+    getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
+      const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
+      setDonors(filterAndSortDonors(loaded));
+      setTotal(rTotal);
+    }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation, selectedNgo]);
 
   const debouncedReload = useCallback(() => {
     if (debounceReloadRef.current) clearTimeout(debounceReloadRef.current);
     debounceReloadRef.current = setTimeout(() => reloadDonors(), 2000);
   }, [reloadDonors]);
+
+  const loadMore = async () => {
+    if (loadingMore || donors.length >= (total || donors.length)) return;
+    setLoadingMore(true);
+    try {
+      const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset: donors.length });
+      const { donors: more, total: rTotal } = normalizeDonorResponse(r);
+      if (more.length === 0) {
+        setTotal(donors.length);
+        return;
+      }
+      setDonors(prev => filterAndSortDonors([...prev, ...more]));
+      setTotal(rTotal);
+    } catch (err) {
+      console.error('loadMore error:', err.message);
+      setMessage({ type: 'error', text: 'Failed to load more donors: ' + err.message });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMoreRef = useRef(null);
+  loadMoreRef.current = loadMore;
+
+  useEffect(() => {
+    if (!loadingMore && donors.length > 0 && donors.length < (total || donors.length) && index >= donors.length - 15) {
+      loadMoreRef.current();
+    }
+  }, [index, donors.length, total, loadingMore]);
+
+  const jumpToDonor = async (donorId, ngoId) => {
+    let accumulated = donors;
+    let offset = accumulated.length;
+    for (let guard = 0; guard < 100; guard++) {
+      if (offset >= (total || offset)) break;
+      const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset });
+      const { donors: more, total: rTotal } = normalizeDonorResponse(r);
+      if (more.length === 0) break;
+      accumulated = filterAndSortDonors([...accumulated, ...more]);
+      offset = accumulated.length;
+      setTotal(rTotal);
+      const found = accumulated.findIndex(d => d.id === donorId && (!ngoId || d.ngo_id === ngoId));
+      if (found >= 0) {
+        setDonors(accumulated);
+        setIndex(found);
+        return true;
+      }
+    }
+    setDonors(accumulated);
+    return false;
+  };
+
 
   useRealtime('fro_assignments', { event: 'INSERT', onInsert: () => debouncedReload() });
 
@@ -468,8 +536,10 @@ export default function MyDonors() {
       setDonationAmt('');
       setMessage({ type: 'success', text: 'Donation recorded' });
       const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-      const newDonors = filterAndSortDonors(refreshed);
+      const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
+      const newDonors = filterAndSortDonors(loaded);
       setDonors(newDonors);
+      setTotal(rTotal);
       const nextIdx = findNextDonorIndex(newDonors, donor.id);
       setIndex(nextIdx);
       const nextDonor = newDonors[nextIdx];
@@ -645,8 +715,10 @@ export default function MyDonors() {
 
       if (returnToDonor) {
         const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-        const newDonors = filterAndSortDonors(refreshed);
+        const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
+        const newDonors = filterAndSortDonors(loaded);
         setDonors(newDonors);
+        setTotal(rTotal);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
           setIndex(returnIdx);
@@ -656,8 +728,10 @@ export default function MyDonors() {
         setReturnToDonor(null);
       } else {
         const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-        const newDonors = filterAndSortDonors(refreshed);
+        const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
+        const newDonors = filterAndSortDonors(loaded);
         setDonors(newDonors);
+        setTotal(rTotal);
         const nextIdx = findNextDonorIndex(newDonors, donor.id);
         setIndex(nextIdx);
         const nextDonor = newDonors[nextIdx];
@@ -671,6 +745,7 @@ export default function MyDonors() {
 
   const handleSearch = (q) => {
     setSearchQuery(q);
+    if (backendSearchTimerRef.current) { clearTimeout(backendSearchTimerRef.current); backendSearchTimerRef.current = null; }
     if (!q || q.trim().length < 2) {
       setSearchResults([]);
       setShowSearchDropdown(false);
@@ -681,11 +756,34 @@ export default function MyDonors() {
       (d.donor_name || '').toLowerCase().includes(term) ||
       (d.donor_mobile || '').includes(term)
     );
-    setSearchResults(filtered);
-    setShowSearchDropdown(filtered.length > 0 || term.length >= 2);
+    if (filtered.length > 0) {
+      setSearchResults(filtered);
+      setShowSearchDropdown(true);
+      return;
+    }
+    // No match in the loaded page(s) — search the full backend stack (covers
+    // donors beyond the loaded window, e.g. a donor at position 800+).
+    backendSearchTimerRef.current = setTimeout(async () => {
+      setSearchingAll(true);
+      try {
+        const backendResults = await searchDonorsByMobile(term);
+        if (backendResults && backendResults.length > 0) {
+          setSearchResults(backendResults);
+          setShowSearchDropdown(true);
+        } else {
+          setSearchResults([]);
+          setShowSearchDropdown(false);
+        }
+      } catch (err) {
+        setSearchResults([]);
+        setShowSearchDropdown(false);
+      } finally {
+        setSearchingAll(false);
+      }
+    }, 300);
   };
 
-  const handleSelectSearchResult = (resultIdx) => {
+  const handleSelectSearchResult = async (resultIdx) => {
     const r = searchResults[resultIdx];
     const donorId = r?.id || r?.donor_id;
     const actualIdx = donors.findIndex(d => d.id === donorId);
@@ -699,7 +797,11 @@ export default function MyDonors() {
       const targetStation = validStation ? r.station : 'all';
       const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
       if (!needsReload) {
-        setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+        if (donor) setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
+        const found = await jumpToDonor(donorId, r.ngo_id);
+        if (!found) {
+          setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
+        }
       } else {
         if (donor) setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
         pendingSelectRef.current = { donorId, ngoId: targetNgo };
@@ -890,7 +992,14 @@ export default function MyDonors() {
             <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div className="detail-avatar">{initials(donor.donor_name)}</div>
               <div className="detail-name">{donor.donor_name}</div>
-              <div className="fro-donor-position">#{index + 1} of {donors.length}</div>
+              <div className="fro-donor-position">#{index + 1} of {total || donors.length}
+                {donors.length < total && (
+                  <button onClick={loadMore} disabled={loadingMore}
+                    style={{ marginLeft: 8, padding: '2px 8px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+                    {loadingMore ? 'Loading…' : `Load more (${total - donors.length} left)`}
+                  </button>
+                )}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                   {donor.is_new && (
                     <span style={{ padding: '1px 6px', borderRadius: 4, background: '#16a34a', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: .5 }}>NEW</span>
