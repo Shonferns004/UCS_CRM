@@ -1,8 +1,8 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 
 export async function listAccounts() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .select('*')
     .order('created_at', { ascending: true });
@@ -17,7 +17,7 @@ export async function listAccounts() {
 }
 
 export async function getActiveAccounts() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .select('*')
     .eq('is_active', true)
@@ -27,7 +27,7 @@ export async function getActiveAccounts() {
 }
 
 export async function getAccountById(id) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .select('*')
     .eq('id', id)
@@ -40,7 +40,7 @@ export async function getAccountById(id) {
 }
 
 export async function getAccountByProject(project) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .select('*')
     .eq('project', project)
@@ -51,7 +51,7 @@ export async function getAccountByProject(project) {
 }
 
 export async function getAccountByPhoneNumberId(phoneNumberId) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .select('*')
     .eq('phone_number_id', phoneNumberId)
@@ -62,7 +62,7 @@ export async function getAccountByPhoneNumberId(phoneNumberId) {
 }
 
 export async function getDefaultAccount() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .select('*')
     .eq('is_default', true)
@@ -78,13 +78,13 @@ export async function createAccount({ name, project, phone_number_id, access_tok
   }
 
   if (is_default) {
-    await supabase
+    await db
       .from('whatsapp_accounts')
       .update({ is_default: false })
       .eq('is_default', true);
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .insert({
       name,
@@ -121,14 +121,14 @@ export async function updateAccount(id, updates) {
   if (Object.keys(allowed).length === 0) throw new Error('No fields to update');
 
   if (allowed.is_default) {
-    await supabase
+    await db
       .from('whatsapp_accounts')
       .update({ is_default: false })
       .eq('is_default', true)
       .neq('id', id);
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .update(allowed)
     .eq('id', id)
@@ -142,7 +142,7 @@ export async function updateAccount(id, updates) {
 }
 
 export async function deleteAccount(id) {
-  const { error } = await supabase
+  const { error } = await db
     .from('whatsapp_accounts')
     .delete()
     .eq('id', id);
@@ -152,7 +152,7 @@ export async function deleteAccount(id) {
 async function ensureDefaultAccount() {
   if (!config.enabled) return null;
 
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('whatsapp_accounts')
     .select('id')
     .limit(1);
@@ -170,7 +170,7 @@ async function ensureDefaultAccount() {
     is_default: true,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('whatsapp_accounts')
     .insert(newAccount)
     .select()

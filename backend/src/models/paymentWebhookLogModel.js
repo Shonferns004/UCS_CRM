@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function logWebhook({
   gateway, event_type, payment_id, order_id, amount,
@@ -6,7 +6,7 @@ export async function logWebhook({
   raw_payload, bank_entry_id, status, error_message,
   account_id, account_name,
 }) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('payment_webhook_log')
     .insert({
       gateway,
@@ -32,7 +32,7 @@ export async function logWebhook({
 }
 
 export async function getWebhookLog(filters = {}) {
-  let query = supabase
+  let query = db
     .from('payment_webhook_log')
     .select('*, bank_audit_entries!left(id, amount, bank_audit_sources(name))')
     .order('created_at', { ascending: false });
@@ -48,7 +48,7 @@ export async function getWebhookLog(filters = {}) {
 }
 
 export async function countWebhookByStatus() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('payment_webhook_log')
     .select('gateway, status');
   if (error) throw error;

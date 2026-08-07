@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createTemplate = async ({ ngo_id, title, category, html_content, variables, created_by }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('letter_templates')
     .insert({ ngo_id, title, category, html_content, variables: variables || [], created_by })
     .select('*')
@@ -11,7 +11,7 @@ export const createTemplate = async ({ ngo_id, title, category, html_content, va
 };
 
 export const getAllTemplates = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('letter_templates')
     .select('*')
     .order('created_at', { ascending: false });
@@ -24,7 +24,7 @@ export const getAllTemplates = async (ngo_id) => {
 };
 
 export const getTemplateById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('letter_templates')
     .select('*')
     .eq('id', id)
@@ -34,7 +34,7 @@ export const getTemplateById = async (id) => {
 };
 
 export const updateTemplate = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('letter_templates')
     .update(updates)
     .eq('id', id)
@@ -45,7 +45,7 @@ export const updateTemplate = async (id, updates) => {
 };
 
 export const deleteTemplate = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('letter_templates')
     .delete()
     .eq('id', id);
@@ -54,7 +54,7 @@ export const deleteTemplate = async (id) => {
 };
 
 export const createGeneratedLetter = async ({ template_id, worker_id, ngo_id, generated_by, filled_html, variables }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('generated_letters')
     .insert({ template_id, worker_id, ngo_id, generated_by, filled_html, variables: variables || {} })
     .select('*')
@@ -64,7 +64,7 @@ export const createGeneratedLetter = async ({ template_id, worker_id, ngo_id, ge
 };
 
 export const getGeneratedLetters = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('generated_letters')
     .select('*, worker:worker_id(name, email), template:template_id(title, category)')
     .order('created_at', { ascending: false });
@@ -77,7 +77,7 @@ export const getGeneratedLetters = async (ngo_id) => {
 };
 
 export const getGeneratedLettersByWorkerId = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('generated_letters')
     .select('*, worker:worker_id(name, email), template:template_id(title, category)')
     .eq('worker_id', workerId)
@@ -87,7 +87,7 @@ export const getGeneratedLettersByWorkerId = async (workerId) => {
 };
 
 export const getGeneratedLetterById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('generated_letters')
     .select('*, worker:worker_id(name, email), template:template_id(title, category)')
     .eq('id', id)

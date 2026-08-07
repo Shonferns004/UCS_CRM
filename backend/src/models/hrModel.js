@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createHR = async ({ ngo_id, name, email, password_hash, department, created_by }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('hrs')
     .insert({ ngo_id, name, email, password_hash, department, created_by })
     .select('*')
@@ -11,7 +11,7 @@ export const createHR = async ({ ngo_id, name, email, password_hash, department,
 };
 
 export const getHRByEmail = async (email) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('hrs')
     .select('*')
     .eq('email', email)
@@ -21,7 +21,7 @@ export const getHRByEmail = async (email) => {
 };
 
 export const getHRById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('hrs')
     .select('*')
     .eq('id', id)
@@ -31,7 +31,7 @@ export const getHRById = async (id) => {
 };
 
 export const getAllHRs = async (filters = {}) => {
-  let query = supabase
+  let query = db
     .from('hrs')
     .select('*')
     .order('created_at', { ascending: false });
@@ -45,7 +45,7 @@ export const getAllHRs = async (filters = {}) => {
 };
 
 export const updateHR = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('hrs')
     .update(updates)
     .eq('id', id)

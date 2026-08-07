@@ -127,12 +127,17 @@ export default function App() {
         lateDed: r.late_deduction_days || 0,
         absent: r.absent_count || 0,
         half: r.half_days || 0,
-        available: r.available_days || null,
+        leave: r.leave_count || 0,
+        available: r.available_days != null ? r.available_days : null,
         present: r.present || 0,
         sunCount: r.sunday_count || 0,
         sunAttended: r.attended_sundays || 0,
         sunUnpaid: r.unpaid_sundays || 0,
         sunDeducted: r.deducted_sundays || 0,
+        clubbed: r.clubbed_sundays || 0,
+        extra: r.extra_sundays || 0,
+        workedBack: r.sunday_add || 0,
+        sunReasons: r.sunday_reasons || [],
         collection: r.collection || 0,
       }
       const next = { ...dbPresentRef.current, [monthKey]: map }
@@ -311,12 +316,12 @@ export default function App() {
   const hasFileNet = rows ? rows.some(r => r.fileNet !== null) : false
 
   const head = [
-    'Employee', 'Date of Joining', 'Salary', 'Days/Month',
-    'DB Present Days', 'Half Day', 'Absent', 'Deducted Sun.',
-    'Joining Ded. (new)', 'Late Deduction', 'Training & Sun. Ded',
-    'Total Days', 'Net Present Days', 'Match?', 'Computed Salary (by days)',
+    'Employee', 'Date of Joining', 'Salary', 'Days/Month', 'DB Present Days',
+    'Half Day', 'Absent', 'Deducted Sun.',
+    'Joining Ded. (new)', 'Late Deduction',
+    'Total Days', 'Net Present Days', 'Match?', 'Why Total Days?', 'Computed Salary (by days)',
   ]
-  const computed = [false, false, false, true, false, false, false, false, true, true, false, true, false, false, true]
+  const computed = [false, false, false, true, false, false, false, false, true, true, true, false, false, false, true]
   if (hasFileSalary) { head.push('File Month Salary', 'Match?'); computed.push(false, false) }
   head.push('Monthly Eligible?', '10% Incentive', 'AKI Eligible?', 'Total AKI', 'Total Incentive', 'Gross Payable', 'OT/Extra (manual)', 'Pending Exp.', 'Advance', 'Net Payable')
   computed.push(true, true, true, true, true, true, false, false, false, true)
@@ -347,9 +352,9 @@ export default function App() {
   const sumGross = filtered.reduce((a, r) => a + r.gross, 0)
   const sumOt = filtered.reduce((a, r) => a + r.otExtra, 0)
   const sumNet = filtered.reduce((a, r) => a + r.netPayable, 0)
-  const sumDbPresent = filtered.reduce((a, r) => a + r.dbPresent, 0)
   const sumAbsent = filtered.reduce((a, r) => a + (r.dbAbsent || 0), 0)
   const sumHalf = filtered.reduce((a, r) => a + ((r.dbHalf || 0) * 0.5), 0)
+  const sumDbPresent = filtered.reduce((a, r) => a + (r.dbPresent || 0), 0)
   const sumTotalPresent = filtered.reduce((a, r) => a + (r.totalPresentDays || 0), 0)
   const sumNetPresent = filtered.reduce((a, r) => a + r.netPresent, 0)
   const sumJoinDed = filtered.reduce((a, r) => a + (r.joiningDeduction || 0), 0)
@@ -366,7 +371,7 @@ export default function App() {
   const leftClass = (i) => i <= 1 ? 'l ' : ''
 
   const sums = (() => {
-    const s = [filtered.length + ' employees', '', '', '', sumDbPresent, sumHalf, sumAbsent, '', sumJoinDed, sumLateDed, '', sumTotalPresent, sumNetPresent, '', money(sumSalary)]
+    const s = [filtered.length + ' employees', '', '', '', sumDbPresent, sumHalf, sumAbsent, '', sumJoinDed, sumLateDed, sumTotalPresent, sumNetPresent, '', '', money(sumSalary)]
     if (hasFileSalary) s.push('', '')
     s.push('', money(sumMonthly), '', money(sumAki), money(sumIncentive), money(sumGross), money(sumOt), '', '', money(sumNet))
     if (hasFileNet) s.push('', '', money(sumDiff))
@@ -477,16 +482,19 @@ export default function App() {
                       <td className={leftClass(1)}>{r.doj || '0'}</td>
                       <td>{money(r.salary)}</td>
                       <td className="c">{r.days}</td>
-                      <td>{r.dbPresent}</td>
+                      <td className="c">{r.dbPresent ?? 0}</td>
                       <td>{((r.dbHalf ?? 0) * 0.5) || 0}</td>
                       <td>{r.dbAbsent ?? 0}</td>
                       <td>{r.dbSunDeducted ?? 0}</td>
                       <td className="c">{r.joiningDeduction || 0}</td>
                       <td className="c">{r.lateDeduction || 0}</td>
-                      <td>{r.training}</td>
                       <td className="c">{r.totalPresentDays}</td>
                       <td>{r.netPresent}</td>
                       <td>{badge(r.presentMatch)}</td>
+                      <td className="l" title={r.explainTitle}>
+                        {r.explain || '—'}
+                        {r.explainNote && <div className="explain-note">{r.explainNote}</div>}
+                      </td>
                       <td className="c">{money(r.calcSalary)}</td>
                       {hasFileSalary && (
                         <>

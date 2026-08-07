@@ -39,8 +39,8 @@ export const sendPushNotification = async (workerId, title, body, type, referenc
   } catch (error) {
     if (error.code === 'messaging/registration-token-not-registered') {
       console.log(`FCM token invalid for worker ${workerId}, removing...`);
-      const supabase = (await import('../config/supabase.js')).default;
-      await supabase.from('fcm_tokens').delete().eq('worker_id', workerId);
+      const db = (await import('../config/db.js')).default;
+      await db.from('fcm_tokens').delete().eq('worker_id', workerId);
     }
     console.error('FCM send error:', error.message);
     return null;

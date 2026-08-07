@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getTemplates as getTemplatesEnhanced, sendTemplateMessage as sendTemplateEnhanced, uploadMedia } from '../../api/whatsappEnhanced'
-import { getTemplates as getTemplatesDirect, sendTemplateMessage as sendTemplateDirect } from '../../api/whatsappSupabase'
+import { getTemplates as getTemplatesDirect, sendTemplateMessage as sendTemplateDirect } from '../../api/whatsappApi'
 
 function getHeaderMediaType(template) {
   const header = template.components?.find(component => component.type === 'HEADER')

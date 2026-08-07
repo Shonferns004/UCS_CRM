@@ -2,7 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import groq from '../config/groq.js';
 import emailConfig from '../config/emailConfig.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { isEmailProcessed, logImport } from '../models/emailImportLogModel.js';
 import { getSources } from '../models/bankAuditModel.js';
 import { createEntry } from '../models/bankAuditModel.js';
@@ -100,7 +100,7 @@ async function getOrCreateSourceId(sources, name) {
   if (!normalized) return null;
   let match = sources.find(s => s.name.toLowerCase() === normalized.toLowerCase());
   if (match) return match.id;
-  const { data: newSource, error } = await supabase
+  const { data: newSource, error } = await db
     .from('bank_audit_sources')
     .insert({ name: normalized, sort_order: 99 })
     .select()

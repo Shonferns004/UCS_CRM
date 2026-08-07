@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createReceipt = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('receipts')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createReceipt = async (data) => {
 };
 
 export const findReceiptByLogId = async (logId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('receipts')
     .select('*')
     .eq('log_id', logId)
@@ -22,7 +22,7 @@ export const findReceiptByLogId = async (logId) => {
 };
 
 export const getLastReceiptNo = async (projectId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('receipts')
     .select('receipt_no')
     .eq('project_id', projectId)
@@ -34,7 +34,7 @@ export const getLastReceiptNo = async (projectId) => {
 };
 
 export const listAllReceipts = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('receipts')
     .select('*, fro_donor_logs!receipts_log_id_fkey(fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name))')
     .order('created_at', { ascending: false });
@@ -43,7 +43,7 @@ export const listAllReceipts = async () => {
 };
 
 export const listReceiptsByProject = async (projectId, limit = 50) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('receipts')
     .select('*')
     .eq('project_id', projectId)
@@ -54,7 +54,7 @@ export const listReceiptsByProject = async (projectId, limit = 50) => {
 };
 
 export const updateReceiptByLogId = async (logId, data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('receipts')
     .update(data)
     .eq('log_id', logId)

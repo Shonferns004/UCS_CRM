@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { insertNewDataBatch, getImportBatches, getBatchRecords, getBatchCount, getBatchById, updateNewDataStatus, getExistingMobiles } from '../models/newDataModel.js';
 import { upsertDonorProfilesBatch } from '../models/donorProfileModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import {
   parseImportFile,
   getSheetNames,
@@ -65,7 +65,7 @@ export const uploadImport = async (req, res) => {
     const trulyNew = deduped.filter(r => !existingMobiles.has(r.mobile_number));
     const crossBatchDups = deduped.length - trulyNew.length;
 
-    const { data: allNgos, error: nErr } = await supabase
+    const { data: allNgos, error: nErr } = await db
       .from('ngos')
       .select('id, name')
       .eq('is_active', true);
@@ -135,7 +135,7 @@ export const uploadImport = async (req, res) => {
     let totalInserted = 0;
     for (let i = 0; i < dbRows.length; i += BATCH_SIZE) {
       const batch = dbRows.slice(i, i + BATCH_SIZE);
-      const { data, error: insErr } = await supabase
+      const { data, error: insErr } = await db
         .from('new_data')
         .insert(batch)
         .select();
@@ -203,7 +203,7 @@ export const uploadChunk = async (req, res) => {
     }
 
     // Get selected NGOs
-    const { data: allNgos } = await supabase.from('ngos').select('id, name').eq('is_active', true);
+    const { data: allNgos } = await db.from('ngos').select('id, name').eq('is_active', true);
     let selectedNgos = allNgos || [];
     if (ngo_ids && ngo_ids.length > 0) {
       selectedNgos = (allNgos || []).filter(n => ngo_ids.includes(n.id));
@@ -242,7 +242,7 @@ export const uploadChunk = async (req, res) => {
     let inserted = 0;
     for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
       const batch = deduped.slice(i, i + BATCH_SIZE);
-      const { data, error: insErr } = await supabase
+      const { data, error: insErr } = await db
         .from('new_data')
         .insert(batch)
         .select();
@@ -310,7 +310,7 @@ export const uploadOldDataImport = async (req, res) => {
     const trulyNew = validRows.filter(r => !existingMobiles.has(r.mobile_number));
     const crossBatchDups = validRows.length - trulyNew.length;
 
-    const { data: ngos, error: nErr } = await supabase
+    const { data: ngos, error: nErr } = await db
       .from('ngos')
       .select('id, name')
       .eq('is_active', true);
@@ -556,12 +556,12 @@ export const copyDonorsToNgos = async (req, res) => {
     }
 
     // Get source NGO name
-    const { data: sourceNgo } = await supabase.from('ngos').select('name').eq('id', source_ngo_id).single();
+    const { data: sourceNgo } = await db.from('ngos').select('name').eq('id', source_ngo_id).single();
     if (!sourceNgo) return res.status(404).json({ message: 'Source NGO not found' });
     const sourceNgoName = sourceNgo.name;
 
     // Get target NGO names
-    const { data: targetNgos } = await supabase.from('ngos').select('id, name').in('id', target_ngo_ids.map(Number));
+    const { data: targetNgos } = await db.from('ngos').select('id, name').in('id', target_ngo_ids.map(Number));
     if (!targetNgos || targetNgos.length === 0) {
       return res.status(400).json({ message: 'No valid target NGOs found' });
     }
@@ -573,7 +573,7 @@ export const copyDonorsToNgos = async (req, res) => {
       mobilesToCopy = mobile_numbers;
     } else {
       // Fetch from donor_profiles that have fro_assignments for source NGO
-      const { data: donorProfiles } = await supabase
+      const { data: donorProfiles } = await db
         .from('donor_profiles')
         .select('mobile_number');
 
@@ -590,28 +590,28 @@ export const copyDonorsToNgos = async (req, res) => {
 
       // If filter is 'assigned', only include mobiles with fro_assignments for source NGO
       if (filter === 'assigned') {
-        const { data: sourceAssignments } = await supabase
+        const { data: sourceAssignments } = await db
           .from('fro_assignments')
           .select('donor_id')
           .eq('ngo_id', source_ngo_id)
           .not('status', 'eq', 'reassigned');
 
         const assignedDonorIds = new Set((sourceAssignments || []).map(a => a.donor_id));
-        const { data: assignedProfiles } = await supabase
+        const { data: assignedProfiles } = await db
           .from('donor_profiles')
           .select('mobile_number')
           .in('id', [...assignedDonorIds]);
 
         mobilesToCopy = [...new Set((assignedProfiles || []).map(d => d.mobile_number).filter(Boolean))];
       } else if (filter === 'new') {
-        const { data: sourceAssignments } = await supabase
+        const { data: sourceAssignments } = await db
           .from('fro_assignments')
           .select('donor_id')
           .eq('ngo_id', source_ngo_id)
           .not('status', 'eq', 'reassigned');
 
         const assignedDonorIds = new Set((sourceAssignments || []).map(a => a.donor_id));
-        const { data: unassignedProfiles } = await supabase
+        const { data: unassignedProfiles } = await db
           .from('donor_profiles')
           .select('mobile_number')
           .not('id', 'in', [...assignedDonorIds]);
@@ -627,7 +627,7 @@ export const copyDonorsToNgos = async (req, res) => {
     }
 
     // Fetch source new_data rows for these mobiles
-    const { data: sourceRows } = await supabase
+    const { data: sourceRows } = await db
       .from('new_data')
       .select('*')
       .eq('ngo', sourceNgoName)
@@ -648,7 +648,7 @@ export const copyDonorsToNgos = async (req, res) => {
 
     for (const targetNgo of targetNgos) {
       // Check which mobiles already exist for target NGO
-      const { data: existingTarget } = await supabase
+      const { data: existingTarget } = await db
         .from('new_data')
         .select('mobile_number')
         .eq('ngo', targetNgo.name);

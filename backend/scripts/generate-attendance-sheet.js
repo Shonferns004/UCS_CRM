@@ -1,11 +1,9 @@
 import ExcelJS from 'exceljs';
-import { createClient } from '@supabase/supabase-js';
+import db from '../src/config/db.js';
 import 'dotenv/config';
 
 const MONTH = process.env.MONTH || '2026-07';
 const OUT_PATH = process.env.OUT_PATH || `Attendance_${MONTH}.xlsx`;
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 const [year, monthNum] = MONTH.split('-');
 const daysInMonth = new Date(Date.UTC(parseInt(year), parseInt(monthNum), 0)).getUTCDate();
@@ -15,7 +13,7 @@ const endDate = `${MONTH}-${String(daysInMonth).padStart(2, '0')}`;
 const PRESENT_STATUSES = ['present', 'late', 'half-day'];
 
 async function fetchWorkers() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('id, name, department, employment_status, created_at');
   if (error) throw error;
@@ -23,7 +21,7 @@ async function fetchWorkers() {
 }
 
 async function fetchSalaries() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .select('worker_id, salary')
     .order('from_month', { ascending: false });
@@ -36,7 +34,7 @@ async function fetchSalaries() {
 }
 
 async function fetchAttendance() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance')
     .select('worker_id, date, status')
     .gte('date', startDate)

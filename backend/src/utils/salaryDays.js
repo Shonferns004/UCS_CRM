@@ -27,20 +27,20 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
   }
 
   const sundays = [];
-  const cancelled = new Set();
+  const cancelled = new Map(); // sunday date -> { type: 'clubbed', cause } | { type: 'extra' }
   let regularAbsences = 0;
   for (const day of dates) {
     if (day.dayName === 'Sun') { sundays.push(day.date); continue; }
     if (!inRange(day.date)) continue;
     const rec = records.find(r => r.date === day.date);
-    if (rec?.status === 'absent') {
+    if (rec?.status === 'absent' || rec?.status === 'leave') {
       regularAbsences++;
       if (day.dayName === 'Sat') {
         const ns = shiftDate(day.date, 1);
-        if (inRange(ns)) cancelled.add(ns);
+        if (inRange(ns)) cancelled.set(ns, { type: 'clubbed', cause: day.date });
       } else if (day.dayName === 'Mon') {
         const ps = shiftDate(day.date, -1);
-        if (inRange(ps)) cancelled.add(ps);
+        if (inRange(ps)) cancelled.set(ps, { type: 'clubbed', cause: day.date });
       }
     }
   }
@@ -50,7 +50,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
   if (regularAbsences >= 6 || lateJoin) {
     for (const s of totalSundays) {
       if (!cancelled.has(s)) {
-        cancelled.add(s);
+        cancelled.set(s, { type: 'extra' });
         extraSundays.push(s);
       }
     }
@@ -59,7 +59,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
   const eligibleSundays = totalSundays.filter(s => !cancelled.has(s));
   const isAttended = (s) => {
     const rec = records.find(r => r.date === s);
-    return !!rec && (rec.status === 'present' || rec.status === 'late');
+    return !!rec && (rec.status === 'present' || rec.status === 'late' || rec.status === 'half-day');
   };
   const attendedEligible = eligibleSundays.filter(isAttended);
   const attendedCancelled = totalSundays.filter(s => cancelled.has(s) && isAttended(s));
@@ -78,6 +78,7 @@ export function computeSundayStats({ year, month, daysInMonth, records, skipBefo
     paidSundays,
     eligibleSundays,
     cancelledSundays: totalSundays.filter(s => cancelled.has(s)),
+    cancelledDetails: totalSundays.filter(s => cancelled.has(s)).map(s => ({ date: s, ...cancelled.get(s) })),
     extraSundays,
     unpaidSundays,
   };
@@ -132,7 +133,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     if (beforeJoinSet.has(day.date)) continue;
     if (day.dayName === 'Sun') continue;
     const rec = records2.find(r => r.date === day.date);
-    if (rec?.status === 'absent') {
+    if (rec?.status === 'absent' || rec?.status === 'leave') {
       deducted.add(day.date);
       if (day.dayName === 'Sat') {
         const ns = shiftDate(day.date, 1);
@@ -156,7 +157,9 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
   for (const d of sundayStats.unpaidSundays) deducted.add(d);
   for (const d of sundayStats.extraSundays) deducted.add(d);
 
-  const paidDays = Math.max(0, daysInMonth - (joinedThisMonth ? (joinDay - 1) : 0) - deducted.size - halfDayCount * 0.5 + sundayStats.attendedCancelledDates.length);
+  const available = Math.min(daysInMonth, viewDay) - (joinedThisMonth ? (joinDay - 1) : 0);
+  const leaveCount = afterJoin.filter(r => r.status === 'leave').length;
+  const paidDays = Math.max(0, available - deducted.size - halfDayCount * 0.5 + sundayStats.attendedCancelledDates.length);
 
   const totalLateMinutes = afterJoin.reduce((sum, r) => sum + (r.late_minutes || 0), 0);
   let lateDeductionDays = 0;
@@ -170,11 +173,29 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
 
   const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt) <= 3) ? 1.5 : 0;
 
+  const sundayReasons = [];
+  const workedBackSet = new Set(sundayStats.attendedCancelledDates);
+  for (const cd of sundayStats.cancelledDetails) {
+    if (workedBackSet.has(cd.date)) continue;
+    if (cd.type === 'clubbed') {
+      sundayReasons.push({ date: cd.date, reason: `clubbed with ${cd.cause} (absent/leave)` });
+    } else {
+      sundayReasons.push({ date: cd.date, reason: 'extra (6+ absences or joined after the 10th)' });
+    }
+  }
+  const freePool = Math.max(0, sundayStats.totalSundays - 1);
+  for (const d of sundayStats.unpaidSundays) {
+    sundayReasons.push({ date: d, reason: `not worked and beyond the free ${freePool} Sunday(s)` });
+  }
+  sundayReasons.sort((a, b) => (a.date < b.date ? -1 : 1));
+
   return {
     joinedThisMonth,
     joinDay,
+    available,
     presentRaw: records.filter(r => r.status === 'present').length,
     halfDayCount,
+    leaveCount,
     totalLateMinutes,
     lateDeductionDays,
     joiningDeduction,
@@ -183,6 +204,10 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     absentDatesAfterJoin: records2.filter(r => r.status === 'absent').map(r => r.date),
     sundayAdd: sundayStats.attendedCancelledDates.length,
     extraSundays: sundayStats.extraSundays,
+    clubbedSundays: sundayStats.cancelledSundays.length - sundayStats.extraSundays.length,
+    extraSundayCount: sundayStats.extraSundays.length,
+    freeSundays: Math.max(0, sundayStats.paidSundays - sundayStats.attendedSundays),
+    sundayReasons,
     sundayStats,
     paidDays,
     totalDueDays: Math.max(0, paidDays - lateDeductionDays - joiningDeduction),

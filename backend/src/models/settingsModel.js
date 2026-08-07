@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getSetting = async (key) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('settings')
     .select('value')
     .eq('key', key)
@@ -11,7 +11,7 @@ export const getSetting = async (key) => {
 };
 
 export const getAllSettings = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('settings')
     .select('*')
     .order('key');
@@ -22,7 +22,7 @@ export const getAllSettings = async () => {
 };
 
 export const upsertSetting = async (key, value) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('settings')
     .upsert({ key, value })
     .select()

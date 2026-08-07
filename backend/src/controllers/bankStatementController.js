@@ -1,6 +1,6 @@
 import multer from 'multer';
 import { parseBankStatement } from '../services/bankStatementParser.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getSources } from '../models/bankAuditModel.js';
 
 const storage = multer.memoryStorage();
@@ -50,7 +50,7 @@ export async function importStatement(req, res) {
     const sources = await getSources();
     let sourceId = sources.find(s => s.name === result.source_name)?.id;
     if (!sourceId) {
-      const { data: newSource } = await supabase
+      const { data: newSource } = await db
         .from('bank_audit_sources')
         .insert({ name: result.source_name, sort_order: 99 })
         .select()
@@ -70,7 +70,7 @@ export async function importStatement(req, res) {
           row.balance ? `Bal: \u20B9${row.balance}` : '',
         ].filter(Boolean).join(' | ');
 
-        const { data: entry, error } = await supabase
+        const { data: entry, error } = await db
           .from('bank_audit_entries')
           .insert({
             source_id: sourceId,

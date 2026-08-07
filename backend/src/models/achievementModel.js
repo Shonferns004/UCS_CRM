@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createAchievement = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('achievements')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createAchievement = async (data) => {
 };
 
 export const getAllAchievements = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('achievements')
     .select('*, workers(name, login_id)')
     .order('created_at', { ascending: false });
@@ -22,7 +22,7 @@ export const getAllAchievements = async (ngo_id) => {
 };
 
 export const getRecentAchievements = async (ngo_id, since) => {
-  let query = supabase
+  let query = db
     .from('achievements')
     .select('*, workers(name, login_id)')
     .gte('created_at', since)
@@ -34,7 +34,7 @@ export const getRecentAchievements = async (ngo_id, since) => {
 };
 
 export const getAchievementById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('achievements')
     .select('*, workers(name, login_id)')
     .eq('id', id)
@@ -44,7 +44,7 @@ export const getAchievementById = async (id) => {
 };
 
 export const deleteAchievement = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('achievements')
     .delete()
     .eq('id', id);
