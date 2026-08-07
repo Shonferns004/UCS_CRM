@@ -1314,15 +1314,56 @@ const reverseDonorTotals = async () => {
         return db.from('donor_profiles').update({
           total_amount: Math.max(0, (donor.total_amount || 0) - dec.amount),
           donation_count: Math.max(0, (donor.donation_count || 0) - dec.count),
+          first_donation_date: null,
+          last_donation_date: null,
           updated_at: new Date().toISOString(),
         }).eq('id', donorId);
       })
     );
+
+    try {
+      for (let i = 0; i < donorIds.length; i += 500) {
+        const chunk = donorIds.slice(i, i + 500);
+        await db
+          .from('fro_assignments')
+          .update({ status: 'pending' })
+          .in('donor_id', chunk)
+          .eq('status', 'donation_collected');
+      }
+    } catch (assignErr) {
+      console.warn('Assignment reset skipped:', assignErr.message);
+    }
     return donorIds.length;
   } catch (err) {
     console.warn('Donor reversal skipped (column may not exist):', err.message);
     return 0;
   }
+};
+
+const deleteLinkedLogs = async (logIds) => {
+  if (!logIds || logIds.length === 0) return 0;
+  const BATCH = 500;
+  let deleted = 0;
+  for (let i = 0; i < logIds.length; i += BATCH) {
+    const chunk = logIds.slice(i, i + BATCH);
+    try {
+      await db.from('notification_log').delete().in('fro_donor_log_id', chunk);
+    } catch (e) {
+      console.warn('notification_log cleanup skipped:', e.message);
+    }
+    try {
+      await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', chunk);
+    } catch (e) {
+      console.warn('rejected_lead_tickets cleanup skipped:', e.message);
+    }
+    try {
+      const { data } = await db.from('fro_donor_logs').delete().in('id', chunk).select('id');
+      deleted += data?.length || 0;
+    } catch (e) {
+      console.warn('fro_donor_logs deletion skipped:', e.message);
+    }
+  }
+  return deleted;
 };
 
 export const clearReceipts = async (req, res) => {
@@ -1333,10 +1374,11 @@ export const clearReceipts = async (req, res) => {
     const reversed = batch ? (shouldReverse ? await reverseDonorTotals() : 0) : await reverseDonorTotals();
 
     let deleted = 0, remaining = 0;
+    let deletedLogs = 0;
     if (batch) {
       const { data: ids } = await db
         .from('receipts')
-        .select('id')
+        .select('id, log_id')
         .neq('id', 0)
         .limit(batch);
       const batchIds = (ids || []).map(r => r.id);
@@ -1345,20 +1387,22 @@ export const clearReceipts = async (req, res) => {
           .from('receipts')
           .delete()
           .in('id', batchIds)
-          .select('id');
+          .select('id, log_id');
         deleted = rows?.length || 0;
+        deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
       }
     } else {
       const { data: rows } = await db
         .from('receipts')
         .delete()
         .neq('id', 0)
-        .select('id');
+        .select('id, log_id');
       deleted = rows?.length || 0;
       remaining = 0;
+      deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
     }
 
-    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed });
+    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed, deletedLogs });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
