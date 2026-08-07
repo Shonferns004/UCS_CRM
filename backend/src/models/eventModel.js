@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createEvent = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('events')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createEvent = async (data) => {
 };
 
 export const getAllEvents = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('events')
     .select('*')
     .order('event_date', { ascending: true });
@@ -22,7 +22,7 @@ export const getAllEvents = async (ngo_id) => {
 };
 
 export const getUpcomingEvents = async (ngo_id, fromDate, toDate) => {
-  let query = supabase
+  let query = db
     .from('events')
     .select('*')
     .gte('event_date', fromDate)
@@ -36,7 +36,7 @@ export const getUpcomingEvents = async (ngo_id, fromDate, toDate) => {
 };
 
 export const getEventById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('events')
     .select('*')
     .eq('id', id)
@@ -46,7 +46,7 @@ export const getEventById = async (id) => {
 };
 
 export const updateEvent = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('events')
     .update(updates)
     .eq('id', id)
@@ -57,7 +57,7 @@ export const updateEvent = async (id, updates) => {
 };
 
 export const deleteEvent = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('events')
     .delete()
     .eq('id', id);

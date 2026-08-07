@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { authenticateRole } from '../middleware/authMiddleware.js';
 
 const router = Router();
@@ -17,13 +17,13 @@ router.get('/', authenticateRole('super_admin', 'admin', 'hr', 'accounts', 'recr
 
     const ngoId = req.user.role === 'super_admin' ? req.query.ngo_id : req.user.ngo_id;
 
-    let eventsQuery = supabase.from('events').select('*')
+    let eventsQuery = db.from('events').select('*')
       .gte('event_date', fromDate).lte('event_date', toDate)
       .eq('is_active', true);
 
-    let holidaysQuery = supabase.from('holidays').select('*');
+    let holidaysQuery = db.from('holidays').select('*');
 
-    let workersQuery = supabase.from('workers').select('id, name, dob');
+    let workersQuery = db.from('workers').select('id, name, dob');
 
     if (ngoId) {
       eventsQuery = eventsQuery.eq('ngo_id', ngoId);

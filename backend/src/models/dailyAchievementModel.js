@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getAchievements = async (workerId, startDate, endDate) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('daily_achievements')
     .select('*')
     .eq('worker_id', workerId)
@@ -13,7 +13,7 @@ export const getAchievements = async (workerId, startDate, endDate) => {
 };
 
 export const getAchievement = async (workerId, date) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('daily_achievements')
     .select('*')
     .eq('worker_id', workerId)
@@ -24,7 +24,7 @@ export const getAchievement = async (workerId, date) => {
 };
 
 export const upsertAchievement = async (workerId, date, amount, userId) => {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('daily_achievements')
     .select('id')
     .eq('worker_id', workerId)
@@ -32,7 +32,7 @@ export const upsertAchievement = async (workerId, date, amount, userId) => {
     .maybeSingle();
 
   if (existing) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('daily_achievements')
       .update({ amount, updated_at: new Date().toISOString() })
       .eq('id', existing.id)
@@ -42,7 +42,7 @@ export const upsertAchievement = async (workerId, date, amount, userId) => {
     return data;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('daily_achievements')
     .insert([{ worker_id: workerId, date, amount, created_by: userId }])
     .select()
@@ -52,7 +52,7 @@ export const upsertAchievement = async (workerId, date, amount, userId) => {
 };
 
 export const deleteAchievement = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('daily_achievements')
     .delete()
     .eq('id', id);
@@ -61,7 +61,7 @@ export const deleteAchievement = async (id) => {
 };
 
 export const getMonthlyAchievementTotal = async (workerId, startDate, endDate) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('daily_achievements')
     .select('amount')
     .eq('worker_id', workerId)
@@ -82,7 +82,7 @@ export const bulkUpsertAchievements = async (entries) => {
 };
 
 export const getAllFRODailyAchievements = async (startDate, endDate) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('daily_achievements')
     .select('*, workers!inner(id, name, department)')
     .eq('workers.department', 'FRO')

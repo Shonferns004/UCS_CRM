@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createScheduledNotification = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('scheduled_notifications')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createScheduledNotification = async (data) => {
 };
 
 export const getScheduledNotifications = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('scheduled_notifications')
     .select('*')
     .order('scheduled_at', { ascending: false });
@@ -22,7 +22,7 @@ export const getScheduledNotifications = async (ngo_id) => {
 };
 
 export const getPendingScheduledNotifications = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('scheduled_notifications')
     .select('*')
     .eq('status', 'pending')
@@ -32,7 +32,7 @@ export const getPendingScheduledNotifications = async () => {
 };
 
 export const markNotificationSent = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('scheduled_notifications')
     .update({ status: 'sent', sent_at: new Date().toISOString() })
     .eq('id', id)
@@ -43,7 +43,7 @@ export const markNotificationSent = async (id) => {
 };
 
 export const cancelScheduledNotification = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('scheduled_notifications')
     .update({ status: 'cancelled' })
     .eq('id', id)
@@ -54,7 +54,7 @@ export const cancelScheduledNotification = async (id) => {
 };
 
 export const deleteScheduledNotification = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('scheduled_notifications')
     .delete()
     .eq('id', id);

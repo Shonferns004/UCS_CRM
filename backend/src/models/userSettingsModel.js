@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getUserSetting = async (userId, key) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('user_settings')
     .select('value')
     .eq('user_id', userId)
@@ -12,7 +12,7 @@ export const getUserSetting = async (userId, key) => {
 };
 
 export const getAllUserSettings = async (userId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('user_settings')
     .select('key, value')
     .eq('user_id', userId);
@@ -23,7 +23,7 @@ export const getAllUserSettings = async (userId) => {
 };
 
 export const upsertUserSetting = async (userId, key, value) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('user_settings')
     .upsert({ user_id: userId, key, value }, { onConflict: 'user_id,key' })
     .select()

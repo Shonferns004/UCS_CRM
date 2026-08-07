@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createDonorLog = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('fro_donor_logs')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createDonorLog = async (data) => {
 };
 
 export const findLogsByAssignment = async (assignmentId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('*')
     .eq('assignment_id', assignmentId)
@@ -21,7 +21,7 @@ export const findLogsByAssignment = async (assignmentId) => {
 };
 
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('amount_collected, fro_assignments!inner(fro_worker_id)')
     .eq('fro_assignments.fro_worker_id', workerId)
@@ -48,7 +48,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     return { monthCollection: zero, todayCollection: zero, verifiedMonth: zeroV, unverifiedMonth: zeroV, verifiedToday: zeroV, unverifiedToday: zeroV };
   }
 
-  let query = supabase
+  let query = db
     .from('fro_donor_logs')
     .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_assignments!inner(fro_worker_id)')
     .in('fro_assignments.fro_worker_id', workerIds);
@@ -119,7 +119,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
 };
 
 export const findLogsByDonorAndWorker = async (donorId, workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('*')
     .eq('donor_id', donorId)
@@ -127,7 +127,7 @@ export const findLogsByDonorAndWorker = async (donorId, workerId) => {
     .order('created_at', { ascending: false });
   if (error) {
     console.error('findLogsByDonorAndWorker query failed, trying fallback:', error.message);
-    const { data: assignment, error: asgnErr } = await supabase
+    const { data: assignment, error: asgnErr } = await db
       .from('fro_assignments')
       .select('id')
       .eq('donor_id', donorId)
@@ -147,7 +147,7 @@ export const findLogsByDonorAndWorker = async (donorId, workerId) => {
 };
 
 export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('amount_collected')
     .eq('donor_id', donorId)
@@ -155,7 +155,7 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
     .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)');
   if (error) {
     console.error('getTotalCollectedByDonorAndWorker failed, trying fallback:', error.message);
-    const { data: assignment, error: asgnErr } = await supabase
+    const { data: assignment, error: asgnErr } = await db
       .from('fro_assignments')
       .select('id')
       .eq('donor_id', donorId)
@@ -179,7 +179,7 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
 };
 
 export const getVerifiedCollection = async (workerId, startDate, endDate) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('amount_collected, fro_assignments!inner(fro_worker_id)')
     .eq('fro_assignments.fro_worker_id', workerId)
@@ -195,7 +195,7 @@ export const getVerifiedCollection = async (workerId, startDate, endDate) => {
 };
 
 export const getUnverifiedCollection = async (workerId, startDate, endDate) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('amount_collected, fro_assignments!inner(fro_worker_id)')
     .eq('fro_assignments.fro_worker_id', workerId)
@@ -211,7 +211,7 @@ export const getUnverifiedCollection = async (workerId, startDate, endDate) => {
 };
 
 export const getTotalCollectedByAssignment = async (assignmentId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_donor_logs')
     .select('amount_collected, action, disposition_detail')
     .eq('assignment_id', assignmentId)

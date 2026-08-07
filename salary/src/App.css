@@ -264,6 +264,8 @@ tr.total td.c { background: #dbeafe; }
 .b-no { background: #fee2e2; color: #b91c1b; }
 .b-ghost { background: #e5e7eb; color: #4b5563; }
 
+.explain-note { margin-top: 3px; font-size: 11px; color: #64748b; line-height: 1.35; white-space: normal; }
+
 .msg { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
 .msg.err { background: #fee2e2; color: #7f1d1d; }
 .msg.info { background: #dbeafe; color: #1e40af; }

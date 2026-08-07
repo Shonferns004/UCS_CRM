@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId, listAllReceipts } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
@@ -14,7 +14,7 @@ export const getLeadList = async (req, res) => {
   try {
     const { status } = req.query;
 
-    let query = supabase
+    let query = db
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
@@ -92,7 +92,7 @@ export const verifyLead = async (req, res) => {
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, email, pan_number, project_supported))')
       .eq('id', logId)
@@ -123,14 +123,14 @@ export const verifyLead = async (req, res) => {
     if (transaction_datetime !== undefined) logUpdate.transaction_datetime = transaction_datetime || null;
     if (payment_from !== undefined) logUpdate.payment_from = payment_from || null;
 
-    const { error: updateLogError } = await supabase
+    const { error: updateLogError } = await db
       .from('fro_donor_logs')
       .update(logUpdate)
       .eq('id', logId);
 
     if (updateLogError) throw updateLogError;
 
-    const { error: updateAsgnError } = await supabase
+    const { error: updateAsgnError } = await db
       .from('fro_assignments')
       .update({
         status: 'donation_collected',
@@ -150,14 +150,14 @@ export const verifyLead = async (req, res) => {
       if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
       if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
       try {
-        const { data: donor } = await supabase
+        const { data: donor } = await db
           .from('donor_profiles')
           .select('total_amount, donation_count')
           .eq('id', donorId)
           .single();
         donorUpdate.total_amount = (donor?.total_amount || 0) + (log.amount_collected || 0);
         donorUpdate.donation_count = (donor?.donation_count || 0) + 1;
-        await supabase.from('donor_profiles').update(donorUpdate).eq('id', donorId);
+        await db.from('donor_profiles').update(donorUpdate).eq('id', donorId);
       } catch (err) { console.error('Failed to update donor totals:', err); }
     }
 
@@ -198,7 +198,7 @@ export const verifyLead = async (req, res) => {
           fcmLogged = !!pushResult;
         } catch (err) { console.error('FCM send error:', err.message); }
         if (!fcmLogged) {
-          await supabase.from('notification_log').insert({
+          await db.from('notification_log').insert({
             worker_id: froWorkerId,
             type: 'lead_verified',
             title: notifTitle,
@@ -231,7 +231,7 @@ export const verifyLead = async (req, res) => {
 export const getSuspenseList = async (req, res) => {
   try {
     const { status } = req.query;
-    let query = supabase
+    let query = db
       .from('suspense_donations')
       .select('*')
       .order('created_at', { ascending: false });
@@ -253,7 +253,7 @@ export const createSuspense = async (req, res) => {
       return res.status(400).json({ message: 'Donor name and amount are required' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('suspense_donations')
       .insert({ donor_name, amount, transaction_date, notes })
       .select()
@@ -272,7 +272,7 @@ export const addSuspenseNote = async (req, res) => {
     const { notes } = req.body;
     if (!notes) return res.status(400).json({ message: 'Notes are required' });
 
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('suspense_donations')
       .select('notes')
       .eq('id', id)
@@ -284,7 +284,7 @@ export const addSuspenseNote = async (req, res) => {
       ? existing.notes + '\n---\n' + new Date().toLocaleString() + ': ' + notes
       : new Date().toLocaleString() + ': ' + notes;
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('suspense_donations')
       .update({ notes: updatedNotes })
       .eq('id', id)
@@ -304,7 +304,7 @@ export const assignSuspense = async (req, res) => {
     const { fro_worker_id } = req.body;
     if (!fro_worker_id) return res.status(400).json({ message: 'FRO worker ID is required' });
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('suspense_donations')
       .update({ assigned_to_fro_id: fro_worker_id, assigned_at: new Date().toISOString(), status: 'resolved' })
       .eq('id', id)
@@ -327,7 +327,7 @@ export const rejectLead = async (req, res) => {
       return res.status(400).json({ message: 'Rejection reason is required' });
     }
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, station, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
@@ -346,7 +346,7 @@ export const rejectLead = async (req, res) => {
       return res.status(400).json({ message: 'Associated assignment not found' });
     }
 
-    const { error: updateLogError } = await supabase
+    const { error: updateLogError } = await db
       .from('fro_donor_logs')
       .update({
         accounts_status: 'rejected',
@@ -359,7 +359,7 @@ export const rejectLead = async (req, res) => {
 
     if (updateLogError) throw updateLogError;
 
-    const { error: updateAsgnError } = await supabase
+    const { error: updateAsgnError } = await db
       .from('fro_assignments')
       .update({
         status: 'payment_rejected',
@@ -371,7 +371,7 @@ export const rejectLead = async (req, res) => {
     if (updateAsgnError) throw updateAsgnError;
 
     if (log.fro_assignments?.donor_id) {
-      await supabase.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
+      await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
 
     const froWorkerId = log.fro_assignments?.fro_worker_id;
@@ -394,7 +394,7 @@ export const rejectLead = async (req, res) => {
 
       if (!fcmLogged) {
         try {
-          await supabase.from('notification_log').insert({
+          await db.from('notification_log').insert({
             worker_id: froWorkerId,
             type: 'lead_rejected',
             title: notifTitle,
@@ -411,7 +411,7 @@ export const rejectLead = async (req, res) => {
     let ngoId = null;
     if (froWorkerId) {
       try {
-        const { data: alloc } = await supabase
+        const { data: alloc } = await db
           .from('worker_ngo_allocations')
           .select('ngo_id')
           .eq('worker_id', froWorkerId)
@@ -426,7 +426,7 @@ export const rejectLead = async (req, res) => {
     }
     if (!ngoId && assignmentStation) {
       try {
-        const { data: stationAssign } = await supabase
+        const { data: stationAssign } = await db
           .from('fro_station_assignments')
           .select('ngo_id')
           .eq('station', assignmentStation)
@@ -438,7 +438,7 @@ export const rejectLead = async (req, res) => {
     }
 
     try {
-      await supabase.from('rejected_lead_tickets').insert({
+      await db.from('rejected_lead_tickets').insert({
         fro_donor_log_id: logId,
         fro_worker_id: froWorkerId,
         ngo_id: ngoId,
@@ -452,7 +452,7 @@ export const rejectLead = async (req, res) => {
 
     if (ngoId) {
       try {
-        await supabase.from('alerts').insert({
+        await db.from('alerts').insert({
           ngo_id: ngoId,
           type: 'lead_rejected',
           title: 'Lead Rejected',
@@ -493,7 +493,7 @@ export const patchLeadField = async (req, res) => {
     const isDonorField = field in DONOR_FIELD_MAP;
 
     if (isDonorField) {
-      const { data: log, error: logError } = await supabase
+      const { data: log, error: logError } = await db
         .from('fro_donor_logs')
         .select('id, fro_assignments!inner(donor_id)')
         .eq('id', logId)
@@ -509,7 +509,7 @@ export const patchLeadField = async (req, res) => {
       }
 
       const donorColumn = DONOR_FIELD_MAP[field];
-      const { error: updateError } = await supabase
+      const { error: updateError } = await db
         .from('donor_profiles')
         .update({ [donorColumn]: value === '' ? null : value, updated_at: new Date().toISOString() })
         .eq('id', donorId);
@@ -519,7 +519,7 @@ export const patchLeadField = async (req, res) => {
       return res.json({ message: 'Field updated', field, value: value === '' ? null : value });
     }
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('id, accounts_status')
       .eq('id', logId)
@@ -532,7 +532,7 @@ export const patchLeadField = async (req, res) => {
     const updateData = {};
     updateData[field] = value === '' ? null : value;
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await db
       .from('fro_donor_logs')
       .update(updateData)
       .eq('id', logId);
@@ -548,7 +548,7 @@ export const patchLeadField = async (req, res) => {
 // ─── Receipts ──────────────────────────────────────────────
 
 async function getNextReceiptNo() {
-  const { data } = await supabase.from('receipts').select('receipt_no');
+  const { data } = await db.from('receipts').select('receipt_no');
   let maxNum = 0;
   for (const r of data || []) {
     const match = String(r.receipt_no).match(/(\d+)/);
@@ -570,7 +570,7 @@ export const generateReceipt = async (req, res) => {
       return res.json({ receipt: existing, message: 'Receipt already exists' });
     }
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
         id, amount_collected, pan_number, notes,
@@ -641,7 +641,7 @@ export const getReceiptList = async (req, res) => {
 export const getPendingReceipts = async (req, res) => {
   try {
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { data: receipts, error: recError } = await supabase
+    const { data: receipts, error: recError } = await db
       .from('receipts')
       .select('*')
       .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
@@ -652,7 +652,7 @@ export const getPendingReceipts = async (req, res) => {
 
     const logIds = receipts.map(r => r.log_id).filter(Boolean);
 
-    const { data: logs, error: logErr } = await supabase
+    const { data: logs, error: logErr } = await db
       .from('fro_donor_logs')
       .select(`
         id, amount_collected, verified_at, upi_transaction_id, transaction_datetime, payment_from, payment_mode,
@@ -706,7 +706,7 @@ export const markReceiptAsSent = async (req, res) => {
     if (ids.length === 0) return res.status(400).json({ message: 'receiptId or receipt_ids is required' });
     if (ids.length > 50) return res.status(400).json({ message: 'A maximum of 50 receipt IDs can be updated at once' });
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('receipts')
       .update({ sent: true, sent_at: new Date().toISOString() })
       .in('id', ids)
@@ -723,7 +723,7 @@ export const getDonorHistory = async (req, res) => {
   try {
     const { donorId } = req.params;
 
-    const { data: logs, error } = await supabase
+    const { data: logs, error } = await db
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_detail, amount_collected, accounts_status,
@@ -743,11 +743,11 @@ export const getDonorHistory = async (req, res) => {
     const receiptPromises = [];
     if (logIds.length > 0) {
       receiptPromises.push(
-        supabase.from('receipts').select('*').in('log_id', logIds)
+        db.from('receipts').select('*').in('log_id', logIds)
       );
     }
     receiptPromises.push(
-      supabase.from('receipts').select('*').eq('donor_id', donorId)
+      db.from('receipts').select('*').eq('donor_id', donorId)
     );
 
     const receiptResults = await Promise.allSettled(receiptPromises);
@@ -834,7 +834,7 @@ export const getDayEndReport = async (req, res) => {
       dateTo = reportDate + 'T23:59:59Z';
     }
 
-    const { data: froLogs, error: fErr } = await supabase
+    const { data: froLogs, error: fErr } = await db
       .from('fro_donor_logs')
       .select(`
         amount_collected, accounts_status, verified_at, created_at,
@@ -859,7 +859,7 @@ export const getDayEndReport = async (req, res) => {
       if (log.accounts_status === 'verified') froMap[wid].collected += amount;
     }
 
-    const { data: suspenseEntries, error: sErr } = await supabase
+    const { data: suspenseEntries, error: sErr } = await db
       .from('bank_audit_entries')
       .select('id, amount, payment_id, bank_audit_sources(name)')
       .eq('status', 'unverified');
@@ -868,7 +868,7 @@ export const getDayEndReport = async (req, res) => {
     const suspenseAmount = (suspenseEntries || []).reduce((s, e) => s + Number(e.amount || 0), 0);
 
     // Source-wise breakdown from bank audit entries
-    const { data: allBankEntries, error: bErr } = await supabase
+    const { data: allBankEntries, error: bErr } = await db
       .from('bank_audit_entries')
       .select('amount, bank_audit_sources(name)');
     if (bErr) throw bErr;
@@ -962,7 +962,7 @@ export const importReceipts = async (req, res) => {
     if (incomingNos.length > 0) {
       for (let i = 0; i < incomingNos.length; i += 100) {
         const batch = incomingNos.slice(i, i + 100);
-        const { data: existing } = await supabase
+        const { data: existing } = await db
           .from('receipts')
           .select('id, receipt_no')
           .in('receipt_no', batch);
@@ -1028,7 +1028,7 @@ export const importReceipts = async (req, res) => {
 
       try {
         console.time('import-tx');
-        const result = await supabase.transaction(async ({ from }) => {
+        const result = await db.transaction(async ({ from }) => {
           // Retry-safe dedupe: anything already in the DB is skipped, so a
           // re-upload (or a partial previous run) never creates duplicates.
           const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
@@ -1161,7 +1161,7 @@ export const importReceipts = async (req, res) => {
 
 const reverseDonorTotals = async () => {
   try {
-    const { data: linked } = await supabase
+    const { data: linked } = await db
       .from('receipts')
       .select('donor_id, amount')
       .not('donor_id', 'is', null);
@@ -1183,7 +1183,7 @@ const reverseDonorTotals = async () => {
     const BATCH = 100;
     for (let i = 0; i < donorIds.length; i += BATCH) {
       const batch = donorIds.slice(i, i + BATCH);
-      const { data: donors } = await supabase
+      const { data: donors } = await db
         .from('donor_profiles')
         .select('id, total_amount, donation_count')
         .in('id', batch);
@@ -1194,7 +1194,7 @@ const reverseDonorTotals = async () => {
       Object.entries(deductions).map(([donorId, dec]) => {
         const donor = donorMap[donorId];
         if (!donor) return Promise.resolve();
-        return supabase.from('donor_profiles').update({
+        return db.from('donor_profiles').update({
           total_amount: Math.max(0, (donor.total_amount || 0) - dec.amount),
           donation_count: Math.max(0, (donor.donation_count || 0) - dec.count),
           updated_at: new Date().toISOString(),
@@ -1217,14 +1217,14 @@ export const clearReceipts = async (req, res) => {
 
     let deleted = 0, remaining = 0;
     if (batch) {
-      const { data: ids } = await supabase
+      const { data: ids } = await db
         .from('receipts')
         .select('id')
         .neq('id', 0)
         .limit(batch);
       const batchIds = (ids || []).map(r => r.id);
       if (batchIds.length > 0) {
-        const { data: rows } = await supabase
+        const { data: rows } = await db
           .from('receipts')
           .delete()
           .in('id', batchIds)
@@ -1232,7 +1232,7 @@ export const clearReceipts = async (req, res) => {
         deleted = rows?.length || 0;
       }
     } else {
-      const { data: rows } = await supabase
+      const { data: rows } = await db
         .from('receipts')
         .delete()
         .neq('id', 0)
@@ -1249,7 +1249,7 @@ export const clearReceipts = async (req, res) => {
 
 export const getReceiptCount = async (req, res) => {
   try {
-    const { count } = await supabase
+    const { count } = await db
       .from('receipts')
       .select('*', { count: 'exact', head: true });
     return res.json({ count: count || 0 });
@@ -1266,7 +1266,7 @@ export const getDonorsList = async (req, res) => {
     const from = (pageNum - 1) * limitNum;
     const to = from + limitNum - 1;
 
-    let query = supabase
+    let query = db
       .from('donor_profiles')
       .select('*', { count: 'exact' });
 
@@ -1284,7 +1284,7 @@ export const getDonorsList = async (req, res) => {
 
     const donorIds = (data || []).map(d => d.id).filter(Boolean);
     if (donorIds.length > 0) {
-      const { data: assignments } = await supabase
+      const { data: assignments } = await db
         .from('fro_assignments')
         .select('donor_id, fro_worker_id, station, ngo_id')
         .in('donor_id', donorIds)
@@ -1293,7 +1293,7 @@ export const getDonorsList = async (req, res) => {
       const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
       const ngoMap = {};
       if (ngoIds.length > 0) {
-        const { data: ngos } = await supabase
+        const { data: ngos } = await db
           .from('ngos')
           .select('id, name')
           .in('id', ngoIds);
@@ -1303,7 +1303,7 @@ export const getDonorsList = async (req, res) => {
       const workerIds = [...new Set((assignments || []).map(a => a.fro_worker_id).filter(Boolean))];
       const workerMap = {};
       if (workerIds.length > 0) {
-        const { data: workers } = await supabase
+        const { data: workers } = await db
           .from('workers')
           .select('id, name')
           .in('id', workerIds);
@@ -1347,14 +1347,14 @@ export const getDonorDetail = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data: donor, error: donorErr } = await supabase
+    const { data: donor, error: donorErr } = await db
       .from('donor_profiles')
       .select('*')
       .eq('id', id)
       .single();
     if (donorErr) throw donorErr;
 
-    const { data: receipts, error: recErr } = await supabase
+    const { data: receipts, error: recErr } = await db
       .from('receipts')
       .select('*')
       .eq('donor_id', id)
@@ -1365,7 +1365,7 @@ export const getDonorDetail = async (req, res) => {
     let assignment_station = null;
     let assignment_ngo = null;
     try {
-      const { data: assignments } = await supabase
+      const { data: assignments } = await db
         .from('fro_assignments')
         .select('fro_worker_id, station, ngo_id')
         .eq('donor_id', id)
@@ -1375,7 +1375,7 @@ export const getDonorDetail = async (req, res) => {
       if (assignments && assignments.length > 0) {
         const a = assignments[0];
         if (a.fro_worker_id) {
-          const { data: worker } = await supabase
+          const { data: worker } = await db
             .from('workers')
             .select('name')
             .eq('id', a.fro_worker_id)
@@ -1384,7 +1384,7 @@ export const getDonorDetail = async (req, res) => {
         }
         assignment_station = a.station || null;
         if (a.ngo_id) {
-          const { data: ngo } = await supabase
+          const { data: ngo } = await db
             .from('ngos')
             .select('name')
             .eq('id', a.ngo_id)
@@ -1445,7 +1445,7 @@ export const updateDonor = async (req, res) => {
       return res.status(400).json({ message: 'No fields provided to update' });
     }
 
-    const { data: existing, error: fetchErr } = await supabase
+    const { data: existing, error: fetchErr } = await db
       .from('donor_profiles')
       .select('id')
       .eq('id', id)
@@ -1469,7 +1469,7 @@ export const updateDonor = async (req, res) => {
       return res.status(400).json({ message: 'No editable donor fields provided' });
     }
 
-    const { data: donor, error: updateErr } = await supabase
+    const { data: donor, error: updateErr } = await db
       .from('donor_profiles')
       .update(updateData)
       .eq('id', id)

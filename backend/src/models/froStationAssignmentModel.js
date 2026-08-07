@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createStationAssignment = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('fro_station_assignments')
     .insert([data])
     .select('*, workers!fro_station_assignments_fro_worker_id_fkey(id, name, login_id)')
@@ -11,7 +11,7 @@ export const createStationAssignment = async (data) => {
 };
 
 export const upsertStationAssignment = async (fro_worker_id, ngo_id, station, assigned_by) => {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('fro_station_assignments')
     .select('id')
     .eq('ngo_id', ngo_id)
@@ -21,7 +21,7 @@ export const upsertStationAssignment = async (fro_worker_id, ngo_id, station, as
   if (existing) {
     const payload = { updated_at: new Date().toISOString() };
     if (fro_worker_id !== undefined) payload.fro_worker_id = fro_worker_id;
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_station_assignments')
       .update(payload)
       .eq('id', existing.id)
@@ -34,7 +34,7 @@ export const upsertStationAssignment = async (fro_worker_id, ngo_id, station, as
   const insertData = { ngo_id, station, assigned_by };
   if (fro_worker_id) insertData.fro_worker_id = fro_worker_id;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_station_assignments')
     .insert([insertData])
     .select('*, workers!fro_station_assignments_fro_worker_id_fkey(id, name, login_id)')
@@ -44,7 +44,7 @@ export const upsertStationAssignment = async (fro_worker_id, ngo_id, station, as
 };
 
 export const createStation = async (ngo_id, station, assigned_by) => {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('fro_station_assignments')
     .select('id')
     .eq('ngo_id', ngo_id)
@@ -52,7 +52,7 @@ export const createStation = async (ngo_id, station, assigned_by) => {
     .maybeSingle();
   if (existing) return existing;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_station_assignments')
     .insert([{ ngo_id, station, assigned_by }])
     .select()
@@ -62,7 +62,7 @@ export const createStation = async (ngo_id, station, assigned_by) => {
 };
 
 export const getStationAssignmentsByNgo = async (ngoIds, includeNull = false) => {
-  let query = supabase
+  let query = db
     .from('fro_station_assignments')
     .select('*, workers!fro_station_assignments_fro_worker_id_fkey(id, name, login_id)');
 
@@ -80,7 +80,7 @@ export const getStationAssignmentsByNgo = async (ngoIds, includeNull = false) =>
 };
 
 export const deleteStationAssignment = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('fro_station_assignments')
     .delete()
     .eq('id', id);
@@ -88,7 +88,7 @@ export const deleteStationAssignment = async (id) => {
 };
 
 export const getStationAssignmentByNgoAndStation = async (ngoId, station) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_station_assignments')
     .select('*, workers!fro_station_assignments_fro_worker_id_fkey(id, name, login_id)')
     .eq('ngo_id', ngoId)

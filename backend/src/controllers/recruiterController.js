@@ -1,7 +1,7 @@
 import { getUserById } from '../models/userModel.js';
 import { getRecruiterWorkers } from '../models/workerModel.js';
 import { getAllLeads, getLeadsByRecruiter } from '../models/leadModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const listRecruiters = async (req, res) => {
   try {

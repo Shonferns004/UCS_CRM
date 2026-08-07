@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createTask = async (taskData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('tasks')
     .insert([taskData])
     .select()
@@ -11,7 +11,7 @@ export const createTask = async (taskData) => {
 };
 
 export const getAllTasks = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('tasks')
     .select('*, workers(name, email, login_id)')
     .order('assigned_date', { ascending: false });
@@ -20,7 +20,7 @@ export const getAllTasks = async () => {
 };
 
 export const getTaskById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('tasks')
     .select('*, workers(name, email, login_id)')
     .eq('id', id)
@@ -30,7 +30,7 @@ export const getTaskById = async (id) => {
 };
 
 export const getTasksByWorkerId = async (worker_id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('tasks')
     .select('*')
     .eq('worker_id', worker_id)
@@ -40,7 +40,7 @@ export const getTasksByWorkerId = async (worker_id) => {
 };
 
 export const updateTask = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('tasks')
     .update(updates)
     .eq('id', id)
@@ -51,7 +51,7 @@ export const updateTask = async (id, updates) => {
 };
 
 export const deleteTask = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('tasks')
     .delete()
     .eq('id', id);

@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createCause = async ({ ngo_id, name, description, file_url, file_name }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('causes')
     .insert({ ngo_id, name, description, file_url, file_name })
     .select('*')
@@ -11,7 +11,7 @@ export const createCause = async ({ ngo_id, name, description, file_url, file_na
 };
 
 export const getAllCauses = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('causes')
     .select('*, ngos(name, code)')
     .order('created_at', { ascending: false });
@@ -24,7 +24,7 @@ export const getAllCauses = async (ngo_id) => {
 };
 
 export const getCauseById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('causes')
     .select('*, ngos(name, code)')
     .eq('id', id)
@@ -34,7 +34,7 @@ export const getCauseById = async (id) => {
 };
 
 export const updateCause = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('causes')
     .update(updates)
     .eq('id', id)
@@ -45,7 +45,7 @@ export const updateCause = async (id, updates) => {
 };
 
 export const deleteCause = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('causes')
     .delete()
     .eq('id', id);

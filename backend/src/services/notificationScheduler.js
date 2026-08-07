@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import groq from '../config/groq.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getAllWorkers } from '../models/workerModel.js';
 import { getUpcomingEvents } from '../models/eventModel.js';
 import { getRecentNotices } from '../models/noticeModel.js';
@@ -13,6 +13,7 @@ import { reverseTransfer } from '../models/froAssignmentModel.js';
 import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
+import { generateDailyCodes } from './dailyCodeService.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
@@ -69,7 +70,7 @@ async function sendBirthdayNotifications(tokens, dateStr, dayOffset) {
     const ngoTokens = tokens.filter((t) => t.workers?.ngo_id === ngoId);
     if (ngoTokens.length === 0) continue;
 
-    const { data: existingLogs } = await supabase
+    const { data: existingLogs } = await db
       .from('notification_log')
       .select('worker_id, reference_id')
       .eq('type', 'birthday')
@@ -135,7 +136,7 @@ async function sendNewJoinerNotifications(tokens) {
     const ngoTokens = tokens.filter((t) => t.workers?.ngo_id === ngoId);
     if (ngoTokens.length === 0) continue;
 
-    const { data: existingLogs } = await supabase
+    const { data: existingLogs } = await db
       .from('notification_log')
       .select('worker_id, reference_id')
       .eq('type', 'new_joiner')
@@ -183,7 +184,7 @@ async function sendAnniversaryNotifications(tokens) {
   const currentYear = today.getFullYear();
   const todayDateStr = getDateString(today);
 
-  const { data: todayLog } = await supabase
+  const { data: todayLog } = await db
     .from('notification_log')
     .select('id')
     .eq('type', 'anniversary')
@@ -210,7 +211,7 @@ async function sendAnniversaryNotifications(tokens) {
 
     const yearStart = `${currentYear}-01-01T00:00:00+05:30`;
     const yearEnd = `${currentYear}-12-31T23:59:59+05:30`;
-    const { data: existingLogs } = await supabase
+    const { data: existingLogs } = await db
       .from('notification_log')
       .select('worker_id, reference_id')
       .eq('type', 'anniversary')
@@ -382,6 +383,9 @@ function start() {
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 * * *', () => resetCycledDonors()));
     console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
+
+    cronJobs.push(cron.schedule('0 0 * * *', () => generateDailyCodes().catch(() => {})));
+    console.log('Scheduled: midnight generation of daily QR codes');
   }
 
   cronJobs.push(cron.schedule('* * * * *', () => autoReportMissedSchedules()));
@@ -441,7 +445,7 @@ async function sendPunchInReminders() {
     for (const t of tokens) {
       const title = `⏰ ${window} min to shift!`;
 
-      const { data: existing } = await supabase
+      const { data: existing } = await db
         .from('notification_log')
         .select('id')
         .eq('worker_id', t.worker_id)
@@ -453,7 +457,7 @@ async function sendPunchInReminders() {
 
       if (existing) continue;
 
-      const { data: attendance } = await supabase
+      const { data: attendance } = await db
         .from('attendance')
         .select('id')
         .eq('worker_id', t.worker_id)
@@ -503,7 +507,7 @@ async function sendPunchOutReminders() {
     for (const t of tokens) {
       const title = `⏰ Shift ended ${window} min ago!`;
 
-      const { data: existing } = await supabase
+      const { data: existing } = await db
         .from('notification_log')
         .select('id')
         .eq('worker_id', t.worker_id)
@@ -515,7 +519,7 @@ async function sendPunchOutReminders() {
 
       if (existing) continue;
 
-      const { data: attendanceRecord } = await supabase
+      const { data: attendanceRecord } = await db
         .from('attendance')
         .select('id, punch_in_time, punch_out_time')
         .eq('worker_id', t.worker_id)
@@ -542,7 +546,7 @@ async function sendPunchOutReminders() {
 
 async function autoReturnTransfers() {
   try {
-    const { data: expired } = await supabase
+    const { data: expired } = await db
       .from('fro_transfers')
       .select('id')
       .eq('returned', false)
@@ -567,7 +571,7 @@ async function resetCycledDonors() {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const cutoff = thirtyDaysAgo.toISOString();
 
-    const { data: expired, error } = await supabase
+    const { data: expired, error } = await db
       .from('fro_assignments')
       .select('id, donor_id, fro_worker_id, ngo_id')
       .in('status', ['donation_collected', 'lead_done'])
@@ -577,7 +581,7 @@ async function resetCycledDonors() {
     if (!expired || expired.length === 0) return;
 
     const ids = expired.map(a => a.id);
-    const { error: updErr } = await supabase
+    const { error: updErr } = await db
       .from('fro_assignments')
       .update({ status: 'pending', updated_at: new Date().toISOString() })
       .in('id', ids);
@@ -594,7 +598,7 @@ async function autoReportMissedSchedules() {
   try {
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
-    const { data: contacts, error } = await supabase
+    const { data: contacts, error } = await db
       .from('fro_scheduled_contacts')
       .select('*, fro_assignments!inner(id, donor_id, ngo_id, fro_worker_id)')
       .eq('is_completed', false)
@@ -608,8 +612,8 @@ async function autoReportMissedSchedules() {
     const donorIds = [...new Set(contacts.map(c => c.fro_assignments?.donor_id).filter(Boolean))];
 
     const [donorsRes, workersRes] = await Promise.all([
-      donorIds.length > 0 ? supabase.from('donor_profiles').select('id, name').in('id', donorIds) : { data: [] },
-      workerIds.length > 0 ? supabase.from('workers').select('id, name').in('id', workerIds) : { data: [] },
+      donorIds.length > 0 ? db.from('donor_profiles').select('id, name').in('id', donorIds) : { data: [] },
+      workerIds.length > 0 ? db.from('workers').select('id, name').in('id', workerIds) : { data: [] },
     ]);
 
     const donorMap = {};
@@ -623,7 +627,7 @@ async function autoReportMissedSchedules() {
       const donorName = donorMap[a.donor_id] || 'Unknown';
       const froName = workerMap[a.fro_worker_id] || 'Unknown';
 
-      const { error: insErr } = await supabase
+      const { error: insErr } = await db
         .from('alerts')
         .insert([{
           ngo_id: a.ngo_id,
@@ -640,7 +644,7 @@ async function autoReportMissedSchedules() {
         continue;
       }
 
-      await supabase
+      await db
         .from('fro_scheduled_contacts')
         .update({ reminded: true })
         .eq('id', c.id);

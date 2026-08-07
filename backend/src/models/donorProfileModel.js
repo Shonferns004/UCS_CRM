@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getDonorByMobile = async (mobile) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('donor_profiles')
     .select('*')
     .eq('mobile_number', mobile)
@@ -85,7 +85,7 @@ export const upsertDonorProfilesBatch = async (profiles, importBatchId) => {
       `VALUES ${rowsSql.join(',\n')}\n` +
       `ON CONFLICT (mobile_number) DO UPDATE SET\n  ${DONOR_UPDATE_SET}\n` +
       `RETURNING first_import_batch_id`;
-    const { rows } = await supabase._pool.query(sql, values);
+    const { rows } = await db._pool.query(sql, values);
     for (const r of rows) {
       if (r.first_import_batch_id === importBatchId) created++;
     }
@@ -123,7 +123,7 @@ export const insertDonorProfile = async (profile) => {
     amount: profile.amount || 0,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('donor_profiles')
     .insert(row)
     .select('*')
@@ -133,7 +133,7 @@ export const insertDonorProfile = async (profile) => {
 };
 
 export const getAllDonorProfiles = async (limit = 500) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('donor_profiles')
     .select('*')
     .order('first_imported_at', { ascending: false })
@@ -143,7 +143,7 @@ export const getAllDonorProfiles = async (limit = 500) => {
 };
 
 export const getDonorProfilesByNgo = async (ngoList, limit = 1000) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('donor_profiles')
     .select('*')
     .in('ngo', ngoList)
@@ -154,7 +154,7 @@ export const getDonorProfilesByNgo = async (ngoList, limit = 1000) => {
 };
 
 export const getDonorProfilesByImportNgo = async (ngoList, limit = 1000) => {
-  const { data: mobiles, error: mErr } = await supabase
+  const { data: mobiles, error: mErr } = await db
     .from('new_data')
     .select('mobile_number')
     .in('ngo', ngoList)
@@ -171,7 +171,7 @@ export const getDonorProfilesByImportNgo = async (ngoList, limit = 1000) => {
   for (let i = 0; i < uniqueMobiles.length; i += BATCH) {
     const batch = uniqueMobiles.slice(i, i + BATCH);
     batchQueries.push(
-      supabase
+      db
         .from('donor_profiles')
         .select('*')
         .in('mobile_number', batch)

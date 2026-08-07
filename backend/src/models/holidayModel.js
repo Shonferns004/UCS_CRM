@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createHoliday = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('holidays')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createHoliday = async (data) => {
 };
 
 export const getAllHolidays = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('holidays')
     .select('*')
     .order('date', { ascending: true });
@@ -22,7 +22,7 @@ export const getAllHolidays = async (ngo_id) => {
 };
 
 export const getHolidaysInRange = async (startDate, endDate) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('holidays')
     .select('date')
     .gte('date', startDate)
@@ -32,7 +32,7 @@ export const getHolidaysInRange = async (startDate, endDate) => {
 };
 
 export const getHolidayById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('holidays')
     .select('*')
     .eq('id', id)
@@ -42,7 +42,7 @@ export const getHolidayById = async (id) => {
 };
 
 export const updateHoliday = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('holidays')
     .update(updates)
     .eq('id', id)
@@ -53,7 +53,7 @@ export const updateHoliday = async (id, updates) => {
 };
 
 export const deleteHoliday = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('holidays')
     .delete()
     .eq('id', id);

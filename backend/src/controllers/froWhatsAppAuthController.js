@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import jwt from 'jsonwebtoken';
 
 export async function whatsappAutoLogin(req, res) {
@@ -8,7 +8,7 @@ export async function whatsappAutoLogin(req, res) {
       return res.status(400).json({ message: 'Worker identity required' });
     }
 
-    const { data: agentsRaw, error: agentsErr } = await supabase
+    const { data: agentsRaw, error: agentsErr } = await db
       .rpc('get_worker_agents', { p_worker_id: workerId });
 
     if (agentsErr) {
@@ -94,13 +94,13 @@ export async function whatsappLogin(req, res) {
     let userData = null;
     let token = null;
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    const { data: authData, error: authError } = await db.auth.signInWithPassword({
       email,
       password,
     });
 
     if (!authError && authData?.user) {
-      const { data: dbUser } = await supabase
+      const { data: dbUser } = await db
         .rpc('get_whatsapp_user', { p_id: authData.user.id });
 
       userData = typeof dbUser === 'string' ? JSON.parse(dbUser) : dbUser;
@@ -108,7 +108,7 @@ export async function whatsappLogin(req, res) {
     }
 
     if (!userData) {
-      const { data: agentData, error: agentErr } = await supabase
+      const { data: agentData, error: agentErr } = await db
         .rpc('verify_agent', {
           p_email: email,
           p_password: password,
@@ -127,7 +127,7 @@ export async function whatsappLogin(req, res) {
       );
     }
 
-    const { data: assignment } = await supabase
+    const { data: assignment } = await db
       .from('agent_phone_assignments')
       .select('*, whatsapp_accounts!inner(id, name, project, phone_number_id)')
       .eq('user_id', userData.id)

@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createDataSource = async ({ name }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('data_sources')
     .insert({ name })
     .select('*')
@@ -11,7 +11,7 @@ export const createDataSource = async ({ name }) => {
 };
 
 export const getAllDataSources = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('data_sources')
     .select('*')
     .order('created_at', { ascending: false });
@@ -20,7 +20,7 @@ export const getAllDataSources = async () => {
 };
 
 export const getDataSourceById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('data_sources')
     .select('*')
     .eq('id', id)
@@ -30,7 +30,7 @@ export const getDataSourceById = async (id) => {
 };
 
 export const updateDataSource = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('data_sources')
     .update(updates)
     .eq('id', id)
@@ -41,7 +41,7 @@ export const updateDataSource = async (id, updates) => {
 };
 
 export const deleteDataSource = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('data_sources')
     .delete()
     .eq('id', id);

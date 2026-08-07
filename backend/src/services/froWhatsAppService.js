@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getAccountByProject } from '../models/whatsappAccountModel.js';
 import config from '../config/whatsappConfig.js';
 
@@ -10,7 +10,7 @@ function normalizePhone(phone) {
 }
 
 export async function getFroConversations(froWorkerId) {
-  const { data: assignments, error: assignErr } = await supabase
+  const { data: assignments, error: assignErr } = await db
     .from('fro_assignments')
     .select('donor_id, fro_worker_id, donor_profiles!inner(mobile_number)')
     .eq('fro_worker_id', froWorkerId)
@@ -38,7 +38,7 @@ export async function getFroConversations(froWorkerId) {
 
   const phoneList = [...phoneVariants];
 
-  const { data: contacts, error: contactErr } = await supabase
+  const { data: contacts, error: contactErr } = await db
     .from('contacts')
     .select('id, phone, phone_normalized, wa_profile_name, project')
     .in('phone_normalized', phoneList);
@@ -51,7 +51,7 @@ export async function getFroConversations(froWorkerId) {
 
   const contactIds = contacts.map(c => c.id);
 
-  const { data: conversations, error: convErr } = await supabase
+  const { data: conversations, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .in('contact_id', contactIds)
@@ -65,7 +65,7 @@ export async function getFroConversations(froWorkerId) {
 }
 
 export async function getConversationMessages(conversationId) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('messages')
     .select('*')
     .eq('conversation_id', conversationId)
@@ -76,7 +76,7 @@ export async function getConversationMessages(conversationId) {
 }
 
 export async function sendFroReply(conversationId, froWorkerId, messageText, mediaUrl) {
-  const { data: conversation, error: convErr } = await supabase
+  const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
     .eq('id', conversationId)
@@ -85,7 +85,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   if (convErr || !conversation) throw new Error('Conversation not found');
 
   if (!conversation.assigned_agent_id) {
-    await supabase
+    await db
       .from('conversations')
       .update({ assigned_agent_id: froWorkerId })
       .eq('id', conversationId);
@@ -96,7 +96,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 
   if (!project) {
     console.warn('[sendFroReply] Conversation', conversationId, 'has NO project set — falling back to assignment lookup');
-    const { data: workerAssignments } = await supabase
+    const { data: workerAssignments } = await db
       .from('worker_agent_assignments')
       .select('account_id, whatsapp_accounts!inner(project)')
       .eq('user_id', froWorkerId);
@@ -106,7 +106,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
   }
 
   if (!project) {
-    const { data: froAssignments } = await supabase
+    const { data: froAssignments } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_accounts!inner(project)')
       .eq('fro_worker_id', froWorkerId)
@@ -134,7 +134,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
 
   const messageType = mediaUrl ? 'media' : 'text';
 
-  const { data: message, error: msgErr } = await supabase
+  const { data: message, error: msgErr } = await db
     .from('messages')
     .insert({
       tenant_id: conversation.tenant_id,
@@ -189,7 +189,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     const result = await response.json();
 
     if (response.ok && result.messages?.[0]?.id) {
-      await supabase
+      await db
         .from('messages')
         .update({
           wa_message_id: result.messages[0].id,
@@ -198,7 +198,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
         })
         .eq('id', message.id);
     } else {
-      await supabase
+      await db
         .from('messages')
         .update({
           status: 'failed',
@@ -209,7 +209,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
       throw new Error(result.error?.message || 'Failed to send');
     }
   } catch (apiErr) {
-    await supabase
+    await db
       .from('messages')
       .update({
         status: 'failed',
@@ -220,7 +220,7 @@ export async function sendFroReply(conversationId, froWorkerId, messageText, med
     throw apiErr;
   }
 
-  await supabase
+  await db
     .from('conversations')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversationId);
@@ -240,7 +240,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   let account = await getAccountByProject(project);
 
   if (!account) {
-    const { data: froAcct } = await supabase
+    const { data: froAcct } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
       .eq('fro_worker_id', froWorkerId)
@@ -250,7 +250,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
   }
 
   if (!account) {
-    const { data: workerAcct } = await supabase
+    const { data: workerAcct } = await db
       .from('worker_agent_assignments')
       .select('whatsapp_accounts!inner(id, project, phone_number_id, access_token)')
       .eq('user_id', froWorkerId)
@@ -265,7 +265,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
     throw new Error(`WhatsApp account not configured`);
   }
 
-  const { data: message, error: msgErr } = await supabase
+  const { data: message, error: msgErr } = await db
     .from('messages')
     .insert({
       tenant_id: conversation.tenant_id,
@@ -304,7 +304,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
     const result = await response.json();
 
     if (response.ok && result.messages?.[0]?.id) {
-      await supabase
+      await db
         .from('messages')
         .update({
           wa_message_id: result.messages[0].id,
@@ -313,7 +313,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
         })
         .eq('id', message.id);
     } else {
-      await supabase
+      await db
         .from('messages')
         .update({
           status: 'failed',
@@ -324,7 +324,7 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
       throw new Error(result.error?.message || 'Failed to send');
     }
   } catch (apiErr) {
-    await supabase
+    await db
       .from('messages')
       .update({
         status: 'failed',
@@ -335,12 +335,12 @@ export async function sendDirectMessage(froWorkerId, phone, messageText, project
     throw apiErr;
   }
 
-  await supabase
+  await db
     .from('conversations')
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversation.id);
 
-  const { data: fullConversation } = await supabase
+  const { data: fullConversation } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .eq('id', conversation.id)
@@ -357,7 +357,7 @@ export async function createEmptyConversation(froWorkerId, phone, projectOverrid
 }
 
 async function findOrCreateContact(phoneNormalized) {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('contacts')
     .select('*')
     .eq('phone_normalized', phoneNormalized)
@@ -366,7 +366,7 @@ async function findOrCreateContact(phoneNormalized) {
   if (existing) return existing;
 
   try {
-    const { data: newContact, error } = await supabase
+    const { data: newContact, error } = await db
       .from('contacts')
       .insert({
         phone: phoneNormalized,
@@ -380,7 +380,7 @@ async function findOrCreateContact(phoneNormalized) {
     return newContact;
   } catch (insertErr) {
     // Handle race: another request inserted the same contact concurrently
-    const { data: raceContact } = await supabase
+    const { data: raceContact } = await db
       .from('contacts')
       .select('*')
       .eq('phone_normalized', phoneNormalized)
@@ -393,7 +393,7 @@ async function findOrCreateContact(phoneNormalized) {
 async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
   const projectFilter = projectOverride || contact.project || null;
 
-  let query = supabase
+  let query = db
     .from('conversations')
     .select('*')
     .eq('contact_id', contact.id)
@@ -412,7 +412,7 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
   }
 
   try {
-    const { data: newConv, error } = await supabase
+    const { data: newConv, error } = await db
       .from('conversations')
       .insert({
         contact_id: contact.id,
@@ -427,7 +427,7 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
     if (error) throw error;
     return newConv;
   } catch (insertErr) {
-    let raceQuery = supabase
+    let raceQuery = db
       .from('conversations')
       .select('*')
       .eq('contact_id', contact.id)
@@ -444,7 +444,7 @@ async function findOrCreateConversation(contact, froWorkerId, projectOverride) {
 }
 
 export async function markConversationRead(conversationId, froWorkerId) {
-  const { error } = await supabase
+  const { error } = await db
     .from('conversations')
     .update({ unread_count: 0 })
     .eq('id', conversationId);
@@ -455,7 +455,7 @@ export async function markConversationRead(conversationId, froWorkerId) {
 export async function getAgentConversations(agentUserId, projectFilter, role) {
   const isAdmin = ['admin', 'master', 'super_admin'].includes(role);
 
-  let query = supabase
+  let query = db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .order('last_message_at', { ascending: false });
@@ -463,16 +463,16 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
   if (isAdmin) {
     query = query.or(`assigned_agent_id.eq.${agentUserId},assigned_agent_id.is.null`);
   } else {
-    const { data: myAcctAssigns } = await supabase
+    const { data: myAcctAssigns } = await db
       .from('worker_agent_assignments')
       .select('account_id')
       .eq('user_id', agentUserId);
-    const { data: myFroAssigns } = await supabase
+    const { data: myFroAssigns } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_account_id')
       .eq('fro_worker_id', agentUserId)
       .eq('is_active', true);
-    const { data: myAgentAssigns } = await supabase
+    const { data: myAgentAssigns } = await db
       .from('agent_phone_assignments')
       .select('account_id')
       .eq('user_id', agentUserId);
@@ -484,7 +484,7 @@ export async function getAgentConversations(agentUserId, projectFilter, role) {
 
     let myProjects = [];
     if (acctIds.size > 0) {
-      const { data: accts } = await supabase
+      const { data: accts } = await db
         .from('whatsapp_accounts')
         .select('project')
         .in('id', Array.from(acctIds));
@@ -541,7 +541,7 @@ export async function getFroUnreadCount(froWorkerId) {
 }
 
 export async function getQuickReplies() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('quick_replies')
     .select('*')
     .eq('is_active', true)
@@ -551,7 +551,7 @@ export async function getQuickReplies() {
 }
 
 export async function getTemplates(project) {
-  let query = supabase
+  let query = db
     .from('whatsapp_templates')
     .select('*')
     .in('status', ['approved', 'APPROVED'])
@@ -586,7 +586,7 @@ async function getLiveTemplateDefinition(account, templateName) {
 }
 
 export async function sendTemplateReply(conversationId, froWorkerId, templateName, paramValues, headerMediaUrl, headerMediaName) {
-  const { data: conversation, error: convErr } = await supabase
+  const { data: conversation, error: convErr } = await db
     .from('conversations')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, project)')
     .eq('id', conversationId)
@@ -608,7 +608,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     throw new Error(`WhatsApp account not configured for project "${project}"`);
   }
 
-  const { data: storedTemplate } = await supabase
+  const { data: storedTemplate } = await db
     .from('whatsapp_templates')
     .select('*')
     .eq('name', templateName)
@@ -642,7 +642,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     }
   }
 
-  const { data: message, error: msgErr } = await supabase
+  const { data: message, error: msgErr } = await db
     .from('messages')
     .insert({
       tenant_id: conversation.tenant_id,
@@ -682,13 +682,13 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     );
     const result = await response.json();
     if (response.ok && result.messages?.[0]?.id) {
-      await supabase.from('messages').update({
+      await db.from('messages').update({
         wa_message_id: result.messages[0].id,
         status: 'sent',
         status_updated_at: new Date().toISOString(),
       }).eq('id', message.id);
     } else {
-      await supabase.from('messages').update({
+      await db.from('messages').update({
         status: 'failed',
         failure_reason: result.error?.message || 'Meta API error',
         status_updated_at: new Date().toISOString(),
@@ -696,7 +696,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
       throw new Error(result.error?.message || 'Failed to send template');
     }
   } catch (apiErr) {
-    await supabase.from('messages').update({
+    await db.from('messages').update({
       status: 'failed',
       failure_reason: apiErr instanceof Error ? apiErr.message : 'Network error',
       status_updated_at: new Date().toISOString(),
@@ -704,7 +704,7 @@ export async function sendTemplateReply(conversationId, froWorkerId, templateNam
     throw apiErr;
   }
 
-  await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
+  await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
   return message;
 }
 
@@ -713,7 +713,7 @@ export async function searchFroMessages(froWorkerId, query) {
   const convIds = conversations.map(c => c.id);
   if (convIds.length === 0) return [];
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('messages')
     .select('*, contact:contacts!inner(id, phone, phone_normalized, wa_profile_name, project)')
     .in('conversation_id', convIds)
@@ -725,7 +725,7 @@ export async function searchFroMessages(froWorkerId, query) {
 }
 
 export async function updateConversationLabels(conversationId, labels) {
-  const { error } = await supabase
+  const { error } = await db
     .from('conversations')
     .update({ labels })
     .eq('id', conversationId);
@@ -736,7 +736,7 @@ export async function uploadFroMedia(froWorkerId, file) {
   const fileName = `fro_${froWorkerId}_${Date.now()}_${file.originalname || 'file'}`;
   const bucket = 'whatsapp-media';
 
-  let { data: uploadData, error: uploadError } = await supabase.storage
+  let { data: uploadData, error: uploadError } = await db.storage
     .from(bucket)
     .upload(fileName, file.buffer, {
       contentType: file.mimetype,
@@ -744,14 +744,14 @@ export async function uploadFroMedia(froWorkerId, file) {
     });
 
   if (uploadError?.message?.includes('Bucket not found')) {
-    const { error: bucketError } = await supabase.storage.createBucket(bucket, {
+    const { error: bucketError } = await db.storage.createBucket(bucket, {
       public: true,
       allowedMimeTypes: ['image/*', 'video/*', 'audio/*', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
       fileSizeLimit: 52428800,
     });
     if (bucketError) throw bucketError;
 
-    const result = await supabase.storage
+    const result = await db.storage
       .from(bucket)
       .upload(fileName, file.buffer, { contentType: file.mimetype, upsert: false });
     if (result.error) throw result.error;
@@ -760,9 +760,9 @@ export async function uploadFroMedia(froWorkerId, file) {
     throw uploadError;
   }
 
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
+  const { data: urlData } = db.storage.from(bucket).getPublicUrl(fileName);
 
-  const { data: record, error: recordError } = await supabase
+  const { data: record, error: recordError } = await db
     .from('media_library')
     .insert({
       name: file.originalname || fileName,

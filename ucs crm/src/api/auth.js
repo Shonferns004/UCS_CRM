@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || 'https://attendance-roan-zeta.vercel.app/api'
+const BASE = import.meta.env.VITE_API_URL || 'https://43-200-198-122.sslip.io/api'
 
 export function setSession(prefix, token, user) {
   localStorage.setItem(`${prefix}_token`, token)

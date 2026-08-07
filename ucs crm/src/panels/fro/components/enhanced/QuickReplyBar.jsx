@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getQuickReplies } from '../../api/whatsappSupabase'
+import { getQuickReplies } from '../../api/whatsappApi'
 
 const CATEGORY_ICONS = {
   QR: '⬛',

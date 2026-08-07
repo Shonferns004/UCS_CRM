@@ -1,7 +1,7 @@
 import { sendDocumentMessage, sendReceiptMessage, sendNgoInfoTemplate, sendTemplateMessage, sendTextMessage, testConnection, resolveAccount, listTemplatesForAccount } from '../services/whatsappService.js';
 import whatsappConfig from '../config/whatsappConfig.js';
 import { getAccountById, getActiveAccounts } from '../models/whatsappAccountModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 const TEMPLATE_PROJECT_MAP = {
   bsct_receipt: 'bsct',
@@ -30,13 +30,13 @@ async function recordReceiptInConversation({ phone, project, receiptNo, document
     const variants = phoneVariants(phone);
     if (!variants.length) return null;
 
-    const { data: contacts, error: contactError } = await supabase
+    const { data: contacts, error: contactError } = await db
       .from('contacts')
       .select('id')
       .in('phone_normalized', variants);
     if (contactError || !contacts?.length) return null;
 
-    let conversationQuery = supabase
+    let conversationQuery = db
       .from('conversations')
       .select('id, tenant_id, contact_id')
       .in('contact_id', contacts.map(contact => contact.id))
@@ -48,7 +48,7 @@ async function recordReceiptInConversation({ phone, project, receiptNo, document
     // Older conversations may not have a project stored. Fall back to the
     // donor's latest conversation rather than hiding the receipt from the FRO.
     if (!conversation && !conversationError) {
-      ({ data: conversation, error: conversationError } = await supabase
+      ({ data: conversation, error: conversationError } = await db
         .from('conversations')
         .select('id, tenant_id, contact_id')
         .in('contact_id', contacts.map(contact => contact.id))
@@ -58,7 +58,7 @@ async function recordReceiptInConversation({ phone, project, receiptNo, document
     }
     if (conversationError || !conversation) return null;
 
-    const { data: message, error: messageError } = await supabase
+    const { data: message, error: messageError } = await db
       .from('messages')
       .insert({
         tenant_id: conversation.tenant_id,
@@ -79,7 +79,7 @@ async function recordReceiptInConversation({ phone, project, receiptNo, document
       .single();
     if (messageError) throw messageError;
 
-    await supabase
+    await db
       .from('conversations')
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', conversation.id);
@@ -126,7 +126,7 @@ export async function sendReceipt(req, res) {
     let donorProject = project;
 
     if (logId && logId !== '0') {
-      const { data: receiptRow } = await supabase
+      const { data: receiptRow } = await db
         .from('receipts')
         .select('receipt_no, pdf_url')
         .eq('log_id', logId)
@@ -138,7 +138,7 @@ export async function sendReceipt(req, res) {
       }
 
       if (!clientDonorName || !clientAmount || !donorProject || !receiptRow) {
-        const { data: log, error: logError } = await supabase
+        const { data: log, error: logError } = await db
           .from('fro_donor_logs')
           .select(`
             amount_collected,
@@ -166,7 +166,7 @@ export async function sendReceipt(req, res) {
           const uploadController = new AbortController();
           const uploadTimeout = setTimeout(() => uploadController.abort(), 20000);
 
-          let { data: uploadData, error: uploadError } = await supabase.storage
+          let { data: uploadData, error: uploadError } = await db.storage
             .from('receipts')
             .upload(fileName, buffer, { contentType: 'application/pdf', upsert: true, signal: uploadController.signal });
 
@@ -174,9 +174,9 @@ export async function sendReceipt(req, res) {
 
           if (uploadError) {
             if (uploadError.message?.includes('bucket')) {
-              const { error: bucketError } = await supabase.storage.createBucket('receipts', { public: true });
+              const { error: bucketError } = await db.storage.createBucket('receipts', { public: true });
               if (bucketError) throw new Error('Bucket create failed: ' + bucketError.message);
-              const retry = await supabase.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
+              const retry = await db.storage.from('receipts').upload(fileName, buffer, { contentType: 'application/pdf', upsert: true });
               if (retry.error) throw new Error('Upload failed after bucket create: ' + retry.error.message);
               uploadData = retry.data;
             } else {
@@ -184,11 +184,11 @@ export async function sendReceipt(req, res) {
             }
           }
 
-          const { data: publicUrlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
+          const { data: publicUrlData } = db.storage.from('receipts').getPublicUrl(fileName);
           documentUrl = publicUrlData?.publicUrl;
 
           if (documentUrl) {
-            await supabase.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId).maybeSingle();
+            await db.from('receipts').update({ pdf_url: documentUrl }).eq('log_id', logId).maybeSingle();
           }
         } catch (e) {
           uploadErrorMsg = e.message;
@@ -294,14 +294,14 @@ export async function sendDirect(req, res) {
         const safeName = String(donorName || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()
         displayName = `${ngoPrefix}_${safeName}_${receiptNo || 'receipt'}.pdf`
         const storagePath = `receipts/${receiptNo || Date.now()}.pdf`;
-        let { error: upErr } = await supabase.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
+        let { error: upErr } = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
         if (upErr && upErr.message?.includes('bucket')) {
-          await supabase.storage.createBucket('receipts', { public: true });
-          const retry = await supabase.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
+          await db.storage.createBucket('receipts', { public: true });
+          const retry = await db.storage.from('receipts').upload(storagePath, buffer, { contentType: 'application/pdf', upsert: true });
           upErr = retry.error;
         }
         if (!upErr) {
-          const { data: pub } = supabase.storage.from('receipts').getPublicUrl(storagePath);
+          const { data: pub } = db.storage.from('receipts').getPublicUrl(storagePath);
           documentUrl = pub?.publicUrl || null;
         }
       } catch (e) {
