@@ -1479,13 +1479,13 @@ export const exportDonors = async (req, res) => {
     for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
       const { data: assignments, error: asgnErr } = await db
         .from('fro_assignments')
-        .select('donor_id, fro_worker_id, station, ngo_id, assigned_at, created_at')
+        .select('donor_id, fro_worker_id, station, ngo_id, assigned_at')
         .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
         .not('status', 'eq', 'reassigned');
       if (asgnErr) throw asgnErr;
       for (const a of assignments || []) {
         const cur = latestByDonor.get(a.donor_id);
-        const ts = (x) => new Date(x?.assigned_at || x?.created_at || 0).getTime();
+        const ts = (x) => new Date(x?.assigned_at || 0).getTime();
         if (!cur || ts(a) > ts(cur)) latestByDonor.set(a.donor_id, a);
       }
     }
@@ -1558,7 +1558,7 @@ export const getDonorDetail = async (req, res) => {
         .select('fro_worker_id, station, ngo_id')
         .eq('donor_id', id)
         .not('status', 'eq', 'reassigned')
-        .order('created_at', { ascending: false });
+        .order('assigned_at', { ascending: false });
 
       if (assignments && assignments.length > 0) {
         const a = assignments[0];
