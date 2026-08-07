@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import { apiGet } from '../api/auth'
 
 const currency = (n) => {
@@ -126,6 +127,7 @@ export default function Donors() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState(null)
+  const [exporting, setExporting] = useState(false)
   const limit = 100
 
   const load = useCallback(async (q, pg) => {
@@ -160,6 +162,29 @@ export default function Donors() {
     setPage(1)
   }
 
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      const res = await apiGet('/accounts/donors/export?' + params.toString())
+      const rows = res.data || []
+      if (rows.length === 0) {
+        alert('No donors to export.')
+        return
+      }
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Donors')
+      XLSX.writeFile(wb, `donors_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (err) {
+      console.error('Export error:', err.message)
+      alert('Export failed: ' + err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div>
       <div className="stats-grid">
@@ -176,6 +201,10 @@ export default function Donors() {
             value={search}
             onChange={handleSearch}
           />
+          <button className="btn" onClick={handleExport} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            {exporting ? 'Exporting...' : 'Export Excel'}
+          </button>
         </div>
         <div className="table-wrap">
           <table>
