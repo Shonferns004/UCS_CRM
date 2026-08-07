@@ -1183,29 +1183,33 @@ export const getDonorLogs = async (req, res) => {
 
     const { data: receipts } = await db
       .from('receipts')
-      .select('*')
+      .select('*, fro_donor_logs!receipts_log_id_fkey(transaction_datetime)')
       .eq('donor_id', donorId)
       .order('receipt_date', { ascending: false });
 
     if (receipts && receipts.length > 0) {
-      const receiptLogs = receipts.map(r => ({
-        id: `receipt_${r.id}`,
-        assignment_id: assignment?.id || null,
-        amount_collected: parseFloat(r.amount || 0),
-        payment_mode: r.mode || '—',
-        mode: r.mode || '—',
-        accounts_status: 'verified',
-        created_at: r.receipt_date || r.created_at,
-        upi_transaction_id: r.payment_id || null,
-        payment_id: r.payment_id || null,
-        receipt_no: r.receipt_no || null,
-        donor_name: r.donor_name || null,
-        project_id: r.project_id || null,
-        action: 'donation',
-        transaction_datetime: r.receipt_date || r.created_at,
-        verified_at: r.receipt_date || r.created_at,
-        agent_name: r.agent_name || null,
-      }));
+      const receiptLogs = receipts.map(r => {
+        const linkedLog = Array.isArray(r.fro_donor_logs) ? r.fro_donor_logs[0] : r.fro_donor_logs;
+        const receiptDate = r.receipt_date || linkedLog?.transaction_datetime || r.created_at;
+        return {
+          id: `receipt_${r.id}`,
+          assignment_id: assignment?.id || null,
+          amount_collected: parseFloat(r.amount || 0),
+          payment_mode: r.mode || '—',
+          mode: r.mode || '—',
+          accounts_status: 'verified',
+          created_at: receiptDate,
+          upi_transaction_id: r.payment_id || null,
+          payment_id: r.payment_id || null,
+          receipt_no: r.receipt_no || null,
+          donor_name: r.donor_name || null,
+          project_id: r.project_id || null,
+          action: 'donation',
+          transaction_datetime: receiptDate,
+          verified_at: receiptDate,
+          agent_name: r.agent_name || null,
+        };
+      });
       if (assignment) {
         const nonDonationLogs = logs.filter(l => l.action !== 'donation' && !(l.disposition_detail === 'lead_done' && l.accounts_status === 'verified'));
         logs = [...nonDonationLogs, ...receiptLogs];
@@ -2406,6 +2410,23 @@ export const searchDonors = async (req, res) => {
       }
     }
 
+    const currentMonthStart = new Date();
+    currentMonthStart.setDate(1);
+    currentMonthStart.setHours(0, 0, 0, 0);
+    const monthDonationLogs = await chunkedInQuery(matchedIds, chunk =>
+      db.from('fro_donor_logs').select('donor_id, accounts_status').in('donor_id', chunk).eq('action', 'donation').gte('created_at', currentMonthStart.toISOString())
+    );
+    const currentMonthDonatedIds = new Set();
+    const currentMonthVerifiedIds = new Set();
+    for (const log of monthDonationLogs || []) {
+      currentMonthDonatedIds.add(log.donor_id);
+      if (log.accounts_status === 'verified') currentMonthVerifiedIds.add(log.donor_id);
+    }
+    for (const r of result) {
+      r.has_donated_current_month = currentMonthDonatedIds.has(r.donor_id);
+      r.has_verified_donation_current_month = currentMonthVerifiedIds.has(r.donor_id);
+    }
+
     return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2552,7 +2573,7 @@ export const getDonorDonations = async (req, res) => {
 
     let receiptQuery = db
       .from('receipts')
-      .select('*')
+      .select('*, fro_donor_logs!receipts_log_id_fkey(transaction_datetime)')
       .eq('donor_id', donorId)
       .order('receipt_date', { ascending: false });
 
@@ -2577,7 +2598,7 @@ export const getDonorDonations = async (req, res) => {
     }));
 
     const receiptDonations = (receipts || []).map(r => ({
-      date: r.receipt_date || r.created_at,
+      date: r.receipt_date || (Array.isArray(r.fro_donor_logs) ? r.fro_donor_logs[0] : r.fro_donor_logs)?.transaction_datetime || r.created_at,
       amount: r.amount || 0,
       mode: r.mode || null,
       status: 'verified',
