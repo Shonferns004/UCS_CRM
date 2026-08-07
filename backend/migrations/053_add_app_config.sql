@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS app_config (
 
 INSERT INTO app_config (id, data)
 VALUES (1, '{
-  "api_base_url": "https://attendance-roan-zeta.vercel.app/api",
-  "socket_url": "https://attendance-roan-zeta.vercel.app",
+  "api_base_url": "https://43-200-198-122.sslip.io/api",
+  "socket_url": "https://43-200-198-122.sslip.io",
   "minimum_version": "1.0.0",
   "update_url": "",
   "announcement": null,

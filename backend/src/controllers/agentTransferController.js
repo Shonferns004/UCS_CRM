@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function transferConversation(req, res) {
   try {
@@ -8,7 +8,7 @@ export async function transferConversation(req, res) {
       return res.status(400).json({ message: 'conversation_id and target_agent_id are required' });
     }
 
-    const { data: conversation, error } = await supabase
+    const { data: conversation, error } = await db
       .from('conversations')
       .update({ assigned_agent_id: target_agent_id })
       .eq('id', conversation_id)
@@ -37,7 +37,7 @@ export async function claimConversation(req, res) {
       return res.status(400).json({ message: 'conversation_id is required' });
     }
 
-    const { data: conversation, error } = await supabase
+    const { data: conversation, error } = await db
       .from('conversations')
       .update({ assigned_agent_id: req.user.id })
       .eq('id', conversation_id)

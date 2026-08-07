@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { AsyncLocalStorage } from 'async_hooks';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,8 +10,9 @@ import { emitDbChange } from '../socket.js';
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
 // ---------------------------------------------------------------------------
-// Type parsers — make node-postgres output match what supabase-js / PostgREST
-// returns (numbers for int8/numeric, ISO-8601 UTC strings for timestamptz).
+// Type parsers — make node-postgres output match what the query builder /
+// PostgREST returns (numbers for int8/numeric, ISO-8601 UTC strings for
+// timestamptz).
 // ---------------------------------------------------------------------------
 pg.types.setTypeParser(20, (v) => parseInt(v, 10));            // int8   -> number
 pg.types.setTypeParser(1700, (v) => parseFloat(v));            // numeric-> number
@@ -19,7 +21,7 @@ pg.types.setTypeParser(1114, (v) => v);                        // timestamp -> r
 pg.types.setTypeParser(1082, (v) => v);                        // date -> string
 pg.types.setTypeParser(1083, (v) => v);                        // time -> string
 
-const poolConfig = { max: 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 15000 };
+const poolConfig = { max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 20000, maxUses: 1000 };
 if (process.env.DATABASE_URL) {
   poolConfig.connectionString = process.env.DATABASE_URL;
   poolConfig.ssl = process.env.DATABASE_SSL !== 'false' ? { rejectUnauthorized: false } : false;
@@ -33,7 +35,21 @@ if (process.env.DATABASE_URL) {
     poolConfig.ssl = { rejectUnauthorized: false };
   }
 }
-const pool = new pg.Pool(poolConfig);
+const pgPool = new pg.Pool(poolConfig);
+pgPool.on('error', (err) => console.error('pg pool idle client error:', err.message));
+
+// Route every pool.query() call through the active transaction's connection
+// when one is open, so queries issued inside db.transaction() all run on
+// the same client (all-or-nothing) instead of the shared pool.
+const txStore = new AsyncLocalStorage();
+const pool = new Proxy(pgPool, {
+  get(target, prop) {
+    const ctx = txStore.getStore();
+    if (prop === 'query' && ctx && ctx.client) return ctx.client.query.bind(ctx.client);
+    const v = target[prop];
+    return typeof v === 'function' ? v.bind(target) : v;
+  },
+});
 
 const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
 const PGRST116 = { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116', details: '', hint: '' };
@@ -1197,12 +1213,28 @@ const storage = {
 };
 
 // ---------------------------------------------------------------------------
-const supabase = {
+const db = {
   from(table) { return new QueryBuilder(table); },
+  async transaction(callback) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await txStore.run({ client }, async () => {
+        return await callback({ from: (table) => new QueryBuilder(table) });
+      });
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* connection already dead */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
   rpc,
   auth,
   storage,
   _pool: pool,
 };
 
-export default supabase;
+export default db;

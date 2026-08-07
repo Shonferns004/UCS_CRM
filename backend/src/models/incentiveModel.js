@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getTargetsByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('incentive_targets')
     .select('*')
     .eq('worker_id', workerId)
@@ -11,7 +11,7 @@ export const getTargetsByWorker = async (workerId) => {
 };
 
 export const getTarget = async (workerId, month) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('incentive_targets')
     .select('*')
     .eq('worker_id', workerId)
@@ -21,7 +21,7 @@ export const getTarget = async (workerId, month) => {
 
   if (data && !data.is_auto_generated) return data;
 
-  const { data: froData, error: froError } = await supabase
+  const { data: froData, error: froError } = await db
     .from('fro_monthly_targets')
     .select('*')
     .eq('fro_worker_id', workerId)
@@ -43,7 +43,7 @@ export const getTarget = async (workerId, month) => {
 };
 
 export const upsertTarget = async (data) => {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('incentive_targets')
     .select('id')
     .eq('worker_id', data.worker_id)
@@ -51,7 +51,7 @@ export const upsertTarget = async (data) => {
     .maybeSingle();
 
   if (existing) {
-    const { data: result, error } = await supabase
+    const { data: result, error } = await db
       .from('incentive_targets')
       .update(data)
       .eq('id', existing.id)
@@ -61,7 +61,7 @@ export const upsertTarget = async (data) => {
     return result;
   }
 
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('incentive_targets')
     .insert([data])
     .select()
@@ -76,7 +76,7 @@ export const getCurrentMonthTargets = async () => {
   const m = String(now.getUTCMonth() + 1).padStart(2, '0');
   const monthStart = `${y}-${m}-01`;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('incentive_targets')
     .select('*, workers(name, email, department, salary_history!inner(salary))')
     .eq('month', monthStart)
@@ -86,7 +86,7 @@ export const getCurrentMonthTargets = async () => {
 };
 
 export const getFROWorkersWithSalary = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('id, name, department, created_at, salary_history(salary, from_month, to_month)')
     .eq('department', 'FRO')

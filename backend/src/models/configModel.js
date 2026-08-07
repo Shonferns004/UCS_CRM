@@ -1,10 +1,10 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 const CONFIG_ROW_ID = 1;
 
 const DEFAULT_CONFIG = {
-  api_base_url: 'https://attendance-roan-zeta.vercel.app/api',
-  socket_url: 'https://attendance-roan-zeta.vercel.app',
+  api_base_url: 'https://43-200-198-122.sslip.io/api',
+  socket_url: 'https://43-200-198-122.sslip.io',
   minimum_version: '1.0.0',
   update_url: '',
   announcement: null,
@@ -23,7 +23,7 @@ const safeParse = (value, fallback) => {
 };
 
 export const getAppConfig = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('app_config')
     .select('data')
     .eq('id', CONFIG_ROW_ID)
@@ -38,7 +38,7 @@ export const getAppConfig = async () => {
 export const updateAppConfig = async (updates) => {
   const { config } = await getAppConfig();
   const next = { ...config, ...updates };
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('app_config')
     .upsert({ id: CONFIG_ROW_ID, data: next, updated_at: new Date().toISOString() })
     .select('data')

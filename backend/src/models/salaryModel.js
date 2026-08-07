@@ -1,8 +1,9 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { computePaidDays } from '../utils/salaryDays.js';
 
 export const getSalariesByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .select('*')
     .eq('worker_id', workerId)
@@ -12,7 +13,7 @@ export const getSalariesByWorker = async (workerId) => {
 };
 
 export const getActiveSalaryByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .select('*')
     .eq('worker_id', workerId)
@@ -23,7 +24,7 @@ export const getActiveSalaryByWorker = async (workerId) => {
 };
 
 export const createSalary = async (salaryData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .insert([salaryData])
     .select()
@@ -33,7 +34,7 @@ export const createSalary = async (salaryData) => {
 };
 
 export const updateSalary = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .update(updates)
     .eq('id', id)
@@ -44,13 +45,13 @@ export const updateSalary = async (id, updates) => {
 };
 
 export const getAllWorkersSalarySummary = async () => {
-  const { data: workers, error: wErr } = await supabase
+  const { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, email, department, created_at')
     .order('created_at', { ascending: false });
   if (wErr) throw wErr;
 
-  const { data: salaries, error: sErr } = await supabase
+  const { data: salaries, error: sErr } = await db
     .from('salary_history')
     .select('*')
     .order('from_month', { ascending: false });
@@ -94,13 +95,13 @@ export const getPayrollData = async (month, extended = false) => {
   const selectFields = extended
     ? 'id, name, account_number, ifsc_code, account_holder_name, bank_name, department, created_at'
     : 'id, name, account_number, ifsc_code';
-  const { data: workers, error: wErr } = await supabase
+  const { data: workers, error: wErr } = await db
     .from('workers')
     .select(selectFields)
     .order('name');
   if (wErr) throw wErr;
 
-  const { data: salaries, error: sErr } = await supabase
+  const { data: salaries, error: sErr } = await db
     .from('salary_history')
     .select('*')
     .order('from_month', { ascending: false });
@@ -115,7 +116,7 @@ export const getPayrollData = async (month, extended = false) => {
   let achievedByWorker = {};
   let akiByWorker = {};
   if (extended) {
-    const { data: targets, error: tErr } = await supabase
+    const { data: targets, error: tErr } = await db
       .from('incentive_targets')
       .select('worker_id, target_amount')
       .gte('month', startDate)
@@ -126,7 +127,7 @@ export const getPayrollData = async (month, extended = false) => {
       }
     }
 
-    const { data: achievements, error: aErr2 } = await supabase
+    const { data: achievements, error: aErr2 } = await db
       .from('daily_achievements')
       .select('worker_id, amount, date')
       .gte('date', startDate)
@@ -140,7 +141,7 @@ export const getPayrollData = async (month, extended = false) => {
     }
   }
 
-  const { data: allAllocs, error: aErr } = await supabase
+  const { data: allAllocs, error: aErr } = await db
     .from('worker_ngo_allocations')
     .select('*, ngos(name)');
   if (aErr) throw aErr;
@@ -151,7 +152,7 @@ export const getPayrollData = async (month, extended = false) => {
     allocsByWorker[a.worker_id].push(a);
   }
 
-  const { data: attRecords, error: attErr } = await supabase
+  const { data: attRecords, error: attErr } = await db
     .from('attendance')
     .select('worker_id, status, date')
     .gte('date', startDate)
@@ -165,7 +166,7 @@ export const getPayrollData = async (month, extended = false) => {
   }
 
   // Fetch active loan deductions
-  const { data: activeLoans, error: loanErr } = await supabase
+  const { data: activeLoans, error: loanErr } = await db
     .from('worker_loans')
     .select('worker_id, monthly_deduction, remaining_amount, type')
     .in('status', ['approved', 'active'])
@@ -209,7 +210,7 @@ export const getPayrollData = async (month, extended = false) => {
       if (target > 0 && achieved >= target) {
         const overage = achieved - target;
         monthlyIncentive = Math.round(overage * 0.1);
-        const monthsEmp = w.created_at ? getMonthsEmployed(w.created_at) : 99;
+        const monthsEmp = w.created_at ? getMonthsEmployed(w.created_at, new Date(year, monthIdx + 1, 0)) : 99;
         akiPayout = monthsEmp <= 3 ? Math.round(totalAKI) : Math.round(totalAKI / 2);
       }
     }
@@ -285,10 +286,289 @@ export const getPayrollData = async (month, extended = false) => {
 };
 
 export const deleteSalary = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('salary_history')
     .delete()
     .eq('id', id);
   if (error) throw error;
   return { message: 'Salary record deleted' };
+};
+
+export const getPresentDaysByMonth = async (month) => {
+  const p = String(month || '').split('-');
+  if (p.length !== 2) throw new Error('month must be YYYY-MM');
+  const year = parseInt(p[0], 10);
+  const monthIdx = parseInt(p[1], 10) - 1;
+  if (!year || monthIdx < 0 || monthIdx > 11) throw new Error('month must be YYYY-MM');
+  const pad = n => String(n).padStart(2, '0');
+  const monthStr = `${year}-${pad(monthIdx + 1)}`;
+  const startDate = `${monthStr}-01`;
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const endDate = `${monthStr}-${pad(daysInMonth)}`;
+
+  const { data: workers, error: wErr } = await db
+    .from('workers')
+    .select('id, name, created_at');
+  if (wErr) throw wErr;
+
+  const { data: attRecords, error: aErr } = await db
+    .from('attendance')
+    .select('worker_id, status, date, late_minutes')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  if (aErr) throw aErr;
+
+  const { data: holidays, error: hErr } = await db
+    .from('holidays')
+    .select('date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
+
+  const { data: collLogs, error: collErr } = await db
+    .from('fro_donor_logs')
+    .select('amount_collected, fro_assignments!inner(fro_worker_id)')
+    .or(
+      `and(action.eq.donation,created_at.gte.${startDate},created_at.lte.${endDate}),` +
+      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${startDate},verified_at.lte.${endDate}),` +
+      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${startDate},created_at.lte.${endDate})`
+    );
+  const collectionByWorker = {};
+  if (!collErr) {
+    for (const d of collLogs || []) {
+      const wid = d.fro_assignments && d.fro_assignments.fro_worker_id;
+      if (!wid) continue;
+      collectionByWorker[wid] = (collectionByWorker[wid] || 0) + parseFloat(d.amount_collected || 0);
+    }
+  }
+
+  const counts = {};
+  const attByWorker = {};
+  for (const r of attRecords) {
+    if (!attByWorker[r.worker_id]) attByWorker[r.worker_id] = [];
+    attByWorker[r.worker_id].push(r);
+    if (!counts[r.worker_id]) counts[r.worker_id] = { present: 0, late: 0, half: 0, absent: 0, leave: 0 };
+    if (counts[r.worker_id][r.status] !== undefined) counts[r.worker_id][r.status]++;
+    else counts[r.worker_id][r.status] = 1;
+  }
+
+  const rows = workers.map(w => {
+    const c = counts[w.id] || { present: 0, late: 0, half: 0, absent: 0, leave: 0 };
+    const calc = computePaidDays({
+      year,
+      month: monthIdx,
+      daysInMonth,
+      records: attByWorker[w.id] || [],
+      createdAt: w.created_at || '',
+      holidayDates,
+    });
+    return {
+      worker_id: w.id,
+      name: w.name,
+      date_of_joining: w.created_at || '',
+      present: c.present,
+      late: c.late,
+      half: c.half,
+      absent: c.absent,
+      leave: c.leave,
+      paid_days: calc.paidDays,
+      late_deduction_days: calc.lateDeductionDays,
+      joining_deduction: calc.joiningDeduction,
+      available_days: calc.available,
+      absent_count: calc.absentDatesAfterJoin.length,
+      half_days: calc.halfDayCount,
+      leave_count: calc.leaveCount,
+      sunday_count: calc.sundayStats.totalSundays,
+      attended_sundays: calc.sundayStats.attendedSundays,
+      unpaid_sundays: calc.sundayStats.unpaidSundays.length,
+      clubbed_sundays: calc.clubbedSundays,
+      extra_sundays: calc.extraSundayCount,
+      free_sundays: calc.freeSundays,
+      sunday_reasons: calc.sundayReasons.map(r => ({ date: r.date, reason: r.reason })),
+      deducted_sundays: calc.sundayStats.cancelledSundays.length + calc.sundayStats.unpaidSundays.length,
+      total_late_minutes: calc.totalLateMinutes,
+      sunday_add: calc.sundayAdd,
+      deducted_days: calc.deductedCount,
+      worked_days: calc.totalDueDays,
+      collection: collectionByWorker[w.id] || 0,
+    };
+  });
+
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  return { month: startDate, days_in_month: daysInMonth, total_workers: rows.length, rows };
+};
+
+// Mirrors normalizeName() in the salary frontend so Excel names ("Nazreen
+// Zahur Baig") resolve to DB workers ("Nazreen Baig").
+function normalizeName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\s*\(.*?\)\s*/g, ' ')
+    .replace(/\s+-\s+.*$/g, '')
+    .replace(/\bleft\b/g, ' ')
+    .replace(/[^a-z ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function resolveWorkerByName(workers, name) {
+  const n = normalizeName(name);
+  if (!n) return undefined;
+  let match = workers.find(w => normalizeName(w.name) === n);
+  if (match) return match;
+  const parts = n.split(' ').filter(Boolean);
+  const normKeys = workers.map(w => normalizeName(w.name));
+  if (parts.length >= 2) {
+    const firstLast = parts[0] + ' ' + parts[parts.length - 1];
+    match = workers.find(w => normalizeName(w.name) === firstLast);
+    if (match) return match;
+    for (let i = 0; i < workers.length; i++) {
+      const kp = normKeys[i].split(' ').filter(Boolean);
+      if (kp.length >= 2 && kp[0] + ' ' + kp[kp.length - 1] === firstLast) return workers[i];
+    }
+  }
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const byFirst = workers.filter((_, i) => normKeys[i].split(' ')[0] === first);
+  if (byFirst.length === 1) return byFirst[0];
+  const byLast = workers.filter((_, i) => {
+    const kp = normKeys[i].split(' ').filter(Boolean);
+    return kp[kp.length - 1] === last;
+  });
+  if (byLast.length === 1) return byLast[0];
+  const tokSet = new Set(parts);
+  const excelInDb = workers.filter((_, i) => {
+    const kp = normKeys[i].split(' ').filter(Boolean);
+    return kp.length > 1 && kp.every(t => tokSet.has(t));
+  });
+  if (excelInDb.length === 1) return excelInDb[0];
+  const dbInExcel = workers.filter((_, i) => {
+    const kp = normKeys[i].split(' ').filter(Boolean);
+    return kp.length <= parts.length && parts.every(t => kp.includes(t));
+  });
+  if (dbInExcel.length === 1) return dbInExcel[0];
+  return undefined;
+}
+
+// Daily attendance grid for one worker for a month — day-by-day status
+// (present/late/half-day/absent/leave/sunday) with punch in/out times.
+export const getWorkerAttendanceByName = async (month, name) => {
+  const p = String(month || '').split('-');
+  if (p.length !== 2) throw new Error('month must be YYYY-MM');
+  const year = parseInt(p[0], 10);
+  const monthIdx = parseInt(p[1], 10) - 1;
+  if (!year || monthIdx < 0 || monthIdx > 11) throw new Error('month must be YYYY-MM');
+  const pad = n => String(n).padStart(2, '0');
+  const monthStr = `${year}-${pad(monthIdx + 1)}`;
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const startDate = `${monthStr}-01`;
+  const endDate = `${monthStr}-${pad(daysInMonth)}`;
+
+  const { data: workers, error: wErr } = await db
+    .from('workers')
+    .select('id, name, created_at');
+  if (wErr) throw wErr;
+
+  const worker = resolveWorkerByName(workers, name);
+  if (!worker) return { worker: null, days_in_month: daysInMonth, stats: null, rows: [] };
+
+  const { data: records, error: aErr } = await db
+    .from('attendance')
+    .select('*')
+    .eq('worker_id', worker.id)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date', { ascending: true });
+  if (aErr) throw aErr;
+
+  const { data: leaves, error: lErr } = await db
+    .from('leaves')
+    .select('leave_date, start_date, end_date')
+    .eq('worker_id', worker.id);
+  const leaveDates = new Set();
+  if (!lErr && leaves) {
+    for (const l of leaves) {
+      const start = l.leave_date || l.start_date;
+      const end = l.leave_date || l.end_date;
+      if (!start) continue;
+      const s = new Date(start + 'T00:00:00Z');
+      const e = new Date((end || start) + 'T00:00:00Z');
+      if (isNaN(s.getTime()) || isNaN(e.getTime())) continue;
+      for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
+        const ds = d.toISOString().slice(0, 10);
+        if (ds >= startDate && ds <= endDate) leaveDates.add(ds);
+      }
+    }
+  }
+
+  const recByDate = {};
+  for (const r of records) recByDate[r.date] = r;
+
+  const { data: holidays, error: hErr } = await db
+    .from('holidays')
+    .select('date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  const holidaySet = new Set((hErr || !holidays ? [] : holidays).map(h => String(h.date).slice(0, 10)));
+
+  // Mirrors computePaidDays(): only days up to "today" (IST) count as absent;
+  // holidays, Sundays and days before joining are not absences.
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const viewDay = (istNow.getUTCFullYear() === year && istNow.getUTCMonth() === monthIdx)
+    ? istNow.getUTCDate()
+    : daysInMonth + 1;
+
+  const joinDate = worker.created_at ? new Date(worker.created_at) : null;
+  const joinedThisMonth = joinDate && !isNaN(joinDate.getTime())
+    ? joinDate.getFullYear() === year && joinDate.getMonth() === monthIdx
+    : false;
+  const beforeJoinSet = joinedThisMonth
+    ? new Set(Array.from({ length: joinDate.getUTCDate() - 1 }, (_, i) => `${monthStr}-${pad(i + 1)}`))
+    : new Set();
+
+  const fmtTime = (t) => {
+    if (!t) return null;
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+  };
+
+  const rows = [];
+  const stats = { present: 0, late: 0, half: 0, absent: 0, leave: 0, sunday: 0, holiday: 0 };
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${monthStr}-${pad(d)}`;
+    const dow = new Date(Date.UTC(year, monthIdx, d)).getUTCDay();
+    const rec = recByDate[dateStr];
+    let status;
+    if (rec) {
+      status = rec.status;
+    } else if (leaveDates.has(dateStr)) {
+      status = 'leave';
+    } else if (beforeJoinSet.has(dateStr) || d > viewDay) {
+      status = 'future';
+    } else if (dow !== 0) {
+      status = holidaySet.has(dateStr) ? 'holiday' : 'absent';
+    } else {
+      status = 'sunday';
+    }
+    if (stats[status] !== undefined) stats[status]++;
+    const pi = rec && rec.punch_in_time ? new Date(rec.punch_in_time).getTime() : null;
+    const po = rec && rec.punch_out_time ? new Date(rec.punch_out_time).getTime() : null;
+    let hoursWorked = null;
+    if (pi && po && !isNaN(pi) && !isNaN(po)) {
+      const mins = Math.max(0, Math.round((po - pi) / 60000));
+      hoursWorked = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    }
+    rows.push({
+      date: dateStr,
+      day: dow,
+      status,
+      id: rec ? rec.id : null,
+      late_minutes: rec ? (rec.late_minutes || 0) : 0,
+      punch_in: fmtTime(rec && rec.punch_in_time),
+      punch_out: fmtTime(rec && rec.punch_out_time),
+      hours_worked: hoursWorked,
+    });
+  }
+  return { worker: { id: worker.id, name: worker.name, date_of_joining: worker.created_at || '' }, days_in_month: daysInMonth, stats, rows };
 };

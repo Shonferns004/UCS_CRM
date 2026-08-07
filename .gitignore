@@ -21,16 +21,5 @@ emails.txt
 razorypay.txt
 client/assets/*.properties
 
-package.json
-package-lock.json
-!others/client-web/package.json
-!others/client-web/package-lock.json
-!others/admin-attendance/package.json
-!others/admin-attendance/package-lock.json
-!others/hr form/package.json
-!others/hr form/package-lock.json
-!others/sevak library/package.json
-!others/sevak library/package-lock.json
-
 tmp_schema.sql
 aws/main.md

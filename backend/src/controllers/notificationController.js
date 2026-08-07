@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import {
   upsertFcmToken,
   getWorkerNotifications,
@@ -61,7 +61,7 @@ export const getNotificationLeadInfo = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data: notif, error: notifErr } = await supabase
+    const { data: notif, error: notifErr } = await db
       .from('notification_log')
       .select('fro_donor_log_id')
       .eq('id', id)
@@ -70,7 +70,7 @@ export const getNotificationLeadInfo = async (req, res) => {
       return res.status(404).json({ message: 'Notification or log reference not found' });
     }
 
-    const { data: log, error: logErr } = await supabase
+    const { data: log, error: logErr } = await db
       .from('fro_donor_logs')
       .select('id, amount_collected, fro_assignments!inner(id, fro_worker_id, donor_id, ngo_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', notif.fro_donor_log_id)

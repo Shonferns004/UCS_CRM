@@ -52,8 +52,8 @@
 │  └──────────────────────┬───────────────────────────────┘   │
 │                         │                                    │
 │  ┌──────────────────────┼───────────────────────────────┐   │
-│  │         Supabase (PostgreSQL + Realtime)             │   │
-│  │          40+ Tables · Edge Functions                 │   │
+│  │         PostgreSQL + Socket.IO Realtime              │   │
+│  │          40+ Tables · S3-backed Storage              │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
 │  External Services:                                          │
@@ -70,7 +70,7 @@
 |-------|------------|---------|
 | **Backend Runtime** | Node.js | v24.x |
 | **Backend Framework** | Express.js | — |
-| **Database** | Supabase (PostgreSQL) | — |
+| **Database** | PostgreSQL (pg driver) | — |
 | **Authentication** | JWT + bcryptjs | — |
 | **Main CRM Frontend** | React + Vite | React 19, Vite 6 |
 | **Worker Web App** | React + Vite + Tailwind CSS | React 19, Vite 6, Tailwind 4 |
@@ -100,10 +100,6 @@ UCS_CRM/
 │   ├── .env                            (environment variables)
 │   ├── package.json                    (dependencies)
 │   ├── vercel.json                     (Vercel deployment config)
-│   ├── functions/                      (Deno/TypeScript Supabase Edge Functions)
-│   │   ├── aflf/webhook-whatsapp.js    (Ashray For Life Foundation)
-│   │   ├── bsct/webhook-whatsapp.js    (Being Sevak Foundation)
-│   │   └── mann/webhook-whatsapp.js    (Mann Care Foundation)
 │   ├── migrations/                     (29 SQL migration files)
 │   │   ├── 001_create_fro_transfers.sql
 │   │   ├── 002_create_worker_loans.sql
@@ -123,7 +119,7 @@ UCS_CRM/
 │       │   ├── firebase.js             (Firebase Admin SDK)
 │       │   ├── groq.js                 (Groq AI SDK)
 │       │   ├── paymentGatewayConfig.js (Razorpay + Paytm)
-│       │   ├── supabase.js             (Supabase client)
+│       │   ├── db.js                   (PostgreSQL query driver)
 │       │   └── whatsappConfig.js       (WhatsApp Cloud API)
 │       ├── middleware/
 │       │   └── authMiddleware.js       (JWT verify + role-based auth)
@@ -330,7 +326,7 @@ UCS_CRM/
 │   ├── index.html                      (16 lines)
 │   ├── package.json                    (34 lines)
 │   ├── vite.config.js                  (7 lines)
-│   ├── .env                            (3 lines - VITE_API_URL, Supabase)
+│   ├── .env                            (VITE_API_URL, Socket, WhatsApp master creds)
 │   ├── src/
 │   │   ├── main.jsx                    (13 lines - entry)
 │   │   ├── App.jsx                     (146 lines - role-based routing)
@@ -338,8 +334,7 @@ UCS_CRM/
 │   │   ├── theme.js                    (31 lines - 17 themes)
 │   │   ├── icons.jsx                   (38 lines - SVG components)
 │   │   ├── index.css                   (1106+ lines - comprehensive styles)
-│   │   ├── config/supabase.js          (6 lines - Supabase client)
-│   │   ├── hooks/useRealtime.js        (32 lines - Supabase realtime hook)
+│   │   ├── hooks/useRealtime.js        (socket.io realtime hook)
 │   │   ├── api/auth.js                 (57 lines - API core + login)
 │   │   ├── components/                 (shared components)
 │   │   │   ├── DonorDetailModal.jsx    (186 lines)
@@ -2665,7 +2660,8 @@ User:  user@ufs.com  / 123456  (readOnly)
 
 | Service | Integration | Used In |
 |---------|-------------|---------|
-| **Supabase** | PostgreSQL database + Realtime subscriptions | Backend (all data), Flutter (realtime), shon (direct) |
+| **PostgreSQL** | Relational database via custom pg driver | Backend (all data) |
+| **Supabase Realtime** | Realtime subscriptions | Flutter (realtime) |
 | **Firebase FCM** | Push notifications via Admin SDK | Backend (fcmService.js), Flutter (notification_service.dart) |
 | **Razorpay** | Payment gateway webhook + payments sync | Backend (razorpayWebhook.js), Accounts panel |
 | **Paytm** | Payment gateway webhook with checksum verification | Backend (paytmWebhook.js) |

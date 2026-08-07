@@ -181,8 +181,58 @@ function Field({ label, value }) {
   );
 }
 
+const inputStyle = {
+  padding: '8px 12px',
+  border: '1px solid var(--line)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: 14,
+  fontFamily: 'inherit',
+  outline: 'none',
+  background: 'var(--paper)',
+  color: 'var(--ink)',
+  width: '100%',
+  boxSizing: 'border-box',
+};
+
+function EditableField({ label, value, onChange, type = 'text', options, textarea, placeholder }) {
+  return (
+    <label className="field" style={{ marginBottom: 8 }}>
+      <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}>{label}</span>
+      {options ? (
+        <select style={inputStyle} value={value || ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {options.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      ) : textarea ? (
+        <textarea
+          rows={textarea}
+          style={{ ...inputStyle, resize: 'vertical' }}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      ) : (
+        <input
+          type={type}
+          style={inputStyle}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      )}
+    </label>
+  );
+}
+
+function EditField({ editing, label, value, onChange, ...props }) {
+  if (!editing) return <Field label={label} value={value} />;
+  return <EditableField label={label} value={value} onChange={onChange} {...props} />;
+}
+
 export default function HRForms() {
-  const { fetchWorkers, fetchWorkerById } = useHR();
+  const { fetchWorkers, fetchWorkerById, updateWorker } = useHR();
   const [workers, setWorkers] = useState([]);
   const [search, setSearch] = useState('');
   const [selectedWorker, setSelectedWorker] = useState(null);
@@ -190,6 +240,9 @@ export default function HRForms() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
 
   useEffect(() => {
     fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message)).finally(() => setLoading(false));
@@ -204,9 +257,11 @@ export default function HRForms() {
   const handleCardClick = async (worker) => {
     setSelectedWorker(worker);
     setLoadingPreview(true);
+    setSaveMsg('');
     try {
       const data = await fetchWorkerById(worker.id);
       setPreviewData(data);
+      setForm(data ? JSON.parse(JSON.stringify(data)) : null);
     } catch (e) {
       console.error('Error fetching worker:', e.message);
     } finally {
@@ -217,9 +272,61 @@ export default function HRForms() {
   const handleBack = () => {
     setSelectedWorker(null);
     setPreviewData(null);
+    setForm(null);
+    setSaveMsg('');
+  };
+
+  const cancelEdit = () => {
+    setForm(previewData ? JSON.parse(JSON.stringify(previewData)) : null);
+    setSaveMsg('');
+  };
+
+  const setField = (key) => (val) => setForm((f) => ({ ...f, [key]: val }));
+
+  const setCorrField = (key) => (val) =>
+    setForm((f) => ({ ...f, correspondence: { ...(f.correspondence || {}), [key]: val } }));
+
+  const setArrayItem = (key) => (i, field, val) =>
+    setForm((f) => {
+      const arr = [...((f[key] || []))];
+      if (!arr[i]) arr[i] = {};
+      arr[i] = { ...arr[i], [field]: val };
+      return { ...f, [key]: arr };
+    });
+
+  const removeArrayItem = (key) => (i) =>
+    setForm((f) => ({ ...f, [key]: (f[key] || []).filter((_, idx) => idx !== i) }));
+
+  const addArrayItem = (key) => () =>
+    setForm((f) => ({ ...f, [key]: [...(f[key] || []), {}] }));
+
+  const save = async () => {
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      const payload = { ...form };
+      payload.education = (payload.education || []).filter((e) => e.degree || e.institution || e.university || e.year || e.year_of_passing || e.percentage || e.from_year || e.to_year);
+      payload.previous_organizations = (payload.previous_organizations || []).filter((o) => o.name || o.organization_name || o.role || o.designation || o.from_year || o.to_year);
+      payload.family = (payload.family || []).filter((f) => f.name || f.relationship || f.occupation || f.phone || f.dob);
+      payload.references = (payload.references || []).filter((r) => r.name || r.designation || r.organization || r.phone);
+      await updateWorker(previewData.id, payload);
+      const fresh = await fetchWorkerById(previewData.id);
+      setPreviewData(fresh);
+      setForm(fresh ? JSON.parse(JSON.stringify(fresh)) : null);
+      setSaveMsg('Changes saved successfully.');
+    } catch (e) {
+      console.error('Error saving worker:', e.message);
+      setSaveMsg('Error: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const d = previewData;
+  const f = form || d;
+  const isEditing = true;
+  const GENDERS = ['Male', 'Female', 'Other'];
+  const MARITAL = ['Single', 'Married', 'Divorced', 'Widowed'];
 
   return (
     <>
@@ -369,15 +476,26 @@ export default function HRForms() {
               ← Back
             </button>
             <h3 style={{ margin: 0 }}>Employee Form Preview</h3>
+            <button className="btn" onClick={save} disabled={saving} style={{ fontSize: 13, marginLeft: 'auto', background: 'var(--sage)', color: '#fff' }}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+            <button className="btn" onClick={cancelEdit} disabled={saving} style={{ fontSize: 13 }}>
+              Cancel
+            </button>
             <button
               className="btn"
               onClick={() => setShowPrint(true)}
-              style={{ fontSize: 13, marginLeft: 'auto', background: '#dc2626', color: '#fff' }}
+              style={{ fontSize: 13, background: '#dc2626', color: '#fff' }}
             >
               Print All Forms
             </button>
           </div>
           <div className="card-pad" style={{ maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }}>
+            {saveMsg && (
+              <div style={{ padding: '10px 14px', marginBottom: 16, borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 600, background: saveMsg.startsWith('Error') ? 'rgba(220,38,38,0.1)' : 'rgba(22,163,74,0.12)', color: saveMsg.startsWith('Error') ? '#b91c1c' : '#166534' }}>
+                {saveMsg}
+              </div>
+            )}
             {loadingPreview ? (
               <div style={{ textAlign: 'center', padding: 48, color: 'var(--ink-soft)' }}>Loading...</div>
             ) : d ? (
@@ -410,125 +528,126 @@ export default function HRForms() {
                     </div>
                   )}
                   <div>
-                    <h3 style={{ margin: 0 }}>{d.name}</h3>
-                    <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{d.department || '—'}</div>
+                    <h3 style={{ margin: 0 }}>{f.name}</h3>
+                    <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{f.department || '—'}</div>
                   </div>
                 </div>
 
                 {/* Personal Details */}
                 <h3 style={{ marginTop: 0, marginBottom: 16 }}>Personal Details</h3>
                 <div className="form-row">
-                  <Field label="Full Name" value={d.name} />
-                  <Field label="Email" value={d.email} />
+                  <EditField editing={isEditing} label="Full Name" value={f.name} onChange={setField('name')} />
+                  <EditField editing={isEditing} label="Email" value={f.email} onChange={setField('email')} />
                 </div>
                 <div className="form-row">
-                  <Field label="Phone" value={d.phone} />
-                  <Field label="Alt. Phone" value={d.alternate_phone} />
+                  <EditField editing={isEditing} label="Phone" value={f.phone} onChange={setField('phone')} />
+                  <EditField editing={isEditing} label="Alt. Phone" value={f.alternate_phone} onChange={setField('alternate_phone')} />
                 </div>
-                <Field label="Father / Husband Name" value={d.father_husband_name} />
+                <EditField editing={isEditing} label="Father / Husband Name" value={f.father_husband_name} onChange={setField('father_husband_name')} />
                 <div className="form-row">
-                  <Field label="Gender" value={d.gender} />
-                  <Field label="Date of Birth" value={d.dob ? new Date(d.dob).toLocaleDateString('en-IN') : ''} />
+                  <EditField editing={isEditing} label="Gender" value={f.gender} onChange={setField('gender')} options={GENDERS} />
+                    <EditField editing={isEditing} label="Date of Birth" type="date" value={f.dob ? f.dob.slice(0, 10) : ''} onChange={setField('dob')} />
                 </div>
-                <Field label="Marital Status" value={d.marital_status} />
-                <Field label="Address" value={d.address} />
+                <EditField editing={isEditing} label="Marital Status" value={f.marital_status} onChange={setField('marital_status')} options={MARITAL} />
+                <EditField editing={isEditing} label="Address" value={f.address} onChange={setField('address')} textarea={2} />
                 <div className="form-row">
-                  <Field label="City" value={d.city} />
-                  <Field label="State" value={d.state} />
+                  <EditField editing={isEditing} label="City" value={f.city} onChange={setField('city')} />
+                  <EditField editing={isEditing} label="State" value={f.state} onChange={setField('state')} />
                 </div>
-                <Field label="Pincode" value={d.pincode} />
+                <EditField editing={isEditing} label="Pincode" value={f.pincode} onChange={setField('pincode')} />
                 <div className="form-row">
-                  <Field label="PAN Number" value={d.pan_number} />
-                  <Field label="Aadhaar Number" value={d.aadhar_number} />
+                  <EditField editing={isEditing} label="PAN Number" value={f.pan_number} onChange={setField('pan_number')} />
+                  <EditField editing={isEditing} label="Aadhaar Number" value={f.aadhar_number} onChange={setField('aadhar_number')} />
                 </div>
-                <Field label="Permanent Address" value={d.permanent_address} />
+                <EditField editing={isEditing} label="Permanent Address" value={f.permanent_address} onChange={setField('permanent_address')} textarea={2} />
 
                 {d.correspondence && (
                   <>
                     <h3 style={{ marginTop: 24, marginBottom: 16 }}>Correspondence Address</h3>
-                    <Field label="Address" value={d.correspondence.address} />
+                    <EditField editing={isEditing} label="Address" value={f.correspondence?.address} onChange={setCorrField('address')} textarea={2} />
                     <div className="form-row">
-                      <Field label="City" value={d.correspondence.city} />
-                      <Field label="State" value={d.correspondence.state} />
+                      <EditField editing={isEditing} label="City" value={f.correspondence?.city} onChange={setCorrField('city')} />
+                      <EditField editing={isEditing} label="State" value={f.correspondence?.state} onChange={setCorrField('state')} />
                     </div>
-                    <Field label="Pincode" value={d.correspondence.pincode} />
+                    <EditField editing={isEditing} label="Pincode" value={f.correspondence?.pincode} onChange={setCorrField('pincode')} />
                   </>
                 )}
 
                 {/* Education */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Education</h3>
-                {!d.education || d.education.length === 0 ? (
+                <h3 style={{ marginTop: 24, marginBottom: 16 }}>
+                  Education
+                  {(!f.education || f.education.length === 0) && (
+                    <button className="btn" onClick={addArrayItem('education')} style={{ fontSize: 12, marginLeft: 12 }}>+ Add Education</button>
+                  )}
+                </h3>
+                {!f.education || f.education.length === 0 ? (
                   <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p>
-                ) : d.education.map((e, i) => (
+                ) : f.education.map((e, i) => (
                   <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <strong>Entry {i + 1}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <strong>Entry {i + 1}</strong>
+                      {isEditing && (
+                        <button className="btn" onClick={() => removeArrayItem('education')(i)} style={{ fontSize: 12, color: '#dc2626', background: 'transparent', border: '1px solid #dc2626' }}>Remove</button>
+                      )}
+                    </div>
                     <div className="form-row" style={{ marginTop: 8 }}>
-                      <Field label="Degree" value={e.degree} />
-                      <Field label="Institution" value={e.institution} />
+                      <EditField editing={isEditing} label="Degree" value={e.degree} onChange={(v) => setArrayItem('education')(i, 'degree', v)} />
+                      <EditField editing={isEditing} label="Institution" value={e.institution} onChange={(v) => setArrayItem('education')(i, 'institution', v)} />
                     </div>
                     <div className="form-row">
-                      <Field label="University" value={e.university} />
-                      <Field label="Year" value={e.year_of_passing || e.year} />
+                      <EditField editing={isEditing} label="University" value={e.university} onChange={(v) => setArrayItem('education')(i, 'university', v)} />
+                      <EditField editing={isEditing} label="Year" value={e.year_of_passing || e.year || ''} onChange={(v) => setArrayItem('education')(i, 'year_of_passing', v)} />
                     </div>
                     <div className="form-row">
-                      <Field label="From Year" value={e.from_year} />
-                      <Field label="To Year" value={e.to_year} />
+                      <EditField editing={isEditing} label="From Year" value={e.from_year} onChange={(v) => setArrayItem('education')(i, 'from_year', v)} />
+                      <EditField editing={isEditing} label="To Year" value={e.to_year} onChange={(v) => setArrayItem('education')(i, 'to_year', v)} />
                     </div>
-                    <Field label="Percentage / Grade" value={e.percentage} />
+                    <EditField editing={isEditing} label="Percentage / Grade" value={e.percentage} onChange={(v) => setArrayItem('education')(i, 'percentage', v)} />
                   </div>
                 ))}
 
                 {/* Previous Organizations */}
                 <h3 style={{ marginTop: 24, marginBottom: 16 }}>Previous Organizations</h3>
-                {!d.previous_organizations || d.previous_organizations.length === 0 ? (
+                {!f.previous_organizations || f.previous_organizations.length === 0 ? (
                   <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No previous organizations</p>
-                ) : d.previous_organizations.map((o, i) => (
+                ) : f.previous_organizations.map((o, i) => (
                   <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <strong>Organization {i + 1}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <strong>Organization {i + 1}</strong>
+                      {isEditing && (
+                        <button className="btn" onClick={() => removeArrayItem('previous_organizations')(i)} style={{ fontSize: 12, color: '#dc2626', background: 'transparent', border: '1px solid #dc2626' }}>Remove</button>
+                      )}
+                    </div>
                     <div className="form-row" style={{ marginTop: 8 }}>
-                      <Field label="Organization Name" value={o.organization_name || o.name} />
-                      <Field label="Role / Designation" value={o.role || o.designation} />
+                      <EditField editing={isEditing} label="Organization Name" value={o.organization_name || o.name} onChange={(v) => setArrayItem('previous_organizations')(i, 'organization_name', v)} />
+                      <EditField editing={isEditing} label="Role / Designation" value={o.role || o.designation} onChange={(v) => setArrayItem('previous_organizations')(i, 'role', v)} />
                     </div>
                     <div className="form-row">
-                      <Field label="From Year" value={o.from_year} />
-                      <Field label="To Year" value={o.to_year} />
+                      <EditField editing={isEditing} label="From Year" value={o.from_year} onChange={(v) => setArrayItem('previous_organizations')(i, 'from_year', v)} />
+                      <EditField editing={isEditing} label="To Year" value={o.to_year} onChange={(v) => setArrayItem('previous_organizations')(i, 'to_year', v)} />
                     </div>
                   </div>
                 ))}
 
                 {/* Family */}
                 <h3 style={{ marginTop: 24, marginBottom: 16 }}>Family</h3>
-                {!d.family || d.family.length === 0 ? (
+                {!f.family || f.family.length === 0 ? (
                   <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No family members</p>
-                ) : d.family.map((f, i) => (
+                ) : f.family.map((fm, i) => (
                   <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <strong>Member {i + 1}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <strong>Member {i + 1}</strong>
+                      {isEditing && (
+                        <button className="btn" onClick={() => removeArrayItem('family')(i)} style={{ fontSize: 12, color: '#dc2626', background: 'transparent', border: '1px solid #dc2626' }}>Remove</button>
+                      )}
+                    </div>
                     <div className="form-row" style={{ marginTop: 8 }}>
-                      <Field label="Name" value={f.name} />
-                      <Field label="Relationship" value={f.relationship} />
+                      <EditField editing={isEditing} label="Name" value={fm.name} onChange={(v) => setArrayItem('family')(i, 'name', v)} />
+                      <EditField editing={isEditing} label="Relationship" value={fm.relationship} onChange={(v) => setArrayItem('family')(i, 'relationship', v)} />
                     </div>
                     <div className="form-row">
-                      <Field label="Occupation" value={f.occupation} />
-                      <Field label="Phone" value={f.phone} />
-                    </div>
-                    <Field label="Date of Birth" value={f.dob ? new Date(f.dob).toLocaleDateString('en-IN') : ''} />
-                  </div>
-                ))}
-
-                {/* References */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>References</h3>
-                {!d.references || d.references.length === 0 ? (
-                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No references</p>
-                ) : d.references.map((r, i) => (
-                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <strong>Reference {i + 1}</strong>
-                    <div className="form-row" style={{ marginTop: 8 }}>
-                      <Field label="Name" value={r.name} />
-                      <Field label="Designation" value={r.designation} />
-                    </div>
-                    <div className="form-row">
-                      <Field label="Organization" value={r.organization} />
-                      <Field label="Phone" value={r.phone} />
+                      <EditField editing={isEditing} label="Occupation" value={fm.occupation} onChange={(v) => setArrayItem('family')(i, 'occupation', v)} />
+                      <EditField editing={isEditing} label="Phone" value={fm.phone} onChange={(v) => setArrayItem('family')(i, 'phone', v)} />
                     </div>
                   </div>
                 ))}
@@ -536,33 +655,12 @@ export default function HRForms() {
                 {/* Bank Details */}
                 <h3 style={{ marginTop: 24, marginBottom: 16 }}>Bank Details</h3>
                 <div className="form-row">
-                  <Field label="Bank Name" value={d.bank_name} />
-                  <Field label="Account Holder" value={d.account_holder_name} />
+                  <EditField editing={isEditing} label="Bank Name" value={f.bank_name} onChange={setField('bank_name')} />
+                  <EditField editing={isEditing} label="Account Holder" value={f.account_holder_name} onChange={setField('account_holder_name')} />
                 </div>
                 <div className="form-row">
-                  <Field label="IFSC Code" value={d.ifsc_code} />
-                  <Field label="Account Number" value={d.account_number} />
-                </div>
-
-                {/* Declaration */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Declaration</h3>
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, lineHeight: 1.8, marginBottom: 16 }}>
-                  <input type="checkbox" style={{ marginTop: 5, transform: 'scale(1.1)' }} readOnly />
-                  <span>I hereby declare that the above statements made in my application form are true, complete, and correct to the best of my knowledge and belief.</span>
-                </label>
-                <div className="form-row">
-                  <Field label="Date" value={d.declaration_date ? new Date(d.declaration_date).toLocaleDateString('en-IN') : d.created_at ? new Date(d.created_at).toLocaleDateString('en-IN') : ''} />
-                  <Field label="Place" value={d.declaration_place || 'Mumbai'} />
-                </div>
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, display: 'block', marginBottom: 4 }}>Sign</label>
-                    {d.signature_url ? (
-                      <img src={d.signature_url} alt="Signature" style={{ maxWidth: 300, maxHeight: 80, border: '1px solid #ccc', borderRadius: 4 }} />
-                    ) : (
-                      <div style={{ width: 200, height: 60, border: '1px solid #ccc', borderRadius: 4 }}></div>
-                    )}
-                  </div>
+                  <EditField editing={isEditing} label="IFSC Code" value={f.ifsc_code} onChange={setField('ifsc_code')} />
+                  <EditField editing={isEditing} label="Account Number" value={f.account_number} onChange={setField('account_number')} />
                 </div>
               </>
             ) : null}

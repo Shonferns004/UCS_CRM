@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 const VALID_ROLES = ['all', 'super_admin', 'admin', 'hr', 'accounts', 'recruiter', 'leads', 'telecaller', 'team_lead', 'worker', 'fro', 'ngo'];
 
@@ -7,7 +7,7 @@ function sanitizeRole(role) {
 }
 
 export const createNotice = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('notices')
     .insert([data])
     .select()
@@ -17,7 +17,7 @@ export const createNotice = async (data) => {
 };
 
 export const getAllNotices = async (ngo_id, target_role) => {
-  let query = supabase
+  let query = db
     .from('notices')
     .select('*')
     .eq('is_active', true)
@@ -33,7 +33,7 @@ export const getAllNotices = async (ngo_id, target_role) => {
 };
 
 export const getRecentNotices = async (ngo_id, since, target_role) => {
-  let query = supabase
+  let query = db
     .from('notices')
     .select('*')
     .eq('is_active', true)
@@ -50,7 +50,7 @@ export const getRecentNotices = async (ngo_id, since, target_role) => {
 };
 
 export const getNoticeById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notices')
     .select('*')
     .eq('id', id);
@@ -60,7 +60,7 @@ export const getNoticeById = async (id) => {
 };
 
 export const updateNotice = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notices')
     .update(updates)
     .eq('id', id)
@@ -71,7 +71,7 @@ export const updateNotice = async (id, updates) => {
 };
 
 export const deleteNotice = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notices')
     .delete()
     .eq('id', id)

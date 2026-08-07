@@ -2,8 +2,8 @@ const databaseData = {
   id: 'database',
   title: 'Database Schema',
   icon: 'Database',
-  roles: ['*'],description: 'Complete PostgreSQL database schema across all 40+ tables. All tables live in the public schema on Supabase.',
-  architectureNotes: `The UCS CRM database is hosted on Supabase (PostgreSQL) with the following design principles:
+  roles: ['*'],description: 'Complete PostgreSQL database schema across all 40+ tables. All tables live in the public schema.',
+  architectureNotes: `The UCS CRM database is PostgreSQL with the following design principles:
 
 Schema Design:
 - All tables live in the public schema for simplicity and direct client SDK access.
@@ -12,7 +12,7 @@ Schema Design:
 - Soft deletes via is_active boolean flag on most entity tables (workers, ngos, users).
 - JSONB columns used for flexible metadata (e.g., tenants.settings, messages.template_params, automation_flows.flow_data).
 - RLS (Row-Level Security) policies enforce multi-tenancy — most tables have a tenant_id column with policies that filter by the authenticated user's tenant.
-- The auth schema (auth.users) is managed by Supabase Auth and linked to public.users via a trigger (handle_new_user).
+- Authentication is handled by the backend auth stub (db.auth) against public.users using email + crypt password hash.
 
 Key Relationships:
 - workers.ngo_id → ngos.id (each worker belongs to one primary NGO)
@@ -26,7 +26,7 @@ The database has grown organically — the WhatsApp CRM tables (contacts, conver
   noSearch: false,
   "keyFeatures": [
     "40+ tables across HR, FRO/donor, finance, event",
-    "Supabase public schema with PostgreSQL types",
+    "PostgreSQL public schema with native types",
     "Complete column docs with types, descriptions, FKs",
     "Core: workers, attendance, users, ngos",
     "FRO/donor: donor_profiles, fro_assignments, fro_donor_logs",

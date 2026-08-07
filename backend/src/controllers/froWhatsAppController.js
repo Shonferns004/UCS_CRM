@@ -15,7 +15,7 @@ import {
   updateConversationLabels,
   uploadFroMedia,
 } from '../services/froWhatsAppService.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import config from '../config/whatsappConfig.js';
 
 export async function getMedia(req, res) {
@@ -24,7 +24,7 @@ export async function getMedia(req, res) {
     if (!mediaId) return res.status(400).json({ message: 'mediaId is required' });
 
     let accessToken = null;
-    const { data: message } = await supabase
+    const { data: message } = await db
       .from('messages')
       .select('conversation_id')
       .eq('media_id', mediaId)
@@ -32,13 +32,13 @@ export async function getMedia(req, res) {
       .maybeSingle();
 
     if (message?.conversation_id) {
-      const { data: conversation } = await supabase
+      const { data: conversation } = await db
         .from('conversations')
         .select('project')
         .eq('id', message.conversation_id)
         .maybeSingle();
       if (conversation?.project) {
-        const { data: account } = await supabase
+        const { data: account } = await db
           .from('whatsapp_accounts')
           .select('access_token')
           .eq('project', conversation.project)
@@ -49,7 +49,7 @@ export async function getMedia(req, res) {
     }
 
     if (!accessToken) {
-      const { data: anyAccount } = await supabase
+      const { data: anyAccount } = await db
         .from('whatsapp_accounts')
         .select('access_token')
         .eq('is_active', true)
@@ -258,18 +258,18 @@ export async function uploadMedia(req, res) {
 export async function listMyAccounts(req, res) {
   try {
     const userId = req.user.id;
-    const { data: froAssignments } = await supabase
+    const { data: froAssignments } = await db
       .from('fro_whatsapp_assignments')
       .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
       .eq('fro_worker_id', userId)
       .eq('is_active', true);
 
-    const { data: crmAssignments } = await supabase
+    const { data: crmAssignments } = await db
       .from('agent_phone_assignments')
       .select('whatsapp_accounts!inner(id, name, phone_number_id, project)')
       .eq('user_id', userId);
 
-    const { data: workerAssignments } = await supabase
+    const { data: workerAssignments } = await db
       .from('worker_agent_assignments')
       .select('account_id')
       .eq('user_id', userId);
@@ -277,7 +277,7 @@ export async function listMyAccounts(req, res) {
     const workerAccountIds = (workerAssignments || []).map(a => a.account_id).filter(Boolean);
     let workerAccounts = [];
     if (workerAccountIds.length > 0) {
-      const { data } = await supabase
+      const { data } = await db
         .from('whatsapp_accounts')
         .select('id, name, phone_number_id, project')
         .in('id', workerAccountIds);

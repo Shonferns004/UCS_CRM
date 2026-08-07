@@ -18,7 +18,7 @@ import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { haversineDistance } from '../utils/geo.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { logNotification } from '../models/notificationModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 const MAX_LATE_MINUTES = 180;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -458,10 +458,10 @@ async function notifyHRAndAdmin(workerName, exitTime, action) {
       ? `${workerName} has left the work area at ${new Date(exitTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}. Return within ${GEOEXIT_HOURS} hours.`
       : `${workerName} did not return within ${GEOEXIT_HOURS} hours and has been auto punch-out.`;
 
-    const { data: hrUsers } = await supabase
+    const { data: hrUsers } = await db
       .from('hrs')
       .select('id');
-    const { data: adminUsers } = await supabase
+    const { data: adminUsers } = await db
       .from('users')
       .select('id')
       .in('role', ['hoadmin', 'hr']);

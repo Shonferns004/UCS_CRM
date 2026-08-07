@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { logWebhook } from '../models/paymentWebhookLogModel.js';
 import { getSources, getEntryByPaymentId } from '../models/bankAuditModel.js';
 
@@ -20,7 +20,7 @@ export async function ensureRazorpaySource() {
   const sources = await getSources();
   const exists = sources.find(s => s.name === 'Razorpay');
   if (exists) return exists.id;
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_sources')
     .insert({ name: 'Razorpay', sort_order: 2 })
     .select()
@@ -34,7 +34,7 @@ export async function ensurePaytmSource() {
   const sources = await getSources();
   const exists = sources.find(s => s.name === 'Paytm');
   if (exists) return exists.id;
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_sources')
     .insert({ name: 'Paytm', sort_order: 7 })
     .select()
@@ -97,7 +97,7 @@ export async function processPayment({
     ].filter(Boolean).join(' ');
 
     if (paymentId) {
-      const { data: duplicateCheck } = await supabase
+      const { data: duplicateCheck } = await db
         .from('bank_audit_entries')
         .select('id')
         .eq('payment_id', paymentId)
@@ -124,7 +124,7 @@ export async function processPayment({
       }
     }
 
-    const { data: entry, error: entryError } = await supabase
+    const { data: entry, error: entryError } = await db
       .from('bank_audit_entries')
       .insert({
         source_id: sourceId,
@@ -210,7 +210,7 @@ export async function reversePayment({
       reversalId ? `- ${reversalId}` : '',
     ].filter(Boolean).join(' ');
 
-    const { data: entry, error: entryError } = await supabase
+    const { data: entry, error: entryError } = await db
       .from('bank_audit_entries')
       .insert({
         source_id: sourceId,

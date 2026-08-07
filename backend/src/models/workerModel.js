@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createWorker = async (workerData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .insert([workerData])
     .select()
@@ -11,7 +11,7 @@ export const createWorker = async (workerData) => {
 };
 
 export const createWorkers = async (workersData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .insert(workersData)
     .select();
@@ -20,13 +20,13 @@ export const createWorkers = async (workersData) => {
 };
 
 export const getAllWorkers = async (ngo_id, status) => {
-  let query = supabase
+  let query = db
     .from('workers')
     .select('*')
     .order('created_at', { ascending: false });
 
   if (ngo_id) {
-    const { data: ids, error: idsErr } = await supabase
+    const { data: ids, error: idsErr } = await db
       .from('worker_ngo_allocations')
       .select('worker_id')
       .eq('ngo_id', ngo_id);
@@ -49,7 +49,7 @@ export const getAllWorkers = async (ngo_id, status) => {
 };
 
 export const getWorkerById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('*')
     .eq('id', id)
@@ -59,7 +59,7 @@ export const getWorkerById = async (id) => {
 };
 
 export const getWorkerCount = async () => {
-  const { count, error } = await supabase
+  const { count, error } = await db
     .from('workers')
     .select('*', { count: 'exact', head: true });
   if (error) throw error;
@@ -67,7 +67,7 @@ export const getWorkerCount = async () => {
 };
 
 export const getRecruiterWorkers = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('*')
     .or('department.ilike.*recruit*,department.ilike.hr*')
@@ -77,7 +77,7 @@ export const getRecruiterWorkers = async () => {
 };
 
 export const getWorkerByLoginId = async (login_id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('*')
     .eq('login_id', login_id)
@@ -87,7 +87,7 @@ export const getWorkerByLoginId = async (login_id) => {
 };
 
 export const updateWorker = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .update(updates)
     .eq('id', id)
@@ -98,13 +98,13 @@ export const updateWorker = async (id, updates) => {
 };
 
 export const deleteWorker = async (id) => {
-  const { error: convErr } = await supabase
+  const { error: convErr } = await db
     .from('conversations')
     .update({ assigned_agent_id: null })
     .eq('assigned_agent_id', id);
   if (convErr) throw convErr;
 
-  const { error } = await supabase
+  const { error } = await db
     .from('workers')
     .delete()
     .eq('id', id);
@@ -113,7 +113,7 @@ export const deleteWorker = async (id) => {
 };
 
 export const abscondWorker = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .update({ employment_status: 'absconded', is_active: false })
     .eq('id', id)
@@ -124,7 +124,7 @@ export const abscondWorker = async (id) => {
 };
 
 export const offboardWorker = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .update({ employment_status: 'offboarded', is_active: false })
     .eq('id', id)

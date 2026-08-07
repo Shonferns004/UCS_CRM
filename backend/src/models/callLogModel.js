@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createCallLog = async (data) => {
-  const { data: log, error } = await supabase
+  const { data: log, error } = await db
     .from('call_logs')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createCallLog = async (data) => {
 };
 
 export const getCallLogsByTelecaller = async (telecallerId, filters = {}) => {
-  let query = supabase
+  let query = db
     .from('call_logs')
     .select('*, leads(name, phone)')
     .eq('telecaller_id', telecallerId)
@@ -29,7 +29,7 @@ export const getCallLogsByTelecaller = async (telecallerId, filters = {}) => {
 };
 
 export const getCallLogsByLead = async (leadId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('call_logs')
     .select('*')
     .eq('lead_id', leadId)
@@ -39,7 +39,7 @@ export const getCallLogsByLead = async (leadId) => {
 };
 
 export const getCallLogById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('call_logs')
     .select('*, leads(name, phone)')
     .eq('id', id)
@@ -50,7 +50,7 @@ export const getCallLogById = async (id) => {
 
 export const getTodayCallCount = async (telecallerId) => {
   const today = new Date().toISOString().slice(0, 10);
-  const { count, error } = await supabase
+  const { count, error } = await db
     .from('call_logs')
     .select('*', { count: 'exact', head: true })
     .eq('telecaller_id', telecallerId)
@@ -61,7 +61,7 @@ export const getTodayCallCount = async (telecallerId) => {
 
 export const getFollowUpsDue = async (telecallerId) => {
   const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('call_logs')
     .select('id')
     .eq('telecaller_id', telecallerId)
