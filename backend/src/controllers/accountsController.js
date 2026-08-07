@@ -940,7 +940,7 @@ export const importReceipts = async (req, res) => {
           address: row.address || row['Address 1'] || row['Address-1'] || null,
           mode: row.mode || row['Mode of Payment (MOP)'] || row['MOP'] || null,
           purpose: row.purpose || row['Purpose'] || 'General Donation',
-          receipt_date: normalizeReceiptDate(row.receipt_date || row['Receipt Date']),
+          receipt_date: normalizeReceiptDate(row.receipt_date || row['Receipt Date'] || row['Transaction Date'] || row.transaction_date),
           generated_by: row.generated_by || req.user.id,
           email: row.email || row['Mail Id'] || row['Email ID'] || null,
           payment_id: row.payment_id || row['Payment Id No.'] || null,
