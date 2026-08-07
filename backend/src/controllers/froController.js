@@ -21,6 +21,9 @@ import {
   getVerifiedCollection,
   getUnverifiedCollection,
   getDailyCollectionByWorker,
+  DAY_RANGE,
+  logCollectionDate,
+  inRange,
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
@@ -316,7 +319,7 @@ export const getDashboard = async (req, res) => {
       ? await Promise.all([
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', monthStart).lte('created_at', monthEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
-          withStationNgoPairs(db.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)').gte('created_at', todayStart.toISOString()).lte('created_at', todayEnd.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+          withStationNgoPairs(db.from('fro_donor_logs').select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or(`and(action.eq.donation,${DAY_RANGE(todayStart.toISOString(), todayEnd.toISOString())}),and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart.toISOString()},verified_at.lte.${todayEnd.toISOString()}),and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(todayStart.toISOString(), todayEnd.toISOString())})`), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_donor_logs').select('amount_collected, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
           withStationNgoPairs(db.from('fro_assignments').select('status, donor_id').in('station', stationNames).not('status', 'eq', 'reassigned'), myScope),
           withStationNgoPairs(db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(station, ngo_id)').in('fro_assignments.station', stationNames).eq('action', 'disposition').eq('disposition_detail', 'lead_done').eq('accounts_status', 'verified'), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
@@ -354,8 +357,13 @@ export const getDashboard = async (req, res) => {
 
     const monthlyDonorIds = new Set((monthlyConnectedRes.data || []).map(l => l.donor_id).filter(Boolean));
     const dailyDonorIds = new Set((dailyConnectedRes.data || []).map(l => l.donor_id).filter(Boolean));
+    const todayISO = todayStart.toISOString();
+    const todayEndISO = todayEnd.toISOString();
     let dailyDonations = 0;
-    for (const l of dailyDonationsRes.data || []) dailyDonations += parseFloat(l.amount_collected || 0);
+    for (const l of dailyDonationsRes.data || []) {
+      if (!inRange(logCollectionDate(l), todayISO, todayEndISO)) continue;
+      dailyDonations += parseFloat(l.amount_collected || 0);
+    }
     let totalDonations = 0;
     for (const l of totalDonationsRes.data || []) totalDonations += parseFloat(l.amount_collected || 0);
 
