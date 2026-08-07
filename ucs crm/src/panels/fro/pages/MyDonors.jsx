@@ -41,6 +41,38 @@ function normalizeDonorResponse(r) {
   if (Array.isArray(r)) return { donors: r, total: r.length };
   return { donors: r?.donors || [], total: r?.total ?? (r?.donors?.length || 0) };
 }
+
+function DonationDoneStamp({ donor }) {
+  const monthLabel = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 8px' }}>
+      <div style={{ width: '100%', maxWidth: 380 }}>
+        <div style={{
+          transform: 'rotate(-4deg)',
+          background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+          color: '#fff',
+          border: '3px dashed #bbf7d0',
+          borderRadius: 10,
+          padding: '24px 22px',
+          boxShadow: '0 12px 32px rgba(22,163,74,.28)',
+        }}>
+          <div style={{ width: 68, height: 68, borderRadius: '50%', background: 'rgba(255,255,255,.18)', border: '2px solid rgba(255,255,255,.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 42, color: '#fff', fontWeight: 700 }}>check</span>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1.2 }}>DONATION DONE</div>
+          <div style={{ marginTop: 12 }}>
+            <span style={{ display: 'inline-block', border: '2px solid #fff', borderRadius: 999, padding: '3px 16px', fontSize: 10, fontWeight: 800, letterSpacing: .8 }}>
+              {donor.has_verified_donation_current_month ? '✓ VERIFIED' : '⏳ PENDING VERIFICATION'}
+            </span>
+          </div>
+        </div>
+        <div style={{ marginTop: 22, fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
+          This donor already donated for {monthLabel}. Press <strong>NEXT</strong> to continue to the next donor.
+        </div>
+      </div>
+    </div>
+  );
+}
 function useTomorrowStr() {
   const t = new Date();
   t.setDate(t.getDate() + 1);
@@ -987,6 +1019,9 @@ export default function MyDonors() {
       <div className="detail-split" style={{ flex: 1, minHeight: 0 }}>
         {/* LEFT PANEL — merged profile + details */}
         <div className="detail-left" style={{ padding: 12 }}>
+          {donor.has_donated_current_month ? (
+            <DonationDoneStamp donor={donor} />
+          ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Profile header */}
             <div style={{ textAlign: 'center', paddingBottom: 10, borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
@@ -1180,6 +1215,7 @@ export default function MyDonors() {
               </div>
             )}
           </div>
+          )}
         </div>
 
         {/* MIDDLE PANEL — Status (55%) */}
@@ -1556,10 +1592,12 @@ export default function MyDonors() {
         )}
 
         <button className="btn-next"
-          disabled={saving || !selected}
+          disabled={saving || (!selected && !donor.has_donated_current_month)}
           onClick={() => { endDonorView(isOnCall); handleButtonClick() }}>
           {saving ? 'Saving...' : selected ? (
             <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> Log {findDisp(selected)?.label || selected}</>
+          ) : donor.has_donated_current_month ? (
+            <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT →</>
           ) : (
             <><span className="material-symbols-outlined" style={{ fontSize: 13 }}>skip_next</span> NEXT</>
           )}
