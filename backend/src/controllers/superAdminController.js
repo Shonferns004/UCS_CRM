@@ -1,9 +1,9 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getUserNgoAccess } from '../models/userNgoAccessModel.js';
 
 export const getNgoAdminTargets = async (req, res) => {
   try {
-    const { data: admins, error } = await supabase
+    const { data: admins, error } = await db
       .from('workers')
       .select('id, name, login_id, daily_collection_target')
       .ilike('department', '%ngo admin%');
@@ -19,21 +19,21 @@ export const getNgoAdminTargets = async (req, res) => {
       let todayCollection = 0;
 
       if (ngoIds.length > 0) {
-        const { data: donors } = await supabase
+        const { data: donors } = await db
           .from('donor_profiles')
           .select('id')
           .in('ngo_id', ngoIds);
 
         if (donors && donors.length > 0) {
           const donorIds = donors.map(d => d.id);
-          const { data: assignments } = await supabase
+          const { data: assignments } = await db
             .from('fro_assignments')
             .select('id')
             .in('donor_id', donorIds);
 
           if (assignments && assignments.length > 0) {
             const assignmentIds = assignments.map(a => a.id);
-            const { data: logs } = await supabase
+            const { data: logs } = await db
               .from('fro_donor_logs')
               .select('amount_collected, verified_at, created_at')
               .in('assignment_id', assignmentIds)
@@ -76,7 +76,7 @@ export const setNgoAdminTarget = async (req, res) => {
       return res.status(400).json({ message: 'daily_target must be a positive number' });
     }
 
-    const { error } = await supabase
+    const { error } = await db
       .from('workers')
       .update({ daily_collection_target: daily_target })
       .eq('id', workerId);

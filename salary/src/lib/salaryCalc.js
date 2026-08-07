@@ -307,22 +307,44 @@ function isTeamRow(name) {
   return /(^|\b)(total|team|branch)(\b|$)/i.test(n) || /NEHA KHARWAR TEAM/i.test(n) || /incl sir and ma'am lead/i.test(n) || /management total/i.test(n) || /hr total/i.test(n);
 }
 
-// Match an Excel name to a DB name. Exact normalized match first, then a
-// first-name + last-name fallback so "Nazreen Zahur Baig" resolves to the DB
-// worker "Nazreen Baig".
+// Match an Excel name to a DB name. Cascading loose matching so every worker
+// in the sheet resolves to a database entry: exact → first+last → first →
+// last → token-containment.
 function resolveDbEntry(dbMap, name) {
   if (!dbMap) return undefined;
   const n = normalizeName(name);
+  if (!n) return undefined;
   if (dbMap[n] !== undefined) return dbMap[n];
   const parts = n.split(' ').filter(Boolean);
+  const keys = Object.keys(dbMap);
   if (parts.length >= 2) {
     const firstLast = parts[0] + ' ' + parts[parts.length - 1];
     if (dbMap[firstLast] !== undefined) return dbMap[firstLast];
-    for (const k of Object.keys(dbMap)) {
+    for (const k of keys) {
       const kp = k.split(' ').filter(Boolean);
       if (kp.length >= 2 && kp[0] + ' ' + kp[kp.length - 1] === firstLast) return dbMap[k];
     }
   }
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const byFirst = keys.filter(k => k.split(' ')[0] === first);
+  if (byFirst.length === 1) return dbMap[byFirst[0]];
+  const byLast = keys.filter(k => {
+    const kp = k.split(' ').filter(Boolean);
+    return kp[kp.length - 1] === last;
+  });
+  if (byLast.length === 1) return dbMap[byLast[0]];
+  const tokSet = new Set(parts);
+  const excelInDb = keys.filter(k => {
+    const kp = k.split(' ').filter(Boolean);
+    return kp.length > 1 && kp.every(t => tokSet.has(t));
+  });
+  if (excelInDb.length === 1) return dbMap[excelInDb[0]];
+  const dbInExcel = keys.filter(k => {
+    const kp = k.split(' ').filter(Boolean);
+    return kp.length <= parts.length && parts.every(t => kp.includes(t));
+  });
+  if (dbInExcel.length === 1) return dbMap[dbInExcel[0]];
   return undefined;
 }
 
@@ -379,11 +401,47 @@ function processSheet(wsName, wb, dbPresent) {
       : (joinedThisMonth && isNewJoiner ? 1.5 : 0);
     const lateDeduction = presentFromDb !== undefined ? (dbEntry.lateDed || 0) : 0;
     const dbPresent = present;
-    const training = num(g(cols.training));
     const sundayAdd = num(g(cols.sundayAdd));
-    const totalPresentDays = Math.max(0, dbPresent - joiningDeduction - lateDeduction - training);
+    const totalPresentDays = Math.max(0, dbPresent - joiningDeduction - lateDeduction);
+
+    const fmtN = (n) => Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)))
+    const halfPts = (dbEntry && typeof dbEntry === 'object' && dbEntry.half ? dbEntry.half : 0) * 0.5
+    const abs = (dbEntry && typeof dbEntry === 'object' ? dbEntry.absent || 0 : 0)
+    const leave = (dbEntry && typeof dbEntry === 'object' ? dbEntry.leave || 0 : 0)
+    const clubbed = (dbEntry && typeof dbEntry === 'object' ? dbEntry.clubbed || 0 : 0)
+    const extraSun = (dbEntry && typeof dbEntry === 'object' ? dbEntry.extra || 0 : 0)
+    const sunUnpaid = (dbEntry && typeof dbEntry === 'object' ? dbEntry.sunUnpaid || 0 : 0)
+    const workedBack = (dbEntry && typeof dbEntry === 'object' ? dbEntry.workedBack || 0 : 0)
+    const avail = (dbEntry && typeof dbEntry === 'object' && dbEntry.available != null) ? dbEntry.available : 0
+    const sunReasons = (dbEntry && typeof dbEntry === 'object' && Array.isArray(dbEntry.sunReasons)) ? dbEntry.sunReasons : []
+    const fmtDate = (d) => {
+      const dt = new Date(String(d).slice(0, 10) + 'T00:00:00Z')
+      return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    }
+    const sunNet = clubbed + extraSun + sunUnpaid - workedBack
+    let explain = null
+    let explainNote = null
+    let explainTitle = ''
+    if (presentFromDb !== undefined) {
+      const items = [{ op: '', text: fmtN(avail) + ' avail' }]
+      const sub = (val, label) => { if (val > 0) items.push({ op: '-', text: fmtN(val) + ' ' + label }) }
+      sub(abs, 'absent')
+      sub(leave, 'leave')
+      if (sunNet > 0) sub(sunNet, 'sun')
+      else if (sunNet < 0) items.push({ op: '+', text: fmtN(-sunNet) + ' sun-back' })
+      sub(halfPts, 'half')
+      sub(joiningDeduction, 'join')
+      sub(lateDeduction, 'late')
+      explain = fmtN(totalPresentDays) + ' = ' + items.map((it, i) => (i === 0 ? '' : it.op + ' ') + it.text).join(' ')
+      if (sunReasons.length) {
+        explainNote = 'Deducted Sunday(s): ' + sunReasons.map(r => `Sun ${fmtDate(r.date)} - ${r.reason}`).join('; ')
+      }
+      explainTitle = totalPresentDays + ' paid days = ' + avail + ' available - ' + abs + ' absent - ' + leave + ' leave - ' + clubbed + ' clubbed Sun - ' + extraSun + ' extra Sun - ' + sunUnpaid + ' unpaid Sun + ' + workedBack + ' worked-back - ' + fmtN(halfPts) + ' half-day - ' + fmtN(joiningDeduction) + ' joining - ' + fmtN(lateDeduction) + ' late'
+      if (explainNote) explainTitle += '\n' + explainNote
+    }
+
     const netPresent = cols.netPresent !== -1 ? num(g(cols.netPresent))
-      : present - training + sundayAdd;
+      : present + sundayAdd;
     const perDay = salary / days;
     const calcSalary = perDay * totalPresentDays;
 
@@ -421,8 +479,9 @@ function processSheet(wsName, wb, dbPresent) {
       collection: cols.totalAchieved !== -1
         ? num(g(cols.totalAchieved))
         : (dbEntry && dbEntry.collection !== undefined ? dbEntry.collection : 0),
-      training, sundayAdd, totalPresentDays, netPresent, days,
+      sundayAdd, totalPresentDays, netPresent, days,
       calcSalary, joiningDeduction, lateDeduction, joinedThisMonth, isNewJoiner,
+      explain, explainNote, explainTitle,
       monthly10, totalAki: rawTotalAki, akiPayout, incentiveTotal, weekly, gross, otExtra, pending, advance, netPayable,
       fileSalary, fileNet, fileNetPresent, presentMatch, eligibleMonthly, eligibleAki, monthlyTargetMet, target, achieved, diff,
     });
@@ -470,7 +529,7 @@ export function computeWorkbook(wb, dbPresent) {
       return hdr;
     })());
     const filledCols = Object.values(detected).filter(v => v !== -1).length;
-    const RESULT_KEYS = ['present', 'netPresent', 'training', 'sundayAdd', 'monthSalary', 'monthly10', 'aajKa', 'weekly', 'gross', 'otExtra', 'pending', 'advance', 'netPayable'];
+    const RESULT_KEYS = ['present', 'netPresent', 'sundayAdd', 'monthSalary', 'monthly10', 'aajKa', 'weekly', 'gross', 'otExtra', 'pending', 'advance', 'netPayable'];
     const resultCols = RESULT_KEYS.filter(k => detected[k] !== -1).length;
     const dataCols = rows.reduce((acc, r) => acc + ((r.presentSource === 'excel' && r.present > 0) || r.netPresent > 0 || (r.fileSalary || 0) > 0 || (r.fileNet || 0) > 0 ? 1 : 0), 0);
     candidates.push({ name, rows, monthKey: sheetMonthKey(name, wb), width, rowCount: rows.length, nonZeroRows, filledCols, resultCols, dataCols });
@@ -485,13 +544,13 @@ export function computeWorkbook(wb, dbPresent) {
 export function buildCsv(rows) {
   const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const lines = [];
-  lines.push(['Employee', 'Date of Joining', 'Salary', 'Days in Month', 'DB Present Days', 'Half Day', 'Absent', 'Deducted Sun.', 'Joining Ded (new)', 'Late Deduction', 'Training & Sun Ded', 'Total Days', 'Net Present Days', 'Match?', 'Computed Salary', 'File Month Salary', 'Match?', 'Monthly Eligible?', '10% Incentive', 'AKI Eligible?', 'Total AKI', 'Total Incentive', 'Gross Payable', 'OT/Extra (manual)', 'Pending Expenses', 'Advance', 'Net Payable', 'File Net Payable', 'Match?', 'Difference'].join(','));
+  lines.push(['Employee', 'Date of Joining', 'Salary', 'Days in Month', 'DB Present Days', 'Half Day', 'Absent', 'Deducted Sun.', 'Joining Ded (new)', 'Late Deduction', 'Total Days', 'Net Present Days', 'Match?', 'Computed Salary', 'File Month Salary', 'Match?', 'Monthly Eligible?', '10% Incentive', 'AKI Eligible?', 'Total AKI', 'Total Incentive', 'Gross Payable', 'OT/Extra (manual)', 'Pending Expenses', 'Advance', 'Net Payable', 'File Net Payable', 'Match?', 'Difference'].join(','));
   for (const r of rows) {
     lines.push([
       r.name, r.doj, r.salary, r.days,
       r.dbPresent,
       r.dbHalf != null ? (r.dbHalf * 0.5) : '', r.dbAbsent != null ? r.dbAbsent : '', r.dbSunDeducted != null ? r.dbSunDeducted : '',
-      r.joiningDeduction || 0, r.lateDeduction || 0, r.training,
+      r.joiningDeduction || 0, r.lateDeduction || 0,
       r.totalPresentDays.toFixed(2), r.netPresent,
       r.presentMatch === null ? '' : (r.presentMatch ? 'match' : 'diff'),
       r.calcSalary.toFixed(2),

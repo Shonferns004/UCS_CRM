@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function isEmailProcessed(messageId) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_log')
     .select('id, status')
     .eq('email_message_id', messageId)
@@ -16,7 +16,7 @@ export async function logImport({
   parsed_source, parsed_sender_name, bank_entry_id, status, error_message, raw_snippet,
   account_id, account_name, seen,
 }) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_log')
     .insert({
       email_message_id,
@@ -43,7 +43,7 @@ export async function logImport({
 }
 
 export async function getImportLog(filters = {}) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_log')
     .select('*')
     .order('created_at', { ascending: false });
@@ -61,7 +61,7 @@ export async function getImportLog(filters = {}) {
 }
 
 export async function countByStatus() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_log')
     .select('status');
 

@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const insertDeveloperTicket = async (ticket) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('developer_tickets')
     .insert(ticket)
     .select()
@@ -11,7 +11,7 @@ export const insertDeveloperTicket = async (ticket) => {
 };
 
 export const selectDeveloperTickets = async (filters = {}) => {
-  let query = supabase
+  let query = db
     .from('developer_tickets')
     .select('*, workers!developer_tickets_raised_by_fkey(name, login_id, department), assigned_worker:workers!developer_tickets_assigned_to_fkey(name, login_id)')
     .order('created_at', { ascending: false });
@@ -34,7 +34,7 @@ export const selectDeveloperTickets = async (filters = {}) => {
 };
 
 export const selectDeveloperTicketById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('developer_tickets')
     .select('*, workers!developer_tickets_raised_by_fkey(name, login_id, department), assigned_worker:workers!developer_tickets_assigned_to_fkey(name, login_id)')
     .eq('id', id)
@@ -45,7 +45,7 @@ export const selectDeveloperTicketById = async (id) => {
 
 export const updateDeveloperTicket = async (id, updates) => {
   updates.updated_at = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('developer_tickets')
     .update(updates)
     .eq('id', id)
@@ -56,7 +56,7 @@ export const updateDeveloperTicket = async (id, updates) => {
 };
 
 export const insertDeveloperTicketReply = async (reply) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('developer_ticket_replies')
     .insert(reply)
     .select()
@@ -66,7 +66,7 @@ export const insertDeveloperTicketReply = async (reply) => {
 };
 
 export const selectDeveloperTicketReplies = async (ticketId, includeInternal = false) => {
-  let query = supabase
+  let query = db
     .from('developer_ticket_replies')
     .select('*')
     .eq('ticket_id', ticketId)
@@ -80,7 +80,7 @@ export const selectDeveloperTicketReplies = async (ticketId, includeInternal = f
 };
 
 export const getDeveloperTicketStats = async () => {
-  const { data: tickets, error } = await supabase
+  const { data: tickets, error } = await db
     .from('developer_tickets')
     .select('status, priority, category, raised_by_panel, created_at, first_response_at, resolved_at');
   if (error) throw error;
@@ -146,7 +146,7 @@ export const getDeveloperTicketStats = async () => {
 
 export const bulkUpdateDeveloperTickets = async (ids, updates) => {
   updates.updated_at = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('developer_tickets')
     .update(updates)
     .in('id', ids)
@@ -156,7 +156,7 @@ export const bulkUpdateDeveloperTickets = async (ids, updates) => {
 };
 
 export const getDeveloperTeamMembers = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('id, name, login_id, department')
     .or('department.eq.digital,department.eq.developers')

@@ -1,5 +1,5 @@
 import express from 'express'
-import supabase from '../config/supabase.js'
+import db from '../config/db.js'
 
 const router = express.Router()
 
@@ -16,7 +16,7 @@ function sanitize(body) {
 }
 
 async function nextCode() {
-  const { data } = await supabase.from('assets').select('code')
+  const { data } = await db.from('assets').select('code')
   const max = (data || []).reduce((m, r) => {
     const n = parseInt(String(r.code || '').replace(/\D/g, ''), 10)
     return isNaN(n) ? m : Math.max(m, n)
@@ -25,7 +25,7 @@ async function nextCode() {
 }
 
 router.get('/', async (req, res) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('assets')
     .select('*')
     .order('created_at', { ascending: true })
@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
 })
 
 router.get('/:id', async (req, res) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('assets')
     .select('*')
     .eq('id', req.params.id)
@@ -57,7 +57,7 @@ router.post('/', async (req, res) => {
   }
   if (!body.status) body.status = 'available'
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('assets')
     .insert(body)
     .select()
@@ -66,7 +66,7 @@ router.post('/', async (req, res) => {
   if (error) {
     if (String(error.message).includes('duplicate')) {
       body.code = await nextCode()
-      const retry = await supabase.from('assets').insert(body).select().single()
+      const retry = await db.from('assets').insert(body).select().single()
       if (retry.error) return res.status(500).json({ error: retry.error.message })
       return res.status(201).json(retry.data)
     }
@@ -79,7 +79,7 @@ router.put('/:id', async (req, res) => {
   const changes = sanitize(req.body)
   changes.updated_at = new Date().toISOString()
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('assets')
     .update(changes)
     .eq('id', req.params.id)
@@ -91,7 +91,7 @@ router.put('/:id', async (req, res) => {
 })
 
 router.delete('/:id', async (req, res) => {
-  const { error } = await supabase.from('assets').delete().eq('id', req.params.id)
+  const { error } = await db.from('assets').delete().eq('id', req.params.id)
   if (error) return res.status(500).json({ error: error.message })
   res.json({ deleted: true })
 })

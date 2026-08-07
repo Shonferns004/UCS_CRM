@@ -1,0 +1,27 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 43.200.198.122
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /home/ec2-user/app
+            git fetch origin
+            git reset --hard origin/master
+            if git diff HEAD@{1} --name-only | grep -qE 'backend/(package.json|package-lock.json)'; then
+              cd backend && npm ci && cd ..
+            fi
+            pm2 restart backend --update-env

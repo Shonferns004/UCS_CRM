@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 function mask(account) {
   if (!account) return account;
@@ -10,7 +10,7 @@ function mask(account) {
 }
 
 export async function listAccounts() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('razorpay_accounts')
     .select('*')
     .order('created_at', { ascending: true });
@@ -19,7 +19,7 @@ export async function listAccounts() {
 }
 
 export async function getActiveAccounts() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('razorpay_accounts')
     .select('*')
     .eq('is_active', true)
@@ -29,7 +29,7 @@ export async function getActiveAccounts() {
 }
 
 export async function getAccountById(id, { unmask = false } = {}) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('razorpay_accounts')
     .select('*')
     .eq('id', id)
@@ -39,7 +39,7 @@ export async function getAccountById(id, { unmask = false } = {}) {
 }
 
 export async function getDefaultAccount({ unmask = false } = {}) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('razorpay_accounts')
     .select('*')
     .eq('is_default', true)
@@ -55,7 +55,7 @@ export async function createAccount({ name, key_id, key_secret, webhook_secret, 
     throw new Error('name, key_id, key_secret are required');
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('razorpay_accounts')
     .insert({
       name,
@@ -70,7 +70,7 @@ export async function createAccount({ name, key_id, key_secret, webhook_secret, 
   if (error) throw error;
 
   if (is_default && data.id) {
-    await supabase
+    await db
       .from('razorpay_accounts')
       .update({ is_default: false })
       .eq('is_default', true)
@@ -91,7 +91,7 @@ export async function updateAccount(id, updates) {
 
   if (Object.keys(allowed).length === 0) throw new Error('No fields to update');
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('razorpay_accounts')
     .update(allowed)
     .eq('id', id)
@@ -100,7 +100,7 @@ export async function updateAccount(id, updates) {
   if (error) throw error;
 
   if (allowed.is_default) {
-    await supabase
+    await db
       .from('razorpay_accounts')
       .update({ is_default: false })
       .eq('is_default', true)
@@ -111,7 +111,7 @@ export async function updateAccount(id, updates) {
 }
 
 export async function deleteAccount(id) {
-  const { error } = await supabase
+  const { error } = await db
     .from('razorpay_accounts')
     .delete()
     .eq('id', id);
@@ -119,7 +119,7 @@ export async function deleteAccount(id) {
 }
 
 export async function updateLastSynced(id) {
-  const { error } = await supabase
+  const { error } = await db
     .from('razorpay_accounts')
     .update({ last_synced_at: new Date().toISOString() })
     .eq('id', id);

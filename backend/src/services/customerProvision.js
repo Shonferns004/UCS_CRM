@@ -14,7 +14,7 @@ import {
   ListAccessKeysCommand,
   paginateListUsers,
 } from '@aws-sdk/client-iam';
-import supabase from '../config/db.js';
+import db from '../config/db.js';
 
 // ---------------------------------------------------------------------------
 // Customer provisioning: one-click setup of a dedicated Postgres database +
@@ -204,7 +204,7 @@ export async function provisionCustomer(name) {
 export async function listCustomers() {
   const out = { databases: [], buckets: [], users: [] };
   try {
-    const pool = supabase._pool;
+    const pool = db._pool;
     const { rows } = await pool.query(
       "SELECT datname FROM pg_database WHERE datname LIKE 'cust_%' ORDER BY datname"
     );

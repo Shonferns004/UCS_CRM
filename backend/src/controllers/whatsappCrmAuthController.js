@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getWorkerByLoginId } from '../models/workerModel.js';
@@ -22,28 +22,28 @@ export async function whatsappCrmLogin(req, res) {
     }
 
     let userData = null;
-    let supabaseSession = null;
+    let authSession = null;
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    const { data: authData, error: authError } = await db.auth.signInWithPassword({
       email,
       password,
     });
 
     if (!authError && authData?.user) {
-      const { data: dbUser } = await supabase.rpc('get_whatsapp_user', { p_id: authData.user.id });
+      const { data: dbUser } = await db.rpc('get_whatsapp_user', { p_id: authData.user.id });
       userData = typeof dbUser === 'string' ? JSON.parse(dbUser) : dbUser;
 
       if (userData && userData.is_active === false) {
         return res.status(403).json({ message: 'Account is deactivated' });
       }
 
-      supabaseSession = authData.session;
+      authSession = authData.session;
 
       if (userData) {
         const emailConfirmed = !!authData.user.email_confirmed_at;
         let role = userData.role;
         if (emailConfirmed && (role === 'agent' || role === 'viewer')) {
-          await supabase.rpc('promote_to_admin', { p_id: authData.user.id });
+          await db.rpc('promote_to_admin', { p_id: authData.user.id });
           role = 'admin';
         }
         userData.role = role;
@@ -51,7 +51,7 @@ export async function whatsappCrmLogin(req, res) {
     }
 
     if (!userData) {
-      const { data: agentData, error: agentErr } = await supabase.rpc('verify_agent', {
+      const { data: agentData, error: agentErr } = await db.rpc('verify_agent', {
         p_email: email,
         p_password: password,
       });
@@ -93,11 +93,11 @@ export async function whatsappCrmLogin(req, res) {
 
     const response = { token, user: mappedUser };
 
-    if (supabaseSession) {
+    if (authSession) {
       response.supabase = {
-        access_token: supabaseSession.access_token,
-        refresh_token: supabaseSession.refresh_token,
-        expires_at: supabaseSession.expires_at,
+        access_token: authSession.access_token,
+        refresh_token: authSession.refresh_token,
+        expires_at: authSession.expires_at,
       };
     }
 
@@ -115,7 +115,7 @@ export async function whatsappCrmRegister(req, res) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await db.auth.signUp({
       email,
       password,
       options: { emailRedirectTo: req.headers.origin || 'http://localhost:5173' },
@@ -153,7 +153,7 @@ export async function whatsappCrmMe(req, res) {
       });
     }
 
-    const { data: dbUser } = await supabase.rpc('get_whatsapp_user', { p_id: userId });
+    const { data: dbUser } = await db.rpc('get_whatsapp_user', { p_id: userId });
     const userData = typeof dbUser === 'string' ? JSON.parse(dbUser) : dbUser;
 
     if (!userData) {
@@ -187,7 +187,7 @@ export async function whatsappCrmLogout(req, res) {
         try {
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
           if (decoded && decoded.email) {
-            await supabase.auth.admin.signOut(decoded.id);
+            await db.auth.admin.signOut(decoded.id);
           }
         } catch {}
       }

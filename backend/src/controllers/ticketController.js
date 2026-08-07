@@ -1,9 +1,9 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const listTickets = async (req, res) => {
   try {
     const { status, department, category } = req.query;
-    let query = supabase
+    let query = db
       .from('support_tickets')
       .select('*, workers!support_tickets_raised_by_fkey(name, login_id)')
       .order('created_at', { ascending: false });
@@ -23,7 +23,7 @@ export const listTickets = async (req, res) => {
 export const listMyTickets = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('support_tickets')
       .select('*')
       .eq('raised_by', workerId)
@@ -38,7 +38,7 @@ export const listMyTickets = async (req, res) => {
 export const getTicket = async (req, res) => {
   try {
     const { id } = req.params;
-    const { data: ticket, error } = await supabase
+    const { data: ticket, error } = await db
       .from('support_tickets')
       .select('*, workers!support_tickets_raised_by_fkey(name, login_id), users!support_tickets_resolved_by_fkey(name)')
       .eq('id', id)
@@ -46,7 +46,7 @@ export const getTicket = async (req, res) => {
     if (error) throw error;
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
 
-    const { data: replies, error: replyError } = await supabase
+    const { data: replies, error: replyError } = await db
       .from('ticket_replies')
       .select('*')
       .eq('ticket_id', id)
@@ -64,7 +64,7 @@ export const createTicket = async (req, res) => {
     const { department, category, subject, description, reference_id, priority } = req.body;
     if (!subject) return res.status(400).json({ message: 'Subject is required' });
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('support_tickets')
       .insert({
         raised_by: req.user.id,
@@ -101,7 +101,7 @@ export const updateTicket = async (req, res) => {
     }
     updates.updated_at = new Date().toISOString();
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('support_tickets')
       .update(updates)
       .eq('id', id)
@@ -121,14 +121,14 @@ export const addReply = async (req, res) => {
     const { message } = req.body;
     if (!message) return res.status(400).json({ message: 'Message is required' });
 
-    const { data: ticket } = await supabase
+    const { data: ticket } = await db
       .from('support_tickets')
       .select('id')
       .eq('id', id)
       .single();
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('ticket_replies')
       .insert({
         ticket_id: id,
@@ -141,7 +141,7 @@ export const addReply = async (req, res) => {
 
     if (error) throw error;
 
-    await supabase
+    await db
       .from('support_tickets')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', id);
@@ -154,7 +154,7 @@ export const addReply = async (req, res) => {
 
 export const getWorkers = async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('workers')
       .select('id, name, login_id, department')
       .eq('is_active', true)

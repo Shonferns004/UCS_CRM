@@ -1,6 +1,6 @@
 import { pollEmailInbox, getLastPollResult } from '../services/emailImporter.js';
 import { getImportLog, countByStatus, logImport } from '../models/emailImportLogModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function triggerImport(req, res) {
   try {
@@ -24,10 +24,10 @@ export async function processSeenEmails(req, res) {
 
 export async function testEmail(req, res) {
   try {
-    const { data: sources } = await supabase.from('bank_audit_sources').select('id, name').limit(1);
+    const { data: sources } = await db.from('bank_audit_sources').select('id, name').limit(1);
     const sourceId = sources?.[0]?.id || null;
 
-    const { data: entry } = await supabase.from('bank_audit_entries').insert({
+    const { data: entry } = await db.from('bank_audit_entries').insert({
       source_id: sourceId || 1,
       amount: 1500.00,
       payment_id: 'TESTUPI123456',

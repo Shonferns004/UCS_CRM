@@ -1,8 +1,8 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const upsertTarget = async (data) => {
   const { fro_worker_id, ngo_id, month, target_amount, set_by } = data;
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('fro_monthly_targets')
     .upsert(
       { fro_worker_id, ngo_id, month, target_amount, set_by },
@@ -15,7 +15,7 @@ export const upsertTarget = async (data) => {
 };
 
 export const getTargetByWorker = async (workerId, month) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_monthly_targets')
     .select('*')
     .eq('fro_worker_id', workerId)
@@ -26,7 +26,7 @@ export const getTargetByWorker = async (workerId, month) => {
 };
 
 export const getTargetsByNgo = async (ngoId, month) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_monthly_targets')
     .select('*, workers!inner(id, name, login_id)')
     .eq('ngo_id', ngoId)
@@ -36,7 +36,7 @@ export const getTargetsByNgo = async (ngoId, month) => {
 };
 
 export const updateAchievedTarget = async (workerId, ngoId, month, achievedAmount) => {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('fro_monthly_targets')
     .select('id')
     .eq('fro_worker_id', workerId)
@@ -45,7 +45,7 @@ export const updateAchievedTarget = async (workerId, ngoId, month, achievedAmoun
     .maybeSingle();
 
   if (existing) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_monthly_targets')
       .update({ achieved_target: achievedAmount })
       .eq('id', existing.id)
@@ -55,7 +55,7 @@ export const updateAchievedTarget = async (workerId, ngoId, month, achievedAmoun
     return data;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_monthly_targets')
     .insert({ fro_worker_id: workerId, ngo_id: ngoId, month, achieved_target: achievedAmount, target_amount: 0 })
     .select()
@@ -65,7 +65,7 @@ export const updateAchievedTarget = async (workerId, ngoId, month, achievedAmoun
 };
 
 export const updateIncentive = async (workerId, ngoId, month, amount) => {
-  const { data: existing } = await supabase
+  const { data: existing } = await db
     .from('fro_monthly_targets')
     .select('id')
     .eq('fro_worker_id', workerId)
@@ -74,7 +74,7 @@ export const updateIncentive = async (workerId, ngoId, month, amount) => {
     .maybeSingle();
 
   if (existing) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_monthly_targets')
       .update({ incentive: amount })
       .eq('id', existing.id)
@@ -84,7 +84,7 @@ export const updateIncentive = async (workerId, ngoId, month, amount) => {
     return data;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_monthly_targets')
     .insert({ fro_worker_id: workerId, ngo_id: ngoId, month, incentive: amount, target_amount: 0 })
     .select()
@@ -94,7 +94,7 @@ export const updateIncentive = async (workerId, ngoId, month, amount) => {
 };
 
 export const getAllTargetsForNgo = async (ngoId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_monthly_targets')
     .select('*, workers!inner(id, name, login_id)')
     .eq('ngo_id', ngoId)

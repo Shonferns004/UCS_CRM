@@ -251,8 +251,8 @@ async function main() {
             '│  └──────────────────────┬───────────────────────────────┘   │',
             '│                         │                                    │',
             '│  ┌──────────────────────┼───────────────────────────────┐   │',
-            '│  │         Supabase (PostgreSQL + Realtime)             │   │',
-            '│  │          40+ Tables · Edge Functions                 │   │',
+            '│  │         PostgreSQL + Socket.IO Realtime              │   │',
+            '│  │          40+ Tables · S3-backed Storage              │   │',
             '│  └──────────────────────────────────────────────────────┘   │',
             '│                                                              │',
             '│  External Services:                                          │',
@@ -269,7 +269,7 @@ async function main() {
             [
               ['Backend Runtime', 'Node.js', 'v24.x'],
               ['Backend Framework', 'Express.js', '—'],
-              ['Database', 'Supabase (PostgreSQL)', '—'],
+              ['Database', 'PostgreSQL (pg driver)', '—'],
               ['Authentication', 'JWT + bcryptjs', '—'],
               ['Main CRM Frontend', 'React + Vite', 'React 19, Vite 6'],
               ['Worker Web App', 'React + Vite + Tailwind CSS', 'React 19, Vite 6, Tailwind 4'],
@@ -356,7 +356,7 @@ async function main() {
             '│   │   ├── theme.js                    17 themes',
             '│   │   ├── icons.jsx                   SVG icons',
             '│   │   ├── index.css                   1100+ lines CSS',
-            '│   │   ├── config/                     Supabase client',
+            '│   │   ├── lib/                        Socket.io realtime',
             '│   │   ├── hooks/                      Realtime hook',
             '│   │   ├── api/                        Core API module',
             '│   │   ├── components/                 (7 shared components)',
@@ -471,7 +471,7 @@ async function main() {
           para('Full route table available for all 42 route files in the source code.', { run: { italics: true } }),
 
           h2('3.3 Database Schema'),
-          para('The system uses Supabase (PostgreSQL) with 40+ tables. Key tables:'),
+          para('The system uses PostgreSQL with 40+ tables. Key tables:'),
 
           h3('workers'),
           createTable(
@@ -849,7 +849,8 @@ async function main() {
           createTable(
             ['Service', 'Integration', 'Used In'],
             [
-              ['Supabase', 'PostgreSQL database + Realtime subscriptions', 'Backend (all data), Flutter (realtime), shon (direct DB)'],
+              ['PostgreSQL', 'Relational database via custom pg driver', 'Backend (all data)'],
+              ['Supabase Realtime', 'Realtime subscriptions', 'Flutter (realtime)'],
               ['Firebase FCM', 'Push notifications via Admin SDK', 'Backend (fcmService.js), Flutter (notification_service.dart)'],
               ['Razorpay', 'Payment gateway webhook + payments sync', 'Backend (razorpayWebhook.js), Accounts panel'],
               ['Paytm', 'Payment gateway webhook with checksum verification', 'Backend (paytmWebhook.js)'],
