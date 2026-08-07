@@ -53,19 +53,24 @@ function IncentiveCalendar({ akiPerDay = [], monthStr, onlyEligible }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
         {cells.map((c, i) => {
-          if (!c || !c.show) return <div key={i} style={{ height: 52 }} />
+          if (!c || !c.show) return <div key={i} style={{ height: 58 }} />
           const isToday = c.dateStr === todayStr
           return (
             <div key={i} title={c.rec ? `₹${Number(c.rec.collection || 0).toLocaleString('en-IN')} collected · AKI ₹${c.aki}` : undefined} style={{
-              height: 52, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
+              height: 58, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
               background: c.eligible ? 'linear-gradient(135deg, #dcfce7 0%, #f0fdf4 100%)' : '#f8fafc',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
               outline: isToday ? '2px solid var(--sage)' : 'none', outlineOffset: isToday ? 1 : 0,
             }}>
               <span style={{ fontSize: 10, fontWeight: 800, color: c.eligible ? '#166534' : '#94a3b8' }}>{c.d}</span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: c.eligible ? '#15803d' : '#cbd5e1' }}>
-                {c.aki > 0 ? '₹' + c.aki : (c.rec ? '—' : '')}
+              <span style={{ fontSize: 9, fontWeight: 700, color: c.eligible ? '#15803d' : '#64748b' }}>
+                {c.rec ? '₹' + Number(c.rec.collection || 0).toLocaleString('en-IN') : ''}
               </span>
+              {c.aki > 0 && (
+                <span style={{ fontSize: 8, fontWeight: 700, color: '#16a34a', background: '#bbf7d0', padding: '1px 5px', borderRadius: 999, lineHeight: 1.4 }}>
+                  AKI ₹{c.aki}
+                </span>
+              )}
             </div>
           )
         })}
@@ -817,9 +822,15 @@ export default function Dashboard() {
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: incentiveOnly ? '#fff' : '#cbd5e1' }} />
           Only incentive eligible
         </button>
-        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .4 }}>Total AKI</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sage)' }}>{currency(totalAKI)}</div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 22, textAlign: 'right' }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .4 }}>Total Collected</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)' }}>{currency(displayCollected)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .4 }}>Total AKI</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sage)' }}>{currency(totalAKI)}</div>
+          </div>
         </div>
       </div>
 
