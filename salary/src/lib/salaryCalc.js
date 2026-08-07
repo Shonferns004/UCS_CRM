@@ -21,6 +21,17 @@ export function normalizeName(name) {
     .trim();
 }
 
+export function normalizeStatus(raw) {
+  const s = String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!s) return null;
+  if (/^(active|working|yes|in\s*service)$/.test(s)) return 'active';
+  if (/^(inactive|not\s*working|left|resigned|deactivated|terminated|no)$/.test(s)) return 'inactive';
+  if (/^abscond/.test(s)) return 'absconded';
+  return s;
+}
+
+export const STATUS_ORDER = { active: 0, inactive: 1, absconded: 2 };
+
 const MONTH_WORDS = {
   jan: 0, january: 0,
   feb: 1, february: 1,
@@ -156,6 +167,7 @@ const HEADER_PATTERNS = {
   achieved: [/^achieved$/i, /total\s*bsct.*achieved/i, /bsct\s*achieved/i, /total\s*bsct/i],
   totalAchieved: [/total\s*bsct.*(?:aflf|mann).*achieved/i, /total\s*bsct.*achieved/i],
   doj: [/date\s*of\s*joining/i, /^doj$/i],
+  status: [/^status$/i, /employee\s*status/i, /^(active|inactive|absconded|working)\b/i],
   present: [/present\s*days/i],
   netPresent: [/^net\b.*present\s*days/i, /^net\b.*present\b/i],
   training: [/training\b.*deduction/i, /training\s*and\s*sunday/i],
@@ -225,6 +237,7 @@ function detectHeader(headers) {
     achieved: find(HEADER_PATTERNS.achieved[0]) !== -1 ? find(HEADER_PATTERNS.achieved[0]) : (find(HEADER_PATTERNS.achieved[1]) !== -1 ? find(HEADER_PATTERNS.achieved[1]) : (find(HEADER_PATTERNS.achieved[2]) !== -1 ? find(HEADER_PATTERNS.achieved[2]) : find(HEADER_PATTERNS.achieved[3]))),
     totalAchieved: find(HEADER_PATTERNS.totalAchieved[0]) !== -1 ? find(HEADER_PATTERNS.totalAchieved[0]) : find(HEADER_PATTERNS.totalAchieved[1]),
     doj: find(HEADER_PATTERNS.doj[0]) !== -1 ? find(HEADER_PATTERNS.doj[0]) : find(HEADER_PATTERNS.doj[1]),
+    status: findAny(HEADER_PATTERNS.status),
     present: find(HEADER_PATTERNS.present[0]),
     netPresent: find(HEADER_PATTERNS.netPresent[0]) !== -1 ? find(HEADER_PATTERNS.netPresent[0]) : find(HEADER_PATTERNS.netPresent[1]),
     training: find(HEADER_PATTERNS.training[0]) !== -1 ? find(HEADER_PATTERNS.training[0]) : find(HEADER_PATTERNS.training[1]),
@@ -384,6 +397,7 @@ function processSheet(wsName, wb, dbPresent) {
     };
     const name = String(g(cols.agent) || '').trim();
     if (isTeamRow(name)) continue;
+    const status = normalizeStatus(g(cols.status));
     const salary = num(g(cols.salary));
     if (!salary) continue;
 
@@ -474,7 +488,7 @@ function processSheet(wsName, wb, dbPresent) {
 
     rows.push({
       sheet: wsName,
-      name, mkey, presentSource: presentFromDb !== undefined ? 'db' : 'excel',
+      name, status, mkey, presentSource: presentFromDb !== undefined ? 'db' : 'excel',
       doj: joinDate ? formatDoj(joinDate) : (cols.doj !== -1 ? formatDoj(g(cols.doj)) : ''),
       salary, present, dbPresent, dbPresentCount: dbEntry && dbEntry.present !== undefined ? dbEntry.present : null,
       dbAbsent: dbEntry && dbEntry.absent !== undefined ? dbEntry.absent : null,
@@ -483,6 +497,7 @@ function processSheet(wsName, wb, dbPresent) {
       dbSunAttended: dbEntry && dbEntry.sunAttended !== undefined ? dbEntry.sunAttended : null,
       dbSunUnpaid: dbEntry && dbEntry.sunUnpaid !== undefined ? dbEntry.sunUnpaid : null,
       dbSunDeducted: dbEntry && dbEntry.sunDeducted !== undefined ? dbEntry.sunDeducted : null,
+      dbSunEligible: dbEntry && dbEntry.sunCount != null ? Math.max(0, dbEntry.sunCount - (dbEntry.sunDeducted || 0)) : null,
       collection: cols.totalAchieved !== -1
         ? num(g(cols.totalAchieved))
         : (dbEntry && dbEntry.collection !== undefined ? dbEntry.collection : 0),
@@ -544,7 +559,8 @@ export function computeWorkbook(wb, dbPresent) {
   if (!candidates.length) return null;
   candidates.sort((a, b) => (b.monthKey || 0) - (a.monthKey || 0) || (b.dataCols || 0) - (a.dataCols || 0) || (b.resultCols || 0) - (a.resultCols || 0) || (b.width || 0) - (a.width || 0) || (b.rowCount || 0) - (a.rowCount || 0) || (b.nonZeroRows || 0) - (a.nonZeroRows || 0) || (b.filledCols || 0) - (a.filledCols || 0) || a.name.localeCompare(b.name));
   const pick = candidates[0];
-  pick.rows.sort((a, b) => a.name.localeCompare(b.name));
+  const statusRank = (s) => (s == null ? 0 : (STATUS_ORDER[s] ?? 3));
+  pick.rows.sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name));
   return { rows: pick.rows, lastMonthKey: pick.rows[0].mkey || null };
 }
 
