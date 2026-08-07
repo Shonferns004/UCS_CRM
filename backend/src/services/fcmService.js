@@ -1,8 +1,16 @@
 import { messaging } from '../config/firebase.js';
 import { logNotification } from '../models/notificationModel.js';
 
+// ==== MASTER SWITCH: NOTIFICATIONS DISABLED ====
+// Flip to true to re-enable all FCM push delivery + notification_log writes.
+const NOTIFICATIONS_ENABLED = false;
+
 export const sendPushNotification = async (workerId, title, body, type, referenceId = null) => {
   try {
+    if (!NOTIFICATIONS_ENABLED) {
+      return null;
+    }
+
     if (!messaging) {
       console.log('Firebase not initialized, skipping push');
       return null;

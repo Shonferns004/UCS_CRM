@@ -20,23 +20,68 @@ export const findLogsByAssignment = async (assignmentId) => {
   return data;
 };
 
+const DAY_RANGE = (s, e) => `or(and(created_at.gte.${s},created_at.lte.${e}),and(transaction_datetime.gte.${s},transaction_datetime.lte.${e}))`;
+
+const dayKey = (iso) => (iso ? String(iso).slice(0, 10) : null);
+
+// A log counts as a collection on its ACTUAL transaction date, not its upload date.
+// Imported receipts carry the real date in transaction_datetime; verified lead-dones
+// are counted on the date they were verified.
+export function logCollectionDate(d) {
+  if (d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified') {
+    return d.verified_at;
+  }
+  return d.transaction_datetime || d.created_at;
+}
+
+function inRange(date, start, end) {
+  if (!date) return false;
+  const dk = dayKey(date);
+  return dk >= dayKey(start) && dk <= dayKey(end);
+}
+
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, fro_assignments!inner(fro_worker_id)')
+    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
     .eq('fro_assignments.fro_worker_id', workerId)
     .or(
-      `and(action.eq.donation,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
+      `and(action.eq.donation,${DAY_RANGE(monthStart, monthEnd)}),` +
       `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
+      `and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(monthStart, monthEnd)})`
     );
   if (error) throw error;
 
   let total = 0;
-  for (const d of data) {
+  for (const d of data || []) {
+    if (!inRange(logCollectionDate(d), monthStart, monthEnd)) continue;
     total += parseFloat(d.amount_collected || 0);
   }
   return total;
+};
+
+export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
+  const { data, error } = await db
+    .from('fro_donor_logs')
+    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
+    .eq('fro_assignments.fro_worker_id', workerId)
+    .or(
+      `and(action.eq.donation,${DAY_RANGE(monthStart, monthEnd)}),` +
+      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
+      `and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(monthStart, monthEnd)})`
+    );
+  if (error) throw error;
+
+  const byDay = {};
+  for (const d of data || []) {
+    const amount = parseFloat(d.amount_collected || 0);
+    if (amount <= 0) continue;
+    const date = logCollectionDate(d);
+    if (!inRange(date, monthStart, monthEnd)) continue;
+    const day = dayKey(date);
+    byDay[day] = (byDay[day] || 0) + amount;
+  }
+  return byDay;
 };
 
 export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, todayStart, todayEnd, ngoIds) => {
@@ -50,7 +95,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
 
   let query = db
     .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_assignments!inner(fro_worker_id)')
+    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
     .in('fro_assignments.fro_worker_id', workerIds);
 
   if (ngoIds && ngoIds.length > 0) {
@@ -58,10 +103,10 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   }
 
   const { data, error } = await query.or(
-      `and(action.eq.donation,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
+      `and(action.eq.donation,${DAY_RANGE(monthStart, monthEnd)}),` +
       `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
       `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
+      `and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(monthStart, monthEnd)})`
     );
   if (error) throw error;
 
@@ -83,21 +128,23 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
     const isPendingLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'pending';
 
-    if ((isDonation || isDoneDirect) && d.created_at >= monthStart && d.created_at <= monthEnd) {
+    const collectDate = logCollectionDate(d);
+
+    if ((isDonation || isDoneDirect) && inRange(collectDate, monthStart, monthEnd)) {
       monthCollection[wId] += amount;
     }
-    if (isVerifiedLead && d.verified_at >= monthStart && d.verified_at <= monthEnd) {
+    if (isVerifiedLead && inRange(collectDate, monthStart, monthEnd)) {
       monthCollection[wId] += amount;
     }
 
-    if ((isDonation || isDoneDirect) && d.created_at >= todayStart && d.created_at <= todayEnd) {
+    if ((isDonation || isDoneDirect) && inRange(collectDate, todayStart, todayEnd)) {
       todayCollection[wId] += amount;
     }
-    if (isVerifiedLead && d.verified_at >= todayStart && d.verified_at <= todayEnd) {
+    if (isVerifiedLead && inRange(collectDate, todayStart, todayEnd)) {
       todayCollection[wId] += amount;
     }
 
-    if (isVerifiedLead && d.verified_at >= monthStart && d.verified_at <= monthEnd) {
+    if (isVerifiedLead && inRange(collectDate, monthStart, monthEnd)) {
       verifiedMonth[wId].amount += amount;
       verifiedMonth[wId].count++;
     }
@@ -105,7 +152,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
       unverifiedMonth[wId].amount += amount;
       unverifiedMonth[wId].count++;
     }
-    if (isVerifiedLead && d.verified_at >= todayStart && d.verified_at <= todayEnd) {
+    if (isVerifiedLead && inRange(collectDate, todayStart, todayEnd)) {
       verifiedToday[wId].amount += amount;
       verifiedToday[wId].count++;
     }

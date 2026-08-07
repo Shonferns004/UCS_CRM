@@ -255,7 +255,18 @@ export default function TransferredLeads() {
     return map[log.action] || 'circle';
   };
 
-  const formatTime = (d) => new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).toUpperCase();
+  const formatTime = (d) => new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).toUpperCase();
+
+  const logDate = (log) => (log.action === 'donation' || (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified'))
+    ? (log.transaction_datetime || log.verified_at || log.created_at)
+    : log.created_at;
+
+  const isThisMonth = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  };
 
   const statusPill = (status) => {
     const label = status ? status.replace(/_/g, ' ') : 'unknown';
@@ -548,9 +559,9 @@ export default function TransferredLeads() {
                         <div className="tl-info">
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <span className="tl-lbl">{lbl}</span>
-                            <span className="tl-time">{formatTime(log.created_at)}</span>
+                            <span className="tl-time">{formatTime(logDate(log))}</span>
                           </div>
-                          {log.notes && <div className="tl-note">{log.notes}</div>}
+                          {isThisMonth(logDate(log)) && (log.remark || log.notes) && <div className="tl-note">{log.remark || log.notes}</div>}
                           {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
                           {log.disposition_detail === 'lead_done' && (
                             <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--md-tertiary-fixed, #e0e7ff)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>
