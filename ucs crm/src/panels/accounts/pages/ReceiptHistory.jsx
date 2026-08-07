@@ -669,6 +669,7 @@ export default function ReceiptHistory() {
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
               </svg>
               <p style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>This will permanently delete <strong>all {receipts.length} receipts</strong>.</p>
+              <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>Donor donation history (totals, dates, and collected status) will also be removed.</p>
               <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>This action cannot be undone.</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} style={{ padding: '6px 16px' }}>Cancel</button>
