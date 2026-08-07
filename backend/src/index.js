@@ -2,9 +2,10 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import supabase from './config/supabase.js';
+import db from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import workerRoutes from './routes/workerRoutes.js';
 import workerBankImportRoutes from './routes/workerBankImportRoutes.js';
@@ -67,6 +68,8 @@ const _log = console.log;
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+app.set('trust proxy', 'loopback');
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -78,12 +81,50 @@ app.use(express.json({
 }));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const froDist = path.resolve(__dirname, '../../fro-panel/dist');
 const ngoAdminDist = path.resolve(__dirname, '../../ngo-admin-panel/dist');
 const accountsDist = path.resolve(__dirname, '../../accounts-panel/dist');
 const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
 const databaseDist = path.resolve(__dirname, '../../database/dist');
+
+const REPO_ROOT = path.resolve(__dirname, '../..');
+let gitCommit = 'unknown';
+try {
+  gitCommit = execSync('git rev-parse --short HEAD', { cwd: REPO_ROOT, encoding: 'utf8', timeout: 5000 }).trim();
+} catch {}
+const serverStartedAt = new Date();
+
+app.get(['/aws', '/api/aws'], (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'ucs-crm-backend',
+    commit: gitCommit,
+    version: '1.0.0',
+    started_at: serverStartedAt.toISOString(),
+    now: new Date().toISOString(),
+    uptime_seconds: Math.round(process.uptime()),
+  });
+});
+
+app.get(['/health', '/api/health'], async (req, res) => {
+  try {
+    await db._pool.query('SELECT 1');
+    res.json({
+      status: 'ok',
+      db: 'ok',
+      commit: gitCommit,
+      uptime_seconds: Math.round(process.uptime()),
+      now: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      db: 'down',
+      error: error.message,
+      now: new Date().toISOString(),
+    });
+  }
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
@@ -157,11 +198,11 @@ app.post('/api/upload', authenticate, uploadApi.single('file'), async (req, res)
   }
   const ext = (req.file.mimetype || '').split('/')[1]?.split(';')[0] || 'bin';
   const fileName = `upload_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-  const { error: uploadErr } = await supabase.storage.from('whatsapp-media').upload(fileName, req.file.buffer, {
+  const { error: uploadErr } = await db.storage.from('whatsapp-media').upload(fileName, req.file.buffer, {
     contentType: req.file.mimetype, upsert: false,
   });
   if (uploadErr) return res.status(500).json({ message: uploadErr.message });
-  const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
+  const { data: urlData } = db.storage.from('whatsapp-media').getPublicUrl(fileName);
   res.json({ url: urlData?.publicUrl, name: req.file.originalname, type: req.file.mimetype });
 });
 
@@ -173,11 +214,11 @@ app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) =>
     let toPhone = phoneNumber;
     let convInfo = null;
     if (!toPhone && contactId) {
-      const { data: c } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
+      const { data: c } = await db.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
       if (c) toPhone = c.phone_normalized;
     }
     if (!toPhone) {
-      const { data: conv } = await supabase.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
+      const { data: conv } = await db.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
       toPhone = conv?.contact?.phone_normalized;
       convInfo = conv;
     }
@@ -186,11 +227,11 @@ app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) =>
     let accounts = [];
     const accId = convInfo?.whatsapp_account_id;
     if (accId) {
-      const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('id', accId).eq('is_active', true);
+      const { data } = await db.from('whatsapp_accounts').select('phone_number_id, access_token').eq('id', accId).eq('is_active', true);
       if (data && data.length > 0) accounts = data;
     }
     if (accounts.length === 0) {
-      const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+      const { data } = await db.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
       if (data) accounts = data;
     }
     if (!accounts.length) return res.status(500).json({ message: 'No active WhatsApp account' });
@@ -200,11 +241,11 @@ app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) =>
 
     let msg;
     if (messageId) {
-      const { data: existing } = await supabase.from('messages').select('*').eq('id', messageId).maybeSingle();
+      const { data: existing } = await db.from('messages').select('*').eq('id', messageId).maybeSingle();
       msg = existing;
     }
     if (!msg) {
-      const { data: newMsg, error: msgErr } = await supabase.from('messages').insert({
+      const { data: newMsg, error: msgErr } = await db.from('messages').insert({
         conversation_id: conversationId,
         contact_id: contactId || null,
         user_id: userId || null,
@@ -249,7 +290,7 @@ app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) =>
           });
           const sendData = await sendRes.json();
           if (sendRes.ok && sendData.messages?.[0]?.id) {
-            await supabase.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', msg.id);
+            await db.from('messages').update({ status: 'sent', wa_message_id: sendData.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', msg.id);
             return res.json({ success: true });
           }
         }
@@ -258,7 +299,7 @@ app.post('/api/whatsapp/send', authenticate, express.json(), async (req, res) =>
       }
     }
 
-    await supabase.from('messages').update({ status: 'failed', failure_reason: 'Meta send failed', status_updated_at: new Date().toISOString() }).eq('id', msg.id);
+    await db.from('messages').update({ status: 'failed', failure_reason: 'Meta send failed', status_updated_at: new Date().toISOString() }).eq('id', msg.id);
     res.json({ message: 'Meta send failed', msg });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -274,42 +315,42 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
     const file = req.file;
     const ext = (file.mimetype || 'bin').split('/')[1]?.split(';')[0] || 'bin';
     const fileName = `msg_${messageId}_${Date.now()}.${ext}`;
-    const { error: storeErr } = await supabase.storage.from('whatsapp-media').upload(fileName, file.buffer, { contentType: file.mimetype, upsert: true });
+    const { error: storeErr } = await db.storage.from('whatsapp-media').upload(fileName, file.buffer, { contentType: file.mimetype, upsert: true });
     if (storeErr) return res.status(500).json({ message: 'Storage upload failed', error: storeErr.message });
 
-    const { data: urlData } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
+    const { data: urlData } = db.storage.from('whatsapp-media').getPublicUrl(fileName);
     const mediaUrl = urlData?.publicUrl || '';
 
     const mimeType = file.mimetype.startsWith('image/') ? 'image' : file.mimetype.startsWith('video/') ? 'video' : file.mimetype.startsWith('audio/') ? 'audio' : 'document';
-    await supabase.from('messages').update({ media_url: mediaUrl, media_mime_type: file.mimetype, message_type: mimeType }).eq('id', messageId);
+    await db.from('messages').update({ media_url: mediaUrl, media_mime_type: file.mimetype, message_type: mimeType }).eq('id', messageId);
 
     let toPhone = '';
     if (contactId) {
-      const { data: c } = await supabase.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
+      const { data: c } = await db.from('contacts').select('phone_normalized').eq('id', contactId).maybeSingle();
       if (c) toPhone = c.phone_normalized;
     }
     if (!toPhone) {
-      const { data: conv } = await supabase.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
+      const { data: conv } = await db.from('conversations').select('*, contact:contacts(phone_normalized)').eq('id', conversationId).maybeSingle();
       if (conv?.contact) toPhone = conv.contact.phone_normalized;
     }
     if (!toPhone) {
-      await supabase.from('messages').update({ status: 'sent', failure_reason: 'No phone' }).eq('id', messageId);
+      await db.from('messages').update({ status: 'sent', failure_reason: 'No phone' }).eq('id', messageId);
       return res.json({ message: 'No phone found, saved to storage only', mediaUrl });
     }
 
     let accounts = [];
-    const { data: convAcc } = await supabase.from('conversations').select('whatsapp_account_id').eq('id', conversationId).maybeSingle();
+    const { data: convAcc } = await db.from('conversations').select('whatsapp_account_id').eq('id', conversationId).maybeSingle();
     const fileAccId = convAcc?.whatsapp_account_id;
     if (fileAccId) {
-      const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('id', fileAccId).eq('is_active', true);
+      const { data } = await db.from('whatsapp_accounts').select('phone_number_id, access_token').eq('id', fileAccId).eq('is_active', true);
       if (data && data.length > 0) accounts = data;
     }
     if (accounts.length === 0) {
-      const { data } = await supabase.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
+      const { data } = await db.from('whatsapp_accounts').select('phone_number_id, access_token').eq('is_active', true);
       if (data) accounts = data;
     }
     if (!accounts.length) {
-      await supabase.from('messages').update({ status: 'sent', failure_reason: 'No WhatsApp account' }).eq('id', messageId);
+      await db.from('messages').update({ status: 'sent', failure_reason: 'No WhatsApp account' }).eq('id', messageId);
       return res.json({ message: 'No active account, saved to storage only', mediaUrl });
     }
 
@@ -341,17 +382,17 @@ app.post('/api/whatsapp/send-file', authenticate, uploadApi.single('file'), asyn
         });
         const sD = await sR.json();
         if (sR.ok && sD.messages?.[0]?.id) {
-          await supabase.from('messages').update({ status: 'sent', wa_message_id: sD.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', messageId);
+          await db.from('messages').update({ status: 'sent', wa_message_id: sD.messages[0].id, status_updated_at: new Date().toISOString() }).eq('id', messageId);
           metaDelivered = true;
         }
       }
     } catch (e) { console.error('Meta send error:', e); }
 
     if (!metaDelivered) {
-      await supabase.from('messages').update({ status: 'failed', failure_reason: 'Meta send failed', status_updated_at: new Date().toISOString() }).eq('id', messageId);
+      await db.from('messages').update({ status: 'failed', failure_reason: 'Meta send failed', status_updated_at: new Date().toISOString() }).eq('id', messageId);
     }
 
-    await supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
+    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
     res.json({ success: true, mediaUrl, metaDelivered });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -373,7 +414,7 @@ app.get('/db-viewer', (req, res) => {
 
 app.get('/api/db/tables', async (req, res) => {
   try {
-    const { rows } = await supabase._pool.query(`
+    const { rows } = await db._pool.query(`
       SELECT c.relname AS name,
              (CASE WHEN c.reltuples > 0 THEN c.reltuples::bigint ELSE 0 END) AS approx_rows
       FROM pg_class c
@@ -390,7 +431,7 @@ app.get('/api/db/tables', async (req, res) => {
 app.get('/api/db/table/:table', async (req, res) => {
   try {
     const t = String(req.params.table);
-    const schema = await supabase._pool.query(
+    const schema = await db._pool.query(
       `SELECT column_name, data_type
        FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = $1
@@ -407,7 +448,7 @@ app.get('/api/db/table/:table', async (req, res) => {
     if (req.query.order && cols.includes(String(req.query.order))) order = String(req.query.order);
     const ascending = req.query.desc !== '1';
 
-    const q = supabase.from(t).select('*', { count: 'exact', head: false });
+    const q = db.from(t).select('*', { count: 'exact', head: false });
     if (req.query.search && req.query.column && cols.includes(String(req.query.column))) {
       q.ilike(String(req.query.column), `%${String(req.query.search)}%`);
     } else if (req.query.search) {
@@ -425,7 +466,7 @@ app.get('/api/db/table/:table', async (req, res) => {
 });
 
 async function getPkCols(table) {
-  const { rows } = await supabase._pool.query(
+  const { rows } = await db._pool.query(
     `SELECT kcu.column_name
      FROM information_schema.table_constraints tc
      JOIN information_schema.key_column_usage kcu
@@ -438,7 +479,7 @@ async function getPkCols(table) {
 }
 
 async function tableExists(name) {
-  const { rows } = await supabase._pool.query(
+  const { rows } = await db._pool.query(
     `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
     [name]
   );
@@ -450,7 +491,7 @@ app.post('/api/db/query', async (req, res) => {
   try {
     const sql = String(req.body && req.body.sql || '').trim();
     if (!sql) return res.status(400).json({ message: 'No SQL provided' });
-    const r = await supabase._pool.query(sql);
+    const r = await db._pool.query(sql);
     const columns = (r.fields || []).map((f) => ({ name: f.name, dataTypeID: f.dataTypeID }));
     res.json({ command: r.command, rowCount: r.rowCount, columns, rows: r.rows || [] });
   } catch (err) {
@@ -464,7 +505,7 @@ app.post('/api/db/drop-table', async (req, res) => {
     const t = String(req.body && req.body.table || '').trim();
     if (!/^[A-Za-z0-9_]+$/.test(t)) return res.status(400).json({ message: 'Invalid table name' });
     if (!(await tableExists(t))) return res.status(404).json({ message: `Table "${t}" not found` });
-    await supabase._pool.query(`DROP TABLE "${t}"`);
+    await db._pool.query(`DROP TABLE "${t}"`);
     res.json({ ok: true, table: t });
   } catch (err) {
     res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
@@ -496,7 +537,7 @@ app.post('/api/db/rows/delete', async (req, res) => {
       clauses.push(`(${conds.join(' AND ')})`);
     }
     const sql = `DELETE FROM "${t}" WHERE ${clauses.join(' OR ')}`;
-    const r = await supabase._pool.query(sql, params);
+    const r = await db._pool.query(sql, params);
     res.json({ ok: true, table: t, rowCount: r.rowCount });
   } catch (err) {
     res.status(400).json({ message: err.message, hint: err.hint || '', code: err.code || '' });
@@ -657,7 +698,7 @@ app.get('/api/debug', authenticate, async (req, res) => {
   const results = {};
   for (const t of tables) {
     try {
-      const { error } = await supabase.from(t).select('id').limit(1);
+      const { error } = await db.from(t).select('id').limit(1);
       results[t] = error ? `error: ${error.message}` : 'ok';
     } catch (e) { results[t] = `exception: ${e.message}`; }
   }
@@ -666,12 +707,12 @@ app.get('/api/debug', authenticate, async (req, res) => {
 
 async function checkLeavesTable() {
   try {
-    await supabase.from('leaves').select('id').limit(1);
+    await db.from('leaves').select('id').limit(1);
   } catch {
     console.warn(
       '\n=== MISSING TABLE: leaves ===\n' +
-      'The "leaves" table does not exist in your Supabase database.\n' +
-      'Run the SQL in backend/migrations/ in your Supabase SQL Editor.\n' +
+      'The "leaves" table does not exist in your database.\n' +
+      'Run the SQL in backend/migrations/.\n' +
       '========================\n'
     );
   }

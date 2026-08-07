@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { searchMessages } from '../../api/whatsappSupabase'
+import { searchMessages } from '../../api/whatsappApi'
 
 export default function MessageSearchModal({ userId, onClose, onSelectConversation }) {
   const [query, setQuery] = useState('')

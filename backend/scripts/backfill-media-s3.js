@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// Backfill: migrate stored supabase.co storage URLs to the S3-backed storage()
-// shim. Downloads each object from the live Supabase storage, uploads it to
-// S3 (via backend/src/config/supabase.js), and updates the DB row to the new
+// Backfill: migrate legacy storage URLs (supabase.co host) to the S3-backed
+// storage() shim. Downloads each object from the legacy storage host, uploads
+// it to S3 (via backend/src/config/db.js), and updates the DB row to the new
 // S3 public URL.
 //
 // Dry-run by default; pass --run to apply changes.
@@ -14,7 +14,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import supabase from '../src/config/supabase.js';
+import db from '../src/config/db.js';
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env') });
 
@@ -39,7 +39,7 @@ function extractFileName(url) {
 }
 
 async function getPk(table) {
-  const { rows } = await supabase._pool.query(
+  const { rows } = await db._pool.query(
     `SELECT kcu.column_name
      FROM information_schema.table_constraints tc
      JOIN information_schema.key_column_usage kcu
@@ -59,7 +59,7 @@ for (const t of TARGETS) {
     console.warn(`[${t.table}] no PK found — skipping table`);
     continue;
   }
-  const q = await supabase._pool.query(
+  const q = await db._pool.query(
     `SELECT ${pk} AS pk, ${t.col} AS url FROM public.${t.table} WHERE ${t.col} LIKE '%supabase.co%'`
   );
   if (q.rows.length === 0) {
@@ -91,14 +91,14 @@ for (const t of TARGETS) {
       const buffer = Buffer.from(await res.arrayBuffer());
       const contentType = res.headers.get('content-type') || undefined;
 
-      const { error: upErr } = await supabase.storage.from(t.bucket).upload(fileName, buffer, { contentType, upsert: true });
+      const { error: upErr } = await db.storage.from(t.bucket).upload(fileName, buffer, { contentType, upsert: true });
       if (upErr) throw new Error(upErr.message);
 
-      const { data: urlData } = supabase.storage.from(t.bucket).getPublicUrl(fileName);
+      const { data: urlData } = db.storage.from(t.bucket).getPublicUrl(fileName);
       const newUrl = urlData?.publicUrl;
       if (!newUrl) throw new Error('getPublicUrl returned no URL');
 
-      await supabase._pool.query(`UPDATE public.${t.table} SET ${t.col} = $1 WHERE ${pk} = $2`, [newUrl, row.pk]);
+      await db._pool.query(`UPDATE public.${t.table} SET ${t.col} = $1 WHERE ${pk} = $2`, [newUrl, row.pk]);
       results.migrated++;
       console.log(`  ok ${row.pk}: -> ${newUrl}`);
     } catch (e) {

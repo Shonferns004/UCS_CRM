@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getAllocationsByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_ngo_allocations')
     .select('*, ngos(name)')
     .eq('worker_id', workerId);
@@ -10,7 +10,7 @@ export const getAllocationsByWorker = async (workerId) => {
 };
 
 export const setAllocations = async (workerId, allocations) => {
-  const { error: delErr } = await supabase
+  const { error: delErr } = await db
     .from('worker_ngo_allocations')
     .delete()
     .eq('worker_id', workerId);
@@ -22,7 +22,7 @@ export const setAllocations = async (workerId, allocations) => {
     ngo_id: a.ngo_id,
     salary_portion: a.salary_portion,
   }));
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_ngo_allocations')
     .insert(rows)
     .select('*, ngos(name)');
@@ -31,7 +31,7 @@ export const setAllocations = async (workerId, allocations) => {
 };
 
 export const getWorkersByNgo = async (ngoId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_ngo_allocations')
     .select('worker_id')
     .eq('ngo_id', ngoId);

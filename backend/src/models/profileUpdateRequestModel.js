@@ -1,9 +1,9 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 const TABLE = 'profile_update_requests';
 
 export const createRequest = async (workerId, changes) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE)
     .insert({ worker_id: workerId, requested_changes: changes })
     .select()
@@ -13,7 +13,7 @@ export const createRequest = async (workerId, changes) => {
 };
 
 export const getWorkerRequests = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE)
     .select('*')
     .eq('worker_id', workerId)
@@ -23,7 +23,7 @@ export const getWorkerRequests = async (workerId) => {
 };
 
 export const getAllRequests = async (status) => {
-  let query = supabase
+  let query = db
     .from(TABLE)
     .select('*, workers!profile_update_requests_worker_id_fkey(name, login_id)')
     .order('created_at', { ascending: false });
@@ -34,7 +34,7 @@ export const getAllRequests = async (status) => {
 };
 
 export const getRequestById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE)
     .select('*, workers!profile_update_requests_worker_id_fkey(name, login_id)')
     .eq('id', id)
@@ -44,7 +44,7 @@ export const getRequestById = async (id) => {
 };
 
 export const updateRequestStatus = async (id, status, reviewedBy, reviewerNotes) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from(TABLE)
     .update({ status, reviewed_by: reviewedBy, reviewer_notes: reviewerNotes, reviewed_at: new Date().toISOString() })
     .eq('id', id)
@@ -55,7 +55,7 @@ export const updateRequestStatus = async (id, status, reviewedBy, reviewerNotes)
 };
 
 export const getPendingCount = async () => {
-  const { count, error } = await supabase
+  const { count, error } = await db
     .from(TABLE)
     .select('*', { count: 'exact', head: true })
     .eq('status', 'pending');

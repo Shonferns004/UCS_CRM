@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getAccountByPhoneNumberId } from '../models/whatsappAccountModel.js';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
@@ -26,7 +26,7 @@ export async function whatsappWebhookEntry(req, res) {
       if (account?.project) accountProject = account.project;
     }
 
-    await supabase.from('whatsapp_webhook_logs').insert({
+    await db.from('whatsapp_webhook_logs').insert({
       direction: 'inbound',
       event_type: changes?.field || 'unknown',
       payload: body,
@@ -45,14 +45,14 @@ export async function whatsappWebhookEntry(req, res) {
         else if (message.type === 'document') bodyText = message.document?.caption || '[Document]';
         else if (message.type === 'sticker') bodyText = '[Sticker]';
 
-        let { data: contact } = await supabase
+        let { data: contact } = await db
           .from('contacts')
           .select('*')
           .eq('phone_normalized', from)
           .maybeSingle();
 
         if (!contact) {
-          const { data: newContact, error: contactErr } = await supabase
+          const { data: newContact, error: contactErr } = await db
             .from('contacts')
             .insert({
               phone: from,
@@ -68,7 +68,7 @@ export async function whatsappWebhookEntry(req, res) {
         }
 
         const projectFilter = accountProject !== 'unknown' ? accountProject : null;
-        let query = supabase
+        let query = db
           .from('conversations')
           .select('*')
           .eq('contact_id', contact.id)
@@ -79,7 +79,7 @@ export async function whatsappWebhookEntry(req, res) {
 
         let activeConversation = conversation;
         if (!activeConversation) {
-          const { data: newConversation, error: convErr } = await supabase
+          const { data: newConversation, error: convErr } = await db
             .from('conversations')
             .insert({
               contact_id: contact.id,
@@ -97,7 +97,7 @@ export async function whatsappWebhookEntry(req, res) {
         const mediaId = message[message.type]?.id || null;
         const mediaMimeType = message[message.type]?.mime_type || null;
 
-        const { data: newMessage, error: msgError } = await supabase.from('messages').insert({
+        const { data: newMessage, error: msgError } = await db.from('messages').insert({
           conversation_id: activeConversation.id,
           contact_id: contact.id,
           direction: 'inbound',
@@ -130,15 +130,15 @@ export async function whatsappWebhookEntry(req, res) {
                   const ext = (mediaMimeType?.split('/')[1] || 'bin').split(';')[0].trim();
                   const fileName = `webhook_${message.id}.${ext}`;
 
-                  const { error: uploadError } = await supabase.storage
+                  const { error: uploadError } = await db.storage
                     .from('whatsapp-media')
                     .upload(fileName, buffer, { contentType: mediaMimeType, upsert: true });
                   if (!uploadError) {
-                    const { data: publicUrl } = supabase.storage
+                    const { data: publicUrl } = db.storage
                       .from('whatsapp-media')
                       .getPublicUrl(fileName);
                     if (publicUrl?.publicUrl) {
-                      await supabase.from('messages').update({
+                      await db.from('messages').update({
                         media_url: publicUrl.publicUrl,
                       }).eq('id', newMessage.id);
                     }
@@ -151,7 +151,7 @@ export async function whatsappWebhookEntry(req, res) {
           }
         }
 
-        await supabase
+        await db
           .from('conversations')
           .update({
             last_message_at: new Date().toISOString(),
@@ -170,14 +170,14 @@ export async function whatsappWebhookEntry(req, res) {
         if (status.status === 'failed' && status.errors?.length > 0) {
           update.failure_reason = `(${status.errors[0].code}) ${status.errors[0].message}`;
         }
-        await supabase
+        await db
           .from('messages')
           .update(update)
           .eq('wa_message_id', status.id);
       }
     }
 
-    await supabase
+    await db
       .from('whatsapp_webhook_logs')
       .update({ processed: true, processed_at: new Date().toISOString() })
       .eq('processed', false)

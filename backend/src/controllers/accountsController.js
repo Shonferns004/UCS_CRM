@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId, listAllReceipts } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
@@ -14,7 +14,7 @@ export const getLeadList = async (req, res) => {
   try {
     const { status } = req.query;
 
-    let query = supabase
+    let query = db
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
@@ -92,7 +92,7 @@ export const verifyLead = async (req, res) => {
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, email, pan_number, project_supported))')
       .eq('id', logId)
@@ -123,14 +123,14 @@ export const verifyLead = async (req, res) => {
     if (transaction_datetime !== undefined) logUpdate.transaction_datetime = transaction_datetime || null;
     if (payment_from !== undefined) logUpdate.payment_from = payment_from || null;
 
-    const { error: updateLogError } = await supabase
+    const { error: updateLogError } = await db
       .from('fro_donor_logs')
       .update(logUpdate)
       .eq('id', logId);
 
     if (updateLogError) throw updateLogError;
 
-    const { error: updateAsgnError } = await supabase
+    const { error: updateAsgnError } = await db
       .from('fro_assignments')
       .update({
         status: 'donation_collected',
@@ -150,14 +150,14 @@ export const verifyLead = async (req, res) => {
       if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
       if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
       try {
-        const { data: donor } = await supabase
+        const { data: donor } = await db
           .from('donor_profiles')
           .select('total_amount, donation_count')
           .eq('id', donorId)
           .single();
         donorUpdate.total_amount = (donor?.total_amount || 0) + (log.amount_collected || 0);
         donorUpdate.donation_count = (donor?.donation_count || 0) + 1;
-        await supabase.from('donor_profiles').update(donorUpdate).eq('id', donorId);
+        await db.from('donor_profiles').update(donorUpdate).eq('id', donorId);
       } catch (err) { console.error('Failed to update donor totals:', err); }
     }
 
@@ -198,7 +198,7 @@ export const verifyLead = async (req, res) => {
           fcmLogged = !!pushResult;
         } catch (err) { console.error('FCM send error:', err.message); }
         if (!fcmLogged) {
-          await supabase.from('notification_log').insert({
+          await db.from('notification_log').insert({
             worker_id: froWorkerId,
             type: 'lead_verified',
             title: notifTitle,
@@ -231,7 +231,7 @@ export const verifyLead = async (req, res) => {
 export const getSuspenseList = async (req, res) => {
   try {
     const { status } = req.query;
-    let query = supabase
+    let query = db
       .from('suspense_donations')
       .select('*')
       .order('created_at', { ascending: false });
@@ -253,7 +253,7 @@ export const createSuspense = async (req, res) => {
       return res.status(400).json({ message: 'Donor name and amount are required' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('suspense_donations')
       .insert({ donor_name, amount, transaction_date, notes })
       .select()
@@ -272,7 +272,7 @@ export const addSuspenseNote = async (req, res) => {
     const { notes } = req.body;
     if (!notes) return res.status(400).json({ message: 'Notes are required' });
 
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('suspense_donations')
       .select('notes')
       .eq('id', id)
@@ -284,7 +284,7 @@ export const addSuspenseNote = async (req, res) => {
       ? existing.notes + '\n---\n' + new Date().toLocaleString() + ': ' + notes
       : new Date().toLocaleString() + ': ' + notes;
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('suspense_donations')
       .update({ notes: updatedNotes })
       .eq('id', id)
@@ -304,7 +304,7 @@ export const assignSuspense = async (req, res) => {
     const { fro_worker_id } = req.body;
     if (!fro_worker_id) return res.status(400).json({ message: 'FRO worker ID is required' });
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('suspense_donations')
       .update({ assigned_to_fro_id: fro_worker_id, assigned_at: new Date().toISOString(), status: 'resolved' })
       .eq('id', id)
@@ -327,7 +327,7 @@ export const rejectLead = async (req, res) => {
       return res.status(400).json({ message: 'Rejection reason is required' });
     }
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, station, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
@@ -346,7 +346,7 @@ export const rejectLead = async (req, res) => {
       return res.status(400).json({ message: 'Associated assignment not found' });
     }
 
-    const { error: updateLogError } = await supabase
+    const { error: updateLogError } = await db
       .from('fro_donor_logs')
       .update({
         accounts_status: 'rejected',
@@ -359,7 +359,7 @@ export const rejectLead = async (req, res) => {
 
     if (updateLogError) throw updateLogError;
 
-    const { error: updateAsgnError } = await supabase
+    const { error: updateAsgnError } = await db
       .from('fro_assignments')
       .update({
         status: 'payment_rejected',
@@ -371,7 +371,7 @@ export const rejectLead = async (req, res) => {
     if (updateAsgnError) throw updateAsgnError;
 
     if (log.fro_assignments?.donor_id) {
-      await supabase.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
+      await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
 
     const froWorkerId = log.fro_assignments?.fro_worker_id;
@@ -394,7 +394,7 @@ export const rejectLead = async (req, res) => {
 
       if (!fcmLogged) {
         try {
-          await supabase.from('notification_log').insert({
+          await db.from('notification_log').insert({
             worker_id: froWorkerId,
             type: 'lead_rejected',
             title: notifTitle,
@@ -411,7 +411,7 @@ export const rejectLead = async (req, res) => {
     let ngoId = null;
     if (froWorkerId) {
       try {
-        const { data: alloc } = await supabase
+        const { data: alloc } = await db
           .from('worker_ngo_allocations')
           .select('ngo_id')
           .eq('worker_id', froWorkerId)
@@ -426,7 +426,7 @@ export const rejectLead = async (req, res) => {
     }
     if (!ngoId && assignmentStation) {
       try {
-        const { data: stationAssign } = await supabase
+        const { data: stationAssign } = await db
           .from('fro_station_assignments')
           .select('ngo_id')
           .eq('station', assignmentStation)
@@ -438,7 +438,7 @@ export const rejectLead = async (req, res) => {
     }
 
     try {
-      await supabase.from('rejected_lead_tickets').insert({
+      await db.from('rejected_lead_tickets').insert({
         fro_donor_log_id: logId,
         fro_worker_id: froWorkerId,
         ngo_id: ngoId,
@@ -452,7 +452,7 @@ export const rejectLead = async (req, res) => {
 
     if (ngoId) {
       try {
-        await supabase.from('alerts').insert({
+        await db.from('alerts').insert({
           ngo_id: ngoId,
           type: 'lead_rejected',
           title: 'Lead Rejected',
@@ -493,7 +493,7 @@ export const patchLeadField = async (req, res) => {
     const isDonorField = field in DONOR_FIELD_MAP;
 
     if (isDonorField) {
-      const { data: log, error: logError } = await supabase
+      const { data: log, error: logError } = await db
         .from('fro_donor_logs')
         .select('id, fro_assignments!inner(donor_id)')
         .eq('id', logId)
@@ -509,7 +509,7 @@ export const patchLeadField = async (req, res) => {
       }
 
       const donorColumn = DONOR_FIELD_MAP[field];
-      const { error: updateError } = await supabase
+      const { error: updateError } = await db
         .from('donor_profiles')
         .update({ [donorColumn]: value === '' ? null : value, updated_at: new Date().toISOString() })
         .eq('id', donorId);
@@ -519,7 +519,7 @@ export const patchLeadField = async (req, res) => {
       return res.json({ message: 'Field updated', field, value: value === '' ? null : value });
     }
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('id, accounts_status')
       .eq('id', logId)
@@ -532,7 +532,7 @@ export const patchLeadField = async (req, res) => {
     const updateData = {};
     updateData[field] = value === '' ? null : value;
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await db
       .from('fro_donor_logs')
       .update(updateData)
       .eq('id', logId);
@@ -548,7 +548,7 @@ export const patchLeadField = async (req, res) => {
 // ─── Receipts ──────────────────────────────────────────────
 
 async function getNextReceiptNo() {
-  const { data } = await supabase.from('receipts').select('receipt_no');
+  const { data } = await db.from('receipts').select('receipt_no');
   let maxNum = 0;
   for (const r of data || []) {
     const match = String(r.receipt_no).match(/(\d+)/);
@@ -570,7 +570,7 @@ export const generateReceipt = async (req, res) => {
       return res.json({ receipt: existing, message: 'Receipt already exists' });
     }
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
         id, amount_collected, pan_number, notes,
@@ -641,7 +641,7 @@ export const getReceiptList = async (req, res) => {
 export const getPendingReceipts = async (req, res) => {
   try {
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { data: receipts, error: recError } = await supabase
+    const { data: receipts, error: recError } = await db
       .from('receipts')
       .select('*')
       .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
@@ -652,7 +652,7 @@ export const getPendingReceipts = async (req, res) => {
 
     const logIds = receipts.map(r => r.log_id).filter(Boolean);
 
-    const { data: logs, error: logErr } = await supabase
+    const { data: logs, error: logErr } = await db
       .from('fro_donor_logs')
       .select(`
         id, amount_collected, verified_at, upi_transaction_id, transaction_datetime, payment_from, payment_mode,
@@ -706,7 +706,7 @@ export const markReceiptAsSent = async (req, res) => {
     if (ids.length === 0) return res.status(400).json({ message: 'receiptId or receipt_ids is required' });
     if (ids.length > 50) return res.status(400).json({ message: 'A maximum of 50 receipt IDs can be updated at once' });
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('receipts')
       .update({ sent: true, sent_at: new Date().toISOString() })
       .in('id', ids)
@@ -723,7 +723,7 @@ export const getDonorHistory = async (req, res) => {
   try {
     const { donorId } = req.params;
 
-    const { data: logs, error } = await supabase
+    const { data: logs, error } = await db
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_detail, amount_collected, accounts_status,
@@ -743,11 +743,11 @@ export const getDonorHistory = async (req, res) => {
     const receiptPromises = [];
     if (logIds.length > 0) {
       receiptPromises.push(
-        supabase.from('receipts').select('*').in('log_id', logIds)
+        db.from('receipts').select('*').in('log_id', logIds)
       );
     }
     receiptPromises.push(
-      supabase.from('receipts').select('*').eq('donor_id', donorId)
+      db.from('receipts').select('*').eq('donor_id', donorId)
     );
 
     const receiptResults = await Promise.allSettled(receiptPromises);
@@ -834,7 +834,7 @@ export const getDayEndReport = async (req, res) => {
       dateTo = reportDate + 'T23:59:59Z';
     }
 
-    const { data: froLogs, error: fErr } = await supabase
+    const { data: froLogs, error: fErr } = await db
       .from('fro_donor_logs')
       .select(`
         amount_collected, accounts_status, verified_at, created_at,
@@ -859,7 +859,7 @@ export const getDayEndReport = async (req, res) => {
       if (log.accounts_status === 'verified') froMap[wid].collected += amount;
     }
 
-    const { data: suspenseEntries, error: sErr } = await supabase
+    const { data: suspenseEntries, error: sErr } = await db
       .from('bank_audit_entries')
       .select('id, amount, payment_id, bank_audit_sources(name)')
       .eq('status', 'unverified');
@@ -868,7 +868,7 @@ export const getDayEndReport = async (req, res) => {
     const suspenseAmount = (suspenseEntries || []).reduce((s, e) => s + Number(e.amount || 0), 0);
 
     // Source-wise breakdown from bank audit entries
-    const { data: allBankEntries, error: bErr } = await supabase
+    const { data: allBankEntries, error: bErr } = await db
       .from('bank_audit_entries')
       .select('amount, bank_audit_sources(name)');
     if (bErr) throw bErr;
@@ -962,7 +962,7 @@ export const importReceipts = async (req, res) => {
     if (incomingNos.length > 0) {
       for (let i = 0; i < incomingNos.length; i += 100) {
         const batch = incomingNos.slice(i, i + 100);
-        const { data: existing } = await supabase
+        const { data: existing } = await db
           .from('receipts')
           .select('id, receipt_no')
           .in('receipt_no', batch);
@@ -983,128 +983,284 @@ export const importReceipts = async (req, res) => {
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
 
-    // A repeat upload must not create a duplicate receipt, but it can enrich an
-    // existing receipt with the FSE/agent name supplied in the newer sheet.
-    const agentUpdates = parsed
-      .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
-      .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
-    if (agentUpdates.length > 0) {
-      await Promise.all(agentUpdates.map(({ id, agent_name }) =>
-        supabase.from('receipts').update({ agent_name }).eq('id', id)
-      ));
+    // Durability safety net: persist the exact rows we intend to insert BEFORE
+    // any DB write, so a crash mid-import can never lose the source data.
+    const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
+    let manifestPath = null;
+    try {
+      fs.mkdirSync(FAILED_DIR, { recursive: true });
+      manifestPath = path.join(FAILED_DIR, `receipt_import_${Date.now()}.json`);
+      fs.writeFileSync(manifestPath, JSON.stringify({ imported_at: new Date().toISOString(), rows: uniqueRows }, null, 2));
+    } catch (e) {
+      console.warn('Could not persist import manifest:', e.message);
     }
 
-    // ─── Insert + match + link (with retry) ───
+    // ─── Insert + match + link — one atomic transaction, with retry ───
     const MAX_RETRIES = 3;
-    const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
+    const MAX_QUERY_CONCURRENCY = 6;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    let inserted = [];
-    let matchedCount = 0;
-    let withBankCount = 0;
+    const mapLimit = async (items, limit, fn) => {
+      const results = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < items.length) {
+          const idx = next++;
+          results.push(await fn(items[idx], idx));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+      return results;
+    };
+
+    const isConnExhausted = (err) => {
+      const m = (err && err.message ? err.message : '').toLowerCase();
+      return (err && err.code === '53300') || m.includes('remaining connection slots') || m.includes('rds_reserved') || m.includes('too many connections');
+    };
+
+    let lastError = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 1) {
         console.log(`Import retry attempt ${attempt}/${MAX_RETRIES}`);
-        await sleep(attempt * 1000);
+        await sleep((isConnExhausted(lastError) ? attempt * 4000 : attempt * 1000));
       }
 
       try {
-        console.time('import-dedup');
-        const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
-        let alreadyInserted = new Set();
-        if (nos.length > 0) {
-          const { data: existing } = await supabase
-            .from('receipts')
-            .select('receipt_no')
-            .in('receipt_no', nos);
-          for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
-        }
-        const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
-        console.timeEnd('import-dedup');
+        console.time('import-tx');
+        const result = await db.transaction(async ({ from }) => {
+          // Retry-safe dedupe: anything already in the DB is skipped, so a
+          // re-upload (or a partial previous run) never creates duplicates.
+          const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
+          const alreadyInserted = new Set();
+          if (nos.length > 0) {
+            const DEDUPE_BATCH = 1000;
+            for (let i = 0; i < nos.length; i += DEDUPE_BATCH) {
+              const { data: existing, error: dedupeErr } = await from('receipts')
+                .select('receipt_no')
+                .in('receipt_no', nos.slice(i, i + DEDUPE_BATCH));
+              if (dedupeErr) throw new Error(dedupeErr.message);
+              for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
+            }
+          }
+          const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
 
-        if (toInsert.length > 0) {
-          console.time('import-insert');
-          const { data, error } = await supabase
-            .from('receipts')
-            .insert(toInsert)
-            .select();
-          if (error) throw error;
-          inserted = data || [];
-          console.timeEnd('import-insert');
-        }
+          // A repeat upload must not create a duplicate receipt, but it can
+          // enrich an existing receipt with the FSE/agent name from the newer sheet.
+          const agentUpdates = parsed
+            .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
+            .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
+          await mapLimit(agentUpdates.map(({ id, agent_name }) =>
+            from('receipts').update({ agent_name }).eq('id', id)
+          ), MAX_QUERY_CONCURRENCY, async (q) => {
+            const { error } = await q;
+            if (error) throw new Error(error.message);
+          });
 
-        if (inserted.length > 0) {
-          console.time('import-match');
-          const mobiles = [...new Set(
-            inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
-          )];
+          let inserted = [];
+          if (toInsert.length > 0) {
+            const INSERT_BATCH = 500;
+            const chunks = [];
+            for (let i = 0; i < toInsert.length; i += INSERT_BATCH) chunks.push(toInsert.slice(i, i + INSERT_BATCH));
+            const insertedChunks = await mapLimit(chunks, 2, async (chunk) => {
+              const { data, error } = await from('receipts').insert(chunk).select();
+              if (error) throw error;
+              return data || [];
+            });
+            inserted = insertedChunks.flat();
+          }
 
-          const donorByMobile = {};
-          if (mobiles.length > 0) {
-            for (let i = 0; i < mobiles.length; i += 100) {
-              const batch = mobiles.slice(i, i + 100);
-              const { data: donors } = await supabase
-                .from('donor_profiles')
-                .select('id, mobile_number, total_amount, donation_count, last_donation_date')
-                .in('mobile_number', batch);
-              for (const d of (donors || [])) {
-                donorByMobile[(d.mobile_number || '').replace(/\D/g, '')] = d;
+          let matched = 0;
+          let withBank = 0;
+          let receiptsByDonor = {};
+          if (inserted.length > 0) {
+            const mobiles = [...new Set(
+              inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
+            )];
+
+            const donorByMobile = {};
+            if (mobiles.length > 0) {
+              for (let i = 0; i < mobiles.length; i += 100) {
+                const batch = mobiles.slice(i, i + 100);
+                const { data: donors, error: donorErr } = await from('donor_profiles')
+                  .select('id, mobile_number, total_amount, donation_count, last_donation_date')
+                  .in('mobile_number', batch);
+                if (donorErr) throw new Error(donorErr.message);
+                for (const d of (donors || [])) {
+                  donorByMobile[(d.mobile_number || '').replace(/\D/g, '')] = d;
+                }
+              }
+            }
+
+            receiptsByDonor = {};
+            for (const receipt of inserted) {
+              const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
+              if (mobile.length < 10) continue;
+              const donor = donorByMobile[mobile];
+              if (!donor) continue;
+              matched++;
+              if (!receiptsByDonor[donor.id]) {
+                receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
+              }
+              receiptsByDonor[donor.id].ids.push(receipt.id);
+              receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
+              receiptsByDonor[donor.id].donation_count += 1;
+              if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
+                receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+              }
+            }
+
+            if (Object.keys(receiptsByDonor).length > 0) {
+              const updates = [];
+              for (const [donorId, info] of Object.entries(receiptsByDonor)) {
+                for (let i = 0; i < info.ids.length; i += 50) {
+                  updates.push(from('receipts').update({ donor_id: parseInt(donorId) }).in('id', info.ids.slice(i, i + 50)));
+                }
+                updates.push(from('donor_profiles').update({
+                  total_amount: Math.round(info.total_amount * 100) / 100,
+                  donation_count: info.donation_count,
+                  last_donation_date: info.last_donation_date,
+                  updated_at: new Date().toISOString(),
+                }).eq('id', donorId));
+              }
+              // A failed link/donor update aborts the whole import (rollback) —
+              // it must never silently leave an unlinked receipt behind.
+              await mapLimit(updates, MAX_QUERY_CONCURRENCY, async (q) => {
+                const { error } = await q;
+                if (error) throw new Error(error.message);
+              });
+            }
+            withBank = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+          }
+
+          // ── Auto-credit current-month receipts to the assigned FRO ──
+          // Only receipts dated in the current month can close an open lead and
+          // add to the FRO's collected; older/backfilled rows stay as history.
+          const nowD = new Date();
+          const currentMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+          const isCurrentMonth = (d) => typeof d === 'string' && d.slice(0, 7) === currentMonth;
+
+          const donorIdByReceiptId = new Map();
+          for (const [donorId, info] of Object.entries(receiptsByDonor)) {
+            for (const id of info.ids) donorIdByReceiptId.set(id, parseInt(donorId, 10));
+          }
+          const creditable = inserted.filter(r => donorIdByReceiptId.has(r.id) && isCurrentMonth(r.receipt_date));
+
+          let leadsCollected = 0;
+          const credits = new Map();
+          if (creditable.length > 0) {
+            const donorIds = [...new Set(creditable.map(r => donorIdByReceiptId.get(r.id)))];
+            const openAssignments = [];
+            const ASSIGN_BATCH = 1000;
+            for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
+              const { data, error: asgnErr } = await from('fro_assignments')
+                .select('id, donor_id, fro_worker_id, assigned_at')
+                .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
+                .not('status', 'eq', 'reassigned')
+                .not('status', 'eq', 'donation_collected')
+                .not('status', 'eq', 'lead_done')
+                .not('status', 'eq', 'done');
+              if (asgnErr) throw new Error(asgnErr.message);
+              openAssignments.push(...(data || []));
+            }
+
+            const assignmentByDonor = {};
+            for (const a of openAssignments) {
+              if (!a.fro_worker_id) continue;
+              const cur = assignmentByDonor[a.donor_id];
+              if (!cur || new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) assignmentByDonor[a.donor_id] = a;
+            }
+
+            const logs = [];
+            const assignmentIds = new Set();
+            for (const r of creditable) {
+              const a = assignmentByDonor[donorIdByReceiptId.get(r.id)];
+              if (!a) continue;
+              logs.push({
+                assignment_id: a.id,
+                donor_id: donorIdByReceiptId.get(r.id),
+                fro_worker_id: a.fro_worker_id,
+                action: 'donation',
+                amount_collected: parseFloat(r.amount || 0),
+                accounts_status: 'verified',
+                verified_at: r.receipt_date || new Date().toISOString(),
+                verified_by: req.user.id,
+                created_by: req.user.id,
+                upi_transaction_id: r.payment_id || null,
+                transaction_datetime: r.receipt_date || null,
+                pan_number: r.pan_number || null,
+                notes: `Auto-credited from imported receipt ${r.receipt_no || r.id}`,
+              });
+              assignmentIds.add(a.id);
+              const cred = credits.get(a.fro_worker_id) || { count: 0, total: 0 };
+              cred.count += 1;
+              cred.total += parseFloat(r.amount || 0);
+              credits.set(a.fro_worker_id, cred);
+            }
+
+            if (logs.length > 0) {
+              const LOG_BATCH = 500;
+              const logChunks = [];
+              for (let i = 0; i < logs.length; i += LOG_BATCH) logChunks.push(logs.slice(i, i + LOG_BATCH));
+              await mapLimit(logChunks, 2, async (chunk) => {
+                const { error } = await from('fro_donor_logs').insert(chunk);
+                if (error) throw new Error(error.message);
+              });
+              leadsCollected = logs.length;
+
+              if (assignmentIds.size > 0) {
+                const { error: closeErr } = await from('fro_assignments')
+                  .update({ status: 'donation_collected', last_contacted_at: new Date().toISOString() })
+                  .in('id', [...assignmentIds]);
+                if (closeErr) throw new Error(closeErr.message);
               }
             }
           }
 
-          const receiptsByDonor = {};
-          for (const receipt of inserted) {
-            const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
-            if (mobile.length < 10) continue;
-            const donor = donorByMobile[mobile];
-            if (!donor) continue;
-            matchedCount++;
-            if (!receiptsByDonor[donor.id]) {
-              receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
-            }
-            receiptsByDonor[donor.id].ids.push(receipt.id);
-            receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
-            receiptsByDonor[donor.id].donation_count += 1;
-            if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
-              receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
-            }
-          }
-          console.timeEnd('import-match');
+          return { imported: inserted.length, matched, withBank, leadsCollected, credits };
+        });
+        console.timeEnd('import-tx');
+        console.log(`Import OK: ${result.imported} rows, ${result.matched} matched, ${result.leadsCollected} leads credited`);
 
-          if (Object.keys(receiptsByDonor).length > 0) {
-            console.time('import-updates');
-            const updates = [];
-            for (const [donorId, info] of Object.entries(receiptsByDonor)) {
-              for (let i = 0; i < info.ids.length; i += 50) {
-                updates.push(supabase.from('receipts').update({ donor_id: parseInt(donorId) }).in('id', info.ids.slice(i, i + 50)));
-              }
-              updates.push(supabase.from('donor_profiles').update({
-                total_amount: Math.round(info.total_amount * 100) / 100,
-                donation_count: info.donation_count,
-                last_donation_date: info.last_donation_date,
-                updated_at: new Date().toISOString(),
-              }).eq('id', donorId));
+        // Notify FROs (aggregated per worker) — best effort, after the commit.
+        for (const [workerId, cred] of result.credits) {
+          try {
+            const notifTitle = 'Lead Collected';
+            const notifBody = `Your lead${cred.count > 1 ? 's' : ''} ${cred.count > 1 ? 'were' : 'was'} collected: \u20B9${cred.total.toLocaleString('en-IN')} across ${cred.count} receipt${cred.count > 1 ? 's' : ''}.`;
+            let fcmLogged = false;
+            try {
+              const pushResult = await sendPushNotification(workerId, notifTitle, notifBody, 'lead_verified', null);
+              fcmLogged = !!pushResult;
+            } catch (err) { console.error('FCM send error:', err.message); }
+            if (!fcmLogged) {
+              await db.from('notification_log').insert({
+                worker_id: workerId,
+                type: 'lead_verified',
+                title: notifTitle,
+                body: notifBody,
+                sent_at: new Date().toISOString(),
+              });
             }
-            await Promise.allSettled(updates);
-            console.timeEnd('import-updates');
-          }
-          withBankCount = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+          } catch (err) { console.error('Failed to create collected notification:', err.message); }
         }
 
-        console.log(`Import OK: ${inserted.length} rows, ${matchedCount} matched`);
+        // All-or-nothing committed — the safety manifest is no longer needed.
+        try { if (manifestPath) fs.unlinkSync(manifestPath); } catch (_) { /* best effort */ }
+
         return res.status(201).json({
-          message: `${inserted.length} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${matchedCount > 0 ? `, ${matchedCount} linked to donors` : ''}`,
-          imported: inserted.length,
-          withBank: withBankCount,
-          matchedDonors: matchedCount,
+          message: `${result.imported} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}${result.leadsCollected > 0 ? `, ${result.leadsCollected} leads credited to FROs` : ''}`,
+          imported: result.imported,
+          withBank: result.withBank,
+          matchedDonors: result.matched,
+          leads_collected: result.leadsCollected,
         });
 
       } catch (err) {
+        lastError = err;
         console.warn(`Import attempt ${attempt} failed:`, err.message);
         if (attempt === MAX_RETRIES) {
-          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}` });
+          const hint = isConnExhausted(err) ? ' The database connection limit is reached; wait a moment and try again.' : '';
+          return res.status(500).json({ message: `Import failed after ${MAX_RETRIES} attempts: ${err.message}${hint}${manifestPath ? ` Your data is safe and saved at: ${manifestPath}` : ''}` });
         }
       }
     }
@@ -1118,7 +1274,7 @@ export const importReceipts = async (req, res) => {
 
 const reverseDonorTotals = async () => {
   try {
-    const { data: linked } = await supabase
+    const { data: linked } = await db
       .from('receipts')
       .select('donor_id, amount')
       .not('donor_id', 'is', null);
@@ -1140,7 +1296,7 @@ const reverseDonorTotals = async () => {
     const BATCH = 100;
     for (let i = 0; i < donorIds.length; i += BATCH) {
       const batch = donorIds.slice(i, i + BATCH);
-      const { data: donors } = await supabase
+      const { data: donors } = await db
         .from('donor_profiles')
         .select('id, total_amount, donation_count')
         .in('id', batch);
@@ -1151,7 +1307,7 @@ const reverseDonorTotals = async () => {
       Object.entries(deductions).map(([donorId, dec]) => {
         const donor = donorMap[donorId];
         if (!donor) return Promise.resolve();
-        return supabase.from('donor_profiles').update({
+        return db.from('donor_profiles').update({
           total_amount: Math.max(0, (donor.total_amount || 0) - dec.amount),
           donation_count: Math.max(0, (donor.donation_count || 0) - dec.count),
           updated_at: new Date().toISOString(),
@@ -1174,14 +1330,14 @@ export const clearReceipts = async (req, res) => {
 
     let deleted = 0, remaining = 0;
     if (batch) {
-      const { data: ids } = await supabase
+      const { data: ids } = await db
         .from('receipts')
         .select('id')
         .neq('id', 0)
         .limit(batch);
       const batchIds = (ids || []).map(r => r.id);
       if (batchIds.length > 0) {
-        const { data: rows } = await supabase
+        const { data: rows } = await db
           .from('receipts')
           .delete()
           .in('id', batchIds)
@@ -1189,7 +1345,7 @@ export const clearReceipts = async (req, res) => {
         deleted = rows?.length || 0;
       }
     } else {
-      const { data: rows } = await supabase
+      const { data: rows } = await db
         .from('receipts')
         .delete()
         .neq('id', 0)
@@ -1206,7 +1362,7 @@ export const clearReceipts = async (req, res) => {
 
 export const getReceiptCount = async (req, res) => {
   try {
-    const { count } = await supabase
+    const { count } = await db
       .from('receipts')
       .select('*', { count: 'exact', head: true });
     return res.json({ count: count || 0 });
@@ -1223,7 +1379,7 @@ export const getDonorsList = async (req, res) => {
     const from = (pageNum - 1) * limitNum;
     const to = from + limitNum - 1;
 
-    let query = supabase
+    let query = db
       .from('donor_profiles')
       .select('*', { count: 'exact' });
 
@@ -1241,7 +1397,7 @@ export const getDonorsList = async (req, res) => {
 
     const donorIds = (data || []).map(d => d.id).filter(Boolean);
     if (donorIds.length > 0) {
-      const { data: assignments } = await supabase
+      const { data: assignments } = await db
         .from('fro_assignments')
         .select('donor_id, fro_worker_id, station, ngo_id')
         .in('donor_id', donorIds)
@@ -1250,7 +1406,7 @@ export const getDonorsList = async (req, res) => {
       const ngoIds = [...new Set((assignments || []).map(a => a.ngo_id).filter(Boolean))];
       const ngoMap = {};
       if (ngoIds.length > 0) {
-        const { data: ngos } = await supabase
+        const { data: ngos } = await db
           .from('ngos')
           .select('id, name')
           .in('id', ngoIds);
@@ -1260,7 +1416,7 @@ export const getDonorsList = async (req, res) => {
       const workerIds = [...new Set((assignments || []).map(a => a.fro_worker_id).filter(Boolean))];
       const workerMap = {};
       if (workerIds.length > 0) {
-        const { data: workers } = await supabase
+        const { data: workers } = await db
           .from('workers')
           .select('id, name')
           .in('id', workerIds);
@@ -1300,30 +1456,216 @@ export const getDonorsList = async (req, res) => {
   }
 };
 
+export const exportDonors = async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    let query = db.from('donor_profiles').select('*');
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+
+    const { data: donors, error } = await query.order('last_donation_date', { ascending: false, nullsFirst: false });
+    if (error) throw error;
+    if (!donors || donors.length === 0) return res.json({ data: [], total: 0 });
+
+    const donorIds = donors.map(d => d.id).filter(Boolean);
+
+    // Chunked assignment fetch to avoid the Postgres parameter limit on large donor sets.
+    const latestByDonor = new Map();
+    const ASSIGN_BATCH = 1000;
+    for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
+      const { data: assignments, error: asgnErr } = await db
+        .from('fro_assignments')
+        .select('donor_id, fro_worker_id, station, ngo_id, assigned_at')
+        .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
+        .not('status', 'eq', 'reassigned');
+      if (asgnErr) throw asgnErr;
+      for (const a of assignments || []) {
+        const cur = latestByDonor.get(a.donor_id);
+        const ts = (x) => new Date(x?.assigned_at || 0).getTime();
+        if (!cur || ts(a) > ts(cur)) latestByDonor.set(a.donor_id, a);
+      }
+    }
+
+    const assignments = [...latestByDonor.values()];
+
+    const workerIds = [...new Set(assignments.map(a => a.fro_worker_id).filter(Boolean))];
+    const workerMap = {};
+    if (workerIds.length > 0) {
+      for (let i = 0; i < workerIds.length; i += 500) {
+        const { data: workers, error: wErr } = await db.from('workers').select('id, name').in('id', workerIds.slice(i, i + 500));
+        if (wErr) throw wErr;
+        for (const w of workers || []) workerMap[w.id] = w.name;
+      }
+    }
+
+    const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
+    const ngoMap = {};
+    if (ngoIds.length > 0) {
+      const { data: ngos, error: nErr } = await db.from('ngos').select('id, name').in('id', ngoIds);
+      if (nErr) throw nErr;
+      for (const n of ngos || []) ngoMap[n.id] = n.name;
+    }
+
+    const rows = donors.map(d => {
+      const a = latestByDonor.get(d.id);
+      return {
+        'Donor Name': d.name || d.bank_donor_name || d.agent_donor_name || '',
+        'Mobile': d.mobile_number || '',
+        'City': d.city || '',
+        'NGO': a?.ngo_id ? (ngoMap[a.ngo_id] || d.ngo || '') : (d.ngo || ''),
+        'Assigned To': a?.fro_worker_id ? (workerMap[a.fro_worker_id] || '') : '',
+        'Total Amount': d.total_amount != null ? Number(d.total_amount) : 0,
+        'Donations': d.donation_count != null ? Number(d.donation_count) : 0,
+        'Last Donation': d.last_donation_date || '',
+        'New Station': a?.station || d.station || 'suspense',
+      };
+    });
+
+    return res.json({ data: rows, total: rows.length });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorDetail = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { data: donor, error: donorErr } = await supabase
+    const { data: donor, error: donorErr } = await db
       .from('donor_profiles')
       .select('*')
       .eq('id', id)
       .single();
     if (donorErr) throw donorErr;
 
-    const { data: receipts, error: recErr } = await supabase
+    const { data: receipts, error: recErr } = await db
       .from('receipts')
       .select('*')
       .eq('donor_id', id)
       .order('receipt_date', { ascending: false });
     if (recErr) throw recErr;
 
+    let assigned_agent = null;
+    let assignment_station = null;
+    let assignment_ngo = null;
+    try {
+      const { data: assignments } = await db
+        .from('fro_assignments')
+        .select('fro_worker_id, station, ngo_id')
+        .eq('donor_id', id)
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false });
+
+      if (assignments && assignments.length > 0) {
+        const a = assignments[0];
+        if (a.fro_worker_id) {
+          const { data: worker } = await db
+            .from('workers')
+            .select('name')
+            .eq('id', a.fro_worker_id)
+            .maybeSingle();
+          assigned_agent = worker?.name || null;
+        }
+        assignment_station = a.station || null;
+        if (a.ngo_id) {
+          const { data: ngo } = await db
+            .from('ngos')
+            .select('name')
+            .eq('id', a.ngo_id)
+            .maybeSingle();
+          assignment_ngo = ngo?.name || null;
+        }
+      }
+    } catch (assignErr) {
+      console.error('getDonorDetail: failed to load assignment:', assignErr.message);
+    }
+
     return res.json({
       donor,
       receipts: receipts || [],
       receiptCount: receipts?.length || 0,
       totalAmount: (receipts || []).reduce((s, r) => s + parseFloat(r.amount || 0), 0),
+      assigned_agent,
+      assignment_station,
+      assignment_ngo,
     });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Donor Profile Update ───────────────────────────────────
+
+const EDITABLE_DONOR_FIELDS = {
+  name: 'name',
+  mobile_number: 'mobile_number',
+  mobile_2: 'mobile_2',
+  email: 'email',
+  pan_number: 'pan_number',
+  address_1: 'address_1',
+  address_2: 'address_2',
+  city: 'city',
+  pin_code: 'pin_code',
+  bank_donor_name: 'bank_donor_name',
+  agent_donor_name: 'agent_donor_name',
+  donors_bank_name: 'donors_bank_name',
+  project_supported: 'project_supported',
+  ngo: 'ngo',
+  station: 'station',
+  category: 'category',
+  data_category: 'data_category',
+  team: 'team',
+  agent_name: 'agent_name',
+  mop: 'mop',
+  birth_date: 'birth_date',
+};
+
+export const updateDonor = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No fields provided to update' });
+    }
+
+    const { data: existing, error: fetchErr } = await db
+      .from('donor_profiles')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!existing) {
+      return res.status(404).json({ message: 'Donor not found' });
+    }
+
+    const updateData = { updated_at: new Date().toISOString() };
+    let changed = false;
+    for (const [field, column] of Object.entries(EDITABLE_DONOR_FIELDS)) {
+      if (field in updates) {
+        const value = updates[field];
+        updateData[column] = (value === '' || value === null) ? null : value;
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return res.status(400).json({ message: 'No editable donor fields provided' });
+    }
+
+    const { data: donor, error: updateErr } = await db
+      .from('donor_profiles')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    if (updateErr) throw updateErr;
+
+    return res.json({ donor, message: 'Donor updated' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

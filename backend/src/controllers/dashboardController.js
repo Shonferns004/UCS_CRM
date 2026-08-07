@@ -4,7 +4,7 @@ import { getAllHRs } from '../models/hrModel.js';
 import { getAllWorkers, getWorkerById } from '../models/workerModel.js';
 import { getDashboardStats } from '../models/froAssignmentModel.js';
 import { getTotalCollectedByWorker } from '../models/froDonorLogModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 function calcDateRange(period) {
   const now = new Date();
@@ -138,47 +138,47 @@ export const getSuperAdminDashboard = async (req, res) => {
       { data: upcomingEvents },
       { data: leadLogs },
     ] = await Promise.all([
-      supabase
+      db
         .from('attendance')
         .select('status, date, worker_id, punch_in_time')
         .gte('date', range.from)
         .lte('date', range.to),
-      supabase
+      db
         .from('attendance')
         .select('status, worker_id, punch_in_time')
         .eq('date', todayDate),
-      supabase
+      db
         .from('attendance')
         .select('status')
         .gte('date', range.prevFrom)
         .lte('date', range.prevTo),
-      supabase
+      db
         .from('leaves')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'pending'),
-      supabase
+      db
         .from('attendance')
         .select('date, status')
         .gte('date', range.from)
         .lte('date', range.to),
-      supabase
+      db
         .from('salary_history')
         .select('worker_id, salary')
         .is('to_month', null),
-      supabase
+      db
         .from('notices')
         .select('id, title, content, created_at, created_by_name, target_role')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(5),
-      supabase
+      db
         .from('events')
         .select('id, title, description, event_date, event_time, location')
         .gte('event_date', today)
         .eq('is_active', true)
         .order('event_date', { ascending: true })
         .limit(5),
-      supabase
+      db
         .from('fro_donor_logs')
         .select('accounts_status, amount_collected, verified_at')
         .eq('disposition_detail', 'lead_done'),
@@ -357,7 +357,7 @@ export const getSuperAdminDashboard = async (req, res) => {
     /* ── Recruiter Summary ── */
     let recruiterSummary = { totalLeads: 0, newToday: 0, conversionRate: 0 };
     try {
-      const { data: allLeads } = await supabase
+      const { data: allLeads } = await db
         .from('leads')
         .select('id, status, created_at');
       const totalLeads = allLeads?.length || 0;
@@ -377,7 +377,7 @@ export const getSuperAdminDashboard = async (req, res) => {
       twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
       twelveMonthsAgo.setDate(1);
       const fromDate = twelveMonthsAgo.toISOString().slice(0, 10);
-      const { data: revenueLogs } = await supabase
+      const { data: revenueLogs } = await db
         .from('fro_donor_logs')
         .select('amount_collected, verified_at')
         .eq('accounts_status', 'verified')
@@ -406,7 +406,7 @@ export const getSuperAdminDashboard = async (req, res) => {
       const froWorkersOnly = allWorkersForFro.filter(w =>
         (w.department || '').toLowerCase().trim() === 'fro'
       );
-      const { data: froCollectionLogs } = await supabase
+      const { data: froCollectionLogs } = await db
         .from('fro_donor_logs')
         .select('fro_worker_id, amount_collected')
         .not('fro_worker_id', 'is', null);
@@ -426,11 +426,11 @@ export const getSuperAdminDashboard = async (req, res) => {
     /* ── Top Recruiters by lead count (all-time) ── */
     let topRecruiters = [];
     try {
-      const { data: recruiterUsers } = await supabase
+      const { data: recruiterUsers } = await db
         .from('users')
         .select('id, name, login_id')
         .eq('role', 'recruiter');
-      const { data: allLeadsForRecruiters } = await supabase
+      const { data: allLeadsForRecruiters } = await db
         .from('leads')
         .select('recruiter_id, created_by');
       const recruiterLeadCounts = {};
@@ -454,23 +454,23 @@ export const getSuperAdminDashboard = async (req, res) => {
     let recentActivities = [];
     try {
       const [verifiedLeads, newLeads, newWorkers, recentNotifications] = await Promise.all([
-        supabase
+        db
           .from('fro_donor_logs')
           .select('id, amount_collected, verified_at, accounts_status, fro_worker_id')
           .not('accounts_status', 'eq', 'pending')
           .order('verified_at', { ascending: false })
           .limit(5),
-        supabase
+        db
           .from('leads')
           .select('id, name, status, created_at')
           .order('created_at', { ascending: false })
           .limit(5),
-        supabase
+        db
           .from('workers')
           .select('id, name, created_at')
           .order('created_at', { ascending: false })
           .limit(5),
-        supabase
+        db
           .from('notification_log')
           .select('id, message, sent_at, type')
           .order('sent_at', { ascending: false })
@@ -593,7 +593,7 @@ export const getFroLiveStatus = async (req, res) => {
 
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const { data: todayAttendance } = await supabase
+    const { data: todayAttendance } = await db
       .from('attendance')
       .select('worker_id, status')
       .eq('date', todayStr)
@@ -613,11 +613,11 @@ export const getFroLiveStatus = async (req, res) => {
     const froWorkerIds = froWorkers.map(w => w.id);
 
     const [allAssignments, allTodayLogs] = await Promise.all([
-      supabase
+      db
         .from('fro_assignments')
         .select('fro_worker_id, status')
         .in('fro_worker_id', froWorkerIds),
-      supabase
+      db
         .from('fro_donor_logs')
         .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_assignments!inner(fro_worker_id)')
         .in('fro_assignments.fro_worker_id', froWorkerIds)
@@ -702,13 +702,13 @@ export const getHrDashboard = async (req, res) => {
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const newThisMonth = workers.filter((w) => w.created_at >= monthStart).length;
 
-    const { data: leaves } = await supabase
+    const { data: leaves } = await db
       .from('leaves')
       .select('status')
       .eq('status', 'pending');
     const pendingLeaves = leaves?.length || 0;
 
-    const { data: attendance } = await supabase
+    const { data: attendance } = await db
       .from('attendance')
       .select('status')
       .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
@@ -747,7 +747,7 @@ export const getAdminDashboard = async (req, res) => {
     const userCounts = {};
     users.forEach((u) => { userCounts[u.role] = (userCounts[u.role] || 0) + 1; });
 
-    const { data: attendance } = await supabase
+    const { data: attendance } = await db
       .from('attendance')
       .select('status, workers!inner(ngo_id)')
       .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
@@ -778,7 +778,7 @@ export const getAccountsDashboard = async (req, res) => {
     const ngoId = req.user.ngo_id;
     const workers = ngoId ? await getAllWorkers(ngoId) : await getAllWorkers();
 
-    const { data: attendance } = await supabase
+    const { data: attendance } = await db
       .from('attendance')
       .select('worker_id, status, date, late_minutes')
       .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
@@ -826,24 +826,24 @@ export const getTelecallerDashboard = async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const monthStart = today.slice(0, 7) + '-01';
 
-    const { count: assignedLeads } = await supabase
+    const { count: assignedLeads } = await db
       .from('leads')
       .select('*', { count: 'exact', head: true })
       .or(`recruiter_id.eq.${userId},created_by.eq.${userId}`);
 
-    const { count: callsToday } = await supabase
+    const { count: callsToday } = await db
       .from('call_logs')
       .select('*', { count: 'exact', head: true })
       .eq('telecaller_id', userId)
       .gte('call_time', today);
 
-    const { count: callsThisMonth } = await supabase
+    const { count: callsThisMonth } = await db
       .from('call_logs')
       .select('*', { count: 'exact', head: true })
       .eq('telecaller_id', userId)
       .gte('call_time', monthStart);
 
-    const { data: followUps } = await supabase
+    const { data: followUps } = await db
       .from('call_logs')
       .select('id')
       .eq('telecaller_id', userId)
@@ -899,7 +899,7 @@ export const getFroWorkerDashboard = async (req, res) => {
       getTotalCollectedByWorker(workerId, todayStart.toISOString(), todayEnd.toISOString()),
     ]);
 
-    const { data: leadDoneData } = await supabase
+    const { data: leadDoneData } = await db
       .from('fro_donor_logs')
       .select('donor_id, created_at, fro_assignments!inner(fro_worker_id)')
       .eq('fro_assignments.fro_worker_id', workerId)
@@ -954,7 +954,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 1. Zero-Collection FROs (active today, called but collected nothing) ──
     try {
-      const { data: froStatus } = await supabase
+      const { data: froStatus } = await db
         .from('fro_live_status')
         .select('worker_id, today_calls, today_collection, on_break')
         .eq('is_active', true);
@@ -964,7 +964,7 @@ export const getSuperAdminAlerts = async (req, res) => {
         .map(f => f.worker_id);
 
       if (zeroFroIds.length > 0) {
-        const { data: froWorkers } = await supabase
+        const { data: froWorkers } = await db
           .from('workers')
           .select('id, name, login_id')
           .in('id', zeroFroIds);
@@ -986,7 +986,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 2. High Rejection Ratio (>10% rejected leads per FRO) ──
     try {
-      const { data: recentLogs } = await supabase
+      const { data: recentLogs } = await db
         .from('fro_donor_logs')
         .select('fro_worker_id, disposition_detail, accounts_status, rejection_reason')
         .gte('created_at', sevenDaysAgo.toISOString())
@@ -1010,7 +1010,7 @@ export const getSuperAdminAlerts = async (req, res) => {
         .slice(0, 10);
 
       if (highRejectFros.length > 0) {
-        const { data: workers } = await supabase
+        const { data: workers } = await db
           .from('workers')
           .select('id, name, login_id')
           .in('id', highRejectFros.map(f => f.wid));
@@ -1039,13 +1039,13 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 3. Revenue Drop (>20% week-over-week decline) ──
     try {
-      const { data: thisWeek } = await supabase
+      const { data: thisWeek } = await db
         .from('fro_donor_logs')
         .select('amount_collected')
         .eq('accounts_status', 'verified')
         .gte('verified_at', sevenDaysAgo.toISOString());
 
-      const { data: lastWeek } = await supabase
+      const { data: lastWeek } = await db
         .from('fro_donor_logs')
         .select('amount_collected')
         .eq('accounts_status', 'verified')
@@ -1080,7 +1080,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 4. Unverified Receipts >48h ──
     try {
-      const { data: stalePending, count } = await supabase
+      const { data: stalePending, count } = await db
         .from('fro_donor_logs')
         .select('id, donor_id, amount_collected, created_at, fro_worker_id', { count: 'exact' })
         .eq('disposition_detail', 'lead_done')
@@ -1089,7 +1089,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if ((count || 0) > 0) {
         const froIds = [...new Set((stalePending || []).map(l => l.fro_worker_id).filter(Boolean))];
-        const { data: froNames } = await supabase.from('workers').select('id, name').in('id', froIds);
+        const { data: froNames } = await db.from('workers').select('id, name').in('id', froIds);
         const nameMap = {};
         for (const w of froNames || []) nameMap[w.id] = w.name;
 
@@ -1114,7 +1114,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 5. Unresolved Suspense Entries >7d ──
     try {
-      const { count } = await supabase
+      const { count } = await db
         .from('bank_audit_entries')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'unverified')
@@ -1138,7 +1138,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 6. Missed Schedules (2+ per FRO this week) ──
     try {
-      const { data: missedAlerts } = await supabase
+      const { data: missedAlerts } = await db
         .from('alerts')
         .select('fro_name, fro_worker_id, donor_name')
         .eq('type', 'missed_schedule')
@@ -1176,7 +1176,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 7. Unresolved Data Requests >24h ──
     try {
-      const { data: staleRequests, count } = await supabase
+      const { data: staleRequests, count } = await db
         .from('fro_data_requests')
         .select('id, fro_worker_id, message, created_at', { count: 'exact' })
         .eq('status', 'pending')
@@ -1184,7 +1184,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if ((count || 0) > 0) {
         const workerIds = [...new Set((staleRequests || []).map(r => r.fro_worker_id).filter(Boolean))];
-        const { data: workers } = await supabase.from('workers').select('id, name').in('id', workerIds);
+        const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
         const wMap = {};
         for (const w of workers || []) wMap[w.id] = w.name;
 
@@ -1208,7 +1208,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 8. Missing PAN for Large Donations (>₹10,000) ──
     try {
-      const { count } = await supabase
+      const { count } = await db
         .from('fro_donor_logs')
         .select('id', { count: 'exact', head: true })
         .eq('accounts_status', 'verified')
@@ -1234,7 +1234,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 9. Stale Leads (>7 days, status 'new', no contact) ──
     try {
-      const { count } = await supabase
+      const { count } = await db
         .from('leads')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'new')
@@ -1258,7 +1258,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 10. Pending Leaves >3 days ──
     try {
-      const { count } = await supabase
+      const { count } = await db
         .from('leaves')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'pending')
@@ -1283,7 +1283,7 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 11. FRO on Break >30 min (HIGH) ──
     try {
       const thirtyMinAgo = new Date(now); thirtyMinAgo.setMinutes(thirtyMinAgo.getMinutes() - 30);
-      const { data: longBreakers } = await supabase
+      const { data: longBreakers } = await db
         .from('fro_live_status')
         .select('worker_id, break_started_at, today_break_seconds, break_type')
         .eq('on_break', true)
@@ -1292,7 +1292,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if ((longBreakers || []).length > 0) {
         const wIds = longBreakers.map(f => f.worker_id);
-        const { data: bw } = await supabase.from('workers').select('id, name').in('id', wIds);
+        const { data: bw } = await db.from('workers').select('id, name').in('id', wIds);
         const bwMap = {};
         for (const w of bw || []) bwMap[w.id] = w.name;
 
@@ -1316,7 +1316,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 12. FRO Ghost Login — punched in but zero calls all day (HIGH) ──
     try {
-      const { data: ghostFros } = await supabase
+      const { data: ghostFros } = await db
         .from('fro_live_status')
         .select('worker_id, today_calls, today_talk_seconds, status, updated_at')
         .eq('is_active', true)
@@ -1330,7 +1330,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if (ghosts.length > 0) {
         const gIds = ghosts.map(f => f.worker_id);
-        const { data: gw } = await supabase.from('workers').select('id, name').in('id', gIds);
+        const { data: gw } = await db.from('workers').select('id, name').in('id', gIds);
         const gwMap = {};
         for (const w of gw || []) gwMap[w.id] = w.name;
 
@@ -1354,7 +1354,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 13. Duplicate UPI Transaction IDs (HIGH) ──
     try {
-      const { data: upiLogs } = await supabase
+      const { data: upiLogs } = await db
         .from('fro_donor_logs')
         .select('id, upi_transaction_id, amount_collected, donor_id, fro_worker_id, created_at')
         .not('upi_transaction_id', 'is', null)
@@ -1374,7 +1374,7 @@ export const getSuperAdminAlerts = async (req, res) => {
       if (dupes.length > 0) {
         const allWorkerIds = [...new Set(dupes.flatMap(([_, logs]) => logs.map(l => l.fro_worker_id)).filter(Boolean))];
         const { data: dw } = allWorkerIds.length > 0
-          ? await supabase.from('workers').select('id, name').in('id', allWorkerIds)
+          ? await db.from('workers').select('id, name').in('id', allWorkerIds)
           : { data: [] };
         const dwMap = {};
         for (const w of dw || []) dwMap[w.id] = w.name;
@@ -1400,7 +1400,7 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 14. Consecutive Absences (3+ days) (HIGH) ──
     try {
       const sevenDaysAgoDate = new Date(now); sevenDaysAgoDate.setDate(sevenDaysAgoDate.getDate() - 7);
-      const { data: recentAbsences } = await supabase
+      const { data: recentAbsences } = await db
         .from('attendance')
         .select('worker_id, date')
         .eq('status', 'absent')
@@ -1429,7 +1429,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if (chronicAbsents.length > 0) {
         const cIds = chronicAbsents.map(c => c.wid);
-        const { data: cw } = await supabase.from('workers').select('id, name').in('id', cIds);
+        const { data: cw } = await db.from('workers').select('id, name').in('id', cIds);
         const cwMap = {};
         for (const w of cw || []) cwMap[w.id] = w.name;
 
@@ -1454,7 +1454,7 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 15. FRO High Idle Time (>50% of work hours) (HIGH) ──
     try {
       const workHoursSeconds = 8 * 3600;
-      const { data: idleFros } = await supabase
+      const { data: idleFros } = await db
         .from('fro_live_status')
         .select('worker_id, today_idle_seconds, today_skipped, today_calls, is_active')
         .eq('is_active', true);
@@ -1466,7 +1466,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if (highIdle.length > 0) {
         const iIds = highIdle.map(f => f.worker_id);
-        const { data: iw } = await supabase.from('workers').select('id, name').in('id', iIds);
+        const { data: iw } = await db.from('workers').select('id, name').in('id', iIds);
         const iwMap = {};
         for (const w of iw || []) iwMap[w.id] = w.name;
 
@@ -1490,8 +1490,8 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 16. NGOs with Zero Active FROs (HIGH) ──
     try {
-      const { data: ngoList } = await supabase.from('ngos').select('id, name');
-      const { data: activeFroByNgo } = await supabase
+      const { data: ngoList } = await db.from('ngos').select('id, name');
+      const { data: activeFroByNgo } = await db
         .from('workers')
         .select('id, ngo_id')
         .eq('department', 'fro')
@@ -1526,7 +1526,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 17. Workers Missing ALL KYC Documents (HIGH) ──
     try {
-      const { data: kycWorkers, count: kycCount } = await supabase
+      const { data: kycWorkers, count: kycCount } = await db
         .from('workers')
         .select('id, name, login_id', { count: 'exact' })
         .eq('is_active', true)
@@ -1555,7 +1555,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 18. Large Unmatched Bank Entries (>₹50K) (HIGH) ──
     try {
-      const { data: largeUnmatched, count: largeCount } = await supabase
+      const { data: largeUnmatched, count: largeCount } = await db
         .from('bank_audit_entries')
         .select('id, amount, payment_id, transaction_date, remarks', { count: 'exact' })
         .eq('status', 'unverified')
@@ -1582,7 +1582,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 19. Stale FRO Transfers Not Returned (HIGH) ──
     try {
-      const { data: staleTransfers, count: transferCount } = await supabase
+      const { data: staleTransfers, count: transferCount } = await db
         .from('fro_transfers')
         .select('id, source_fro_worker_id, target_fro_worker_id, donor_count, auto_return_at, created_at', { count: 'exact' })
         .eq('returned', false)
@@ -1595,7 +1595,7 @@ export const getSuperAdminAlerts = async (req, res) => {
           ...(staleTransfers || []).map(t => t.target_fro_worker_id).filter(Boolean),
         ])];
         const { data: tw } = allFroIds.length > 0
-          ? await supabase.from('workers').select('id, name').in('id', allFroIds)
+          ? await db.from('workers').select('id, name').in('id', allFroIds)
           : { data: [] };
         const twMap = {};
         for (const w of tw || []) twMap[w.id] = w.name;
@@ -1621,7 +1621,7 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 20. Chronic Lateness (3+ late days/month) (MEDIUM) ──
     try {
       const monthStart = new Date(now); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-      const { data: lateRecords } = await supabase
+      const { data: lateRecords } = await db
         .from('attendance')
         .select('worker_id')
         .eq('status', 'late')
@@ -1640,7 +1640,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if (chronicLate.length > 0) {
         const clIds = chronicLate.map(c => c.wid);
-        const { data: clw } = await supabase.from('workers').select('id, name').in('id', clIds);
+        const { data: clw } = await db.from('workers').select('id, name').in('id', clIds);
         const clwMap = {};
         for (const w of clw || []) clwMap[w.id] = w.name;
 
@@ -1664,7 +1664,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 21. Workers with Multiple Active Loans (MEDIUM) ──
     try {
-      const { data: activeLoans } = await supabase
+      const { data: activeLoans } = await db
         .from('worker_loans')
         .select('worker_id, id, total_amount, remaining_amount')
         .eq('status', 'active');
@@ -1680,7 +1680,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if (multiLoanWorkers.length > 0) {
         const mlIds = multiLoanWorkers.map(([wid]) => wid);
-        const { data: mlw } = await supabase.from('workers').select('id, name').in('id', mlIds);
+        const { data: mlw } = await db.from('workers').select('id, name').in('id', mlIds);
         const mlwMap = {};
         for (const w of mlw || []) mlwMap[w.id] = w.name;
 
@@ -1704,7 +1704,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 22. FRO High Skip Rate (MEDIUM) ──
     try {
-      const { data: skipFros } = await supabase
+      const { data: skipFros } = await db
         .from('fro_live_status')
         .select('worker_id, today_skipped, today_calls, is_active')
         .eq('is_active', true);
@@ -1716,7 +1716,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
       if (highSkip.length > 0) {
         const sIds = highSkip.map(f => f.worker_id);
-        const { data: sw } = await supabase.from('workers').select('id, name').in('id', sIds);
+        const { data: sw } = await db.from('workers').select('id, name').in('id', sIds);
         const swMap = {};
         for (const w of sw || []) swMap[w.id] = w.name;
 
@@ -1741,13 +1741,13 @@ export const getSuperAdminAlerts = async (req, res) => {
     // ── 23. FRO Targets Not Set for Current Month (MEDIUM) ──
     try {
       const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const { data: fros } = await supabase
+      const { data: fros } = await db
         .from('workers')
         .select('id, name')
         .eq('department', 'fro')
         .eq('is_active', true);
 
-      const { data: targetSet } = await supabase
+      const { data: targetSet } = await db
         .from('fro_monthly_targets')
         .select('fro_worker_id')
         .eq('month', currentMonth);
@@ -1776,7 +1776,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 24. Assets Assigned to Inactive Workers (MEDIUM) ──
     try {
-      const { data: staleAssets, count: assetCount } = await supabase
+      const { data: staleAssets, count: assetCount } = await db
         .from('assets')
         .select('id, name, assigned_to, assigned_to_name, assigned_date', { count: 'exact' })
         .not('assigned_to', 'is', null)
@@ -1785,7 +1785,7 @@ export const getSuperAdminAlerts = async (req, res) => {
       if ((assetCount || 0) > 0) {
         const assignedWorkerIds = [...new Set((staleAssets || []).map(a => a.assigned_to).filter(Boolean))];
         const { data: inactiveWorkers } = assignedWorkerIds.length > 0
-          ? await supabase.from('workers').select('id, name').in('id', assignedWorkerIds).eq('is_active', false)
+          ? await db.from('workers').select('id, name').in('id', assignedWorkerIds).eq('is_active', false)
           : { data: [] };
 
         const inactiveIds = new Set((inactiveWorkers || []).map(w => w.id));
@@ -1813,7 +1813,7 @@ export const getSuperAdminAlerts = async (req, res) => {
 
     // ── 25. Donor Name Mismatch with Bank Name (MEDIUM) ──
     try {
-      const { data: mismatchedDonors, count: mismatchCount } = await supabase
+      const { data: mismatchedDonors, count: mismatchCount } = await db
         .from('donor_profiles')
         .select('id, name, bank_donor_name, mobile_number', { count: 'exact' })
         .not('bank_donor_name', 'is', null)

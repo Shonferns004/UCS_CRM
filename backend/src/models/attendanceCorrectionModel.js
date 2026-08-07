@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createTicket = async (data) => {
-  const { data: ticket, error } = await supabase
+  const { data: ticket, error } = await db
     .from('attendance_corrections')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createTicket = async (data) => {
 };
 
 export const getTicketById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance_corrections')
     .select('*, workers(name, login_id, email), attendance(punch_in_time, punch_out_time)')
     .eq('id', id)
@@ -26,7 +26,7 @@ export const getTicketById = async (id) => {
 };
 
 export const getWorkerTickets = async (worker_id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance_corrections')
     .select('*, attendance(punch_in_time, punch_out_time)')
     .eq('worker_id', worker_id)
@@ -41,7 +41,7 @@ export const getWorkerTickets = async (worker_id) => {
 };
 
 export const getPendingTickets = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance_corrections')
     .select('*, workers(name, login_id, email, department), attendance(punch_in_time, punch_out_time)')
     .eq('status', 'pending')
@@ -56,7 +56,7 @@ export const getPendingTickets = async () => {
 };
 
 export const getHrVerifiedTickets = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance_corrections')
     .select('*, workers(name, login_id, email, department), attendance(punch_in_time, punch_out_time)')
     .eq('status', 'hr_verified')
@@ -71,7 +71,7 @@ export const getHrVerifiedTickets = async () => {
 };
 
 export const getAllTickets = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance_corrections')
     .select('*, workers(name, login_id, email, department), attendance(punch_in_time, punch_out_time)')
     .order('created_at', { ascending: false });
@@ -85,7 +85,7 @@ export const getAllTickets = async () => {
 };
 
 export const updateTicket = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('attendance_corrections')
     .update(updates)
     .eq('id', id)
@@ -96,7 +96,7 @@ export const updateTicket = async (id, updates) => {
 };
 
 export const getPendingTicketCount = async () => {
-  const { count, error } = await supabase
+  const { count, error } = await db
     .from('attendance_corrections')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'pending');

@@ -71,10 +71,10 @@ export function calculateAKI(amount, dayName) {
   return range ? range.incentive : 0;
 }
 
-export function getMonthsEmployed(createdAt) {
-  const now = new Date();
+export function getMonthsEmployed(createdAt, refDate = new Date()) {
   const join = new Date(createdAt);
-  const months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth());
-  const isAfterJoinDay = now.getDate() >= join.getDate();
+  if (isNaN(join.getTime())) return 99;
+  const months = (refDate.getFullYear() - join.getFullYear()) * 12 + (refDate.getMonth() - join.getMonth());
+  const isAfterJoinDay = refDate.getDate() >= join.getDate();
   return isAfterJoinDay ? months + 1 : months;
 }

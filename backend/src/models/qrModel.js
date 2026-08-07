@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createQRCode = async (qrData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('qr_codes')
     .insert([qrData])
     .select()
@@ -11,7 +11,7 @@ export const createQRCode = async (qrData) => {
 };
 
 export const getAllQRCodes = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('qr_codes')
     .select('*')
     .order('created_at', { ascending: false });
@@ -20,7 +20,7 @@ export const getAllQRCodes = async () => {
 };
 
 export const getQRByCode = async (code) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('qr_codes')
     .select('*')
     .eq('code', code)
@@ -30,7 +30,7 @@ export const getQRByCode = async (code) => {
 };
 
 export const deleteQRCode = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('qr_codes')
     .delete()
     .eq('id', id);

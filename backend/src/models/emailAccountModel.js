@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function listAccounts() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_accounts')
     .select('*')
     .order('created_at', { ascending: true });
@@ -17,7 +17,7 @@ export async function listAccounts() {
 }
 
 export async function getActiveAccounts() {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_accounts')
     .select('*')
     .eq('is_active', true);
@@ -29,7 +29,7 @@ export async function getActiveAccounts() {
 }
 
 export async function getAccountById(id) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_accounts')
     .select('*')
     .eq('id', id)
@@ -39,7 +39,7 @@ export async function getAccountById(id) {
 }
 
 export async function createAccount({ name, email, app_password, imap_host, imap_port, is_active }) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_accounts')
     .insert({
       name,
@@ -66,7 +66,7 @@ export async function updateAccount(id, updates) {
 
   if (Object.keys(allowed).length === 0) throw new Error('No fields to update');
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('email_import_accounts')
     .update(allowed)
     .eq('id', id)
@@ -77,8 +77,8 @@ export async function updateAccount(id, updates) {
 }
 
 export async function deleteAccount(id) {
-  await supabase.from('email_import_log').delete().eq('account_id', id);
-  const { error } = await supabase
+  await db.from('email_import_log').delete().eq('account_id', id);
+  const { error } = await db
     .from('email_import_accounts')
     .delete()
     .eq('id', id);
@@ -86,7 +86,7 @@ export async function deleteAccount(id) {
 }
 
 export async function updateLastPolled(id) {
-  const { error } = await supabase
+  const { error } = await db
     .from('email_import_accounts')
     .update({ last_polled_at: new Date().toISOString() })
     .eq('id', id);

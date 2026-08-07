@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
 import { getStationAssignmentsByNgo } from '../models/froStationAssignmentModel.js';
 import { batchCreateAssignments } from '../models/froAssignmentModel.js';
@@ -21,7 +21,7 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
     }
     const stationNames = stationAssigns.map(sa => sa.station);
 
-    const { data: mobiles } = await supabase
+    const { data: mobiles } = await db
       .from('new_data')
       .select('mobile_number, station, agent_name')
       .eq('import_batch_id', importBatchId)
@@ -32,7 +32,7 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
 
     const uniqueMobiles = [...new Set(mobiles.map(m => m.mobile_number))];
 
-    const { data: profiles } = await supabase
+    const { data: profiles } = await db
       .from('donor_profiles')
       .select('id, mobile_number')
       .in('mobile_number', uniqueMobiles);
@@ -40,7 +40,7 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
     if (!profiles || profiles.length === 0) continue;
     const profileIds = profiles.map(p => p.id);
 
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('fro_assignments')
       .select('donor_id')
       .in('donor_id', profileIds)
@@ -58,7 +58,7 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
       .map(sa => sa.fro_worker_id);
     const workerNameMap = {};
     if (missingWorkerIds.length > 0) {
-      const { data: workers } = await supabase
+      const { data: workers } = await db
         .from('workers')
         .select('id, name')
         .in('id', missingWorkerIds);
