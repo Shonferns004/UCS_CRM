@@ -221,23 +221,11 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
                       <label>City</label>
                       <div>{profile?.city || 'NA'}</div>
                     </div>
-                    <div className="fld fld-sm">
-                      <label>Amount</label>
-                      <div>₹{Number(profile?.amount || 0).toLocaleString('en-IN')}</div>
-                    </div>
                   </div>
                   <div className="detail-field-row">
                     <div className="fld">
                       <label>Email</label>
                       <div style={{ fontStyle: profile?.email ? 'normal' : 'italic', color: profile?.email ? 'inherit' : 'var(--ink-soft)' }}>{profile?.email || 'No email'}</div>
-                    </div>
-                  </div>
-                  <div className="detail-field-row">
-                    <div className="fld">
-                      <label>Donations</label>
-                      <div style={{ color: 'var(--sage)', fontWeight: 600 }}>
-                        {profile?.donation_count || 0} time{profile?.donation_count !== 1 ? 's' : ''} (₹{Number(profile?.total_amount || 0).toLocaleString('en-IN')})
-                      </div>
                     </div>
                   </div>
                   <div className="detail-field-row">
