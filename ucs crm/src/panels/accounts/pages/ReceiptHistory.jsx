@@ -17,7 +17,7 @@ const nameKey = value => String(value || '').trim().toLowerCase().replace(/\s+/g
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
-  receipt_date: ['receiptdate', 'recieptdate', 'donationdate', 'date'],
+  receipt_date: ['receiptdate', 'recieptdate', 'donationdate', 'date', 'transactiondate', 'transdate'],
   donor_name: ['donorname', 'name'],
   donor_mobile: ['mobileno', 'mobile', 'mobilenumber', 'phone', 'phoneno', 'contactno'],
   amount: ['amount', 'donationamount'],
