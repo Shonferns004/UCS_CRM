@@ -569,6 +569,7 @@ export default function App() {
                     {attStat('Absent', attendance.stats.absent, 'p-absent')}
                     {attStat('Leave', attendance.stats.leave, 'p-leave')}
                     {attStat('Sunday', attendance.stats.sunday, 'p-sunday')}
+                    {attStat('Holiday', attendance.stats.holiday, 'p-holiday')}
                   </div>
                   <div className="att-grid">
                     {attendance.rows.map((d) => {
@@ -620,6 +621,8 @@ export default function App() {
                     <span className="legend-item"><span className="dot p-absent"></span>Absent</span>
                     <span className="legend-item"><span className="dot p-leave"></span>Leave</span>
                     <span className="legend-item"><span className="dot p-sunday"></span>Sunday / Off</span>
+                    <span className="legend-item"><span className="dot p-holiday"></span>Holiday</span>
+                    <span className="legend-item"><span className="dot p-future"></span>Future / not yet joined</span>
                     <span className="legend-item">Hover a day for punch in / out · Click a day to change its status.</span>
                   </div>
                 </>

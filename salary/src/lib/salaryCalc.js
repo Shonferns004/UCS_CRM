@@ -166,7 +166,7 @@ const HEADER_PATTERNS = {
   weekly: [/weekly\s*incentive/i],
   gross: [/gross\s*payable/i],
   otExtra: [/^ot\b/i, /appreciation/i, /extra\s*incentive/i, /ot\/appreciation/i],
-  pending: [/pending\s*expenses/i],
+  pending: [/pending\s*expenses/i, /pending\s*salary/i, /pending\s*paid/i, /any\s*pending/i],
   advance: [/advance/i],
   netPayable: [/net\s*payable/i],
 };
@@ -211,6 +211,13 @@ function findHeaderRow(ws) {
 function detectHeader(headers) {
   const h = headers.map(normText);
   const find = (re) => h.findIndex(c => re.test(c));
+  const findAny = (patterns) => {
+    for (const re of patterns) {
+      const idx = find(re);
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
   const cols = {
     agent: find(HEADER_PATTERNS.agent[0]) !== -1 ? find(HEADER_PATTERNS.agent[0]) : (find(HEADER_PATTERNS.agent[1]) !== -1 ? find(HEADER_PATTERNS.agent[1]) : find(HEADER_PATTERNS.agent[2])),
     salary: find(HEADER_PATTERNS.salary[0]) !== -1 ? find(HEADER_PATTERNS.salary[0]) : find(HEADER_PATTERNS.salary[1]),
@@ -228,7 +235,7 @@ function detectHeader(headers) {
     weekly: find(HEADER_PATTERNS.weekly[0]),
     gross: find(HEADER_PATTERNS.gross[0]),
     otExtra: find(HEADER_PATTERNS.otExtra[0]),
-    pending: find(HEADER_PATTERNS.pending[0]),
+    pending: findAny(HEADER_PATTERNS.pending),
     advance: find(HEADER_PATTERNS.advance[0]),
     netPayable: find(HEADER_PATTERNS.netPayable[0]),
   };
@@ -388,7 +395,7 @@ function processSheet(wsName, wb, dbPresent) {
       const dbJoin = parseAnyDateValue(dbEntry.doj);
       if (dbJoin) joinDate = dbJoin;
     }
-    const monthsEmployed = getMonthsEmployedFromDate(joinDate);
+    const monthsEmployed = getMonthsEmployedFromDate(joinDate, sheetRef ? new Date(sheetRef.y, sheetRef.m + 1, 0) : new Date());
     const isNewJoiner = monthsEmployed !== null ? monthsEmployed <= 3 : false;
     const joinedThisMonth = joinDate && sheetRef
       ? joinDate.getFullYear() === sheetRef.y && joinDate.getMonth() === sheetRef.m
@@ -398,7 +405,7 @@ function processSheet(wsName, wb, dbPresent) {
     const present = presentFromDb !== undefined ? presentFromDb : num(g(cols.present));
     const joiningDeduction = presentFromDb !== undefined
       ? (dbEntry.joinDed || 0)
-      : (joinedThisMonth && isNewJoiner ? 1.5 : 0);
+      : (cols.training !== -1 ? num(g(cols.training)) : (joinedThisMonth && isNewJoiner ? 1.5 : 0));
     const lateDeduction = presentFromDb !== undefined ? (dbEntry.lateDed || 0) : 0;
     const dbPresent = present;
     const sundayAdd = num(g(cols.sundayAdd));

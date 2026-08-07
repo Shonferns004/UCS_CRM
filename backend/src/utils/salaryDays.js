@@ -171,7 +171,7 @@ export function computePaidDays({ year, month, daysInMonth, records, createdAt, 
     lateDeductionDays = 0.5;
   }
 
-  const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt) <= 3) ? 1.5 : 0;
+  const joiningDeduction = (joinedThisMonth && getMonthsEmployed(createdAt, new Date(year, month + 1, 0)) <= 3) ? 1.5 : 0;
 
   const sundayReasons = [];
   const workedBackSet = new Set(sundayStats.attendedCancelledDates);
