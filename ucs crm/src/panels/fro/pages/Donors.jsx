@@ -341,7 +341,12 @@ export default function Donors() {
                     {filteredLogs.map(l => (
                       <tr key={l.id}>
                         <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-                          {l.created_at ? new Date(l.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                          {(() => {
+                            const d = (l.action === 'donation' || (l.disposition_detail === 'lead_done' && l.accounts_status === 'verified'))
+                              ? (l.transaction_datetime || l.verified_at || l.created_at)
+                              : l.created_at;
+                            return d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                          })()}
                         </td>
                         <td style={{ fontWeight: 700, color: 'var(--sage)' }}>
                           ₹{Number(l.amount_collected || 0).toLocaleString('en-IN')}
