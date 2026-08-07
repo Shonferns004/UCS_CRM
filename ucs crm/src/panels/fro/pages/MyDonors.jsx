@@ -142,7 +142,7 @@ export default function MyDonors() {
   const [showConfirmPrev, setShowConfirmPrev] = useState(false);
   const [showDonationModal, setShowDonationModal] = useState(false);
   const [donations, setDonations] = useState([]);
-  const [donationYear, setDonationYear] = useState('this_year');
+  const [donationFilter, setDonationFilter] = useState('all');
   const [donationLoading, setDonationLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -150,6 +150,7 @@ export default function MyDonors() {
   const [searchingAll, setSearchingAll] = useState(false);
   const [returnToDonor, setReturnToDonor] = useState(null);
   const [showAllLogs, setShowAllLogs] = useState(false);
+  const [externalDonor, setExternalDonor] = useState(null);
   const [showWalkthrough, setShowWalkthrough] = useState(() => !localStorage.getItem('fro_walkthrough_seen'));
   const [walkthroughStep, setWalkthroughStep] = useState(0);
   const searchRef = useRef(null);
@@ -167,6 +168,7 @@ export default function MyDonors() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setExternalDonor(null);
 
     const load = async (tab) => {
       try {
@@ -186,14 +188,29 @@ export default function MyDonors() {
         // Apply pending selection from Search All navigation (highest priority)
         if (pendingSelectRef.current) {
           const { donorId } = pendingSelectRef.current;
-          const found = sortedDonors.findIndex(d => d.id === donorId);
+          pendingSelectRef.current = null;
+          let accumulated = sortedDonors;
+          let found = accumulated.findIndex(d => d.id === donorId);
+          if (found < 0) {
+            for (let guard = 0; guard < 100; guard++) {
+              if (accumulated.length >= rTotal) break;
+              const moreR = await getMyDonors(null, null, { ...stationOpts(tab, selectedStation), offset: accumulated.length });
+              const { donors: more, total: moreTotal } = normalizeDonorResponse(moreR);
+              if (more.length === 0) break;
+              accumulated = filterAndSortDonors([...accumulated, ...more]);
+              if (moreTotal) setTotal(moreTotal);
+              found = accumulated.findIndex(d => d.id === donorId);
+              if (found >= 0) break;
+            }
+          }
           if (found >= 0) {
+            setDonors(accumulated);
             setIndex(found);
             restored = true;
           } else {
+            setDonors(accumulated);
             setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
           }
-          pendingSelectRef.current = null;
         }
 
         // Restore from localStorage snapshot (captured before state changes)
@@ -386,7 +403,7 @@ export default function MyDonors() {
     setDataTab(tab);
   };
 
-  const donor = donors[index];
+  const donor = externalDonor || donors[index];
 
   useEffect(() => {
     if (!donor) return;
@@ -679,12 +696,30 @@ export default function MyDonors() {
     reader.readAsDataURL(file);
   };
 
-  const loadDonations = async (year) => {
+  const filterDonations = (list, filter) => {
+    if (!list) return [];
+    if (!filter || filter === 'all') return list;
+    const now = new Date();
+    if (filter === 'monthly') {
+      const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      return list.filter(d => d.date && String(d.date).slice(0, 7) === ym);
+    }
+    if (filter === 'yearly') {
+      return list.filter(d => d.date && new Date(d.date).getFullYear() === now.getFullYear());
+    }
+    if (filter.startsWith('year_')) {
+      const y = Number(filter.split('_')[1]);
+      return list.filter(d => d.date && new Date(d.date).getFullYear() === y);
+    }
+    return list;
+  };
+
+  const loadDonations = async (period) => {
     if (!donor) return;
     setDonationLoading(true);
     try {
-      const data = await getDonorDonations(donor.id, donor.ngo_id, year);
-      setDonations(data);
+      const data = await getDonorDonations(donor.id, donor.ngo_id, period || 'all');
+      setDonations(Array.isArray(data) ? data : []);
     } catch (err) {
       setDonations([]);
     } finally {
@@ -694,14 +729,24 @@ export default function MyDonors() {
 
   const openDonationModal = () => {
     setShowDonationModal(true);
-    setDonationYear('this_year');
-    loadDonations('this_year');
+    setDonationFilter('all');
+    if (donations.length === 0 && !donationLoading) loadDonations('all');
   };
 
-  const handleDonationYearChange = (year) => {
-    setDonationYear(year);
-    loadDonations(year);
+  const handleDonationFilterChange = (filter) => {
+    setDonationFilter(filter);
   };
+
+  useEffect(() => {
+    if (!donor) return;
+    let cancelled = false;
+    setDonationLoading(true);
+    getDonorDonations(donor.id, donor.ngo_id, 'all')
+      .then(data => { if (!cancelled) setDonations(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setDonations([]); })
+      .finally(() => { if (!cancelled) setDonationLoading(false); });
+    return () => { cancelled = true; };
+  }, [donor?.id]);
 
   const handleSave = async () => {
     if (!selected) { setMessage({ type: 'error', text: 'Select a disposition' }); return; }
@@ -818,9 +863,10 @@ export default function MyDonors() {
   const handleSelectSearchResult = async (resultIdx) => {
     const r = searchResults[resultIdx];
     const donorId = r?.id || r?.donor_id;
+    const curDonor = donors[index];
     const actualIdx = donors.findIndex(d => d.id === donorId);
     if (actualIdx >= 0) {
-      setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
+      setReturnToDonor(curDonor ? { id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index } : null);
       setIndex(actualIdx);
     } else if (donorId && (r?.batch_type || r?.station || r?.ngo_id)) {
       const targetTab = r.batch_type === 'old_data' ? 'old' : 'new';
@@ -828,16 +874,25 @@ export default function MyDonors() {
       const validStation = r.station && stations.some(s => s.station === r.station && (!targetNgo || s.ngo_id === targetNgo));
       const targetStation = validStation ? r.station : 'all';
       const needsReload = targetTab !== dataTab || targetStation !== selectedStation || targetNgo !== selectedNgo;
-      if (!needsReload) {
-        if (donor) setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
+      if (r.has_donated_current_month) {
+        setExternalDonor({
+          ...r,
+          id: donorId,
+          status: r.status || 'donation_collected',
+          has_donated_current_month: true,
+          has_verified_donation_current_month: !!r.has_verified_donation_current_month,
+        });
+        setMessage({ type: 'success', text: 'This donor already donated this month.' });
+      } else if (!needsReload) {
+        if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
         const found = await jumpToDonor(donorId, r.ngo_id);
         if (!found) {
           setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
         }
       } else {
-        if (donor) setReturnToDonor({ id: donor.id, ngo_id: donor.ngo_id, idx: index });
+        if (curDonor) setReturnToDonor({ id: curDonor.id, ngo_id: curDonor.ngo_id, idx: index });
         pendingSelectRef.current = { donorId, ngoId: targetNgo };
-        if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); }
+        if (curDonor) { saveProgress(dataTab, curDonor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: curDonor.id, idx: index })); }
         if (targetNgo !== selectedNgo) setSelectedNgo(targetNgo);
         if (targetStation !== selectedStation) setSelectedStation(targetStation);
         if (targetTab !== dataTab) switchTab(targetTab);
@@ -882,6 +937,15 @@ export default function MyDonors() {
 
   const handleButtonClick = () => {
     if (selected) { handleSave(); return; }
+    if (externalDonor) {
+      const backIdx = returnToDonor?.idx ?? 0;
+      const backDonor = donors[backIdx];
+      setExternalDonor(null);
+      setReturnToDonor(null);
+      setIndex(backIdx);
+      if (backDonor) saveProgress(dataTab, backDonor.id, backIdx);
+      return;
+    }
     if (returnToDonor) {
       setIndex(returnToDonor.idx);
       setReturnToDonor(null);
@@ -897,6 +961,15 @@ export default function MyDonors() {
   };
 
   const fmt = callFmt
+
+  const visibleDonations = filterDonations(donations, donationFilter);
+  const yearOptions = [...new Set(
+    donations.map(d => d.date ? new Date(d.date).getFullYear() : null).filter(Boolean)
+  )].sort((a, b) => b - a);
+  const allYears = yearOptions.length > 0 ? yearOptions : (() => {
+    const y = new Date().getFullYear();
+    return [y, y - 1, y - 2, y - 3, y - 4, y - 5];
+  })();
 
   if (loading) return <SkeletonProfile />;
 
@@ -1163,13 +1236,28 @@ export default function MyDonors() {
                 </div>
               </div>
               <div className="detail-field-row">
-                <div className="fld" onClick={openDonationModal} style={{ cursor: 'pointer' }}>
-                  <label>Donations
-                    <span style={{ fontSize: 9, marginLeft: 4, opacity: .5 }}>↗</span>
-                  </label>
-                  <div style={{ color: 'var(--sage)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--sage)' }}>payments</span>
-                    View
+                <div className="fld">
+                  <label>Donations</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch' }}>
+                    {donationLoading ? (
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Loading...</div>
+                    ) : donations.length === 0 ? (
+                      <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontStyle: 'italic' }}>No donations yet</div>
+                    ) : (
+                      <>
+                        {donations.slice(0, 6).map((d, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, fontSize: 10, padding: '2px 0', borderBottom: '1px dashed var(--line)' }}>
+                            <span style={{ flexShrink: 0 }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</span>
+                            <span style={{ fontWeight: 600, marginLeft: 'auto' }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</span>
+                            <span className={`bento-pill ${d.status === 'verified' ? 'bento-pill-green' : d.status === 'rejected' ? 'bento-pill-red' : 'bento-pill-yellow'}`} style={{ fontSize: 8, padding: '1px 6px' }}>{d.status || '—'}</span>
+                          </div>
+                        ))}
+                        <button onClick={openDonationModal}
+                          style={{ marginTop: 4, alignSelf: 'flex-start', padding: '4px 12px', border: 'none', borderRadius: 5, background: 'var(--sage)', color: '#fff', fontSize: 9, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+                          View All {donations.length > 6 ? `(${donations.length})` : ''}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1560,6 +1648,15 @@ export default function MyDonors() {
 
     <div className="fro-action-bar">
       <button className="btn-prev" disabled={index === 0 || saving} onClick={() => {
+        if (externalDonor) {
+          const backIdx = returnToDonor?.idx ?? 0;
+          const backDonor = donors[backIdx];
+          setExternalDonor(null);
+          setReturnToDonor(null);
+          setIndex(backIdx);
+          if (backDonor) saveProgress(dataTab, backDonor.id, backIdx);
+          return;
+        }
         if (selected) {
           prevActionRef.current = () => {
             if (donor) saveProgress(dataTab, donor.id, index);
@@ -1613,19 +1710,29 @@ export default function MyDonors() {
             <span style={{ fontSize: 13, fontWeight: 700 }}>Donations — {donor.donor_name}</span>
             <span className="material-symbols-outlined" style={{ fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)' }} onClick={() => setShowDonationModal(false)}>close</span>
           </div>
-          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>Show:</span>
-            {['this_year', 'fy_2025_26', 'fy_2024_25', 'fy_2023_24'].map(y => (
-              <button key={y} onClick={() => handleDonationYearChange(y)}
-                style={{ padding: '4px 10px', border: `1px solid ${donationYear === y ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 6, background: donationYear === y ? 'var(--sage)' : '#fff', color: donationYear === y ? '#fff' : 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .12s' }}>
-                {y === 'this_year' ? 'This Year' : y.replace(/fy_(\d{4})_(\d{2})/, 'FY $1\u2013$2')}
+            {['all', 'monthly', 'yearly'].map(f => (
+              <button key={f} onClick={() => handleDonationFilterChange(f)}
+                style={{ padding: '4px 10px', border: `1px solid ${donationFilter === f ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 6, background: donationFilter === f ? 'var(--sage)' : '#fff', color: donationFilter === f ? '#fff' : 'var(--ink)', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .12s' }}>
+                {f === 'all' ? 'All' : f === 'monthly' ? 'Monthly' : 'Yearly'}
               </button>
             ))}
+            <select value={donationFilter.startsWith('year_') ? donationFilter : ''} onChange={e => handleDonationFilterChange(e.target.value)}
+              style={{ padding: '4px 8px', border: `1px solid ${donationFilter.startsWith('year_') ? 'var(--sage)' : 'var(--line)'}`, borderRadius: 6, background: '#fff', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
+              <option value="">Year…</option>
+              {allYears.map(y => <option key={y} value={`year_${y}`}>{y}</option>)}
+            </select>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+            {!donationLoading && (
+              <div style={{ padding: '0 0 8px', fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)' }}>
+                {visibleDonations.length} {visibleDonations.length === 1 ? 'receipt' : 'receipts'}
+              </div>
+            )}
             {donationLoading ? (
               <div style={{ textAlign: 'center', padding: 20, fontSize: 11, color: 'var(--ink-soft)' }}>Loading...</div>
-            ) : donations.length === 0 ? (
+            ) : visibleDonations.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, fontSize: 11, color: 'var(--ink-soft)' }}>No donations for this period.</div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -1638,7 +1745,7 @@ export default function MyDonors() {
                   </tr>
                 </thead>
                 <tbody>
-                  {donations.map((d, i) => (
+                  {visibleDonations.map((d, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
                       <td style={{ padding: '5px 6px' }}>{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '—'}</td>
                       <td style={{ padding: '5px 6px', fontWeight: 600 }}>₹{Number(d.amount || 0).toLocaleString('en-IN')}</td>
@@ -1651,7 +1758,7 @@ export default function MyDonors() {
             )}
           </div>
           <div style={{ padding: '10px 16px', borderTop: '1px solid var(--line)', textAlign: 'right', fontSize: 10, color: 'var(--ink-soft)' }}>
-            Total: ₹{Math.round(donations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
+            Total: ₹{Math.round(visibleDonations.reduce((s, d) => s + Number(d.amount || 0), 0)).toLocaleString('en-IN')}
           </div>
         </div>
       </div>

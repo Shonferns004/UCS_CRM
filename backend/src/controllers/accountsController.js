@@ -181,6 +181,7 @@ export const verifyLead = async (req, res) => {
         purpose: 'General Donation',
         generated_by: req.user.id,
         donor_id: donorId,
+        receipt_date: transaction_datetime || log.transaction_datetime || log.verified_at || new Date().toISOString(),
       });
     }
 
@@ -573,7 +574,7 @@ export const generateReceipt = async (req, res) => {
     const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
-        id, amount_collected, pan_number, notes,
+        id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
@@ -608,6 +609,7 @@ export const generateReceipt = async (req, res) => {
       purpose: purpose || 'General Donation',
       generated_by: req.user.id,
       donor_id: donorId,
+      receipt_date: log.transaction_datetime || log.verified_at || new Date().toISOString(),
     });
 
     return res.status(201).json({ receipt, message: 'Receipt generated' });
