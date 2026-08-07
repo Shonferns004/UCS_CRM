@@ -1127,19 +1127,121 @@ export const importReceipts = async (req, res) => {
             withBank = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
           }
 
-          return { imported: inserted.length, matched, withBank };
+          // ── Auto-credit current-month receipts to the assigned FRO ──
+          // Only receipts dated in the current month can close an open lead and
+          // add to the FRO's collected; older/backfilled rows stay as history.
+          const nowD = new Date();
+          const currentMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+          const isCurrentMonth = (d) => typeof d === 'string' && d.slice(0, 7) === currentMonth;
+
+          const donorIdByReceiptId = new Map();
+          for (const [donorId, info] of Object.entries(receiptsByDonor)) {
+            for (const id of info.ids) donorIdByReceiptId.set(id, parseInt(donorId, 10));
+          }
+          const creditable = inserted.filter(r => donorIdByReceiptId.has(r.id) && isCurrentMonth(r.receipt_date));
+
+          let leadsCollected = 0;
+          const credits = new Map();
+          if (creditable.length > 0) {
+            const donorIds = [...new Set(creditable.map(r => donorIdByReceiptId.get(r.id)))];
+            const { data: openAssignments, error: asgnErr } = await from('fro_assignments')
+              .select('id, donor_id, fro_worker_id, assigned_at')
+              .in('donor_id', donorIds)
+              .not('status', 'eq', 'reassigned')
+              .not('status', 'eq', 'donation_collected')
+              .not('status', 'eq', 'lead_done')
+              .not('status', 'eq', 'done');
+            if (asgnErr) throw new Error(asgnErr.message);
+
+            const assignmentByDonor = {};
+            for (const a of (openAssignments || [])) {
+              if (!a.fro_worker_id) continue;
+              const cur = assignmentByDonor[a.donor_id];
+              if (!cur || new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) assignmentByDonor[a.donor_id] = a;
+            }
+
+            const logs = [];
+            const assignmentIds = new Set();
+            for (const r of creditable) {
+              const a = assignmentByDonor[donorIdByReceiptId.get(r.id)];
+              if (!a) continue;
+              logs.push({
+                assignment_id: a.id,
+                donor_id: donorIdByReceiptId.get(r.id),
+                fro_worker_id: a.fro_worker_id,
+                action: 'donation',
+                amount_collected: parseFloat(r.amount || 0),
+                accounts_status: 'verified',
+                verified_at: r.receipt_date || new Date().toISOString(),
+                verified_by: req.user.id,
+                created_by: req.user.id,
+                upi_transaction_id: r.payment_id || null,
+                transaction_datetime: r.receipt_date || null,
+                pan_number: r.pan_number || null,
+                notes: `Auto-credited from imported receipt ${r.receipt_no || r.id}`,
+              });
+              assignmentIds.add(a.id);
+              const cred = credits.get(a.fro_worker_id) || { count: 0, total: 0 };
+              cred.count += 1;
+              cred.total += parseFloat(r.amount || 0);
+              credits.set(a.fro_worker_id, cred);
+            }
+
+            if (logs.length > 0) {
+              const LOG_BATCH = 500;
+              const logChunks = [];
+              for (let i = 0; i < logs.length; i += LOG_BATCH) logChunks.push(logs.slice(i, i + LOG_BATCH));
+              await mapLimit(logChunks, 2, async (chunk) => {
+                const { error } = await from('fro_donor_logs').insert(chunk);
+                if (error) throw new Error(error.message);
+              });
+              leadsCollected = logs.length;
+
+              if (assignmentIds.size > 0) {
+                const { error: closeErr } = await from('fro_assignments')
+                  .update({ status: 'donation_collected', last_contacted_at: new Date().toISOString() })
+                  .in('id', [...assignmentIds]);
+                if (closeErr) throw new Error(closeErr.message);
+              }
+            }
+          }
+
+          return { imported: inserted.length, matched, withBank, leadsCollected, credits };
         });
         console.timeEnd('import-tx');
-        console.log(`Import OK: ${result.imported} rows, ${result.matched} matched`);
+        console.log(`Import OK: ${result.imported} rows, ${result.matched} matched, ${result.leadsCollected} leads credited`);
+
+        // Notify FROs (aggregated per worker) — best effort, after the commit.
+        for (const [workerId, cred] of result.credits) {
+          try {
+            const notifTitle = 'Lead Collected';
+            const notifBody = `Your lead${cred.count > 1 ? 's' : ''} ${cred.count > 1 ? 'were' : 'was'} collected: \u20B9${cred.total.toLocaleString('en-IN')} across ${cred.count} receipt${cred.count > 1 ? 's' : ''}.`;
+            let fcmLogged = false;
+            try {
+              const pushResult = await sendPushNotification(workerId, notifTitle, notifBody, 'lead_verified', null);
+              fcmLogged = !!pushResult;
+            } catch (err) { console.error('FCM send error:', err.message); }
+            if (!fcmLogged) {
+              await db.from('notification_log').insert({
+                worker_id: workerId,
+                type: 'lead_verified',
+                title: notifTitle,
+                body: notifBody,
+                sent_at: new Date().toISOString(),
+              });
+            }
+          } catch (err) { console.error('Failed to create collected notification:', err.message); }
+        }
 
         // All-or-nothing committed — the safety manifest is no longer needed.
         try { if (manifestPath) fs.unlinkSync(manifestPath); } catch (_) { /* best effort */ }
 
         return res.status(201).json({
-          message: `${result.imported} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}`,
+          message: `${result.imported} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}${result.leadsCollected > 0 ? `, ${result.leadsCollected} leads credited to FROs` : ''}`,
           imported: result.imported,
           withBank: result.withBank,
           matchedDonors: result.matched,
+          leads_collected: result.leadsCollected,
         });
 
       } catch (err) {
