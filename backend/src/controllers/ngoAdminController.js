@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getDonorByMobile } from '../models/donorProfileModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
@@ -32,7 +32,7 @@ async function getFroWorkersByNgo(ngoId) {
     conditions.push(`id.in.(${workerIds.join(',')})`);
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('*')
     .eq('department', 'FRO')
@@ -67,7 +67,7 @@ export const getDonors = async (req, res) => {
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoNames.push(ngo.name);
       if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
     }
@@ -84,7 +84,7 @@ export const getDonors = async (req, res) => {
 
     if (ngoNames.length === 0) return res.json({ data: [], pagination: { page, pageSize: limit, total: 0, totalPages: 0 } });
 
-    let baseQuery = supabase.from('donor_profiles').select('*').in('ngo', ngoNames).order('last_donation_date', { ascending: false, nullsLast: true });
+    let baseQuery = db.from('donor_profiles').select('*').in('ngo', ngoNames).order('last_donation_date', { ascending: false, nullsLast: true });
 
     if (from_date) baseQuery = baseQuery.gte('last_donation_date', from_date);
     if (to_date) baseQuery = baseQuery.lte('last_donation_date', to_date);
@@ -121,13 +121,13 @@ export const getDonors = async (req, res) => {
     const allGroupedDonorIds = grouped.flatMap(g => g.donor_ids || []);
     const verifiedDonorIds = new Set();
     if (allGroupedDonorIds.length > 0) {
-      const { data: filterAssignments } = await supabase
+      const { data: filterAssignments } = await db
         .from('fro_assignments')
         .select('id, donor_id')
         .in('donor_id', allGroupedDonorIds);
       const filterAssignIds = (filterAssignments || []).map(a => a.id);
       if (filterAssignIds.length > 0) {
-        const { data: verifiedLogs } = await supabase
+        const { data: verifiedLogs } = await db
           .from('fro_donor_logs')
           .select('assignment_id')
           .in('assignment_id', filterAssignIds)
@@ -150,13 +150,13 @@ export const getDonors = async (req, res) => {
     let latestTxMap = {};
     if (allDonorIds.length > 0) {
       try {
-        const { data: assignments } = await supabase
+        const { data: assignments } = await db
           .from('fro_assignments')
           .select('id, donor_id')
           .in('donor_id', allDonorIds);
         const assignIds = (assignments || []).map(a => a.id);
         if (assignIds.length > 0) {
-          const { data: logs } = await supabase
+          const { data: logs } = await db
             .from('fro_donor_logs')
             .select('amount_collected, created_at, assignment_id')
             .in('assignment_id', assignIds)
@@ -210,7 +210,7 @@ export const getDonorDetail = async (req, res) => {
       return res.status(404).json({ message: 'Donor not found' });
     }
 
-    const { data: donations, error } = await supabase
+    const { data: donations, error } = await db
       .from('new_data')
       .select('*')
       .eq('mobile_number', mobile)
@@ -249,7 +249,7 @@ export const getFroWorkers = async (req, res) => {
     const workerIds = froWorkers.map(w => w.id);
     let allocMap = {};
     if (workerIds.length > 0) {
-      const { data: allAllocs } = await supabase
+      const { data: allAllocs } = await db
         .from('worker_ngo_allocations')
         .select('worker_id, ngo_id')
         .in('worker_id', workerIds);
@@ -446,7 +446,7 @@ export const getTargets = async (req, res) => {
 
 export const getDailyTarget = async (req, res) => {
   try {
-    const { data: worker } = await supabase
+    const { data: worker } = await db
       .from('workers')
       .select('daily_collection_target')
       .eq('id', req.user.id)
@@ -464,7 +464,7 @@ export const getDashboard = async (req, res) => {
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoNames.push(ngo.name);
       if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
     }
@@ -487,7 +487,7 @@ export const getDashboard = async (req, res) => {
 
     let totalDonorCount = 0;
     if (ngoNames.length > 0) {
-      const { data: mobiles, error: mErr } = await supabase
+      const { data: mobiles, error: mErr } = await db
         .from('new_data')
         .select('mobile_number')
         .in('ngo', ngoNames)
@@ -496,7 +496,7 @@ export const getDashboard = async (req, res) => {
       totalDonorCount = new Set((mobiles || []).map(r => r.mobile_number)).size;
     }
 
-    const { data: allAssignments, error: aErr } = await supabase
+    const { data: allAssignments, error: aErr } = await db
       .from('fro_assignments')
       .select('donor_id, status, fro_worker_id, assigned_at')
       .in('ngo_id', ngoIds)
@@ -560,7 +560,7 @@ export const getDashboard = async (req, res) => {
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
     const donorsWithRecentDonations = ngoIds.length > 0
-      ? (await supabase
+      ? (await db
           .from('fro_donor_logs')
           .select('donor_id, fro_assignments!inner(ngo_id)')
           .in('fro_assignments.ngo_id', ngoIds)
@@ -602,16 +602,16 @@ export const getDashboard = async (req, res) => {
 
     const [fyDonorsRes, todayDonorsRes, monthDonorsRes] = ngoIds.length > 0
       ? await Promise.all([
-          supabase.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(ngo_id)')
+          db.from('fro_donor_logs').select('donor_id, created_at, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
             .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', fyStart.toISOString()),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
+          db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
             .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', todayStart.toISOString())
             .lte('created_at', todayEnd.toISOString()),
-          supabase.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
+          db.from('fro_donor_logs').select('donor_id, fro_assignments!inner(ngo_id)')
             .in('fro_assignments.ngo_id', ngoIds)
             .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)')
             .gte('created_at', monthStart)
@@ -637,7 +637,7 @@ export const getDashboard = async (req, res) => {
     const activeFroIds = froWorkers.filter(w => w.is_active !== false).map(w => w.id);
     let workersPresent = 0, workersAbsent = 0, workersLate = 0;
     if (activeFroIds.length > 0) {
-      const { data: attendanceData } = await supabase
+      const { data: attendanceData } = await db
         .from('attendance')
         .select('status')
         .eq('date', todayStr)
@@ -655,13 +655,13 @@ export const getDashboard = async (req, res) => {
     const ngoIdToName = {};
     for (const a of access) ngoIdToName[a.ngo_id] = a.ngo_name;
     if (req.user.ngo_id && !ngoIdToName[req.user.ngo_id]) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoIdToName[req.user.ngo_id] = ngo.name;
     }
 
     let stationsPerNgo = {};
     if (origNgoIds.length > 0) {
-      const { data: stationAssigns } = await supabase
+      const { data: stationAssigns } = await db
         .from('fro_station_assignments')
         .select('ngo_id')
         .in('ngo_id', origNgoIds);
@@ -672,7 +672,7 @@ export const getDashboard = async (req, res) => {
     }
 
     let daily_target = 0;
-    const { data: workerRec } = await supabase
+    const { data: workerRec } = await db
       .from('workers')
       .select('daily_collection_target')
       .eq('id', req.user.id)
@@ -749,7 +749,7 @@ export const getFroWiseCollection = async (req, res) => {
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoNames.push(ngo.name);
       if (req.user.ngo_id) ngoIds.push(req.user.ngo_id);
     }
@@ -806,7 +806,7 @@ export const getFroPerformance = async (req, res) => {
     let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
     }
 
@@ -843,12 +843,12 @@ export const getFroPerformance = async (req, res) => {
     const attendanceMap = {};
     if (workerIds.length > 0) {
       if (period === 'today') {
-        const { data: att } = await supabase.from('attendance').select('worker_id, status').eq('date', todayStr).in('worker_id', workerIds);
+        const { data: att } = await db.from('attendance').select('worker_id, status').eq('date', todayStr).in('worker_id', workerIds);
         for (const a of att || []) attendanceMap[a.worker_id] = a.status === 'present' || a.status === 'late' ? 100 : a.status === 'absent' ? 0 : null;
       } else {
         const monthStr = startDate.toISOString().slice(0, 7);
         const endStr = endDate.toISOString().slice(0, 10);
-        const { data: att } = await supabase.from('attendance').select('worker_id, status').gte('date', monthStr + '-01').lte('date', endStr).in('worker_id', workerIds);
+        const { data: att } = await db.from('attendance').select('worker_id, status').gte('date', monthStr + '-01').lte('date', endStr).in('worker_id', workerIds);
         const counts = {};
         for (const a of att || []) {
           if (!counts[a.worker_id]) counts[a.worker_id] = { present: 0, total: 0 };
@@ -863,11 +863,11 @@ export const getFroPerformance = async (req, res) => {
 
     const liveStatusMap = {};
     if (workerIds.length > 0) {
-      const { data: live } = await supabase.from('fro_live_status').select('fro_worker_id, today_talk_seconds').in('fro_worker_id', workerIds);
+      const { data: live } = await db.from('fro_live_status').select('fro_worker_id, today_talk_seconds').in('fro_worker_id', workerIds);
       for (const l of live || []) liveStatusMap[l.fro_worker_id] = l.today_talk_seconds || 0;
     }
 
-    const { data: faRows } = await supabase
+    const { data: faRows } = await db
       .from('fro_assignments')
       .select('status, fro_worker_id')
       .in('ngo_id', ngoIds);
@@ -983,7 +983,7 @@ export const getAccountsPending = async (req, res) => {
     const { status } = req.query;
     const statusFilter = status || 'pending';
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_donor_logs')
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
@@ -1038,7 +1038,7 @@ export const verifyLeadDone = async (req, res) => {
     const { pan_number, notes } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
 
-    const { data: log, error: logError } = await supabase
+    const { data: log, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
@@ -1063,7 +1063,7 @@ export const verifyLeadDone = async (req, res) => {
     }
 
     // Update log: verified (atomic check via .eq('accounts_status', 'pending'))
-    const { data: updatedLog, error: updateLogError } = await supabase
+    const { data: updatedLog, error: updateLogError } = await db
       .from('fro_donor_logs')
       .update({
         accounts_status: 'verified',
@@ -1082,7 +1082,7 @@ export const verifyLeadDone = async (req, res) => {
     }
 
     // Update assignment: donation_collected
-    const { error: updateAsgnError } = await supabase
+    const { error: updateAsgnError } = await db
       .from('fro_assignments')
       .update({
         status: 'donation_collected',
@@ -1120,7 +1120,7 @@ export const getStations = async (req, res) => {
     const assignments = await getStationAssignmentsByNgo(targetNgoIds, true);
 
     // Get donor counts per station from fro_assignments (deduplicated by donor_id)
-    const { data: faData, error: faErr } = await supabase
+    const { data: faData, error: faErr } = await db
       .from('fro_assignments')
       .select('donor_id, station, ngo_id, fro_worker_id, assigned_at')
       .in('ngo_id', targetNgoIds)
@@ -1147,7 +1147,7 @@ export const getStations = async (req, res) => {
 
     const ngoIdToName = {};
     if (ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', ngo_id).single();
       if (ngo) ngoIdToName[ngo_id] = ngo.name;
     } else {
       const access = await getUserNgoAccess(req.user.id);
@@ -1155,7 +1155,7 @@ export const getStations = async (req, res) => {
         ngoIdToName[a.ngo_id] = a.ngo_name;
       }
       if (req.user.ngo_id && !ngoIdToName[req.user.ngo_id]) {
-        const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+        const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
         if (ngo) ngoIdToName[req.user.ngo_id] = ngo.name;
       }
     }
@@ -1236,13 +1236,13 @@ export const saveStationAssignment = async (req, res) => {
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
     }
 
     let ngoId;
     if (ngoNames.length > 0) {
-      const { data: donorStation } = await supabase
+      const { data: donorStation } = await db
         .from('donor_profiles')
         .select('ngo')
         .eq('station', trimmedStation)
@@ -1270,7 +1270,7 @@ export const removeStationAssignment = async (req, res) => {
   try {
     const { id } = req.params;
     const ngoIds = await getUserNgoIds(req.user);
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('fro_station_assignments')
       .select('ngo_id')
       .eq('id', id)
@@ -1298,7 +1298,7 @@ export const removeStationByName = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    let delQuery = supabase
+    let delQuery = db
       .from('fro_station_assignments')
       .delete()
       .eq('station', station.trim());
@@ -1330,7 +1330,7 @@ export const createStationHandler = async (req, res) => {
 
     const stationName = station.trim();
 
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('fro_station_assignments')
       .select('id')
       .eq('station', stationName)
@@ -1340,7 +1340,7 @@ export const createStationHandler = async (req, res) => {
       return res.json({ message: 'already exists' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_station_assignments')
       .insert([{ station: stationName, ngo_id: ngo_id || null, assigned_by: req.user.id }])
       .select();
@@ -1363,7 +1363,7 @@ export const updateStationNgos = async (req, res) => {
     const validNgoId = ngo_id && allowedNgoIds.has(ngo_id) ? ngo_id : null;
 
     // Upsert single assignment (avoids delete-then-insert race condition)
-    const { error: upsertErr } = await supabase
+    const { error: upsertErr } = await db
       .from('fro_station_assignments')
       .upsert({
         station: station.trim(),
@@ -1393,7 +1393,7 @@ export const reassignStationFro = async (req, res) => {
     if (!ngoId) return res.status(400).json({ message: 'No NGO assigned' });
 
     // Get station info
-    const { data: stationAssign } = await supabase
+    const { data: stationAssign } = await db
       .from('fro_station_assignments')
       .select('station')
       .eq('id', id)
@@ -1423,7 +1423,7 @@ export const getStationStats = async (req, res) => {
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) { ngoNames.push(ngo.name); ngoIds.push(req.user.ngo_id); }
     }
 
@@ -1452,7 +1452,7 @@ export const getStationStats = async (req, res) => {
       }
     }
 
-    const allAssignForSummary = await supabase
+    const allAssignForSummary = await db
       .from('fro_assignments')
       .select('donor_id, status')
       .in('ngo_id', ngoIds)
@@ -1541,7 +1541,7 @@ export const getNewData = async (req, res) => {
     let ngoIds = access.map(a => a.ngo_id).filter(Boolean);
 
     if (ngoNames.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) { ngoNames = [ngo.name]; ngoIds = [req.user.ngo_id]; }
     }
 
@@ -1564,7 +1564,7 @@ export const getNewData = async (req, res) => {
 
     // 1. new_data for admin's NGOs that are still pending conversion
     const FETCH_LIMIT = 25000;
-    const { data: importedRows, error: iErr } = await supabase
+    const { data: importedRows, error: iErr } = await db
       .from('new_data')
       .select('name, mobile_number, category, amount, created_at, ngo')
       .in('ngo', ngoNames)
@@ -1593,7 +1593,7 @@ export const getNewData = async (req, res) => {
       for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
         const batch = mobiles.slice(i, i + BATCH_SIZE);
         batchQueries.push(
-          supabase.from('donor_profiles').select('mobile_number').in('mobile_number', batch)
+          db.from('donor_profiles').select('mobile_number').in('mobile_number', batch)
         );
       }
       const batchResults = await Promise.allSettled(batchQueries);
@@ -1607,7 +1607,7 @@ export const getNewData = async (req, res) => {
 
     // 2. NGO's donor_profiles not yet FRO-assigned
     let ngoData = [];
-    const { data: ngoProfiles, error: npErr } = await supabase
+    const { data: ngoProfiles, error: npErr } = await db
       .from('donor_profiles')
       .select('id, name, mobile_number, category, amount, first_imported_at, ngo')
       .in('ngo', ngoNames)
@@ -1617,7 +1617,7 @@ export const getNewData = async (req, res) => {
 
     if (ngoProfiles && ngoProfiles.length > 0) {
       const profileIds = ngoProfiles.map(p => p.id);
-      const { data: froAsgn } = await supabase
+      const { data: froAsgn } = await db
         .from('fro_assignments')
         .select('donor_id')
         .in('donor_id', profileIds);
@@ -1647,7 +1647,7 @@ export const distributeNewData = async (req, res) => {
     let access = await getUserNgoAccess(req.user.id);
     let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
     }
     // Filter to specific NGO if provided
@@ -1671,7 +1671,7 @@ export const distributeNewData = async (req, res) => {
       console.log(`[${ngoName}] === Processing NGO: ${ngoName} (id=${ngoId}) ===`);
       // Step 1: Create donor_profiles from new_data
       const PROCESS_BATCH = 10000;
-      const { data: importedRows, error: irErr } = await supabase
+      const { data: importedRows, error: irErr } = await db
         .from('new_data')
         .select('name, mobile_number, category, amount')
         .eq('ngo', ngoName)
@@ -1696,7 +1696,7 @@ export const distributeNewData = async (req, res) => {
         for (let i = 0; i < mobiles.length; i += BATCH) {
           const batch = mobiles.slice(i, i + BATCH);
           batchQueries.push(
-            supabase.from('donor_profiles').select('id, mobile_number').in('mobile_number', batch)
+            db.from('donor_profiles').select('id, mobile_number').in('mobile_number', batch)
           );
         }
         const batchResults = await Promise.allSettled(batchQueries);
@@ -1726,7 +1726,7 @@ export const distributeNewData = async (req, res) => {
           let allProfiles = [];
           for (let i = 0; i < toInsert.length; i += 500) {
             const batch = toInsert.slice(i, i + 500);
-            const { data: newProfiles } = await supabase
+            const { data: newProfiles } = await db
               .from('donor_profiles')
               .insert(batch)
               .select('id');
@@ -1782,7 +1782,7 @@ export const distributeNewData = async (req, res) => {
         for (let i = 0; i < allMobiles.length; i += BATCH) {
           const batch = allMobiles.slice(i, i + BATCH);
           batchQueries.push(
-            supabase.from('donor_profiles').select('id').in('mobile_number', batch)
+            db.from('donor_profiles').select('id').in('mobile_number', batch)
           );
         }
         const batchResults = await Promise.allSettled(batchQueries);
@@ -1796,7 +1796,7 @@ export const distributeNewData = async (req, res) => {
       console.log(`[${ngoName}] newProfileIds:`, newProfileIds.length, 'existingProfileIds:', existingProfileIds.length, 'allIds:', allIds.length);
       if (allIds.length === 0) { console.log(`[${ngoName}] SKIP — allIds empty`); continue; }
 
-      const { data: froAsgn } = await supabase
+      const { data: froAsgn } = await db
         .from('fro_assignments')
         .select('donor_id')
         .in('donor_id', allIds)
@@ -1920,7 +1920,7 @@ export const getAlerts = async (req, res) => {
     }
 
     if (allWorkerIds.size > 0) {
-      const { data: requests } = await supabase
+      const { data: requests } = await db
         .from('fro_data_requests')
         .select('*')
         .in('fro_worker_id', [...allWorkerIds])
@@ -1942,7 +1942,7 @@ export const getAlerts = async (req, res) => {
     }
 
     try {
-      const { data: alerts } = await supabase
+      const { data: alerts } = await db
         .from('alerts')
         .select('*')
         .in('ngo_id', ngoIds)
@@ -1974,7 +1974,7 @@ export const getRejectedLeads = async (req, res) => {
 
     let data = [];
     try {
-      const result = await supabase
+      const result = await db
         .from('rejected_lead_tickets')
         .select('*')
         .in('ngo_id', ngoIds)
@@ -1990,7 +1990,7 @@ export const getRejectedLeads = async (req, res) => {
     const workerIds = [...new Set(data.map(t => t.fro_worker_id).filter(Boolean))];
     const workerMap = {};
     if (workerIds.length > 0) {
-      const { data: workers, error: wErr } = await supabase.from('workers').select('id, name').in('id', workerIds);
+      const { data: workers, error: wErr } = await db.from('workers').select('id, name').in('id', workerIds);
       if (wErr) { console.error('workers query failed:', wErr.message); }
       else if (workers) for (const w of workers) workerMap[w.id] = w.name;
     }
@@ -2010,7 +2010,7 @@ export const acknowledgeRejectedLead = async (req, res) => {
 
     let ticket;
     try {
-      const result = await supabase
+      const result = await db
         .from('rejected_lead_tickets')
         .select('*')
         .eq('id', id)
@@ -2025,7 +2025,7 @@ export const acknowledgeRejectedLead = async (req, res) => {
     if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
     if (!ngoIds.includes(ticket.ngo_id)) return res.status(403).json({ message: 'Access denied' });
 
-    await supabase
+    await db
       .from('rejected_lead_tickets')
       .update({ status: 'acknowledged', reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
       .eq('id', id);
@@ -2044,26 +2044,26 @@ export const acknowledgeAlert = async (req, res) => {
 
     if (typeof rawId === 'string' && rawId.startsWith('dr_')) {
       const realId = parseInt(rawId.replace('dr_', ''));
-      const { data: reqData, error: reqErr } = await supabase
+      const { data: reqData, error: reqErr } = await db
         .from('fro_data_requests')
         .select('id, fro_worker_id')
         .eq('id', realId)
         .maybeSingle();
       if (reqErr || !reqData) return res.status(404).json({ message: 'Request not found' });
 
-      const { data: worker } = await supabase
+      const { data: worker } = await db
         .from('workers')
         .select('ngo_id')
         .eq('id', reqData.fro_worker_id)
         .maybeSingle();
       if (!worker || !ngoIds.includes(worker.ngo_id)) return res.status(403).json({ message: 'Access denied' });
 
-      await supabase.from('fro_data_requests').update({ status: 'acknowledged' }).eq('id', realId);
+      await db.from('fro_data_requests').update({ status: 'acknowledged' }).eq('id', realId);
       return res.json({ message: 'Request acknowledged' });
     }
 
     const alertId = parseInt(rawId);
-    const { data: alert } = await supabase
+    const { data: alert } = await db
       .from('alerts')
       .select('ngo_id')
       .eq('id', alertId)
@@ -2072,7 +2072,7 @@ export const acknowledgeAlert = async (req, res) => {
     if (!alert) return res.status(404).json({ message: 'Alert not found' });
     if (!ngoIds.includes(alert.ngo_id)) return res.status(403).json({ message: 'Access denied' });
 
-    const { error } = await supabase
+    const { error } = await db
       .from('alerts')
       .update({ acknowledged: true, acknowledged_at: new Date().toISOString() })
       .eq('id', alertId);
@@ -2095,26 +2095,26 @@ export const getDonorTransactions = async (req, res) => {
     const numId = parseInt(id);
     let donor;
     if (!isNaN(numId)) {
-      const { data } = await supabase.from('donor_profiles').select('id, mobile_number').eq('id', numId).maybeSingle();
+      const { data } = await db.from('donor_profiles').select('id, mobile_number').eq('id', numId).maybeSingle();
       donor = data;
     }
     if (!donor) {
-      const { data } = await supabase.from('donor_profiles').select('id, mobile_number').eq('mobile_number', id).maybeSingle();
+      const { data } = await db.from('donor_profiles').select('id, mobile_number').eq('mobile_number', id).maybeSingle();
       donor = data;
     }
     if (!donor) return res.json({ data: [], pagination: { page: pg, pageSize: limit, total: 0, totalPages: 0 } });
 
     const [donationsRes, receiptsRes, importRes] = await Promise.all([
-      supabase.from('fro_donor_logs')
+      db.from('fro_donor_logs')
         .select('id, amount_collected, payment_mode, accounts_status, created_at, action, disposition_detail, notes, fro_assignments!inner(donor_id)')
         .eq('fro_assignments.donor_id', donor.id)
         .gt('amount_collected', 0)
         .order('created_at', { ascending: false }),
-      supabase.from('receipts')
+      db.from('receipts')
         .select('id, amount, receipt_no, mode, created_at')
         .eq('donor_mobile', donor.mobile_number)
         .order('created_at', { ascending: false }),
-      supabase.from('new_data')
+      db.from('new_data')
         .select('id, amount, transaction_date, category, bank_donor_name, created_at')
         .eq('mobile_number', donor.mobile_number)
         .order('created_at', { ascending: false }),
@@ -2168,7 +2168,7 @@ export const getDataRequests = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     if (ngoIds.length === 0) return res.json([]);
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_data_requests')
       .select('*, workers(name, login_id)')
       .in('ngo_id', ngoIds)
@@ -2199,7 +2199,7 @@ export const resolveDataRequest = async (req, res) => {
     const requestId = parseInt(req.params.id);
     const ngoIds = await getUserNgoIds(req.user);
 
-    const { data: request } = await supabase
+    const { data: request } = await db
       .from('fro_data_requests')
       .select('ngo_id')
       .eq('id', requestId)
@@ -2209,7 +2209,7 @@ export const resolveDataRequest = async (req, res) => {
     if (!ngoIds.includes(request.ngo_id)) return res.status(403).json({ message: 'Access denied' });
 
     const { response } = req.body;
-    const { error } = await supabase
+    const { error } = await db
       .from('fro_data_requests')
       .update({
         status: 'resolved',
@@ -2240,13 +2240,13 @@ export const masterSearch = async (req, res) => {
     const [donorsRes, frosRes, stationsRes] = await Promise.all([
       // Search donors
       (async () => {
-        let query = supabase
+        let query = db
           .from('donor_profiles')
           .select('id, name, mobile_number, city, amount, total_amount, donation_count, pan_number, email, address_1, birth_date, project_supported, last_donation_date')
           .or(`name.ilike.${term},mobile_number.ilike.${term},pan_number.ilike.${term},city.ilike.${term}`)
           .limit(15);
         if (ngoFilter) {
-          const { data: ngoDonors } = await supabase
+          const { data: ngoDonors } = await db
             .from('fro_assignments')
             .select('donor_id')
             .in('ngo_id', ngoFilter)
@@ -2260,7 +2260,7 @@ export const masterSearch = async (req, res) => {
       })(),
       // Search FRO workers
       (async () => {
-        let query = supabase
+        let query = db
           .from('workers')
           .select('id, name, login_id, ngo_id, is_active, created_at, ngos!left(name)')
           .eq('department', 'FRO')
@@ -2275,13 +2275,13 @@ export const masterSearch = async (req, res) => {
       // Search stations
       (async () => {
         try {
-          let query = supabase
+          let query = db
             .from('fro_station_assignments')
             .select('station, ngo_id, fro_worker_id, workers!left(name, login_id)')
             .ilike('station', term)
             .limit(10);
           if (ngoFilter) {
-            const { data: ngoStations } = await supabase
+            const { data: ngoStations } = await db
               .from('fro_station_assignments')
               .select('station')
               .in('ngo_id', ngoFilter);
@@ -2292,7 +2292,7 @@ export const masterSearch = async (req, res) => {
           const { data, error } = await query;
           if (error) {
             // Fallback: query without workers join if FK fails
-            const { data: fallback } = await supabase
+            const { data: fallback } = await db
               .from('fro_station_assignments')
               .select('station, ngo_id, fro_worker_id')
               .ilike('station', term)
@@ -2310,7 +2310,7 @@ export const masterSearch = async (req, res) => {
     let donors = donorsRes;
     if (donors.length > 0) {
       const donorIds = donors.map(d => d.id);
-      const { data: assignments } = await supabase
+      const { data: assignments } = await db
         .from('fro_assignments')
         .select('donor_id, ngo_id, station, status, workers!left(name, login_id)')
         .in('donor_id', donorIds)
@@ -2330,7 +2330,7 @@ export const masterSearch = async (req, res) => {
     let stations = stationsRes;
     if (stations.length > 0) {
       const stationNames = [...new Set(stations.map(s => s.station).filter(Boolean))];
-      const { data: counts } = await supabase
+      const { data: counts } = await db
         .from('fro_assignments')
         .select('station, id', { count: 'exact', head: false })
         .in('station', stationNames)
@@ -2361,7 +2361,7 @@ export const getCallAnalytics = async (req, res) => {
     const toDate = to || new Date().toISOString();
 
     // Build base filter
-    let logQuery = supabase
+    let logQuery = db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(donor_id, ngo_id, station, fro_worker_id, workers!left(name, login_id))')
       .gte('created_at', fromDate)
@@ -2467,7 +2467,7 @@ export const transferStationData = async (req, res) => {
       return res.status(400).json({ message: 'target_station and donor_count are required' });
     }
 
-    const { data: sourceAssigns } = await supabase
+    const { data: sourceAssigns } = await db
       .from('fro_station_assignments')
       .select('fro_worker_id, ngo_id')
       .in('ngo_id', ngoIds)
@@ -2504,7 +2504,7 @@ export const returnTransferEarly = async (req, res) => {
   try {
     const { id } = req.params;
     const ngoIds = await getUserNgoIds(req.user);
-    const { data: transfer } = await supabase.from('fro_transfers').select('ngo_id').eq('id', id).maybeSingle();
+    const { data: transfer } = await db.from('fro_transfers').select('ngo_id').eq('id', id).maybeSingle();
     if (transfer && transfer.ngo_id && !ngoIds.some(id => String(id) === String(transfer.ngo_id))) {
       return res.status(403).json({ message: 'Access denied' });
     }
@@ -2523,7 +2523,7 @@ export const getTransferHistory = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     if (ngoIds.length === 0) return res.json([]);
 
-    const { data: transfers, error } = await supabase
+    const { data: transfers, error } = await db
       .from('fro_transfers')
       .select('*')
       .in('ngo_id', ngoIds)
@@ -2534,7 +2534,7 @@ export const getTransferHistory = async (req, res) => {
     const froIds = [...new Set((transfers || []).map(t => t.source_fro_worker_id).filter(Boolean))];
     let froNameMap = {};
     if (froIds.length > 0) {
-      const { data: workers } = await supabase
+      const { data: workers } = await db
         .from('workers')
         .select('id, name')
         .in('id', froIds);
@@ -2567,7 +2567,7 @@ export const getTransferDonors = async (req, res) => {
 
     const { id } = req.params;
 
-    const { data: transfer, error: tErr } = await supabase
+    const { data: transfer, error: tErr } = await db
       .from('fro_transfers')
       .select('*')
       .eq('id', id)
@@ -2583,7 +2583,7 @@ export const getTransferDonors = async (req, res) => {
     if (donorIds.length === 0) return res.json([]);
 
     // Fetch donor details from donors table (or new_data table as fallback)
-    const { data: donors } = await supabase
+    const { data: donors } = await db
       .from('donor_profiles')
       .select('id, name, mobile_number, pan_number')
       .in('id', donorIds);
@@ -2593,7 +2593,7 @@ export const getTransferDonors = async (req, res) => {
     }
 
     // Fallback: try new_data table
-    const { data: newDonors } = await supabase
+    const { data: newDonors } = await db
       .from('new_data')
       .select('id, name, mobile, status')
       .in('id', donorIds);
@@ -2630,7 +2630,7 @@ export const getIncentives = async (req, res) => {
     const lastDay = new Date(Date.UTC(y, parseInt(m), 0)).getUTCDate();
     const endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
 
-    const { data: allAchievements } = await supabase
+    const { data: allAchievements } = await db
       .from('daily_achievements')
       .select('*')
       .in('worker_id', workerIds)
@@ -2645,7 +2645,7 @@ export const getIncentives = async (req, res) => {
       }
     }
 
-    const { data: incentiveTargets } = await supabase
+    const { data: incentiveTargets } = await db
       .from('incentive_targets')
       .select('*')
       .in('worker_id', workerIds)
@@ -2772,7 +2772,7 @@ export const listLeads = async (req, res) => {
     const offset = (page - 1) * limit;
 
     // Only show telecaller-created leads (not recruiter leads)
-    const { data: telecallerUsers } = await supabase
+    const { data: telecallerUsers } = await db
       .from('users')
       .select('id')
       .eq('role', 'telecaller');
@@ -2781,8 +2781,8 @@ export const listLeads = async (req, res) => {
       return res.json({ data: [], pagination: { page, pageSize: limit, total: 0, totalPages: 0 } });
     }
 
-    let countQuery = supabase.from('leads').select('id', { count: 'exact', head: true }).in('created_by', telecallerIds);
-    let dataQuery = supabase.from('leads').select('*, users(name)').in('created_by', telecallerIds).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+    let countQuery = db.from('leads').select('id', { count: 'exact', head: true }).in('created_by', telecallerIds);
+    let dataQuery = db.from('leads').select('*, users(name)').in('created_by', telecallerIds).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
     if (status) { countQuery = countQuery.eq('status', status); dataQuery = dataQuery.eq('status', status); }
     if (from_date) { countQuery = countQuery.gte('created_at', from_date + 'T00:00:00'); dataQuery = dataQuery.gte('created_at', from_date + 'T00:00:00'); }
@@ -2814,7 +2814,7 @@ export const createLead = async (req, res) => {
       return res.status(400).json({ message: 'Name and mobile are required' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('leads')
       .insert({
         name,
@@ -2860,7 +2860,7 @@ export const importLeads = async (req, res) => {
       return res.status(400).json({ message: 'No valid leads found in file' });
     }
 
-    const { data, error } = await supabase.from('leads').insert(leads).select();
+    const { data, error } = await db.from('leads').insert(leads).select();
     if (error) throw error;
 
     return res.json({ message: `${leads.length} leads imported`, count: leads.length, data });
@@ -2876,7 +2876,7 @@ export const assignLeads = async (req, res) => {
       return res.status(400).json({ message: 'lead_ids array and fro_worker_id are required' });
     }
 
-    const { data: leads, error: lErr } = await supabase
+    const { data: leads, error: lErr } = await db
       .from('leads')
       .select('id, phone, name')
       .in('id', lead_ids);
@@ -2891,10 +2891,10 @@ export const assignLeads = async (req, res) => {
       status: 'assigned',
     }));
 
-    const { error: aErr } = await supabase.from('lead_assignments').insert(assignments);
+    const { error: aErr } = await db.from('lead_assignments').insert(assignments);
     if (aErr) throw aErr;
 
-    await supabase.from('leads').update({ status: 'assigned', assigned_to: parseInt(fro_worker_id) }).in('id', lead_ids);
+    await db.from('leads').update({ status: 'assigned', assigned_to: parseInt(fro_worker_id) }).in('id', lead_ids);
 
     return res.json({ message: `${leads.length} leads assigned`, count: leads.length });
   } catch (error) {
@@ -2911,7 +2911,7 @@ export const transferLead = async (req, res) => {
     }
 
     const ngoIds = await getUserNgoIds(req.user);
-    const { data: lead } = await supabase.from('leads').select('id').eq('id', id).maybeSingle();
+    const { data: lead } = await db.from('leads').select('id').eq('id', id).maybeSingle();
     if (!lead) return res.status(404).json({ message: 'Lead not found' });
 
     const updateData = {};
@@ -2919,7 +2919,7 @@ export const transferLead = async (req, res) => {
     if (target_station) updateData.station = target_station;
     updateData.status = 'transferred';
 
-    const { error } = await supabase.from('leads').update(updateData).eq('id', id);
+    const { error } = await db.from('leads').update(updateData).eq('id', id);
     if (error) throw error;
 
     return res.json({ message: 'Lead transferred successfully' });
@@ -2933,7 +2933,7 @@ export const getLeadHistory = async (req, res) => {
     const { lead_id } = req.query;
     const ngoIds = await getUserNgoIds(req.user);
 
-    let query = supabase
+    let query = db
       .from('lead_assignments')
       .select('*, leads(name, phone, assigned_to), workers!fro_worker_id(name, ngo_id)')
       .order('assigned_at', { ascending: false });
@@ -2974,12 +2974,12 @@ export const getDuplicateLeads = async (req, res) => {
     const ngoNames = access.map(a => a.ngo_name).filter(Boolean);
     const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
     if (ngoIds.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoNames.push(ngo.name);
     }
     if (ngoNames.length === 0) return res.json([]);
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('donor_profiles')
       .select('id, name, mobile_number, city, amount, last_donation_date, pan_number')
       .in('ngo', ngoNames)
@@ -3008,14 +3008,14 @@ export const getFullDonorDetail = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
 
     let profile;
-    const { data: donor, error } = await supabase
+    const { data: donor, error } = await db
       .from('donor_profiles')
       .select('*')
       .eq('id', numId)
       .single();
 
     if (error || !donor) {
-      const { data: mobileDonor } = await supabase
+      const { data: mobileDonor } = await db
         .from('donor_profiles')
         .select('*')
         .eq('mobile_number', id)
@@ -3026,7 +3026,7 @@ export const getFullDonorDetail = async (req, res) => {
       profile = donor;
     }
 
-    const { data: accessCheck } = await supabase
+    const { data: accessCheck } = await db
       .from('fro_assignments')
       .select('id')
       .eq('donor_id', profile.id)
@@ -3037,7 +3037,7 @@ export const getFullDonorDetail = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { data: donations } = await supabase
+    const { data: donations } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(donor_id)')
       .eq('fro_assignments.donor_id', profile.id)
@@ -3058,11 +3058,11 @@ export const getDonorReceipts = async (req, res) => {
     let donorMobile;
     const numId = parseInt(id);
     if (!isNaN(numId)) {
-      const { data: donor } = await supabase.from('donor_profiles').select('mobile_number, ngo').eq('id', numId).maybeSingle();
+      const { data: donor } = await db.from('donor_profiles').select('mobile_number, ngo').eq('id', numId).maybeSingle();
       if (donor) {
         donorMobile = donor.mobile_number;
         if (ngoIds.length > 0 && donor.ngo) {
-          const { data: ngo } = await supabase.from('ngos').select('name').eq('id', ngoIds[0]).maybeSingle();
+          const { data: ngo } = await db.from('ngos').select('name').eq('id', ngoIds[0]).maybeSingle();
           if (ngo && donor.ngo !== ngo.name && !ngoIds.includes(Number(donor.ngo))) {
             return res.status(403).json({ message: 'Access denied' });
           }
@@ -3074,7 +3074,7 @@ export const getDonorReceipts = async (req, res) => {
 
     if (!donorMobile) return res.json([]);
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('receipts')
       .select('*')
       .eq('donor_mobile', donorMobile)
@@ -3096,7 +3096,7 @@ export const getDonorFollowups = async (req, res) => {
     let donorId;
     const numId = parseInt(id);
     if (!isNaN(numId)) {
-      const { data: fa } = await supabase
+      const { data: fa } = await db
         .from('fro_assignments')
         .select('id, ngo_id')
         .eq('donor_id', numId)
@@ -3106,7 +3106,7 @@ export const getDonorFollowups = async (req, res) => {
 
     if (!donorId) return res.json([]);
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_scheduled_contacts')
       .select('*, workers!created_by(name)')
       .eq('assignment_id', donorId)
@@ -3127,7 +3127,7 @@ export const createFollowup = async (req, res) => {
     }
 
     const ngoIds = await getUserNgoIds(req.user);
-    const { data: assignment } = await supabase
+    const { data: assignment } = await db
       .from('fro_assignments')
       .select('id, ngo_id')
       .eq('donor_id', donor_id)
@@ -3140,7 +3140,7 @@ export const createFollowup = async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('fro_scheduled_contacts')
       .insert({
         assignment_id: assignment.id,
@@ -3166,7 +3166,7 @@ export const getFroSummary = async (req, res) => {
     const ngoIds = await getUserNgoIds(req.user);
     if (ngoIds.length === 0) return res.status(403).json({ message: 'Access denied' });
 
-    const { data: worker } = await supabase
+    const { data: worker } = await db
       .from('workers')
       .select('id, ngo_id')
       .eq('id', froId)
@@ -3179,13 +3179,13 @@ export const getFroSummary = async (req, res) => {
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
 
     const [logsRes, asgnRes] = await Promise.all([
-      supabase
+      db
         .from('fro_donor_logs')
         .select('amount_collected, disposition_detail, action, accounts_status, created_at, call_duration_seconds')
         .eq('fro_worker_id', froId)
         .gte('created_at', todayStart.toISOString())
         .lte('created_at', todayEnd.toISOString()),
-      supabase
+      db
         .from('fro_assignments')
         .select('status')
         .eq('fro_worker_id', froId)
@@ -3239,14 +3239,14 @@ export const seedStations = async (req, res) => {
 
     let ngoEntries;
     if (ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name, id').eq('id', ngo_id).single();
       if (!ngo) return res.status(400).json({ message: 'NGO not found' });
       ngoEntries = [{ ngoId: ngo.id, ngoName: ngo.name }];
     } else {
       const access = await getUserNgoAccess(req.user.id);
       ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
       if (ngoEntries.length === 0 && req.user.ngo_id) {
-        const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
+        const { data: ngo } = await db.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
         if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
       }
     }
@@ -3292,7 +3292,7 @@ export const cleanupOrphanedStations = async (req, res) => {
       targetNgoIds = [...allowedNgoIds];
     }
 
-    const { data: orphaned, error: fetchErr } = await supabase
+    const { data: orphaned, error: fetchErr } = await db
       .from('fro_station_assignments')
       .select('id, station, ngo_id')
       .in('ngo_id', targetNgoIds)
@@ -3305,7 +3305,7 @@ export const cleanupOrphanedStations = async (req, res) => {
     }
 
     const ids = orphaned.map(r => r.id);
-    const { error: delErr } = await supabase
+    const { error: delErr } = await db
       .from('fro_station_assignments')
       .delete()
       .in('id', ids);
@@ -3341,7 +3341,7 @@ export const uploadOldData = async (req, res) => {
     const access = await getUserNgoAccess(req.user.id);
     const ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
     }
     if (ngoEntries.length === 0) {
@@ -3372,7 +3372,7 @@ export const uploadOldData = async (req, res) => {
       }
 
       // Upsert donor_profile
-      const { data: existingProfile } = await supabase
+      const { data: existingProfile } = await db
         .from('donor_profiles')
         .select('id')
         .eq('mobile_number', row.mobile)
@@ -3385,10 +3385,10 @@ export const uploadOldData = async (req, res) => {
         if (row.name) updateFields.name = row.name;
         if (row.city) updateFields.city = row.city;
         if (Object.keys(updateFields).length > 0) {
-          await supabase.from('donor_profiles').update(updateFields).eq('id', donorId);
+          await db.from('donor_profiles').update(updateFields).eq('id', donorId);
         }
       } else {
-        const { data: newProfile } = await supabase
+        const { data: newProfile } = await db
           .from('donor_profiles')
           .insert([{ mobile_number: row.mobile, name: row.name || null, amount: row.amount, total_amount: row.amount, donation_count: 1, city: row.city || null }])
           .select('id')
@@ -3402,7 +3402,7 @@ export const uploadOldData = async (req, res) => {
 
       // Create assignment per NGO
       for (const { ngoId, ngoName } of ngoEntries) {
-        const { data: existingAsgn } = await supabase
+        const { data: existingAsgn } = await db
           .from('fro_assignments')
           .select('id')
           .eq('donor_id', donorId)
@@ -3417,7 +3417,7 @@ export const uploadOldData = async (req, res) => {
 
         const stationAssign = await getStationAssignmentByNgoAndStation(ngoId, row.station);
 
-        const { error: asgnErr } = await supabase
+        const { error: asgnErr } = await db
           .from('fro_assignments')
           .insert([{
             donor_id: donorId,
@@ -3510,7 +3510,7 @@ export const uploadOldDataForStation = async (req, res) => {
     const access = await getUserNgoAccess(req.user.id);
     let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
+      const { data: ngo } = await db.from('ngos').select('name, id').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
     }
 
@@ -3544,7 +3544,7 @@ export const uploadOldDataForStation = async (req, res) => {
 
     // Batch 1: Get existing profiles by mobile
     const mobiles = normalizedRows.map(r => r.mobile);
-    const { data: existingProfiles } = await supabase
+    const { data: existingProfiles } = await db
       .from('donor_profiles')
       .select('id, mobile_number')
       .in('mobile_number', mobiles);
@@ -3566,7 +3566,7 @@ export const uploadOldDataForStation = async (req, res) => {
     for (const p of existingProfiles || []) profileMap[p.mobile_number] = p.id;
 
     if (toInsert.length > 0) {
-      const { data: newP } = await supabase.from('donor_profiles').insert(toInsert).select('id, mobile_number');
+      const { data: newP } = await db.from('donor_profiles').insert(toInsert).select('id, mobile_number');
       for (const p of newP || []) {
         profileMap[p.mobile_number] = p.id;
         donorIds.push(p.id);
@@ -3574,7 +3574,7 @@ export const uploadOldDataForStation = async (req, res) => {
       }
     }
     if (toUpdate.length > 0) {
-      const { data: updP } = await supabase.from('donor_profiles').upsert(toUpdate, { onConflict: 'mobile_number' }).select('id, mobile_number');
+      const { data: updP } = await db.from('donor_profiles').upsert(toUpdate, { onConflict: 'mobile_number' }).select('id, mobile_number');
       for (const p of updP || []) {
         if (!profileMap[p.mobile_number]) profileMap[p.mobile_number] = p.id;
         donorIds.push(p.id);
@@ -3586,7 +3586,7 @@ export const uploadOldDataForStation = async (req, res) => {
     const existingAssignmentKeys = new Set();
     if (donorIds.length > 0) {
       for (const { ngoId } of ngoEntries) {
-        const { data: existingAsgns } = await supabase
+        const { data: existingAsgns } = await db
           .from('fro_assignments')
           .select('donor_id')
           .eq('ngo_id', ngoId)
@@ -3617,7 +3617,7 @@ export const uploadOldDataForStation = async (req, res) => {
       }
     }
     if (assignmentsToInsert.length > 0) {
-      const { error: batchErr } = await supabase.from('fro_assignments').insert(assignmentsToInsert);
+      const { error: batchErr } = await db.from('fro_assignments').insert(assignmentsToInsert);
       if (batchErr) errors.push(`Batch insert error: ${batchErr.message}`);
       else createdAssignments = assignmentsToInsert.length;
     }
@@ -3641,7 +3641,7 @@ export const getDataOverview = async (req, res) => {
     const access = await getUserNgoAccess(req.user.id);
     let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
     if (ngoEntries.length === 0 && req.user.ngo_id) {
-      const { data: ngo } = await supabase.from('ngos').select('id, name').eq('id', req.user.ngo_id).maybeSingle();
+      const { data: ngo } = await db.from('ngos').select('id, name').eq('id', req.user.ngo_id).maybeSingle();
       if (ngo) ngoEntries.push({ ngoId: ngo.id, ngoName: ngo.name });
     }
 
@@ -3657,11 +3657,11 @@ export const getDataOverview = async (req, res) => {
     const result = [];
     for (const { ngoId, ngoName } of ngoEntries) {
       const [stationAssignsRes, assignmentsRes] = await Promise.all([
-        supabase.from('fro_station_assignments')
+        db.from('fro_station_assignments')
           .select('id, station, fro_worker_id, workers!fro_station_assignments_fro_worker_id_fkey(id, name)')
           .eq('ngo_id', ngoId)
           .order('station', { ascending: true }),
-        supabase.from('fro_assignments')
+        db.from('fro_assignments')
           .select('id, donor_id, station, fro_worker_id, status, batch_type, is_new, assigned_at, ngo_id')
           .eq('ngo_id', ngoId)
           .not('status', 'eq', 'reassigned'),
@@ -3695,7 +3695,7 @@ export const getDataOverview = async (req, res) => {
 
       const donorMap = {};
       if (!minimal && donorIds.length > 0) {
-        const { data: donors } = await supabase.from('donor_profiles')
+        const { data: donors } = await db.from('donor_profiles')
           .select('id, name, mobile_number, amount, city')
           .in('id', donorIds);
         for (const d of donors || []) donorMap[d.id] = d;

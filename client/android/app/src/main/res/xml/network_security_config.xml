@@ -7,9 +7,7 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">attendance-roan-zeta.vercel.app</domain>
-        <domain includeSubdomains="true">attendance-l3oa.onrender.com</domain>
-        <domain includeSubdomains="true">sqlbimnmhdvesudpxtbi.supabase.co</domain>
+        <domain includeSubdomains="true">43-200-198-122.sslip.io</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

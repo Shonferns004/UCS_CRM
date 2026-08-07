@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const insertNewDataBatch = async (rows) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('new_data')
     .insert(rows)
     .select();
@@ -10,7 +10,7 @@ export const insertNewDataBatch = async (rows) => {
 };
 
 export const getImportBatches = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('new_data')
     .select('import_batch_id, data_source_id, import_date, created_at, data_sources(name)')
     .order('created_at', { ascending: false })
@@ -35,7 +35,7 @@ export const getImportBatches = async () => {
 };
 
 export const getBatchRecords = async (batchId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('new_data')
     .select('*')
     .eq('import_batch_id', batchId)
@@ -45,7 +45,7 @@ export const getBatchRecords = async (batchId) => {
 };
 
 export const getBatchCount = async (batchId) => {
-  const { count, error } = await supabase
+  const { count, error } = await db
     .from('new_data')
     .select('*', { count: 'exact', head: true })
     .eq('import_batch_id', batchId);
@@ -55,7 +55,7 @@ export const getBatchCount = async (batchId) => {
 
 export const updateNewDataStatus = async (mobiles, ngoName, status) => {
   if (!ngoName) throw new Error('ngoName is required for updateNewDataStatus');
-  const query = supabase
+  const query = db
     .from('new_data')
     .update({ status })
     .in('mobile_number', mobiles)
@@ -66,7 +66,7 @@ export const updateNewDataStatus = async (mobiles, ngoName, status) => {
 };
 
 export const updateNewDataStatusByNgoAndMobiles = async (ngoName, mobiles, status) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('new_data')
     .update({ status })
     .eq('ngo', ngoName)
@@ -81,7 +81,7 @@ export const getExistingMobiles = async (mobiles) => {
   const BATCH = 1000;
   for (let i = 0; i < mobiles.length; i += BATCH) {
     const chunk = mobiles.slice(i, i + BATCH);
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('new_data')
       .select('mobile_number')
       .in('mobile_number', chunk);
@@ -92,7 +92,7 @@ export const getExistingMobiles = async (mobiles) => {
 };
 
 export const getBatchById = async (batchId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('new_data')
     .select('import_batch_id, data_source_id, import_date, created_at, data_sources(name)')
     .eq('import_batch_id', batchId)

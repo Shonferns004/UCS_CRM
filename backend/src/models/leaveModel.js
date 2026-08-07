@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const applyLeave = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('leaves')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const applyLeave = async (data) => {
 };
 
 export const getWorkerLeaves = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .select('*')
     .eq('worker_id', workerId)
@@ -21,7 +21,7 @@ export const getWorkerLeaves = async (workerId) => {
 };
 
 export const getAllLeaves = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .select('*, workers(name, login_id, email)')
     .order('applied_at', { ascending: false });
@@ -30,7 +30,7 @@ export const getAllLeaves = async () => {
 };
 
 export const getPendingLeaves = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .select('*, workers(name, login_id, email)')
     .eq('status', 'pending')
@@ -40,7 +40,7 @@ export const getPendingLeaves = async () => {
 };
 
 export const updateLeaveStatus = async (id, status, adminRemark) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .update({ status, admin_remark: adminRemark, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -51,7 +51,7 @@ export const updateLeaveStatus = async (id, status, adminRemark) => {
 };
 
 export const getLeaveById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .select('*, workers(name, login_id, email)')
     .eq('id', id)
@@ -61,7 +61,7 @@ export const getLeaveById = async (id) => {
 };
 
 export const getApprovedLeaves = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .select('*')
     .eq('worker_id', workerId)
@@ -72,7 +72,7 @@ export const getApprovedLeaves = async (workerId) => {
 };
 
 export const getApprovedHalfDayLeave = async (workerId, date) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leaves')
     .select('*')
     .eq('worker_id', workerId)

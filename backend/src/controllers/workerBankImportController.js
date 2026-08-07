@@ -1,5 +1,5 @@
 import XLSX from 'xlsx';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 const keyNorm = (h) => String(h || '').toLowerCase().replace(/[\s_\-./()\[\]']+/g, '');
 
@@ -50,7 +50,7 @@ export async function inspectBankImport(req, res) {
     const requested = req.body.sheet ? String(req.body.sheet) : '';
     let sheet = sheets.includes(requested) ? requested : '';
 
-    const { data: workers } = await supabase
+    const { data: workers } = await db
       .from('workers')
       .select('id, name, phone, account_holder_name, ifsc_code, account_number, bank_name, pan_number, aadhar_number');
 
@@ -209,7 +209,7 @@ export async function saveBankDetails(req, res) {
         payload.updated_at = new Date().toISOString();
 
         try {
-          const { data, error } = await supabase
+          const { data, error } = await db
             .from('workers')
             .update(payload)
             .eq('id', workerId)

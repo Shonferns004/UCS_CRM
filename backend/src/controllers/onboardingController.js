@@ -1,4 +1,4 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import {
   updateWorkerPersonalDetails,
   markOnboardingComplete,
@@ -14,10 +14,10 @@ import {
 const BUCKET_NAME = 'worker-documents';
 
 const ensureWorkerDocumentsBucket = async () => {
-  const { data: buckets } = await supabase.storage.listBuckets();
+  const { data: buckets } = await db.storage.listBuckets();
   const exists = buckets?.some((b) => b.name === BUCKET_NAME);
   if (!exists) {
-    const { error } = await supabase.storage.createBucket(BUCKET_NAME, { public: true });
+    const { error } = await db.storage.createBucket(BUCKET_NAME, { public: true });
     if (error) {
       console.warn('Could not create storage bucket:', error.message);
     } else {
@@ -80,7 +80,7 @@ export const checkOnboardingStatus = async (req, res) => {
   }
 };
 
-// ---- Upload photo to Supabase Storage ----
+// ---- Upload photo to S3-backed storage ----
 
 export const uploadPhoto = async (req, res) => {
   try {
@@ -98,8 +98,8 @@ export const uploadPhoto = async (req, res) => {
     const ext = contentType.split('/')[1] || 'jpg';
     const fileName = `worker_photos/${workerId}_${Date.now()}.${ext}`;
 
-    // Upload to Supabase Storage
-    let { data: uploadData, error: uploadError } = await supabase.storage
+    // Upload to S3-backed storage
+    let { data: uploadData, error: uploadError } = await db.storage
       .from('worker-documents')
       .upload(fileName, buffer, {
         contentType,
@@ -109,14 +109,14 @@ export const uploadPhoto = async (req, res) => {
     if (uploadError) {
       // Try creating the bucket if it doesn't exist
       if (uploadError.message?.includes('bucket')) {
-        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', {
+        const { error: bucketError } = await db.storage.createBucket('worker-documents', {
           public: true,
         });
         if (bucketError) {
           return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
         }
         // Retry upload
-        const { data: retryData, error: retryError } = await supabase.storage
+        const { data: retryData, error: retryError } = await db.storage
           .from('worker-documents')
           .upload(fileName, buffer, { contentType, upsert: true });
         if (retryError) {
@@ -129,7 +129,7 @@ export const uploadPhoto = async (req, res) => {
     }
 
     // Get public URL
-    const { data: publicUrlData } = supabase.storage
+    const { data: publicUrlData } = db.storage
       .from('worker-documents')
       .getPublicUrl(fileName);
 
@@ -169,17 +169,17 @@ export const uploadDocument = async (req, res) => {
     const ext = contentType.split('/')[1] || 'jpg';
     const fileName = `worker_documents/${workerId}/${document_type}_${Date.now()}.${ext}`;
 
-    let { data: uploadData, error: uploadError } = await supabase.storage
+    let { data: uploadData, error: uploadError } = await db.storage
       .from('worker-documents')
       .upload(fileName, buffer, { contentType, upsert: true });
 
     if (uploadError) {
       if (uploadError.message?.includes('bucket')) {
-        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', { public: true });
+        const { error: bucketError } = await db.storage.createBucket('worker-documents', { public: true });
         if (bucketError) {
           return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
         }
-        const { data: retryData, error: retryError } = await supabase.storage
+        const { data: retryData, error: retryError } = await db.storage
           .from('worker-documents')
           .upload(fileName, buffer, { contentType, upsert: true });
         if (retryError) {
@@ -191,7 +191,7 @@ export const uploadDocument = async (req, res) => {
       }
     }
 
-    const { data: publicUrlData } = supabase.storage
+    const { data: publicUrlData } = db.storage
       .from('worker-documents')
       .getPublicUrl(fileName);
 
@@ -223,17 +223,17 @@ export const adminUploadPhoto = async (req, res) => {
     const ext = contentType.split('/')[1] || 'jpg';
     const fileName = `worker_photos/${workerId}_${Date.now()}.${ext}`;
 
-    let { data: uploadData, error: uploadError } = await supabase.storage
+    let { data: uploadData, error: uploadError } = await db.storage
       .from('worker-documents')
       .upload(fileName, buffer, { contentType, upsert: true });
 
     if (uploadError) {
       if (uploadError.message?.includes('bucket')) {
-        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', { public: true });
+        const { error: bucketError } = await db.storage.createBucket('worker-documents', { public: true });
         if (bucketError) {
           return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
         }
-        const { data: retryData, error: retryError } = await supabase.storage
+        const { data: retryData, error: retryError } = await db.storage
           .from('worker-documents')
           .upload(fileName, buffer, { contentType, upsert: true });
         if (retryError) {
@@ -245,7 +245,7 @@ export const adminUploadPhoto = async (req, res) => {
       }
     }
 
-    const { data: publicUrlData } = supabase.storage
+    const { data: publicUrlData } = db.storage
       .from('worker-documents')
       .getPublicUrl(fileName);
 
@@ -279,17 +279,17 @@ export const uploadWorkerSignature = async (req, res) => {
     const ext = contentType.split('/')[1] || 'png';
     const fileName = `worker_signatures/${workerId}_${Date.now()}.${ext}`;
 
-    let { data: uploadData, error: uploadError } = await supabase.storage
+    let { data: uploadData, error: uploadError } = await db.storage
       .from('worker-documents')
       .upload(fileName, buffer, { contentType, upsert: true });
 
     if (uploadError) {
       if (uploadError.message?.includes('bucket')) {
-        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', { public: true });
+        const { error: bucketError } = await db.storage.createBucket('worker-documents', { public: true });
         if (bucketError) {
           return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
         }
-        const { data: retryData, error: retryError } = await supabase.storage
+        const { data: retryData, error: retryError } = await db.storage
           .from('worker-documents')
           .upload(fileName, buffer, { contentType, upsert: true });
         if (retryError) {
@@ -301,7 +301,7 @@ export const uploadWorkerSignature = async (req, res) => {
       }
     }
 
-    const { data: publicUrlData } = supabase.storage
+    const { data: publicUrlData } = db.storage
       .from('worker-documents')
       .getPublicUrl(fileName);
 
@@ -335,17 +335,17 @@ export const uploadSignature = async (req, res) => {
     const ext = contentType.split('/')[1] || 'png';
     const fileName = `worker_signatures/${workerId}_${Date.now()}.${ext}`;
 
-    let { data: uploadData, error: uploadError } = await supabase.storage
+    let { data: uploadData, error: uploadError } = await db.storage
       .from('worker-documents')
       .upload(fileName, buffer, { contentType, upsert: true });
 
     if (uploadError) {
       if (uploadError.message?.includes('bucket')) {
-        const { error: bucketError } = await supabase.storage.createBucket('worker-documents', { public: true });
+        const { error: bucketError } = await db.storage.createBucket('worker-documents', { public: true });
         if (bucketError) {
           return res.status(500).json({ message: 'Failed to create storage bucket: ' + bucketError.message });
         }
-        const { data: retryData, error: retryError } = await supabase.storage
+        const { data: retryData, error: retryError } = await db.storage
           .from('worker-documents')
           .upload(fileName, buffer, { contentType, upsert: true });
         if (retryError) {
@@ -357,7 +357,7 @@ export const uploadSignature = async (req, res) => {
       }
     }
 
-    const { data: publicUrlData } = supabase.storage
+    const { data: publicUrlData } = db.storage
       .from('worker-documents')
       .getPublicUrl(fileName);
 

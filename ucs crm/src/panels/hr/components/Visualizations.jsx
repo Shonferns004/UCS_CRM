@@ -5,7 +5,7 @@ import api from '../api/auth';
 import RecentNotices from '../../../components/RecentNotices';
 import RecruiterOverview from './RecruiterOverview';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://attendance-roan-zeta.vercel.app/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://43-200-198-122.sslip.io/api';
 
 /* ─── Animated counter ─── */
 function AnimatedNum({ to, suffix = '' }) {

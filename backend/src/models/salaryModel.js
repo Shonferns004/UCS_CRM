@@ -1,9 +1,9 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
 import { computePaidDays } from '../utils/salaryDays.js';
 
 export const getSalariesByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .select('*')
     .eq('worker_id', workerId)
@@ -13,7 +13,7 @@ export const getSalariesByWorker = async (workerId) => {
 };
 
 export const getActiveSalaryByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .select('*')
     .eq('worker_id', workerId)
@@ -24,7 +24,7 @@ export const getActiveSalaryByWorker = async (workerId) => {
 };
 
 export const createSalary = async (salaryData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .insert([salaryData])
     .select()
@@ -34,7 +34,7 @@ export const createSalary = async (salaryData) => {
 };
 
 export const updateSalary = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('salary_history')
     .update(updates)
     .eq('id', id)
@@ -45,13 +45,13 @@ export const updateSalary = async (id, updates) => {
 };
 
 export const getAllWorkersSalarySummary = async () => {
-  const { data: workers, error: wErr } = await supabase
+  const { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, email, department, created_at')
     .order('created_at', { ascending: false });
   if (wErr) throw wErr;
 
-  const { data: salaries, error: sErr } = await supabase
+  const { data: salaries, error: sErr } = await db
     .from('salary_history')
     .select('*')
     .order('from_month', { ascending: false });
@@ -95,13 +95,13 @@ export const getPayrollData = async (month, extended = false) => {
   const selectFields = extended
     ? 'id, name, account_number, ifsc_code, account_holder_name, bank_name, department, created_at'
     : 'id, name, account_number, ifsc_code';
-  const { data: workers, error: wErr } = await supabase
+  const { data: workers, error: wErr } = await db
     .from('workers')
     .select(selectFields)
     .order('name');
   if (wErr) throw wErr;
 
-  const { data: salaries, error: sErr } = await supabase
+  const { data: salaries, error: sErr } = await db
     .from('salary_history')
     .select('*')
     .order('from_month', { ascending: false });
@@ -116,7 +116,7 @@ export const getPayrollData = async (month, extended = false) => {
   let achievedByWorker = {};
   let akiByWorker = {};
   if (extended) {
-    const { data: targets, error: tErr } = await supabase
+    const { data: targets, error: tErr } = await db
       .from('incentive_targets')
       .select('worker_id, target_amount')
       .gte('month', startDate)
@@ -127,7 +127,7 @@ export const getPayrollData = async (month, extended = false) => {
       }
     }
 
-    const { data: achievements, error: aErr2 } = await supabase
+    const { data: achievements, error: aErr2 } = await db
       .from('daily_achievements')
       .select('worker_id, amount, date')
       .gte('date', startDate)
@@ -141,7 +141,7 @@ export const getPayrollData = async (month, extended = false) => {
     }
   }
 
-  const { data: allAllocs, error: aErr } = await supabase
+  const { data: allAllocs, error: aErr } = await db
     .from('worker_ngo_allocations')
     .select('*, ngos(name)');
   if (aErr) throw aErr;
@@ -152,7 +152,7 @@ export const getPayrollData = async (month, extended = false) => {
     allocsByWorker[a.worker_id].push(a);
   }
 
-  const { data: attRecords, error: attErr } = await supabase
+  const { data: attRecords, error: attErr } = await db
     .from('attendance')
     .select('worker_id, status, date')
     .gte('date', startDate)
@@ -166,7 +166,7 @@ export const getPayrollData = async (month, extended = false) => {
   }
 
   // Fetch active loan deductions
-  const { data: activeLoans, error: loanErr } = await supabase
+  const { data: activeLoans, error: loanErr } = await db
     .from('worker_loans')
     .select('worker_id, monthly_deduction, remaining_amount, type')
     .in('status', ['approved', 'active'])
@@ -286,7 +286,7 @@ export const getPayrollData = async (month, extended = false) => {
 };
 
 export const deleteSalary = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('salary_history')
     .delete()
     .eq('id', id);
@@ -306,26 +306,26 @@ export const getPresentDaysByMonth = async (month) => {
   const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
   const endDate = `${monthStr}-${pad(daysInMonth)}`;
 
-  const { data: workers, error: wErr } = await supabase
+  const { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, created_at');
   if (wErr) throw wErr;
 
-  const { data: attRecords, error: aErr } = await supabase
+  const { data: attRecords, error: aErr } = await db
     .from('attendance')
     .select('worker_id, status, date, late_minutes')
     .gte('date', startDate)
     .lte('date', endDate);
   if (aErr) throw aErr;
 
-  const { data: holidays, error: hErr } = await supabase
+  const { data: holidays, error: hErr } = await db
     .from('holidays')
     .select('date')
     .gte('date', startDate)
     .lte('date', endDate);
   const holidayDates = (hErr || !holidays) ? [] : holidays.map(h => h.date);
 
-  const { data: collLogs, error: collErr } = await supabase
+  const { data: collLogs, error: collErr } = await db
     .from('fro_donor_logs')
     .select('amount_collected, fro_assignments!inner(fro_worker_id)')
     .or(
@@ -374,12 +374,17 @@ export const getPresentDaysByMonth = async (month) => {
       paid_days: calc.paidDays,
       late_deduction_days: calc.lateDeductionDays,
       joining_deduction: calc.joiningDeduction,
-      available_days: calc.joinedThisMonth ? daysInMonth - calc.joinDay + 1 : daysInMonth,
+      available_days: calc.available,
       absent_count: calc.absentDatesAfterJoin.length,
       half_days: calc.halfDayCount,
+      leave_count: calc.leaveCount,
       sunday_count: calc.sundayStats.totalSundays,
       attended_sundays: calc.sundayStats.attendedSundays,
       unpaid_sundays: calc.sundayStats.unpaidSundays.length,
+      clubbed_sundays: calc.clubbedSundays,
+      extra_sundays: calc.extraSundayCount,
+      free_sundays: calc.freeSundays,
+      sunday_reasons: calc.sundayReasons.map(r => ({ date: r.date, reason: r.reason })),
       deducted_sundays: calc.sundayStats.cancelledSundays.length + calc.sundayStats.unpaidSundays.length,
       total_late_minutes: calc.totalLateMinutes,
       sunday_add: calc.sundayAdd,
@@ -437,7 +442,7 @@ export const getWorkerAttendanceByName = async (month, name) => {
   const startDate = `${monthStr}-01`;
   const endDate = `${monthStr}-${pad(daysInMonth)}`;
 
-  const { data: workers, error: wErr } = await supabase
+  const { data: workers, error: wErr } = await db
     .from('workers')
     .select('id, name, created_at');
   if (wErr) throw wErr;
@@ -445,7 +450,7 @@ export const getWorkerAttendanceByName = async (month, name) => {
   const worker = resolveWorkerByName(workers, name);
   if (!worker) return { worker: null, days_in_month: daysInMonth, stats: null, rows: [] };
 
-  const { data: records, error: aErr } = await supabase
+  const { data: records, error: aErr } = await db
     .from('attendance')
     .select('*')
     .eq('worker_id', worker.id)
@@ -454,7 +459,7 @@ export const getWorkerAttendanceByName = async (month, name) => {
     .order('date', { ascending: true });
   if (aErr) throw aErr;
 
-  const { data: leaves, error: lErr } = await supabase
+  const { data: leaves, error: lErr } = await db
     .from('leaves')
     .select('leave_date, start_date, end_date')
     .eq('worker_id', worker.id);

@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const upsertFcmToken = async (worker_id, token, device_type = 'flutter') => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fcm_tokens')
     .upsert({ worker_id, token, device_type }, { onConflict: 'worker_id' })
     .select()
@@ -11,7 +11,7 @@ export const upsertFcmToken = async (worker_id, token, device_type = 'flutter') 
 };
 
 export const getFcmToken = async (worker_id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fcm_tokens')
     .select('token')
     .eq('worker_id', worker_id)
@@ -21,7 +21,7 @@ export const getFcmToken = async (worker_id) => {
 };
 
 export const getAllFcmTokens = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fcm_tokens')
     .select('worker_id, token, workers!inner(ngo_id, name)');
   if (error) throw error;
@@ -29,7 +29,7 @@ export const getAllFcmTokens = async () => {
 };
 
 export const logNotification = async (entry) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notification_log')
     .insert([entry])
     .select()
@@ -39,7 +39,7 @@ export const logNotification = async (entry) => {
 };
 
 export const getWorkerNotifications = async (worker_id, limit = 50) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notification_log')
     .select('*')
     .eq('worker_id', worker_id)
@@ -50,7 +50,7 @@ export const getWorkerNotifications = async (worker_id, limit = 50) => {
 };
 
 export const markNotificationRead = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('notification_log')
     .update({ read_at: new Date().toISOString() })
     .eq('id', id);
@@ -59,7 +59,7 @@ export const markNotificationRead = async (id) => {
 };
 
 export const getUnreadNotificationCount = async (worker_id) => {
-  const { count, error } = await supabase
+  const { count, error } = await db
     .from('notification_log')
     .select('*', { count: 'exact', head: true })
     .eq('worker_id', worker_id)
@@ -69,7 +69,7 @@ export const getUnreadNotificationCount = async (worker_id) => {
 };
 
 export const deleteNotification = async (id, workerId) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('notification_log')
     .delete()
     .eq('id', id)

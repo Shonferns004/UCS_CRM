@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createUser = async ({ ngo_id, name, email, password_hash, role, department, created_by }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('users')
     .insert({ ngo_id, name, email, password_hash, role, department, created_by })
     .select('*')
@@ -11,7 +11,7 @@ export const createUser = async ({ ngo_id, name, email, password_hash, role, dep
 };
 
 export const getUserByName = async (name) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('users')
     .select('*')
     .eq('name', name)
@@ -21,7 +21,7 @@ export const getUserByName = async (name) => {
 };
 
 export const getUserByEmail = async (email) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('users')
     .select('*')
     .eq('email', email)
@@ -31,7 +31,7 @@ export const getUserByEmail = async (email) => {
 };
 
 export const getUserById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('users')
     .select('*')
     .eq('id', id)
@@ -41,7 +41,7 @@ export const getUserById = async (id) => {
 };
 
 export const getAllUsers = async (filters = {}) => {
-  let query = supabase
+  let query = db
     .from('users')
     .select('*')
     .order('created_at', { ascending: false });
@@ -56,7 +56,7 @@ export const getAllUsers = async (filters = {}) => {
 };
 
 export const updateUser = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('users')
     .update(updates)
     .eq('id', id)
@@ -67,7 +67,7 @@ export const updateUser = async (id, updates) => {
 };
 
 export const getUsersCountByRole = async (ngo_id) => {
-  let query = supabase
+  let query = db
     .from('users')
     .select('role, count', { count: 'exact', head: false });
 

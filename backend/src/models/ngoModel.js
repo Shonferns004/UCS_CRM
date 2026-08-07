@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createNgo = async ({ name, code, address, registration_no }) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('ngos')
     .insert({ name, code, address, registration_no })
     .select('*')
@@ -11,7 +11,7 @@ export const createNgo = async ({ name, code, address, registration_no }) => {
 };
 
 export const getAllNgos = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('ngos')
     .select('*')
     .order('created_at', { ascending: false });
@@ -20,7 +20,7 @@ export const getAllNgos = async () => {
 };
 
 export const getNgoById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('ngos')
     .select('*')
     .eq('id', id)
@@ -30,7 +30,7 @@ export const getNgoById = async (id) => {
 };
 
 export const updateNgo = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('ngos')
     .update(updates)
     .eq('id', id)
@@ -41,7 +41,7 @@ export const updateNgo = async (id, updates) => {
 };
 
 export const deleteNgo = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('ngos')
     .delete()
     .eq('id', id);
@@ -50,7 +50,7 @@ export const deleteNgo = async (id) => {
 };
 
 export const getDailyCollectionTarget = async (ngoId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('ngos')
     .select('daily_collection_target')
     .eq('id', ngoId)
@@ -60,7 +60,7 @@ export const getDailyCollectionTarget = async (ngoId) => {
 };
 
 export const setDailyCollectionTarget = async (ngoId, target) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('ngos')
     .update({ daily_collection_target: target })
     .eq('id', ngoId)

@@ -1,9 +1,9 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 // ---- Company Policies ----
 
 export const getActivePolicies = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('company_policies')
     .select('*')
     .eq('is_active', true)
@@ -13,7 +13,7 @@ export const getActivePolicies = async () => {
 };
 
 export const getAllPolicies = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('company_policies')
     .select('*')
     .order('sort_order', { ascending: true });
@@ -22,7 +22,7 @@ export const getAllPolicies = async () => {
 };
 
 export const createPolicy = async (policyData) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('company_policies')
     .insert([policyData])
     .select()
@@ -32,7 +32,7 @@ export const createPolicy = async (policyData) => {
 };
 
 export const updatePolicy = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('company_policies')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -43,7 +43,7 @@ export const updatePolicy = async (id, updates) => {
 };
 
 export const deletePolicy = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('company_policies')
     .delete()
     .eq('id', id);
@@ -89,7 +89,7 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
   if (details.reference_details !== undefined) updates.reference_details = details.reference_details;
   if (details.signature_url !== undefined) updates.signature_url = details.signature_url;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .update(updates)
     .eq('id', workerId)
@@ -102,7 +102,7 @@ export const updateWorkerPersonalDetails = async (workerId, details) => {
 // ---- Complete onboarding submission ----
 
 export const markOnboardingComplete = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .update({ onboarding_completed: true })
     .eq('id', workerId)
@@ -113,7 +113,7 @@ export const markOnboardingComplete = async (workerId) => {
 };
 
 export const getOnboardingStatus = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('onboarding_completed')
     .eq('id', workerId)
@@ -125,7 +125,7 @@ export const getOnboardingStatus = async (workerId) => {
 // ---- Get full worker profile with all onboarding data ----
 
 export const getFullWorkerProfile = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('*')
     .eq('id', workerId)

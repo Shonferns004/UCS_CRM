@@ -10,8 +10,9 @@ import { emitDbChange } from '../socket.js';
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
 // ---------------------------------------------------------------------------
-// Type parsers — make node-postgres output match what supabase-js / PostgREST
-// returns (numbers for int8/numeric, ISO-8601 UTC strings for timestamptz).
+// Type parsers — make node-postgres output match what the query builder /
+// PostgREST returns (numbers for int8/numeric, ISO-8601 UTC strings for
+// timestamptz).
 // ---------------------------------------------------------------------------
 pg.types.setTypeParser(20, (v) => parseInt(v, 10));            // int8   -> number
 pg.types.setTypeParser(1700, (v) => parseFloat(v));            // numeric-> number
@@ -38,7 +39,7 @@ const pgPool = new pg.Pool(poolConfig);
 pgPool.on('error', (err) => console.error('pg pool idle client error:', err.message));
 
 // Route every pool.query() call through the active transaction's connection
-// when one is open, so queries issued inside supabase.transaction() all run on
+// when one is open, so queries issued inside db.transaction() all run on
 // the same client (all-or-nothing) instead of the shared pool.
 const txStore = new AsyncLocalStorage();
 const pool = new Proxy(pgPool, {
@@ -1212,7 +1213,7 @@ const storage = {
 };
 
 // ---------------------------------------------------------------------------
-const supabase = {
+const db = {
   from(table) { return new QueryBuilder(table); },
   async transaction(callback) {
     const client = await pgPool.connect();
@@ -1236,4 +1237,4 @@ const supabase = {
   _pool: pool,
 };
 
-export default supabase;
+export default db;

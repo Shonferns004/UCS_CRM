@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const getSources = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_sources')
     .select('*')
     .order('sort_order');
@@ -10,7 +10,7 @@ export const getSources = async () => {
 };
 
 export const createSource = async (name) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_sources')
     .insert({ name })
     .select()
@@ -20,7 +20,7 @@ export const createSource = async (name) => {
 };
 
 export const updateSource = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_sources')
     .update(updates)
     .eq('id', id)
@@ -31,7 +31,7 @@ export const updateSource = async (id, updates) => {
 };
 
 export const deleteSource = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('bank_audit_sources')
     .delete()
     .eq('id', id);
@@ -39,7 +39,7 @@ export const deleteSource = async (id) => {
 };
 
 export const getEntries = async (filters = {}) => {
-  let query = supabase
+  let query = db
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name)')
     .order('transaction_date', { ascending: false });
@@ -55,7 +55,7 @@ export const getEntries = async (filters = {}) => {
 };
 
 export const createEntry = async (entry) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .insert(entry)
     .select('*, bank_audit_sources(name)')
@@ -65,7 +65,7 @@ export const createEntry = async (entry) => {
 };
 
 export const updateEntry = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -76,7 +76,7 @@ export const updateEntry = async (id, updates) => {
 };
 
 export const deleteEntry = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('bank_audit_entries')
     .delete()
     .eq('id', id);
@@ -84,7 +84,7 @@ export const deleteEntry = async (id) => {
 };
 
 export const getSourceSummary = async (filters = {}) => {
-  let query = supabase
+  let query = db
     .from('bank_audit_entries')
     .select('source_id, amount, bank_audit_sources!inner(name)');
 
@@ -103,7 +103,7 @@ export const getSourceSummary = async (filters = {}) => {
 };
 
 export const suggestEntries = async (searchTerm) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .select('id, payment_id, amount, transaction_date, bank_audit_sources(name)')
     .ilike('payment_id', `%${searchTerm}%`)
@@ -115,7 +115,7 @@ export const suggestEntries = async (searchTerm) => {
 };
 
 export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {
-  let query = supabase
+  let query = db
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name)')
     .eq('payment_id', paymentId);
@@ -126,7 +126,7 @@ export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {
 };
 
 export const verifyEntry = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({ status: 'verified', updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -137,7 +137,7 @@ export const verifyEntry = async (id) => {
 };
 
 export const assignToNgoAdmin = async (id, notes) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({ assigned_to_ngo_admin: true, ngo_admin_notes: notes || null, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -148,7 +148,7 @@ export const assignToNgoAdmin = async (id, notes) => {
 };
 
 export const getSuspenseForNgo = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name), donor_profiles!donor_id(name, station)')
     .eq('assigned_to_ngo_admin', true)
@@ -160,7 +160,7 @@ export const getSuspenseForNgo = async () => {
 };
 
 export const getSuspenseForFro = async (froId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name)')
     .eq('assigned_to_fro_id', froId)
@@ -171,7 +171,7 @@ export const getSuspenseForFro = async (froId) => {
 };
 
 export const assignSuspenseToFro = async (id, froId, notes) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({
       assigned_to_fro_id: froId,
@@ -187,7 +187,7 @@ export const assignSuspenseToFro = async (id, froId, notes) => {
 };
 
 export const resolveSuspense = async (id, screenshotUrl, donorDetails) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({
       screenshot_url: screenshotUrl || null,
@@ -203,7 +203,7 @@ export const resolveSuspense = async (id, screenshotUrl, donorDetails) => {
 };
 
 export const searchFroDispositions = async (froId, searchTerm) => {
-  let query = supabase
+  let query = db
     .from('fro_donor_logs')
     .select(`
       id, amount_collected, action, disposition_category, disposition_detail,
@@ -238,7 +238,7 @@ export const searchFroDispositions = async (froId, searchTerm) => {
 };
 
 export const linkSuspenseToDonor = async (entryId, donorId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({
       donor_id: donorId,
@@ -255,7 +255,7 @@ export const linkSuspenseToDonor = async (entryId, donorId) => {
 };
 
 export const markSuspenseUnmatched = async (entryId, markedBy) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('bank_audit_entries')
     .update({
       status: 'verified',
@@ -273,7 +273,7 @@ export const markSuspenseUnmatched = async (entryId, markedBy) => {
 export const searchDonorsForSuspense = async (searchTerm, ngoIds) => {
   if (!searchTerm || searchTerm.trim().length < 2) return [];
   const term = `%${searchTerm.trim()}%`;
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('donor_profiles')
     .select('id, name, mobile_number, city, amount, total_amount, station')
     .or(`name.ilike.${term},mobile_number.ilike.${term}`)
@@ -282,7 +282,7 @@ export const searchDonorsForSuspense = async (searchTerm, ngoIds) => {
   if (!data || data.length === 0) return [];
 
   const donorIds = data.map(d => d.id);
-  const { data: assignments } = await supabase
+  const { data: assignments } = await db
     .from('fro_assignments')
     .select('donor_id, fro_worker_id, workers!left(name, login_id)')
     .in('donor_id', donorIds)

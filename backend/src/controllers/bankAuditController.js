@@ -1,5 +1,5 @@
 import * as BankAudit from '../models/bankAuditModel.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const listSources = async (req, res) => {
   try {
@@ -148,13 +148,13 @@ export const assignEntryToNgo = async (req, res) => {
     const { notes } = req.body;
     const entry = await BankAudit.assignToNgoAdmin(id, notes);
     // Notify NGO admins - try both admin and hoadmin roles (transition period)
-    const { data: ngoAdmins } = await supabase
+    const { data: ngoAdmins } = await db
       .from('users')
       .select('id')
       .in('role', ['admin', 'hoadmin']);
     for (const u of (ngoAdmins || [])) {
       try {
-        await supabase.from('notification_log').insert({
+        await db.from('notification_log').insert({
           worker_id: u.id,
           type: 'suspense_assigned',
           title: 'Suspense Entry',
@@ -184,7 +184,7 @@ export const linkSuspenseToDonor = async (req, res) => {
     const { donor_id } = req.body;
     if (!donor_id) return res.status(400).json({ message: 'Donor ID is required' });
 
-    const { data: entry } = await supabase
+    const { data: entry } = await db
       .from('bank_audit_entries')
       .select('amount, payment_id')
       .eq('id', id)
@@ -193,7 +193,7 @@ export const linkSuspenseToDonor = async (req, res) => {
 
     const result = await BankAudit.linkSuspenseToDonor(id, donor_id);
 
-    const { data: assignment } = await supabase
+    const { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id')
       .eq('donor_id', donor_id)
@@ -201,7 +201,7 @@ export const linkSuspenseToDonor = async (req, res) => {
       .maybeSingle();
 
     if (assignment?.fro_worker_id) {
-      await supabase.from('fro_donor_logs').insert({
+      await db.from('fro_donor_logs').insert({
         assignment_id: assignment.id,
         donor_id: donor_id,
         fro_worker_id: assignment.fro_worker_id,
@@ -263,14 +263,14 @@ export const resolveSuspenseEntry = async (req, res) => {
     if (donor_name) {
       try {
         // Create or find donor profile
-        const { data: existingDonor } = await supabase
+        const { data: existingDonor } = await db
           .from('donor_profiles')
           .select('id')
           .eq('name', donor_name)
           .maybeSingle();
         let donorId = existingDonor?.id;
         if (!donorId) {
-          const { data: newDonor } = await supabase
+          const { data: newDonor } = await db
             .from('donor_profiles')
             .insert({ name: donor_name, mobile_number: donor_mobile || null })
             .select()
@@ -280,7 +280,7 @@ export const resolveSuspenseEntry = async (req, res) => {
 
         if (donorId) {
           // Create fro_assignment
-          const { data: assignment } = await supabase
+          const { data: assignment } = await db
             .from('fro_assignments')
             .insert({
               donor_id: donorId,
@@ -291,7 +291,7 @@ export const resolveSuspenseEntry = async (req, res) => {
             .single();
 
           if (assignment) {
-            await supabase.from('fro_donor_logs').insert({
+            await db.from('fro_donor_logs').insert({
               assignment_id: assignment.id,
               action: disposition_detail === 'lead_done' ? 'donation' : disposition_category || 'follow_up',
               disposition_category: disposition_category || 'other',

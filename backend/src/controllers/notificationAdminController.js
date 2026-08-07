@@ -6,7 +6,7 @@ import {
 } from '../models/notificationAdminModel.js';
 import { getAllFcmTokens, getFcmToken } from '../models/notificationModel.js';
 import { sendPushToMultiple, sendPushNotification } from '../services/fcmService.js';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const sendNow = async (req, res) => {
   try {
@@ -21,7 +21,7 @@ export const sendNow = async (req, res) => {
     }
 
     if (role) {
-      const { data: users } = await supabase
+      const { data: users } = await db
         .from('users')
         .select('id')
         .eq('role', role);

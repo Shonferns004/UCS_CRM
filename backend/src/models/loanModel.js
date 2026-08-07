@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const applyLoan = async (data) => {
-  const { data: result, error } = await supabase
+  const { data: result, error } = await db
     .from('worker_loans')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const applyLoan = async (data) => {
 };
 
 export const getWorkerLoans = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .select('*')
     .eq('worker_id', workerId)
@@ -21,7 +21,7 @@ export const getWorkerLoans = async (workerId) => {
 };
 
 export const getAllLoans = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .select('*, workers(name, login_id, email, department)')
     .order('applied_at', { ascending: false });
@@ -30,7 +30,7 @@ export const getAllLoans = async () => {
 };
 
 export const getPendingLoans = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .select('*, workers(name, login_id, email, department)')
     .eq('status', 'pending')
@@ -40,7 +40,7 @@ export const getPendingLoans = async () => {
 };
 
 export const getLoanById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .select('*, workers(name, login_id, email, department)')
     .eq('id', id)
@@ -50,7 +50,7 @@ export const getLoanById = async (id) => {
 };
 
 export const updateLoan = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -61,7 +61,7 @@ export const updateLoan = async (id, updates) => {
 };
 
 export const getActiveLoansByWorker = async (workerId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .select('*')
     .eq('worker_id', workerId)
@@ -72,7 +72,7 @@ export const getActiveLoansByWorker = async (workerId) => {
 };
 
 export const getActiveLoansForAllWorkers = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loans')
     .select('*')
     .in('status', ['approved', 'active'])
@@ -83,7 +83,7 @@ export const getActiveLoansForAllWorkers = async () => {
 };
 
 export const createDeduction = async (loanId, month, amount) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loan_deductions')
     .insert([{ loan_id: loanId, month, amount }])
     .select()
@@ -93,7 +93,7 @@ export const createDeduction = async (loanId, month, amount) => {
 };
 
 export const getDeductionsForWorkerMonth = async (workerId, month) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loan_deductions')
     .select('*, worker_loans!inner(worker_id)')
     .eq('worker_loans.worker_id', workerId)
@@ -103,7 +103,7 @@ export const getDeductionsForWorkerMonth = async (workerId, month) => {
 };
 
 export const getDeductionsByLoan = async (loanId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('worker_loan_deductions')
     .select('*')
     .eq('loan_id', loanId)

@@ -1,5 +1,5 @@
 import XLSX from 'xlsx';
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function bulkImportAgents(req, res) {
   try {
@@ -66,7 +66,7 @@ export async function bulkImportAgents(req, res) {
       const finalPassword = password || (Math.random().toString(36).slice(-8) + 'A1!');
 
       try {
-        const { data: agentData, error: agentError } = await supabase.rpc('create_agent', {
+        const { data: agentData, error: agentError } = await db.rpc('create_agent', {
           p_email: email,
           p_password: finalPassword,
           p_name: name,
@@ -84,7 +84,7 @@ export async function bulkImportAgents(req, res) {
         if (assignedNumber) {
           try {
             const isNumeric = /^\d+$/.test(assignedNumber);
-            let accountQuery = supabase.from('whatsapp_accounts').select('id');
+            let accountQuery = db.from('whatsapp_accounts').select('id');
             if (isNumeric) {
               accountQuery = accountQuery.eq('phone_number_id', assignedNumber);
             } else {
@@ -93,7 +93,7 @@ export async function bulkImportAgents(req, res) {
             const { data: accounts } = await accountQuery.limit(1);
 
             if (accounts && accounts.length > 0) {
-              await supabase.from('agent_phone_assignments').insert({
+              await db.from('agent_phone_assignments').insert({
                 user_id: createdAgent.id,
                 account_id: accounts[0].id,
               });

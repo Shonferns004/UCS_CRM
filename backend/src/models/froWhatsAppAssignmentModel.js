@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export async function listAgentsForAccount(whatsappAccountId) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_whatsapp_assignments')
     .select('id, fro_worker_id, is_active, created_at, workers!inner(id, name, email, phone)')
     .eq('whatsapp_account_id', whatsappAccountId)
@@ -11,7 +11,7 @@ export async function listAgentsForAccount(whatsappAccountId) {
 }
 
 export async function assignAgentToAccount(froWorkerId, whatsappAccountId) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_whatsapp_assignments')
     .insert({ fro_worker_id: froWorkerId, whatsapp_account_id: whatsappAccountId })
     .select()
@@ -24,7 +24,7 @@ export async function assignAgentToAccount(froWorkerId, whatsappAccountId) {
 }
 
 export async function removeAgentFromAccount(froWorkerId, whatsappAccountId) {
-  const { error } = await supabase
+  const { error } = await db
     .from('fro_whatsapp_assignments')
     .delete()
     .eq('fro_worker_id', froWorkerId)
@@ -33,7 +33,7 @@ export async function removeAgentFromAccount(froWorkerId, whatsappAccountId) {
 }
 
 export async function getAccountForFro(froWorkerId) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('fro_whatsapp_assignments')
     .select('whatsapp_account_id, is_active, whatsapp_accounts!inner(id, name, project, phone_number_id)')
     .eq('fro_worker_id', froWorkerId)
@@ -44,7 +44,7 @@ export async function getAccountForFro(froWorkerId) {
 }
 
 export async function searchWorkers(query) {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('workers')
     .select('id, name, email, phone')
     .or(`name.ilike.*${query}*,email.ilike.*${query}*,phone.ilike.*${query}*`)

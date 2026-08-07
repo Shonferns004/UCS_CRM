@@ -1,7 +1,7 @@
-import supabase from '../config/supabase.js';
+import db from '../config/db.js';
 
 export const createLead = async (data) => {
-  const { data: lead, error } = await supabase
+  const { data: lead, error } = await db
     .from('leads')
     .insert([data])
     .select()
@@ -11,7 +11,7 @@ export const createLead = async (data) => {
 };
 
 export const getAllLeads = async (filters = {}) => {
-  let query = supabase
+  let query = db
     .from('leads')
     .select('*, users!leads_recruiter_id_fkey(name, email)')
     .order('created_at', { ascending: false });
@@ -31,7 +31,7 @@ export const getAllLeads = async (filters = {}) => {
 };
 
 export const getLeadById = async (id) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leads')
     .select('*, users!leads_recruiter_id_fkey(name, email)')
     .eq('id', id)
@@ -41,7 +41,7 @@ export const getLeadById = async (id) => {
 };
 
 export const updateLead = async (id, updates) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leads')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -52,7 +52,7 @@ export const updateLead = async (id, updates) => {
 };
 
 export const deleteLead = async (id) => {
-  const { error } = await supabase
+  const { error } = await db
     .from('leads')
     .delete()
     .eq('id', id);
@@ -61,7 +61,7 @@ export const deleteLead = async (id) => {
 };
 
 export const getLeadsByRecruiter = async (recruiterId) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leads')
     .select('*')
     .or(`recruiter_id.eq.${recruiterId},created_by.eq.${recruiterId}`)
@@ -71,7 +71,7 @@ export const getLeadsByRecruiter = async (recruiterId) => {
 };
 
 export const transferLead = async (id, newCreatedBy, newCreatedByName) => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leads')
     .update({ created_by: newCreatedBy, created_by_name: newCreatedByName, updated_at: new Date().toISOString() })
     .eq('id', id)
@@ -82,7 +82,7 @@ export const transferLead = async (id, newCreatedBy, newCreatedByName) => {
 };
 
 export const getLeadsDashboard = async () => {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('leads')
     .select('*')
     .order('created_at', { ascending: false });
