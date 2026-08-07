@@ -17,6 +17,8 @@ export async function getMyDonors(status, statusGroup, options = {}) {
   if (options.oldOnly) params.set('old_only', 'true');
   if (options.station) params.set('station', options.station);
   if (options.ngoId) params.set('ngo_id', options.ngoId);
+  if (options.limit) params.set('limit', options.limit);
+  if (options.offset != null) params.set('offset', options.offset);
   const qs = params.toString();
   return api(`/fro/donors${qs ? '?' + qs : ''}`, { _prefix: 'ucs' })
 }
