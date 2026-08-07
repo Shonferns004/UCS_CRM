@@ -20,6 +20,68 @@ const Icon = ({ children, color }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color || 'var(--ink)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
 )
 
+const pad2 = n => String(n).padStart(2, '0')
+
+function IncentiveCalendar({ akiPerDay = [], monthStr, onlyEligible }) {
+  const [y, m] = (monthStr || '').split('-').map(Number)
+  if (!y || !m) return <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>No month data</div>
+
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const firstDay = new Date(y, m - 1, 1).getDay()
+  const akiMap = {}
+  akiPerDay.forEach(r => { akiMap[r.date] = r })
+
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`
+  const weekday = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+
+  const cells = []
+  for (let i = 0; i < firstDay; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${y}-${pad2(m)}-${pad2(d)}`
+    const rec = akiMap[dateStr]
+    const aki = rec ? rec.aki : 0
+    cells.push({ d, dateStr, rec, aki, eligible: aki > 0, show: !onlyEligible || aki > 0 })
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4, marginBottom: 6 }}>
+        {weekday.map(w => (
+          <div key={w} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase' }}>{w}</div>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
+        {cells.map((c, i) => {
+          if (!c || !c.show) return <div key={i} style={{ height: 52 }} />
+          const isToday = c.dateStr === todayStr
+          return (
+            <div key={i} title={c.rec ? `₹${Number(c.rec.collection || 0).toLocaleString('en-IN')} collected · AKI ₹${c.aki}` : undefined} style={{
+              height: 52, borderRadius: 8, border: `1.5px solid ${c.eligible ? '#86efac' : '#e2e8f0'}`,
+              background: c.eligible ? 'linear-gradient(135deg, #dcfce7 0%, #f0fdf4 100%)' : '#f8fafc',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+              outline: isToday ? '2px solid var(--sage)' : 'none', outlineOffset: isToday ? 1 : 0,
+            }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: c.eligible ? '#166534' : '#94a3b8' }}>{c.d}</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: c.eligible ? '#15803d' : '#cbd5e1' }}>
+                {c.aki > 0 ? '₹' + c.aki : (c.rec ? '—' : '')}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: 'var(--ink-soft)' }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: '#dcfce7', border: '1px solid #86efac', display: 'inline-block' }} /> Eligible (AKI earned)
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: 'var(--ink-soft)' }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: '#f8fafc', border: '1px solid #e2e8f0', display: 'inline-block' }} /> No AKI
+        </span>
+      </div>
+    </div>
+  )
+}
+
 const STATUS_COLORS = {
   pending: '#fbbf24', contacted: '#60a5fa', follow_up: '#a78bfa',
   donation_collected: '#34d399', lead_done: '#34d399', done: '#34d399', not_interested: '#f87171',
@@ -48,6 +110,7 @@ export default function Dashboard() {
   const [reactivatedCount, setReactivatedCount] = useState(0)
   const [reactivatedLoading, setReactivatedLoading] = useState(false)
   const [showReactivatedModal, setShowReactivatedModal] = useState(false)
+  const [incentiveOnly, setIncentiveOnly] = useState(false)
 
   const today = new Date()
   const day = today.getDate()
@@ -163,6 +226,8 @@ export default function Dashboard() {
   const { stats = {} } = ds
   const target = ts.target || ds.target || 0
   const collected = ts.collected ?? ds.collected ?? 0
+  const akiPerDay = ts.incentive?.akiPerDay || []
+  const totalAKI = ts.incentive?.totalCollectionAKI != null ? ts.incentive.totalCollectionAKI : akiPerDay.reduce((s, r) => s + (r.aki || 0), 0)
   const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
   const displayCollected = collected
   const remaining = Math.max(0, target - displayCollected)
@@ -742,7 +807,41 @@ export default function Dashboard() {
         </div>
       )}
 
-      <RecentNotices limit={5} />
+      <div style={{ display: 'flex', gap: 14, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--sage)' }}>stack_star</span>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Incentive Eligible?</span>
+        </div>
+        <button onClick={() => setIncentiveOnly(v => !v)}
+          style={{ padding: '6px 14px', borderRadius: 999, border: incentiveOnly ? 'none' : '1px solid var(--line)', background: incentiveOnly ? 'var(--sage)' : 'var(--bg)', color: incentiveOnly ? '#fff' : 'var(--ink-soft)', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'all .15s' }}>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: incentiveOnly ? '#fff' : '#cbd5e1' }} />
+          Only incentive eligible
+        </button>
+        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+          <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .4 }}>Total AKI</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--sage)' }}>{currency(totalAKI)}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
+        <RecentNotices limit={5} containerStyle={{ marginTop: 0 }} />
+        <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                background: 'linear-gradient(135deg, #16a34a 0%, #4ade80 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 15 }}>calendar_month</span>
+              </span>
+              <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Incentive Calendar</h3>
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600 }}>{monthStr}</span>
+          </div>
+          <IncentiveCalendar akiPerDay={akiPerDay} monthStr={monthStr} onlyEligible={incentiveOnly} />
+        </div>
+      </div>
     </div>
   )
 }
