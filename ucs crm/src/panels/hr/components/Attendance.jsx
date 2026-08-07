@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
 import * as XLSX from 'xlsx-js-style';
@@ -12,6 +12,22 @@ function fmtTime(iso) {
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mm = String(d.getUTCMinutes()).padStart(2, '0');
   return <span className="time-cell">{hh}:{mm}</span>;
+}
+
+function fmtTimeStr(iso) {
+  if (!iso) return '';
+  const d = new Date(new Date(iso).getTime() + IST_OFFSET);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+function fmtTime12(iso) {
+  if (!iso) return '';
+  const d = new Date(new Date(iso).getTime() + IST_OFFSET);
+  const h = d.getUTCHours();
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${mm} ${ampm}`;
 }
 
 function fmtDuration(mins) {
@@ -97,6 +113,7 @@ export default function Attendance() {
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('today');
+  const [historyView, setHistoryView] = useState('list');
   const [punchStatus, setPunchStatus] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [deptFilterH, setDeptFilterH] = useState('');
@@ -221,12 +238,72 @@ export default function Attendance() {
     return true;
   });
 
+  const detailStart = dayFilter || (monthFilter ? monthFilter + '-01' : '');
+  const detailEnd = dayFilter || (monthFilter
+    ? (() => { const [y, m] = monthFilter.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); })()
+    : '');
+  const toISTStr = (d) => {
+    const ist = new Date(d.getTime() + IST_OFFSET);
+    return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`;
+  };
+  const detailDates = [];
+  if (detailStart && detailEnd) {
+    const cur = new Date(detailStart + 'T00:00:00+05:30');
+    const stop = new Date(detailEnd + 'T00:00:00+05:30');
+    while (cur <= stop) { detailDates.push(toISTStr(cur)); cur.setUTCDate(cur.getUTCDate() + 1); }
+  }
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dowOf = (dateStr) => new Date(dateStr + 'T00:00:00Z').getUTCDay();
+  const detailWorkers = (workers || []).filter(w => {
+    if (deptFilterH && (w.department || '') !== deptFilterH) return false;
+    if (searchWorker) {
+      const n = (w.name || '').toLowerCase();
+      const lid = (w.login_id || '').toLowerCase();
+      const s = searchWorker.toLowerCase();
+      if (!n.includes(s) && !lid.includes(s)) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const detailRecordsOf = (w) => attendance.filter(r => r.worker_id === w.id
+    && (!detailStart || r.date >= detailStart) && (!detailEnd || r.date <= detailEnd));
+  const cellFor = (w, dateStr, fmt = fmtTimeStr) => {
+    const rec = attendance.find(r => r.worker_id === w.id && r.date === dateStr);
+    const joinDate = (w.created_at || '').slice(0, 10);
+    if (rec) {
+      const s = rec.status;
+      if (s === 'absent') return { in: 'A', out: '', status: 'absent' };
+      if (s === 'leave') return { in: 'L', out: '', status: 'leave' };
+      if (s === 'half-day') return { in: fmt(rec.punch_in_time), out: 'h', status: 'half-day' };
+      return { in: fmt(rec.punch_in_time), out: fmt(rec.punch_out_time), status: s };
+    }
+    if (dowOf(dateStr) === 0) return { in: '', out: '', status: 'sunday' };
+    if (dateStr >= todayIST) return { in: '', out: '', status: '' };
+    if (joinDate && dateStr < joinDate) return { in: '', out: '', status: '' };
+    return { in: 'A', out: '', status: 'absent' };
+  };
+  const cellCls = (c) => {
+    if (!c) return '';
+    if (c.status === 'absent') return 'cell-absent';
+    if (c.status === 'leave') return 'cell-leave';
+    if (c.status === 'half-day') return 'cell-half';
+    if (c.status === 'sunday') return 'cell-sunday';
+    return '';
+  };
+  const detailTotalMinutes = (w) => {
+    let total = 0;
+    for (const r of detailRecordsOf(w)) {
+      if (r.punch_in_time && r.punch_out_time) {
+        total += Math.max(0, (new Date(r.punch_out_time).getTime() - new Date(r.punch_in_time).getTime()) / 60000);
+      }
+    }
+    return Math.round(total);
+  };
+
   const viewWorker = (workerId) => {
     const worker = workers.find(w => w.id === workerId);
     if (!worker) return;
     setSelectedWorker(worker);
   };
-
   const backToOverview = () => {
     setSelectedWorker(null);
   };
@@ -287,6 +364,58 @@ export default function Attendance() {
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' }));
       link.download = `attendance-summary-${monthFilter || 'history'}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
+  const handleExportDetailExcel = () => {
+    try {
+      if (detailDates.length === 0) { alert('Select a month or a single day first.'); return; }
+      if (detailWorkers.length === 0) { alert('No workers match the selected filters for this period.'); return; }
+      const header = ['Name', 'In/Out', ...detailDates.map(d => d.slice(5)), 'Total Hrs'];
+      const wsData = [header];
+      for (const w of detailWorkers) {
+        wsData.push(['', 'In', ...detailDates.map(d => cellFor(w, d, fmtTime12).in), fmtDuration(detailTotalMinutes(w))]);
+        wsData.push([w.name, 'Out', ...detailDates.map(d => cellFor(w, d, fmtTime12).out), '']);
+        wsData.push(Array(3 + detailDates.length).fill(''));
+      }
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 22 }, { wch: 7 }, ...detailDates.map(() => ({ wch: 8 })), { wch: 10 }];
+      const lastDataCol = 2 + detailDates.length;
+      for (let c = 0; c <= lastDataCol; c++) {
+        const addr = XLSX.utils.encode_col(c) + '1';
+        if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8E8E8' } }, alignment: { horizontal: 'center' } };
+      }
+      for (let i = 1; i < wsData.length; i++) {
+        const rowNum = i + 1;
+        if (i % 3 === 2) {
+          for (let c = 0; c <= lastDataCol; c++) {
+            const addr = XLSX.utils.encode_col(c) + rowNum;
+            if (ws[addr]) ws[addr].s = { fill: { fgColor: { rgb: 'FF111111' } }, font: { color: { rgb: 'FF111111' } } };
+          }
+          continue;
+        }
+        const cell = ws['A' + rowNum];
+        if (cell) cell.s = { font: { bold: true } };
+        const totalCell = ws[XLSX.utils.encode_col(lastDataCol) + rowNum];
+        if (totalCell && totalCell.v) totalCell.s = { font: { bold: true }, fill: { fgColor: { rgb: 'FFE8F5E9' } } };
+        for (let j = 0; j < detailDates.length; j++) {
+          const v = wsData[i][2 + j];
+          const addr = XLSX.utils.encode_col(2 + j) + rowNum;
+          const c = ws[addr];
+          if (!c) continue;
+          if (v === 'A') c.s = { fill: { fgColor: { rgb: 'FFFDE2E1' } }, font: { bold: true, color: { rgb: 'FFB91C1C' } } };
+          else if (v === 'L') c.s = { fill: { fgColor: { rgb: 'FFFEF3C7' } }, font: { bold: true, color: { rgb: 'FFB45309' } } };
+          else if (v === 'h') c.s = { fill: { fgColor: { rgb: 'FFFFEDD5' } }, font: { bold: true, color: { rgb: 'FFC2410C' } } };
+        }
+      }
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Detail Attendance');
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellStyles: true });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `detail-attendance-${monthFilter || (dayFilter || 'history')}.xlsx`;
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (e) { alert(e.message); }
@@ -453,8 +582,21 @@ export default function Attendance() {
     <>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
+        .matrix-table { border-collapse: collapse; font-size: 12px; }
+        .matrix-table th, .matrix-table td { border: 1px solid #d1d5db; padding: 3px 6px; text-align: center; white-space: nowrap; }
+        .matrix-table thead th { background: #f3f4f6; font-size: 11px; }
+        .matrix-table .mat-name { text-align: left; font-weight: 600; min-width: 140px; }
+        .matrix-table .mat-inout { font-size: 10px; color: #6b7280; font-weight: 600; }
+        .matrix-table .mat-row:nth-child(even) { background: #fafafa; }
+        .matrix-table .cell-absent { background: #fde2e1; color: #b91c1c; font-weight: 700; }
+        .matrix-table .cell-leave { background: #fef3c7; color: #b45309; font-weight: 700; }
+        .matrix-table .cell-half { background: #ffedd5; color: #c2410c; font-weight: 700; }
+        .matrix-table .cell-sunday { background: #f3f4f6; color: #9ca3af; }
+        .matrix-table .cell-total { background: #e8f5e9; font-weight: 700; }
+        .matrix-table .mat-spacer td { background: #111; border: none; height: 7px; padding: 0; line-height: 7px; }
         @media print {
           .sidebar, .mobile-top, .topbar, .hamburger, .tabs, .filters { display: none !important; }
+          .view-toggle, .seg { display: none !important; }
           .main { margin-left: 0 !important; }
           .content-body { padding: 20px !important; }
           .card { box-shadow: none !important; border: none !important; padding: 0 !important; }
@@ -466,6 +608,9 @@ export default function Attendance() {
           .stat-label { font-size: 9px !important; }
           table { font-size: 10px !important; border-collapse: collapse !important; width: 100% !important; }
           th, td { padding: 4px 8px !important; border: 1px solid #999 !important; text-align: left !important; }
+          .matrix-table th, .matrix-table td { text-align: center !important; }
+          .matrix-table .mat-name { text-align: left !important; }
+          .matrix-table .mat-spacer td { border: none !important; padding: 0 !important; height: 7px !important; }
           th { background: #f0f0f0 !important; font-weight: 600 !important; }
           td { color: #000 !important; }
           .table-wrap { overflow: visible !important; }
@@ -658,9 +803,20 @@ export default function Attendance() {
               <div className="card" style={{ padding: '20px 22px' }}>
                 <div className="card-title" style={{ justifyContent: 'space-between' }}>
                   <span>Attendance History</span>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button className="btn btn-sm" onClick={handleExportExcel}>Export Excel</button>
-                    <button className="btn btn-sm" onClick={handleExportJSON}>Export JSON</button>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div className="view-toggle" style={{ display: 'inline-flex', border: '1px solid var(--line, #e5e7eb)', borderRadius: 6, overflow: 'hidden' }}>
+                      <button className={'seg' + (historyView === 'list' ? ' active' : '')} style={{ border: 'none', background: historyView === 'list' ? 'var(--sage, #0f766e)' : 'transparent', color: historyView === 'list' ? '#fff' : 'inherit', padding: '5px 12px', fontSize: 12, cursor: 'pointer' }} onClick={() => setHistoryView('list')}>List</button>
+                      <button className={'seg' + (historyView === 'detail' ? ' active' : '')} style={{ border: 'none', background: historyView === 'detail' ? 'var(--sage, #0f766e)' : 'transparent', color: historyView === 'detail' ? '#fff' : 'inherit', padding: '5px 12px', fontSize: 12, cursor: 'pointer' }} onClick={() => setHistoryView('detail')}>Detail</button>
+                    </div>
+                    {historyView === 'detail' && (
+                      <button className="btn btn-sm btn-primary" onClick={handleExportDetailExcel}>Detail Attendance</button>
+                    )}
+                    {historyView === 'list' && (
+                      <>
+                        <button className="btn btn-sm" onClick={handleExportExcel}>Export Excel</button>
+                        <button className="btn btn-sm" onClick={handleExportJSON}>Export JSON</button>
+                      </>
+                    )}
                     <button className="btn btn-sm" onClick={() => window.print()}>Print</button>
                   </div>
                 </div>
@@ -675,6 +831,51 @@ export default function Attendance() {
                       </tbody>
                     </table>
                   </div>
+                ) : historyView === 'detail' ? (
+                  detailWorkers.length === 0 ? (
+                    <div className="empty-state">
+                      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <p>No workers found for the selected filters.</p>
+                    </div>
+                  ) : (
+                    <div className="table-wrap">
+                      <table className="matrix-table">
+                        <thead>
+                          <tr>
+                            <th rowSpan="2">Name</th>
+                            <th rowSpan="2">In/Out</th>
+                            {detailDates.map(d => <th key={d} className="mat-date">{d.slice(8)}</th>)}
+                            <th rowSpan="2">Total Hrs</th>
+                          </tr>
+                          <tr>
+                            {detailDates.map(d => <th key={d} className="mat-weekday">{WEEKDAYS[dowOf(d)].slice(0, 1)}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailWorkers.map(w => {
+                            const total = fmtDuration(detailTotalMinutes(w));
+                            return (
+                              <Fragment key={w.id}>
+                                <tr className="mat-row">
+                                  <td className="mat-name" rowSpan="2">{w.name}</td>
+                                  <td className="mat-inout">In</td>
+                                  {detailDates.map(d => { const c = cellFor(w, d); return <td key={d} className={cellCls(c)}>{c.in}</td>; })}
+                                  <td className="cell-total" rowSpan="2">{total}</td>
+                                </tr>
+                                <tr className="mat-row">
+                                  <td className="mat-inout">Out</td>
+                                  {detailDates.map(d => { const c = cellFor(w, d); return <td key={d} className={cellCls(c)}>{c.out}</td>; })}
+                                </tr>
+                                <tr className="mat-spacer" aria-hidden="true">
+                                  <td colSpan={detailDates.length + 3}>&nbsp;</td>
+                                </tr>
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
                 ) : historyRecords.length === 0 ? (
                   <div className="empty-state">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
