@@ -20,7 +20,7 @@ export const findLogsByAssignment = async (assignmentId) => {
   return data;
 };
 
-const DAY_RANGE = (s, e) => `or(and(created_at.gte.${s},created_at.lte.${e}),and(transaction_datetime.gte.${s},transaction_datetime.lte.${e}))`;
+export const DAY_RANGE = (s, e) => `or(and(created_at.gte.${s},created_at.lte.${e}),and(transaction_datetime.gte.${s},transaction_datetime.lte.${e}))`;
 
 const dayKey = (iso) => (iso ? String(iso).slice(0, 10) : null);
 
@@ -34,7 +34,7 @@ export function logCollectionDate(d) {
   return d.transaction_datetime || d.created_at;
 }
 
-function inRange(date, start, end) {
+export function inRange(date, start, end) {
   if (!date) return false;
   const dk = dayKey(date);
   return dk >= dayKey(start) && dk <= dayKey(end);
