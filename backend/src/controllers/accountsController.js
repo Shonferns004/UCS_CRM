@@ -944,6 +944,8 @@ export const importReceipts = async (req, res) => {
           payment_id: row.payment_id || row['Payment Id No.'] || null,
           bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
           agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || null,
+          sent: true,
+          sent_at: new Date().toISOString(),
         },
       };
     }).filter(({ parsed }) => {
