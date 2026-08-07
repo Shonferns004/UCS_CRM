@@ -41,7 +41,13 @@ async function generateAiMessage(prompt) {
       max_tokens: 80,
       temperature: 0.7,
     });
-    return completion.choices[0]?.message?.content?.trim() || '';
+    const raw = completion.choices[0]?.message?.content || '';
+    const cleaned = raw.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim();
+    if (cleaned.length < 5 || cleaned.length > 200) return null;
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    if (words.length < 2) return null;
+    if (words.some((w) => !/[A-Za-z]/.test(w))) return null;
+    return cleaned;
   } catch (error) {
     console.error('Groq AI error:', error.message);
     return null;
@@ -359,13 +365,8 @@ async function runNotificationCycle() {
 }
 
 function start() {
-  // ==== NOTIFICATIONS DISABLED ====
-  // Cron scheduler is turned off. Re-enable by restoring the scheduling block below.
   if (running) return;
   running = true;
-
-  console.log('Notification scheduler: DISABLED (no cron jobs scheduled)');
-  return;
 
   cronJobs.push(cron.schedule('30 10 * * *', () => runNotificationCycle()));
   console.log('Scheduled: 10:30 AM notification check');
@@ -458,6 +459,7 @@ async function sendPunchInReminders() {
         .eq('title', title)
         .gte('sent_at', `${todayDateStr}T00:00:00+05:30`)
         .lte('sent_at', `${todayDateStr}T23:59:59+05:30`)
+        .limit(1)
         .maybeSingle();
 
       if (existing) continue;
@@ -467,6 +469,7 @@ async function sendPunchInReminders() {
         .select('id')
         .eq('worker_id', t.worker_id)
         .eq('date', todayDateStr)
+        .limit(1)
         .maybeSingle();
 
       if (attendance) continue;
@@ -520,6 +523,7 @@ async function sendPunchOutReminders() {
         .eq('title', title)
         .gte('sent_at', `${todayDateStr}T00:00:00+05:30`)
         .lte('sent_at', `${todayDateStr}T23:59:59+05:30`)
+        .limit(1)
         .maybeSingle();
 
       if (existing) continue;
@@ -529,6 +533,7 @@ async function sendPunchOutReminders() {
         .select('id, punch_in_time, punch_out_time')
         .eq('worker_id', t.worker_id)
         .eq('date', todayDateStr)
+        .limit(1)
         .maybeSingle();
 
       if (!attendanceRecord || !attendanceRecord.punch_in_time || attendanceRecord.punch_out_time) continue;
