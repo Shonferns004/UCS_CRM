@@ -947,10 +947,6 @@ export default function MyDonors() {
                   <label>City</label>
                   <div>{donor.donor_city || 'NA'}</div>
                 </div>
-                <div className="fld fld-sm">
-                  <label>Amount</label>
-                  <div>₹{Number(donor.donor_amount || 0).toLocaleString('en-IN')}</div>
-                </div>
               </div>
               <div className="detail-field-row">
                 <div className="fld">
@@ -1029,7 +1025,7 @@ export default function MyDonors() {
                   </label>
                   <div style={{ color: 'var(--sage)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--sage)' }}>payments</span>
-                    {donor.donation_count || 0} time{donor.donation_count !== 1 ? 's' : ''} (₹{Number(donor.total_donated || 0).toLocaleString('en-IN')})
+                    View
                   </div>
                 </div>
               </div>
