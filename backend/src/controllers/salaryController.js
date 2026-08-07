@@ -14,7 +14,7 @@ import { getWorkerById } from '../models/workerModel.js';
 import { getAllocationsByWorker } from '../models/workerNgoAllocationModel.js';
 import { getTarget, upsertTarget } from '../models/incentiveModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
-import { calculateAKI, getDayName, getMonthsEmployed } from '../utils/incentive.js';
+import { calculateAKI, getDayName, getMonthsEmployed, AKI_RANGES } from '../utils/incentive.js';
 import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
@@ -145,13 +145,6 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
         const achievements = await getAchievements(workerId, startDate, endDate);
 
         // Sunday AKI — each worked Sunday (including a cancelled one) earns its own AKI
-        const SUNDAY_AKI_RANGES = [
-          { min: 3750, max: 6999, incentive: 200 },
-          { min: 7000, max: 11999, incentive: 400 },
-          { min: 12000, max: 13749, incentive: 800 },
-          { min: 13750, max: 18999, incentive: 1100 },
-          { min: 19000, max: Infinity, incentive: 1500 },
-        ];
         const isAttended = (s) => {
           const rec = records.find(r => r.date === s);
           return !!rec && (rec.status === 'present' || rec.status === 'late');
@@ -163,7 +156,7 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           const ach = achievements.find(r => r.date === s);
           const amt = ach ? parseFloat(ach.amount || 0) : 0;
           sundayAchievement += amt;
-          sundayAKI += SUNDAY_AKI_RANGES.find(r => amt >= r.min && amt <= r.max)?.incentive || 0;
+          sundayAKI += AKI_RANGES.Sunday.find(r => amt >= r.min && amt <= r.max)?.incentive || 0;
         }
 
         // Incentive totals (AKI + monthly, FRO only)
@@ -173,7 +166,7 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           const monthStr = startDate;
           let tgt = await getTarget(workerId, monthStr);
           if (!tgt) {
-            const monthsEmployed = getMonthsEmployed(worker.created_at);
+            const monthsEmployed = getMonthsEmployed(worker.created_at, new Date(year, month + 1, 0));
             const multipliers = [1, 2.5, 3];
             const idx = Math.min(Math.max(monthsEmployed - 1, 0), multipliers.length - 1);
             tgt = await upsertTarget({
@@ -185,7 +178,7 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
           }
           const currentTarget = parseFloat(tgt.target_amount);
           const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-          const isNewJoiner = getMonthsEmployed(worker.created_at) <= 3;
+          const isNewJoiner = getMonthsEmployed(worker.created_at, new Date(year, month + 1, 0)) <= 3;
           const totalAKI = achievements.reduce((sum, r) => sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date)), 0);
           if (monthlyAchievement >= currentTarget) {
             incentiveAKI = isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
@@ -372,12 +365,7 @@ export const getMySalaryBreakdown = async (req, res) => {
         const month = startDate;
         let tgt = await getTarget(workerId, month);
         if (!tgt) {
-          const monthsEmployed = (() => {
-            const join = new Date(worker.created_at);
-            const now2 = new Date();
-            const m = (now2.getFullYear() - join.getFullYear()) * 12 + (now2.getMonth() - join.getMonth());
-            return now2.getDate() >= join.getDate() ? m + 1 : m;
-          })();
+          const monthsEmployed = getMonthsEmployed(worker.created_at, new Date(year, month + 1, 0));
           const multipliers = [1, 2.5, 3];
           const idx = Math.min(Math.max(monthsEmployed - 1, 0), multipliers.length - 1);
           const targetAmount = Math.round(salary * multipliers[idx]);
@@ -395,7 +383,7 @@ export const getMySalaryBreakdown = async (req, res) => {
 
         incentiveAKI = achievements.reduce((sum, r) => sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date)), 0);
 
-        isNewJoiner = getMonthsEmployed(worker.created_at) <= 3;
+        isNewJoiner = getMonthsEmployed(worker.created_at, new Date(year, month + 1, 0)) <= 3;
         monthlyTargetMet = monthlyAchievement >= currentTarget;
 
         if (monthlyTargetMet) {
