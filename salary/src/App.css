@@ -325,6 +325,8 @@ tr.total td.c { background: #dbeafe; }
 .p-absent .dot { background: #ef4444; }
 .p-leave .dot { background: #8b5cf6; }
 .p-sunday .dot { background: #9ca3af; }
+.p-holiday .dot { background: #9ca3af; }
+.p-future .dot { background: #d1d5db; }
 .att-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .att-cell {
   border-radius: 8px;
@@ -347,6 +349,8 @@ tr.total td.c { background: #dbeafe; }
 .st-absent { background: #fee2e2; color: #991b1b; }
 .st-leave { background: #ede9fe; color: #5b21b6; }
 .st-sunday { background: #f3f4f6; color: #6b7280; }
+.st-holiday { background: #f3f4f6; color: #6b7280; }
+.st-future { background: #f3f4f6; color: #6b7280; }
 .att-cell { cursor: pointer; transition: box-shadow .12s ease, transform .12s ease; }
 .att-cell:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, .12); transform: translateY(-1px); }
 .att-cell.att-edit-on { outline: 2px solid #2563eb; }

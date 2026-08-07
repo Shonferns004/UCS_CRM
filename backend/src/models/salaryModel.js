@@ -210,7 +210,7 @@ export const getPayrollData = async (month, extended = false) => {
       if (target > 0 && achieved >= target) {
         const overage = achieved - target;
         monthlyIncentive = Math.round(overage * 0.1);
-        const monthsEmp = w.created_at ? getMonthsEmployed(w.created_at) : 99;
+        const monthsEmp = w.created_at ? getMonthsEmployed(w.created_at, new Date(year, monthIdx + 1, 0)) : 99;
         akiPayout = monthsEmp <= 3 ? Math.round(totalAKI) : Math.round(totalAKI / 2);
       }
     }
@@ -413,18 +413,40 @@ function normalizeName(name) {
 
 function resolveWorkerByName(workers, name) {
   const n = normalizeName(name);
+  if (!n) return undefined;
   let match = workers.find(w => normalizeName(w.name) === n);
   if (match) return match;
   const parts = n.split(' ').filter(Boolean);
+  const normKeys = workers.map(w => normalizeName(w.name));
   if (parts.length >= 2) {
     const firstLast = parts[0] + ' ' + parts[parts.length - 1];
     match = workers.find(w => normalizeName(w.name) === firstLast);
     if (match) return match;
-    for (const w of workers) {
-      const kp = normalizeName(w.name).split(' ').filter(Boolean);
-      if (kp.length >= 2 && kp[0] + ' ' + kp[kp.length - 1] === firstLast) return w;
+    for (let i = 0; i < workers.length; i++) {
+      const kp = normKeys[i].split(' ').filter(Boolean);
+      if (kp.length >= 2 && kp[0] + ' ' + kp[kp.length - 1] === firstLast) return workers[i];
     }
   }
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const byFirst = workers.filter((_, i) => normKeys[i].split(' ')[0] === first);
+  if (byFirst.length === 1) return byFirst[0];
+  const byLast = workers.filter((_, i) => {
+    const kp = normKeys[i].split(' ').filter(Boolean);
+    return kp[kp.length - 1] === last;
+  });
+  if (byLast.length === 1) return byLast[0];
+  const tokSet = new Set(parts);
+  const excelInDb = workers.filter((_, i) => {
+    const kp = normKeys[i].split(' ').filter(Boolean);
+    return kp.length > 1 && kp.every(t => tokSet.has(t));
+  });
+  if (excelInDb.length === 1) return excelInDb[0];
+  const dbInExcel = workers.filter((_, i) => {
+    const kp = normKeys[i].split(' ').filter(Boolean);
+    return kp.length <= parts.length && parts.every(t => kp.includes(t));
+  });
+  if (dbInExcel.length === 1) return dbInExcel[0];
   return undefined;
 }
 
@@ -482,6 +504,28 @@ export const getWorkerAttendanceByName = async (month, name) => {
   const recByDate = {};
   for (const r of records) recByDate[r.date] = r;
 
+  const { data: holidays, error: hErr } = await db
+    .from('holidays')
+    .select('date')
+    .gte('date', startDate)
+    .lte('date', endDate);
+  const holidaySet = new Set((hErr || !holidays ? [] : holidays).map(h => String(h.date).slice(0, 10)));
+
+  // Mirrors computePaidDays(): only days up to "today" (IST) count as absent;
+  // holidays, Sundays and days before joining are not absences.
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const viewDay = (istNow.getUTCFullYear() === year && istNow.getUTCMonth() === monthIdx)
+    ? istNow.getUTCDate()
+    : daysInMonth + 1;
+
+  const joinDate = worker.created_at ? new Date(worker.created_at) : null;
+  const joinedThisMonth = joinDate && !isNaN(joinDate.getTime())
+    ? joinDate.getFullYear() === year && joinDate.getMonth() === monthIdx
+    : false;
+  const beforeJoinSet = joinedThisMonth
+    ? new Set(Array.from({ length: joinDate.getUTCDate() - 1 }, (_, i) => `${monthStr}-${pad(i + 1)}`))
+    : new Set();
+
   const fmtTime = (t) => {
     if (!t) return null;
     const d = new Date(t);
@@ -490,7 +534,7 @@ export const getWorkerAttendanceByName = async (month, name) => {
   };
 
   const rows = [];
-  const stats = { present: 0, late: 0, half: 0, absent: 0, leave: 0, sunday: 0 };
+  const stats = { present: 0, late: 0, half: 0, absent: 0, leave: 0, sunday: 0, holiday: 0 };
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${monthStr}-${pad(d)}`;
     const dow = new Date(Date.UTC(year, monthIdx, d)).getUTCDay();
@@ -500,8 +544,10 @@ export const getWorkerAttendanceByName = async (month, name) => {
       status = rec.status;
     } else if (leaveDates.has(dateStr)) {
       status = 'leave';
+    } else if (beforeJoinSet.has(dateStr) || d > viewDay) {
+      status = 'future';
     } else if (dow !== 0) {
-      status = 'absent';
+      status = holidaySet.has(dateStr) ? 'holiday' : 'absent';
     } else {
       status = 'sunday';
     }
