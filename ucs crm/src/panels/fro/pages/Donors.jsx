@@ -44,7 +44,7 @@ export default function Donors() {
     if (filter === 'active') opts.activeOnly = true;
     else if (filter === 'inactive') opts.inactiveOnly = true;
     getMyDonors(null, null, opts)
-      .then(data => { if (mounted) setDonors(data); })
+      .then(data => { if (mounted) setDonors(Array.isArray(data) ? data : (data?.donors || [])); })
       .catch((err) => { console.error('API error:', err.message); if (mounted) setDonors([]); })
       .finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };

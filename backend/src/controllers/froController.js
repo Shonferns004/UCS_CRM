@@ -607,7 +607,8 @@ export const getMyDonors = async (req, res) => {
       effectiveStations = effectiveScope.map(s => s.station);
     }
 
-    const DONOR_LIMIT = 500;
+    const limit = parseInt(req.query.limit, 10);
+    const offset = parseInt(req.query.offset, 10);
     let assignments = null;
 
     // Primary: donors assigned to the worker's stations (fro_station_assignments scope)
@@ -691,11 +692,10 @@ export const getMyDonors = async (req, res) => {
         }
       }
 
-      query = query.limit(DONOR_LIMIT);
-      let { data, error: qErr } = await query;
+      const { data, error: qErr } = await query;
       if (qErr) {
         console.error('getMyDonors main query error:', qErr);
-        query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned').limit(DONOR_LIMIT);
+        query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
         query = withStationNgoPairs(query, effectiveScope);
         if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
         else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
@@ -714,8 +714,7 @@ export const getMyDonors = async (req, res) => {
         .from('fro_assignments')
         .select('*, ngos(name)')
         .eq('fro_worker_id', workerId)
-        .not('status', 'eq', 'reassigned')
-        .limit(DONOR_LIMIT);
+        .not('status', 'eq', 'reassigned');
       if (effectiveStations.length > 0) {
         byWorkerQ = byWorkerQ.in('station', effectiveStations);
         byWorkerQ = withStationNgoPairs(byWorkerQ, effectiveScope);
@@ -777,6 +776,19 @@ export const getMyDonors = async (req, res) => {
     );
     const activeDonorIds = new Set(donationLogs.map(l => l.donor_id));
 
+    const currentMonthStart = new Date();
+    currentMonthStart.setDate(1);
+    currentMonthStart.setHours(0, 0, 0, 0);
+    const monthDonationLogs = await chunkedInQuery(donorIds, chunk =>
+      db.from('fro_donor_logs').select('donor_id, accounts_status').in('donor_id', chunk).eq('action', 'donation').gte('created_at', currentMonthStart.toISOString())
+    );
+    const currentMonthDonatedIds = new Set();
+    const currentMonthVerifiedIds = new Set();
+    for (const log of monthDonationLogs || []) {
+      currentMonthDonatedIds.add(log.donor_id);
+      if (log.accounts_status === 'verified') currentMonthVerifiedIds.add(log.donor_id);
+    }
+
     const leadDoneVerifiedLogs = await chunkedInQuery(donorIds, chunk =>
       db.from('fro_donor_logs').select('donor_id').in('donor_id', chunk)
         .eq('disposition_detail', 'lead_done')
@@ -836,6 +848,8 @@ export const getMyDonors = async (req, res) => {
         first_donation_date: d.first_donation_date || null,
         donor_frequency: d.donation_frequency || '',
         has_donated_current_fy: activeDonorIds.has(a.donor_id),
+        has_donated_current_month: currentMonthDonatedIds.has(a.donor_id),
+        has_verified_donation_current_month: currentMonthVerifiedIds.has(a.donor_id),
         is_active: activeDonorIds.has(a.donor_id),
         status: a.status || 'pending',
         notes: a.notes || null,
@@ -956,7 +970,14 @@ export const getMyDonors = async (req, res) => {
       return dateA - dateB;
     });
 
-    return res.json(filtered);
+    const total = filtered.length;
+    let page = filtered;
+    if (Number.isFinite(limit) && limit > 0) {
+      const start = (Number.isFinite(offset) && offset > 0) ? offset : 0;
+      page = filtered.slice(start, start + limit);
+    }
+
+    return res.json({ donors: page, total });
   } catch (error) {
     console.error('getMyDonors error for worker', req.user?.id, ':', error.message, error.stack);
     return res.status(500).json({ message: error.message });

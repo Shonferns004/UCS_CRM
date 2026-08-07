@@ -41,6 +41,7 @@ export default function App() {
   const [msgKind, setMsgKind] = useState('info')
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [fileName, setFileName] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [modalRow, setModalRow] = useState(null)
@@ -134,6 +135,7 @@ export default function App() {
         sunAttended: r.attended_sundays || 0,
         sunUnpaid: r.unpaid_sundays || 0,
         sunDeducted: r.deducted_sundays || 0,
+        free: r.free_sundays || 0,
         clubbed: r.clubbed_sundays || 0,
         extra: r.extra_sundays || 0,
         workedBack: r.sunday_add || 0,
@@ -317,18 +319,30 @@ export default function App() {
 
   const head = [
     'Employee', 'Date of Joining', 'Salary', 'Days/Month', 'DB Present Days',
-    'Half Day', 'Absent', 'Deducted Sun.',
+    'Half Day', 'Absent', 'Deducted Sun.', 'Sundays Eligible',
     'Joining Ded. (new)', 'Late Deduction',
     'Total Days', 'Net Present Days', 'Match?', 'Why Total Days?', 'Computed Salary (by days)',
   ]
-  const computed = [false, false, false, true, false, false, false, false, true, true, true, false, false, false, true]
+  const computed = [false, false, false, true, false, false, false, false, false, true, true, true, false, false, false, true]
   if (hasFileSalary) { head.push('File Month Salary', 'Match?'); computed.push(false, false) }
   head.push('Monthly Eligible?', '10% Incentive', 'AKI Eligible?', 'Total AKI', 'Total Incentive', 'Gross Payable', 'OT/Extra (manual)', 'Pending Exp.', 'Advance', 'Net Payable')
   computed.push(true, true, true, true, true, true, false, false, false, true)
   if (hasFileNet) { head.push('File Net Payable', 'Match?', 'Difference'); computed.push(false, false, true) }
 
+  const statusCounts = rows
+    ? rows.reduce((acc, r) => {
+        const s = r.status || 'active'
+        acc[s] = (acc[s] || 0) + 1
+        return acc
+      }, {})
+    : {}
+
   const filtered = rows
-    ? rows.filter(r => !search || r.name.toLowerCase().includes(search.trim().toLowerCase()))
+    ? rows.filter(r => {
+        const hitsSearch = !search || r.name.toLowerCase().includes(search.trim().toLowerCase())
+        const hitsStatus = statusFilter === 'all' || (r.status || 'active') === statusFilter
+        return hitsSearch && hitsStatus
+      })
     : []
 
   const podium = rows
@@ -354,6 +368,7 @@ export default function App() {
   const sumNet = filtered.reduce((a, r) => a + r.netPayable, 0)
   const sumAbsent = filtered.reduce((a, r) => a + (r.dbAbsent || 0), 0)
   const sumHalf = filtered.reduce((a, r) => a + ((r.dbHalf || 0) * 0.5), 0)
+  const sumSunEligible = filtered.reduce((a, r) => a + (r.dbSunEligible || 0), 0)
   const sumDbPresent = filtered.reduce((a, r) => a + (r.dbPresent || 0), 0)
   const sumTotalPresent = filtered.reduce((a, r) => a + (r.totalPresentDays || 0), 0)
   const sumNetPresent = filtered.reduce((a, r) => a + r.netPresent, 0)
@@ -371,7 +386,7 @@ export default function App() {
   const leftClass = (i) => i <= 1 ? 'l ' : ''
 
   const sums = (() => {
-    const s = [filtered.length + ' employees', '', '', '', sumDbPresent, sumHalf, sumAbsent, '', sumJoinDed, sumLateDed, sumTotalPresent, sumNetPresent, '', '', money(sumSalary)]
+    const s = [filtered.length + ' employees', '', '', '', sumDbPresent, sumHalf, sumAbsent, '', sumSunEligible, sumJoinDed, sumLateDed, sumTotalPresent, sumNetPresent, '', '', money(sumSalary)]
     if (hasFileSalary) s.push('', '')
     s.push('', money(sumMonthly), '', money(sumAki), money(sumIncentive), money(sumGross), money(sumOt), '', '', money(sumNet))
     if (hasFileNet) s.push('', '', money(sumDiff))
@@ -466,6 +481,13 @@ export default function App() {
               <label className="search-label" htmlFor="salary-search">Search</label>
               <input id="salary-search" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee..." />
               {search && <button className="btn-ghost btn-sm" onClick={() => setSearch('')}>Clear</button>}
+              <label className="search-label" htmlFor="salary-status">Status</label>
+              <select id="salary-status" className="status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="all">All ({rows.length})</option>
+                <option value="active">Active ({statusCounts.active || 0})</option>
+                <option value="inactive">Inactive ({statusCounts.inactive || 0})</option>
+                <option value="absconded">Absconded ({statusCounts.absconded || 0})</option>
+              </select>
             </div>
             <div className="table-scroll">
               <table>
@@ -486,6 +508,7 @@ export default function App() {
                       <td>{((r.dbHalf ?? 0) * 0.5) || 0}</td>
                       <td>{r.dbAbsent ?? 0}</td>
                       <td>{r.dbSunDeducted ?? 0}</td>
+                      <td className="c">{r.dbSunEligible ?? 0}</td>
                       <td className="c">{r.joiningDeduction || 0}</td>
                       <td className="c">{r.lateDeduction || 0}</td>
                       <td className="c">{r.totalPresentDays}</td>
