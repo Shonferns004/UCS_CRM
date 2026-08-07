@@ -108,7 +108,7 @@ app.get(['/aws', '/api/aws'], (req, res) => {
 
 app.get(['/health', '/api/health'], async (req, res) => {
   try {
-    await db.query('SELECT 1');
+    await db._pool.query('SELECT 1');
     res.json({
       status: 'ok',
       db: 'ok',
