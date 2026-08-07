@@ -20,7 +20,16 @@ export const findLogsByAssignment = async (assignmentId) => {
   return data;
 };
 
-export const DAY_RANGE = (s, e) => `or(and(created_at.gte.${s},created_at.lte.${e}),and(transaction_datetime.gte.${s},transaction_datetime.lte.${e}))`;
+// OR-groups matching a collection on its ACTUAL collection date, expressed FLAT
+// (no or() nested inside and()) so the custom query builder's or()-parser can
+// handle it. donations & 'done' logs count on created_at OR transaction_datetime;
+// verified 'lead_done' logs count on verified_at.
+export const COLLECTION_DATE_OR = (s, e) =>
+  `and(action.eq.donation,created_at.gte.${s},created_at.lte.${e}),` +
+  `and(action.eq.donation,transaction_datetime.gte.${s},transaction_datetime.lte.${e}),` +
+  `and(disposition_detail.eq.done,action.eq.disposition,created_at.gte.${s},created_at.lte.${e}),` +
+  `and(disposition_detail.eq.done,action.eq.disposition,transaction_datetime.gte.${s},transaction_datetime.lte.${e}),` +
+  `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${s},verified_at.lte.${e})`;
 
 const dayKey = (iso) => (iso ? String(iso).slice(0, 10) : null);
 
@@ -45,11 +54,7 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
     .from('fro_donor_logs')
     .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
     .eq('fro_assignments.fro_worker_id', workerId)
-    .or(
-      `and(action.eq.donation,${DAY_RANGE(monthStart, monthEnd)}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(monthStart, monthEnd)})`
-    );
+    .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
   let total = 0;
@@ -65,11 +70,7 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
     .from('fro_donor_logs')
     .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
     .eq('fro_assignments.fro_worker_id', workerId)
-    .or(
-      `and(action.eq.donation,${DAY_RANGE(monthStart, monthEnd)}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(monthStart, monthEnd)})`
-    );
+    .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
   const byDay = {};
@@ -103,11 +104,9 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   }
 
   const { data, error } = await query.or(
-      `and(action.eq.donation,${DAY_RANGE(monthStart, monthEnd)}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${monthStart},verified_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd}),` +
-      `and(disposition_detail.eq.done,action.eq.disposition,${DAY_RANGE(monthStart, monthEnd)})`
-    );
+    COLLECTION_DATE_OR(monthStart, monthEnd) +
+    `,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.pending,created_at.gte.${monthStart},created_at.lte.${monthEnd})`
+  );
   if (error) throw error;
 
   const init = () => ({ amount: 0, count: 0 });
