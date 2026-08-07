@@ -1456,6 +1456,81 @@ export const getDonorsList = async (req, res) => {
   }
 };
 
+export const exportDonors = async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    let query = db.from('donor_profiles').select('*');
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+
+    const { data: donors, error } = await query.order('last_donation_date', { ascending: false, nullsFirst: false });
+    if (error) throw error;
+    if (!donors || donors.length === 0) return res.json({ data: [], total: 0 });
+
+    const donorIds = donors.map(d => d.id).filter(Boolean);
+
+    // Chunked assignment fetch to avoid the Postgres parameter limit on large donor sets.
+    const latestByDonor = new Map();
+    const ASSIGN_BATCH = 1000;
+    for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
+      const { data: assignments, error: asgnErr } = await db
+        .from('fro_assignments')
+        .select('donor_id, fro_worker_id, station, ngo_id, assigned_at, created_at')
+        .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
+        .not('status', 'eq', 'reassigned');
+      if (asgnErr) throw asgnErr;
+      for (const a of assignments || []) {
+        const cur = latestByDonor.get(a.donor_id);
+        const ts = (x) => new Date(x?.assigned_at || x?.created_at || 0).getTime();
+        if (!cur || ts(a) > ts(cur)) latestByDonor.set(a.donor_id, a);
+      }
+    }
+
+    const assignments = [...latestByDonor.values()];
+
+    const workerIds = [...new Set(assignments.map(a => a.fro_worker_id).filter(Boolean))];
+    const workerMap = {};
+    if (workerIds.length > 0) {
+      for (let i = 0; i < workerIds.length; i += 500) {
+        const { data: workers, error: wErr } = await db.from('workers').select('id, name').in('id', workerIds.slice(i, i + 500));
+        if (wErr) throw wErr;
+        for (const w of workers || []) workerMap[w.id] = w.name;
+      }
+    }
+
+    const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
+    const ngoMap = {};
+    if (ngoIds.length > 0) {
+      const { data: ngos, error: nErr } = await db.from('ngos').select('id, name').in('id', ngoIds);
+      if (nErr) throw nErr;
+      for (const n of ngos || []) ngoMap[n.id] = n.name;
+    }
+
+    const rows = donors.map(d => {
+      const a = latestByDonor.get(d.id);
+      return {
+        'Donor Name': d.name || d.bank_donor_name || d.agent_donor_name || '',
+        'Mobile': d.mobile_number || '',
+        'City': d.city || '',
+        'NGO': a?.ngo_id ? (ngoMap[a.ngo_id] || d.ngo || '') : (d.ngo || ''),
+        'Assigned To': a?.fro_worker_id ? (workerMap[a.fro_worker_id] || '') : '',
+        'Total Amount': d.total_amount != null ? Number(d.total_amount) : 0,
+        'Donations': d.donation_count != null ? Number(d.donation_count) : 0,
+        'Last Donation': d.last_donation_date || '',
+        'New Station': a?.station || d.station || 'suspense',
+      };
+    });
+
+    return res.json({ data: rows, total: rows.length });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorDetail = async (req, res) => {
   try {
     const { id } = req.params;
