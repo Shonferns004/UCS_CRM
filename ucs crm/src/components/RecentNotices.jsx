@@ -23,7 +23,7 @@ function getRole() {
   } catch { return null }
 }
 
-export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
+export default function RecentNotices({ limit = 5, title = 'Recent Notices', containerStyle }) {
   const [notices, setNotices] = useState([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
@@ -99,88 +99,105 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
 
   if (loading) return null
 
+  const cardStyle = {
+    background: '#fff',
+    border: '1px solid var(--line)',
+    borderRadius: 14,
+    padding: '16px 18px',
+    boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)',
+    ...containerStyle,
+  }
+
   return (
-    <div className="nd-card nd-appear" style={{ animationDelay: '0.8s', marginTop: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 className="nd-section-title" style={{ color: '#000', fontSize: 14 }}>{title}</h3>
-        {notices.length > 0 && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+            background: 'linear-gradient(135deg, #16a34a 0%, #4ade80 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 15 }}>campaign</span>
+          </span>
+          <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>{title}</h3>
+          {notices.length > 0 && (
             <span style={{
-              fontSize: 11, fontWeight: 700, color: '#3B82F6',
-              background: 'rgba(59,130,246,0.15)', borderRadius: 99, padding: '3px 10px',
+              fontSize: 10, fontWeight: 700, color: '#15803d',
+              background: '#dcfce7', borderRadius: 99, padding: '2px 10px',
             }}>
               {notices.length}
             </span>
-            <button
-              onClick={toggleEditMode}
-              title={editMode ? 'Done editing' : 'Edit notices'}
-              style={{
-                background: editMode ? 'rgba(59,130,246,0.15)' : 'none',
-                border: 'none', cursor: 'pointer',
-                padding: 2, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: editMode ? '#3B82F6' : '#94a3b8', transition: 'color 0.15s'
-              }}
-              onMouseEnter={e => { if (!editMode) e.currentTarget.style.color = '#3B82F6' }}
-              onMouseLeave={e => { if (!editMode) e.currentTarget.style.color = '#94a3b8' }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>edit</span>
-            </button>
-          </span>
+          )}
+        </div>
+        {notices.length > 0 && (
+          <button
+            onClick={toggleEditMode}
+            title={editMode ? 'Done editing' : 'Edit notices'}
+            style={{
+              background: editMode ? '#dcfce7' : '#f1f5f9',
+              border: 'none', cursor: 'pointer',
+              width: 28, height: 28, borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: editMode ? '#15803d' : '#64748b', transition: 'all .15s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{editMode ? 'check' : 'edit'}</span>
+          </button>
         )}
       </div>
+
       {notices.length === 0 ? (
-        <p className="nd-muted" style={{ fontSize: 12 }}>No notices yet</p>
+        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, margin: '18px 0 6px' }}>No notices yet</p>
       ) : (
-        <div style={{ marginTop: 8, maxHeight: 220, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 230, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {notices.map((n, i) => (
             <div key={n.id || i} style={{
-              display: 'flex', gap: 8, padding: '8px 10px',
-              borderRadius: 8, marginBottom: 6,
-              background: '#EFF6FF', border: '1px solid #BFDBFE', alignItems: 'flex-start'
+              display: 'flex', gap: 10, padding: '10px 12px',
+              borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7', alignItems: 'flex-start',
+              transition: 'border-color .15s, background .15s',
             }}>
               <div style={{
-                width: 26, height: 26, borderRadius: 6, flexShrink: 0,
-                background: i % 2 === 0 ? '#3B82F6' : '#60A5FA',
+                width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                background: i % 2 === 0 ? '#e8f5ee' : '#eff6ff',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 16 }}>
-                  {i % 2 === 0 ? 'priority_high' : 'campaign'}
+                <span className="material-symbols-outlined" style={{ color: i % 2 === 0 ? '#16a34a' : '#3b82f6', fontSize: 16 }}>
+                  {i % 2 === 0 ? 'notifications' : 'campaign'}
                 </span>
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 {editMode ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <input value={editForms[n.id]?.title || ''} onChange={e => handleEditChange(n.id, 'title', e.target.value)}
-                      style={{ fontSize: 12.5, fontWeight: 700, color: '#1E3A5F', border: '1px solid #BFDBFE', borderRadius: 4, padding: '3px 6px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
+                      style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 8px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
                     />
                     <textarea value={editForms[n.id]?.content || ''} onChange={e => handleEditChange(n.id, 'content', e.target.value)} rows={2}
-                      style={{ fontSize: 11, color: '#475569', border: '1px solid #BFDBFE', borderRadius: 4, padding: '3px 6px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                      style={{ fontSize: 11, color: '#475569', border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 8px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
                     />
                   </div>
                 ) : (
                   <>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1E3A5F', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {n.title}
                       {TARGET_LABELS[n.target_role] && (
                         <span style={{
                           fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
-                          background: '#DBEAFE', color: '#2563EB', whiteSpace: 'nowrap',
+                          background: '#dcfce7', color: '#15803d', whiteSpace: 'nowrap',
                         }}>
                           {TARGET_LABELS[n.target_role]}
                         </span>
                       )}
                     </div>
                     {n.content && (
-                      <div style={{ fontSize: 11, color: '#475569', marginTop: 2, lineHeight: 1.4 }}>
-                        {n.content.length > 100 ? n.content.slice(0, 100) + '\u2026' : n.content}
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.45 }}>
+                        {n.content.length > 120 ? n.content.slice(0, 120) + '\u2026' : n.content}
                       </div>
                     )}
-                    <div style={{ fontSize: 10, color: '#60A5FA', fontWeight: 600, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
                       {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
                       {n.created_by_name && (
-                        <span style={{ color: '#94a3b8', fontWeight: 500 }}>
-                          by {n.created_by_name}
-                        </span>
+                        <span style={{ color: '#94a3b8', fontWeight: 500 }}>by {n.created_by_name}</span>
                       )}
                     </div>
                   </>
@@ -192,11 +209,10 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
                   disabled={savingId === n.id}
                   title="Save"
                   style={{
-                    background: savingId === n.id ? 'rgba(59,130,246,0.15)' : '#3B82F6',
+                    background: savingId === n.id ? '#dcfce7' : '#16a34a',
                     border: 'none', cursor: savingId === n.id ? 'wait' : 'pointer',
-                    padding: '3px 8px', borderRadius: 4, flexShrink: 0, alignSelf: 'center',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit'
+                    padding: '5px 10px', borderRadius: 6, flexShrink: 0, alignSelf: 'center',
+                    color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit'
                   }}
                 >
                   {savingId === n.id ? 'Saving' : 'Save'}
@@ -208,12 +224,12 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices' }) {
                   title="Delete notice"
                   style={{
                     background: 'none', border: 'none', cursor: deletingId === n.id ? 'wait' : 'pointer',
-                    padding: 2, borderRadius: 4, flexShrink: 0, alignSelf: 'center',
+                    padding: 4, borderRadius: 6, flexShrink: 0, alignSelf: 'center',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#94a3b8', transition: 'color 0.15s'
+                    color: '#cbd5e1', transition: 'color .15s'
                   }}
-                  onMouseEnter={e => e.currentTarget.style.color = '#EF4444'}
-                  onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
+                  onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                  onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                     {deletingId === n.id ? 'hourglass_top' : 'delete'}

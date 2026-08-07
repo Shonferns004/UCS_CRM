@@ -359,8 +359,13 @@ async function runNotificationCycle() {
 }
 
 function start() {
+  // ==== NOTIFICATIONS DISABLED ====
+  // Cron scheduler is turned off. Re-enable by restoring the scheduling block below.
   if (running) return;
   running = true;
+
+  console.log('Notification scheduler: DISABLED (no cron jobs scheduled)');
+  return;
 
   cronJobs.push(cron.schedule('30 10 * * *', () => runNotificationCycle()));
   console.log('Scheduled: 10:30 AM notification check');

@@ -7,6 +7,13 @@ import { extractTransactionData } from '../utils/ocr';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
 import { NOT_CONNECTED, CONNECTED, findDisp, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
 
+const isThisMonth = (dateStr) => {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+};
+
 export default function DonorDetail({ assignmentId, donor, onBack, hideHeader }) {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -410,6 +417,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
               {logs.map(log => {
                 const isDisp = log.action === 'disposition';
                 const cat = log.disposition_category;
+                const when = (log.action === 'donation' || (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified'))
+                  ? (log.transaction_datetime || log.verified_at || log.created_at)
+                  : log.created_at;
                 const icon = isDisp ? (cat === 'connected' ? '\u2705' : '\u274C') : {
                   call: '\u{1F4DE}', visit: '\u{1F3E0}', message: '\u2709\u{FE0F}',
                   follow_up: '\u{1F504}', donation: '\u{1F4B5}', note: '\u{1F4DD}',
@@ -419,9 +429,9 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
                   : log.action.replace(/_/g, ' ');
                 return (
                   <div key={log.id} className="timeline-item" style={isDisp && cat === 'connected' ? { borderLeftColor: '#16a34a' } : isDisp && cat === 'not_connected' ? { borderLeftColor: '#dc2626' } : {}}>
-                    <div className="time">{new Date(log.created_at).toLocaleString()}</div>
+                    <div className="time">{new Date(when).toLocaleString()}</div>
                     <div className="label">{icon} {label}</div>
-                    {log.notes && <div className="desc">{log.notes}</div>}
+                    {isThisMonth(when) && (log.remark || log.notes) && <div className="desc">{log.remark || log.notes}</div>}
                     {log.outcome && <div className="desc">Outcome: {log.outcome}</div>}
                     {log.scheduled_at && <div className="desc" style={{ color: 'var(--primary)' }}>Scheduled: {new Date(log.scheduled_at).toLocaleString()}</div>}
                     {log.amount_collected != null && <div className="desc" style={{ color: 'var(--success)' }}>Amount: ₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}

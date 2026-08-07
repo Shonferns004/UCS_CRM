@@ -20,6 +20,7 @@ import {
   getTotalCollectedByDonorAndWorker,
   getVerifiedCollection,
   getUnverifiedCollection,
+  getDailyCollectionByWorker,
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
@@ -1553,10 +1554,22 @@ export const getMyTarget = async (req, res) => {
       totalIncentive: 0,
       targetMet: false,
       isNewJoiner: monthsEmployed <= 3,
+      akiPerDay: [],
+      totalCollectionAKI: 0,
     };
     try {
       const achievements = await getAchievements(workerId, monthStart, monthEnd);
       const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+      const dailyCollection = await getDailyCollectionByWorker(workerId, monthStart, monthEnd);
+      const akiPerDay = Object.entries(dailyCollection || {})
+        .map(([date, collection]) => ({
+          date,
+          collection,
+          dayName: getDayName(date),
+          aki: calculateAKI(collection, getDayName(date)),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const totalCollectionAKI = akiPerDay.reduce((sum, r) => sum + r.aki, 0);
       const totalAKI = achievements.reduce((sum, r) => {
         return sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date));
       }, 0);
@@ -1564,9 +1577,11 @@ export const getMyTarget = async (req, res) => {
       if (monthlyTargetMet) {
         const akiPayout = incentive.isNewJoiner ? totalAKI : Math.round(totalAKI / 2);
         const monthlyIncentive = Math.round((monthlyAchievement - target) * 0.1);
-        incentive = { totalAKI, akiPayout, monthlyIncentive, totalIncentive: akiPayout + monthlyIncentive, targetMet: true, isNewJoiner: incentive.isNewJoiner };
+        incentive = { totalAKI, akiPayout, monthlyIncentive, totalIncentive: akiPayout + monthlyIncentive, targetMet: true, isNewJoiner: incentive.isNewJoiner, akiPerDay, totalCollectionAKI };
       } else {
         incentive.totalAKI = totalAKI;
+        incentive.akiPerDay = akiPerDay;
+        incentive.totalCollectionAKI = totalCollectionAKI;
       }
     } catch (err) { console.error('Incentive calculation error:', err); }
 
