@@ -25,4 +25,12 @@ export async function getDataOverview(params = {}) {
   return apiGet(`/ngo-admin/data-overview${qs ? '?' + qs : ''}`)
 }
 
+export function generateImpersonationCode() {
+  return apiPost('/impersonation-codes/generate')
+}
+
+export function listImpersonationCodes() {
+  return apiGet('/impersonation-codes')
+}
+
 export { setSession, clearSession, getToken, getUser } from '../../../api/auth'

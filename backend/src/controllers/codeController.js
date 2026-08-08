@@ -1,0 +1,46 @@
+import { createImpersonationCode, listImpersonationCodes } from '../models/impersonationCodeModel.js';
+
+const CODE_TTL_MINUTES = 5;
+
+export const generateCode = async (req, res) => {
+  try {
+    const ngoId = req.user.ngo_id || null;
+
+    let code = null;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = String(Math.floor(1000 + Math.random() * 9000));
+      const existing = await listImpersonationCodes(ngoId, 99999);
+      const dup = existing.some(
+        (c) => c.code === candidate && !c.is_used && new Date(c.expires_at).getTime() > Date.now()
+      );
+      if (!dup) { code = candidate; break; }
+    }
+    if (!code) return res.status(500).json({ message: 'Could not generate a unique code, try again' });
+
+    const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString();
+    const row = await createImpersonationCode({
+      code,
+      ngo_id: ngoId,
+      created_by: req.user.id || null,
+      expires_at: expiresAt,
+    });
+
+    return res.json({
+      id: row.id,
+      code: row.code,
+      expires_at: row.expires_at,
+      expires_in_minutes: CODE_TTL_MINUTES,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listCodes = async (req, res) => {
+  try {
+    const codes = await listImpersonationCodes(req.user.ngo_id || null, 50);
+    return res.json({ codes });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
