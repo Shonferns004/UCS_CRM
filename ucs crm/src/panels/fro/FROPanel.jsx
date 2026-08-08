@@ -23,7 +23,6 @@ import Donors from './pages/Donors'
 import Scheduled from './pages/Scheduled'
 import IncentiveInfo from './pages/IncentiveInfo'
 import History from './pages/History'
-import WhatsAppChat from './pages/WhatsAppChat'
 import FroTickets from './pages/Tickets'
 
 const NAV_BASE = [
@@ -58,6 +57,15 @@ function loadTodayStats() {
   } catch { return null; }
 }
 
+function WhatsAppComingSoon() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--ink-soft)' }}>
+      <MessageCircle size={40} strokeWidth={1.5} style={{ opacity: 0.4 }} />
+      <div style={{ fontSize: 14, fontWeight: 700 }}>Inbox coming soon</div>
+    </div>
+  );
+}
+
 function Sidebar({ open, onClose, waUnreadCounts }) {
   const location = useLocation()
   const nav = [...NAV_BASE]
@@ -80,10 +88,19 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
           <div><h1>UFS</h1><span>FRO Panel</span></div>
         </div>
         <nav className="sidebar-nav">
-          {nav.map(n => (
+          {nav.map(n => {
+            const waDisabled = n.id.startsWith('whatsapp');
+            return (
             <NavLink key={n.id} to={n.path} end
               className={() => `snav-item ${location.pathname + location.search === n.path ? 'active' : location.pathname === n.path && !n.path.includes('?') ? 'active' : ''}`}
-              onClick={() => onClose?.()}>
+              onClick={(e) => {
+                if (waDisabled) {
+                  e.preventDefault();
+                  toast('Inbox coming soon', 'info');
+                }
+                onClose?.();
+              }}
+              style={waDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}>
             <n.Icon size={18} strokeWidth={2} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>{n.label}</span>
@@ -104,7 +121,8 @@ function Sidebar({ open, onClose, waUnreadCounts }) {
               )}
             </span>
           </NavLink>
-          ))}
+            );
+          })}
         </nav>
       </aside>
     </>
@@ -751,8 +769,8 @@ export default function FROPanel() {
             <Route path="history" element={<History />} />
             <Route path="incentive-info" element={<IncentiveInfo />} />
             <Route path="tickets" element={<FroTickets />} />
-            <Route path="whatsapp-chat" element={<WhatsAppChat />} />
-            <Route path="whatsapp-chat/:project" element={<WhatsAppChat />} />
+            <Route path="whatsapp-chat" element={<WhatsAppComingSoon />} />
+            <Route path="whatsapp-chat/:project" element={<WhatsAppComingSoon />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
