@@ -1536,6 +1536,218 @@ export const getReceiptCount = async (req, res) => {
   }
 };
 
+// ─── Suspense receipt claims (FRO → Accounts) ────────────────
+// A FRO claims a current-month unlinked receipt on the dashboard. Accounts
+// verifies it here: the receipt is linked to a donor, the claiming FRO's
+// collected (fro_donor_log) and the donor's history/totals are credited, the
+// open assignment is closed, and any other claims on the same receipt are
+// auto-rejected (only one FRO wins).
+
+export const listReceiptClaims = async (req, res) => {
+  try {
+    const { status } = req.query;
+    let query = db.from('receipt_claims').select('*').order('claimed_at', { ascending: false });
+    if (status) query = query.eq('status', status);
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const claims = data || [];
+    const receiptIds = [...new Set(claims.map(c => c.receipt_id).filter(Boolean))];
+    const workerIds = [...new Set(claims.map(c => c.fro_worker_id).filter(Boolean))];
+    const donorIds = [...new Set(claims.map(c => c.donor_id).filter(Boolean))];
+
+    const receiptMap = {};
+    if (receiptIds.length > 0) {
+      const { data: receipts } = await db.from('receipts').select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, donor_id').in('id', receiptIds);
+      for (const r of receipts || []) receiptMap[r.id] = r;
+    }
+    const workerMap = {};
+    if (workerIds.length > 0) {
+      const { data: workers } = await db.from('users').select('id, name, login_id').in('id', workerIds);
+      for (const w of workers || []) workerMap[w.id] = w;
+    }
+    const donorMap = {};
+    if (donorIds.length > 0) {
+      const { data: donors } = await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds);
+      for (const d of donors || []) donorMap[d.id] = d;
+    }
+
+    return res.json(claims.map(c => ({
+      ...c,
+      receipt: receiptMap[c.receipt_id] || null,
+      claimant: workerMap[c.fro_worker_id]
+        ? { id: workerMap[c.fro_worker_id].id, name: workerMap[c.fro_worker_id].name, login_id: workerMap[c.fro_worker_id].login_id }
+        : null,
+      suggested_donor: c.donor_id ? (donorMap[c.donor_id] || null) : null,
+    })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const rejectReceiptClaim = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body || {};
+    const { data: claim, error: fetchErr } = await db
+      .from('receipt_claims')
+      .select('id, status')
+      .eq('id', id)
+      .single();
+    if (fetchErr || !claim) return res.status(404).json({ message: 'Claim not found' });
+    if (claim.status !== 'pending') return res.status(409).json({ message: `This claim is already ${claim.status}` });
+
+    const { data, error } = await db
+      .from('receipt_claims')
+      .update({ status: 'rejected', notes: notes || null })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const verifyReceiptClaim = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { donor_id: requestedDonorId } = req.body || {};
+
+    const { data: claim, error: cErr } = await db
+      .from('receipt_claims')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (cErr || !claim) return res.status(404).json({ message: 'Claim not found' });
+    if (claim.status === 'verified') return res.status(409).json({ message: 'This claim is already verified' });
+
+    const { data: receipt, error: rErr } = await db
+      .from('receipts')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, donor_id, pan_number, payment_id')
+      .eq('id', claim.receipt_id)
+      .single();
+    if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    // Resolve the donor: existing link > claim suggestion > accounts pick > create from receipt.
+    let donorId = receipt.donor_id || claim.donor_id || (requestedDonorId ? parseInt(requestedDonorId, 10) : null);
+    if (!donorId) {
+      const mobileDigits = (receipt.donor_mobile || '').replace(/\D/g, '');
+      if (mobileDigits.length >= 10) {
+        const { data: byMobile } = await db
+          .from('donor_profiles')
+          .select('id')
+          .eq('mobile_number', mobileDigits)
+          .maybeSingle();
+        donorId = byMobile?.id || null;
+      }
+    }
+    if (!donorId) {
+      const mobileDigits = (receipt.donor_mobile || '').replace(/\D/g, '');
+      const { data: newDonor, error: ndErr } = await db
+        .from('donor_profiles')
+        .insert({
+          name: receipt.donor_name || 'Unknown Donor',
+          mobile_number: mobileDigits.length >= 10 ? mobileDigits : null,
+        })
+        .select()
+        .single();
+      if (ndErr) throw ndErr;
+      donorId = newDonor.id;
+    }
+
+    const result = await db.transaction(async ({ from }) => {
+      await from('receipts').update({ donor_id: donorId }).eq('id', receipt.id);
+
+      const { data: donor } = await from('donor_profiles')
+        .select('total_amount, donation_count, last_donation_date')
+        .eq('id', donorId)
+        .single();
+      const amount = parseFloat(receipt.amount || 0);
+      const date = receipt.receipt_date || new Date().toISOString().slice(0, 10);
+      await from('donor_profiles')
+        .update({
+          total_amount: Math.round(((donor?.total_amount || 0) + amount) * 100) / 100,
+          donation_count: (donor?.donation_count || 0) + 1,
+          last_donation_date: !donor?.last_donation_date || date > donor.last_donation_date ? date : donor.last_donation_date,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', donorId);
+
+      const { data: assignment } = await from('fro_assignments')
+        .select('id')
+        .eq('donor_id', donorId)
+        .not('status', 'eq', 'reassigned')
+        .not('status', 'eq', 'donation_collected')
+        .not('status', 'eq', 'lead_done')
+        .not('status', 'eq', 'done')
+        .maybeSingle();
+
+      const { data: logRows } = await from('fro_donor_logs')
+        .insert({
+          assignment_id: assignment?.id || null,
+          donor_id: donorId,
+          fro_worker_id: claim.fro_worker_id,
+          action: 'donation',
+          amount_collected: amount,
+          accounts_status: 'verified',
+          verified_at: new Date().toISOString(),
+          verified_by: req.user.id,
+          created_by: req.user.id,
+          upi_transaction_id: receipt.payment_id || null,
+          transaction_datetime: date,
+          pan_number: receipt.pan_number || null,
+          notes: `Credited from suspense claim #${claim.id} (receipt ${receipt.receipt_no || receipt.id})`,
+        })
+        .select('id');
+      const logId = logRows?.[0]?.id || null;
+
+      if (assignment?.id) {
+        await from('fro_assignments').update({ status: 'donation_collected', last_contacted_at: new Date().toISOString() }).eq('id', assignment.id);
+      }
+
+      await from('receipt_claims')
+        .update({ status: 'rejected' })
+        .eq('receipt_id', receipt.id)
+        .neq('id', claim.id)
+        .eq('status', 'pending');
+
+      const { data: updated } = await from('receipt_claims')
+        .update({ status: 'verified', verified_at: new Date().toISOString(), verified_by: req.user.id, donor_id: donorId })
+        .eq('id', claim.id)
+        .select()
+        .single();
+
+      return { claim: updated, donor_id: donorId, log_id: logId, amount };
+    });
+
+    try {
+      const notifTitle = 'Claim Verified';
+      const notifBody = `Your claim of \u20B9${result.amount.toLocaleString('en-IN')} (${receipt.donor_name || 'donor'}) was verified and added to your collected.`;
+      let fcmLogged = false;
+      try {
+        const pushResult = await sendPushNotification(claim.fro_worker_id, notifTitle, notifBody, 'lead_verified', result.log_id);
+        fcmLogged = !!pushResult;
+      } catch (err) { console.error('FCM send error:', err.message); }
+      if (!fcmLogged) {
+        await db.from('notification_log').insert({
+          worker_id: claim.fro_worker_id,
+          type: 'lead_verified',
+          title: notifTitle,
+          body: notifBody,
+          fro_donor_log_id: result.log_id,
+          sent_at: new Date().toISOString(),
+        });
+      }
+    } catch (err) { console.error('Claim verify notification error:', err.message); }
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorsList = async (req, res) => {
   try {
     const { search, page = '1', limit = '50' } = req.query;

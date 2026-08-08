@@ -660,6 +660,154 @@ export const getMyCollections = async (req, res) => {
   }
 };
 
+// ─── Suspense receipts (this month only) + claims ────────────
+// IST current-month bounds shared by the suspense endpoints.
+function currentMonthBoundsIST() {
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(new Date().getTime() + istOffset);
+  const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0));
+  const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
+  const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999));
+  return { month: monthStart.toISOString().slice(0, 7), monthStart: monthStart.toISOString().slice(0, 10), monthEnd: monthEnd.toISOString().slice(0, 10) };
+}
+
+async function myProjectSet(workerId) {
+  const { allowedNgoIds } = await getMyStationScope(workerId);
+  if (allowedNgoIds.length === 0) return [];
+  const { data: ngos } = await db.from('ngos').select('id, name').in('id', allowedNgoIds);
+  return (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
+}
+
+export const getSuspenseReceipts = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const projectSet = await myProjectSet(workerId);
+    if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
+    const { month, monthStart, monthEnd } = currentMonthBoundsIST();
+
+    const { data: receipts, error } = await db
+      .from('receipts')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, created_at')
+      .is('donor_id', null)
+      .gte('receipt_date', monthStart)
+      .lte('receipt_date', monthEnd)
+      .in('project_id', projectSet)
+      .order('receipt_date', { ascending: false });
+    if (error) throw error;
+
+    const receiptIds = (receipts || []).map(r => r.id);
+    let claims = [];
+    if (receiptIds.length > 0) {
+      const { data: c, error: cErr } = await db
+        .from('receipt_claims')
+        .select('receipt_id, fro_worker_id, status')
+        .in('receipt_id', receiptIds);
+      if (cErr) throw cErr;
+      claims = c || [];
+    }
+
+    const claimCountByReceipt = {};
+    const myClaimStatusByReceipt = {};
+    for (const cl of claims) {
+      claimCountByReceipt[cl.receipt_id] = (claimCountByReceipt[cl.receipt_id] || 0) + 1;
+      if (cl.fro_worker_id === workerId && !myClaimStatusByReceipt[cl.receipt_id]) {
+        myClaimStatusByReceipt[cl.receipt_id] = cl.status;
+      }
+    }
+
+    const result = (receipts || []).map(r => ({
+      id: r.id,
+      receipt_no: r.receipt_no,
+      donor_name: r.donor_name,
+      donor_mobile: r.donor_mobile,
+      amount: parseFloat(r.amount || 0),
+      receipt_date: r.receipt_date,
+      project_id: r.project_id,
+      claim_count: claimCountByReceipt[r.id] || 0,
+      my_claim_status: myClaimStatusByReceipt[r.id] || null,
+    }));
+
+    return res.json({ month, receipts: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const claimSuspenseReceipt = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const receiptId = parseInt(req.params.receiptId, 10);
+    const { donor_id, notes } = req.body || {};
+    if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
+
+    const projectSet = await myProjectSet(workerId);
+
+    const { data: receipt, error: rErr } = await db
+      .from('receipts')
+      .select('id, donor_id, project_id, receipt_date, amount, donor_name')
+      .eq('id', receiptId)
+      .single();
+    if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
+    if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
+    if (projectSet.length > 0 && !projectSet.includes(receipt.project_id)) {
+      return res.status(403).json({ message: 'Receipt does not belong to your NGO' });
+    }
+
+    const { monthStart, month } = currentMonthBoundsIST();
+    if (!receipt.receipt_date || receipt.receipt_date.slice(0, 7) !== month) {
+      return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
+    }
+
+    const { data: existing } = await db
+      .from('receipt_claims')
+      .select('id, status')
+      .eq('receipt_id', receiptId)
+      .eq('fro_worker_id', workerId)
+      .maybeSingle();
+    if (existing) {
+      return res.status(409).json({
+        message: existing.status === 'verified' ? 'You already claimed this receipt and it was verified' : 'You already claimed this receipt',
+        claim_id: existing.id,
+        status: existing.status,
+      });
+    }
+
+    const { data: inserted, error: insErr } = await db
+      .from('receipt_claims')
+      .insert({
+        receipt_id: receiptId,
+        fro_worker_id: workerId,
+        project_id: receipt.project_id,
+        donor_id: donor_id ? parseInt(donor_id, 10) : null,
+        notes: notes || null,
+        status: 'pending',
+      })
+      .select()
+      .single();
+    if (insErr) {
+      if ((insErr.message || '').includes('duplicate')) return res.status(409).json({ message: 'You already claimed this receipt' });
+      throw insErr;
+    }
+
+    try {
+      const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
+      for (const u of (accounts || [])) {
+        await db.from('notification_log').insert({
+          worker_id: u.id,
+          type: 'claim_requested',
+          title: 'Suspense Claim',
+          body: `${req.user.name || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} (receipt #${receiptId}).`,
+          sent_at: new Date().toISOString(),
+        });
+      }
+    } catch (e) { console.error('Claim notification error:', e.message); }
+
+    return res.status(201).json({ message: 'Claim submitted for verification', claim: inserted });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getReactivatedDonors = async (req, res) => {
   try {
     const workerId = req.user.id;

@@ -36,6 +36,8 @@ import {
   getMyProgress,
   saveMyProgress,
   getReactivatedDonors,
+  getSuspenseReceipts,
+  claimSuspenseReceipt,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -55,6 +57,8 @@ router.use(requireFro);
 router.get('/my-stations', getMyStations);
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/collections', getMyCollections);
+router.get('/dashboard/suspense', getSuspenseReceipts);
+router.post('/dashboard/suspense/:receiptId/claim', claimSuspenseReceipt);
 router.get('/reactivated-donors', getReactivatedDonors);
 router.get('/donors', getMyDonors);
 router.get('/transferred-leads', getTransferredLeads);
