@@ -20,7 +20,7 @@ export const getLeadList = async (req, res) => {
         id, action, disposition_category, disposition_detail, amount_collected,
         payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at, verified_at,
         upi_transaction_id, transaction_datetime, payment_from, payment_mode,
-        assignment_id,
+        assignment_id, fro_worker_id,
         fro_assignments!inner(
           id,
           donor_id,
@@ -72,7 +72,7 @@ export const getLeadList = async (req, res) => {
       payment_from: r.payment_from || null,
       payment_mode: r.payment_mode || null,
       verified_at: r.verified_at || null,
-      agent_id: r.fro_assignments?.fro_worker_id,
+      agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
     }));
@@ -186,7 +186,7 @@ export const verifyLead = async (req, res) => {
     }
 
     // Notify FRO that their lead was verified (FCM + notification_log)
-    const froWorkerId = log.fro_assignments?.fro_worker_id;
+    const froWorkerId = log.fro_worker_id;
     const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
     if (froWorkerId) {
       try {
@@ -375,7 +375,7 @@ export const rejectLead = async (req, res) => {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
 
-    const froWorkerId = log.fro_assignments?.fro_worker_id;
+    const froWorkerId = log.fro_worker_id;
     const assignmentNgoId = log.fro_assignments?.ngo_id;
     const assignmentStation = log.fro_assignments?.station;
     const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
@@ -887,8 +887,9 @@ export const getDayEndReport = async (req, res) => {
     const { data: froLogs, error: fErr } = await db
       .from('fro_donor_logs')
       .select(`
-        amount_collected, accounts_status, verified_at, created_at,
-        fro_assignments!inner(fro_worker_id, workers!inner(id, name, login_id))
+        amount_collected, accounts_status, verified_at, created_at, fro_worker_id,
+        fro_assignments!inner(fro_worker_id),
+        workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id)
       `)
       .gte('created_at', dateFrom)
       .lte('created_at', dateTo);
@@ -898,9 +899,9 @@ export const getDayEndReport = async (req, res) => {
     let totalCollected = 0;
     let totalSubmitted = 0;
     for (const log of froLogs || []) {
-      const wid = log.fro_assignments?.fro_worker_id;
-      const wName = log.fro_assignments?.workers?.name || 'Unknown';
-      const wLogin = log.fro_assignments?.workers?.login_id || '';
+      const wid = log.fro_worker_id;
+      const wName = log.workers?.name || 'Unknown';
+      const wLogin = log.workers?.login_id || '';
       const amount = Number(log.amount_collected || 0);
       totalSubmitted += amount;
       if (log.accounts_status === 'verified') totalCollected += amount;

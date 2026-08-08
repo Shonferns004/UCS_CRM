@@ -537,6 +537,56 @@ export const getDashboard = async (req, res) => {
   }
 };
 
+// List this month's collections for the "Collected" card modal, showing each
+// donor and, when the collection came from another FRO's donor (work-as), the
+// owning FRO.
+export const getMyCollections = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+    const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+    const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
+    const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
+
+    const { data, error } = await db
+      .from('fro_donor_logs')
+      .select(`
+        id, donor_id, amount_collected, action, disposition_detail, accounts_status,
+        created_at, transaction_datetime, verified_at,
+        donor_profiles!inner(id, name, mobile_number),
+        fro_assignments!inner(fro_worker_id, workers!left(id, name))
+      `)
+      .eq('fro_worker_id', workerId)
+      .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+    if (error) throw error;
+
+    const collections = (data || [])
+      .map((l) => {
+        const amount = parseFloat(l.amount_collected || 0);
+        const collected_at = logCollectionDate(l);
+        return {
+          id: l.id,
+          donor_id: l.donor_id,
+          donor_name: l.donor_profiles?.name || 'Unknown',
+          donor_mobile: l.donor_profiles?.mobile_number || '',
+          amount_collected: amount,
+          collected_at,
+          owner_worker_id: l.fro_assignments?.fro_worker_id ?? null,
+          owner_name: l.fro_assignments?.workers?.name || null,
+          is_work_as: l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId,
+        };
+      })
+      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd))
+      .sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+
+    return res.json({ month: monthStart.slice(0, 7), collections });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getReactivatedDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -1229,6 +1279,18 @@ export const getDonorLogs = async (req, res) => {
       totalCollected = receipts.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
     }
 
+    // Resolve collector names so the UI can show "Collected by <name>" — the
+    // collector may differ from the assignment owner (work-as donations).
+    const collectorIds = [...new Set((logs || []).map((l) => l.fro_worker_id).filter(Boolean))];
+    const { data: collectors } = collectorIds.length > 0
+      ? await db.from('workers').select('id, name').in('id', collectorIds)
+      : { data: [] };
+    const collectorMap = {};
+    for (const w of collectors || []) collectorMap[w.id] = w.name;
+    for (const l of logs || []) {
+      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+    }
+
     return res.json({ logs, total_collected: totalCollected, next_schedule: nextSchedule });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1238,6 +1300,9 @@ export const getDonorLogs = async (req, res) => {
 export const createDonorLogHandler = async (req, res) => {
   try {
     const workerId = req.user.id;
+    // When working-as another FRO, the collection credit goes to the operator
+    // (imposter) while the donor/assignment stays with the impersonated FRO.
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : workerId;
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { action, notes, outcome, amount_collected, disposition_category, disposition_detail, scheduled_at, payment_screenshot_url, pan_number, donor_address, donor_dob, ngo_id, project_name, remark, upi_transaction_id, transaction_datetime } = req.body;
@@ -1252,7 +1317,7 @@ export const createDonorLogHandler = async (req, res) => {
     const logData = {
       assignment_id: assignment.id,
       donor_id: donorId,
-      fro_worker_id: workerId,
+      fro_worker_id: creditWorkerId,
       action,
       notes: notes || null,
       outcome: outcome || null,
@@ -1266,7 +1331,7 @@ export const createDonorLogHandler = async (req, res) => {
       upi_transaction_id: upi_transaction_id || null,
       transaction_datetime: transaction_datetime || null,
       accounts_status: null,
-      created_by: workerId,
+      created_by: creditWorkerId,
     };
 
     if (action === 'disposition' && disposition_detail === 'lead_done') {
@@ -1799,7 +1864,7 @@ export const getMyHistory = async (req, res) => {
       db
         .from('fro_donor_logs')
         .select('*, fro_assignments!inner(fro_worker_id, donor_id, station)')
-        .eq('fro_assignments.fro_worker_id', workerId)
+        .eq('fro_worker_id', workerId)
         .in('fro_assignments.station', stationNames)
         .order('created_at', { ascending: false })
         .limit(200),
@@ -2108,6 +2173,17 @@ export const getDonorHistory = async (req, res) => {
       .eq('donor_id', donorId)
       .order('receipt_date', { ascending: false });
 
+    // Resolve collector names ("Collected by <name>") on the logs.
+    const collectorIds = [...new Set((logs || []).map((l) => l.fro_worker_id).filter(Boolean))];
+    const { data: collectors } = collectorIds.length > 0
+      ? await db.from('workers').select('id, name').in('id', collectorIds)
+      : { data: [] };
+    const collectorMap = {};
+    for (const w of collectors || []) collectorMap[w.id] = w.name;
+    for (const l of logs || []) {
+      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+    }
+
     return res.json({ donor: donors || null, logs: logs || [], receipts: receipts || [] });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -2248,8 +2324,8 @@ export const getLiveStatuses = async (req, res) => {
         .in('worker_id', workerIds),
       db
         .from('fro_donor_logs')
-        .select('amount_collected, fro_assignments!inner(fro_worker_id), action, disposition_detail, accounts_status, created_at, verified_at')
-        .in('fro_assignments.fro_worker_id', workerIds)
+        .select('amount_collected, fro_worker_id, action, disposition_detail, accounts_status, created_at, verified_at')
+        .in('fro_worker_id', workerIds)
         .or(
           `and(action.eq.donation,created_at.gte.${todayStart},created_at.lte.${todayEnd}),` +
           `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart},verified_at.lte.${todayEnd}),` +
@@ -2273,7 +2349,7 @@ export const getLiveStatuses = async (req, res) => {
 
     const collectionMap = {};
     (collectionData.data || []).forEach(log => {
-      const wid = log.fro_assignments?.fro_worker_id;
+      const wid = log.fro_worker_id;
       if (wid) collectionMap[wid] = (collectionMap[wid] || 0) + parseFloat(log.amount_collected || 0);
     });
 
@@ -2508,6 +2584,17 @@ export const getFullDonorHistory = async (req, res) => {
       .select('*')
       .eq('donor_id', donorId)
       .order('receipt_date', { ascending: false });
+
+    // Resolve collector names ("Collected by <name>") on the logs.
+    const collectorIds = [...new Set((logs || []).map((l) => l.fro_worker_id).filter(Boolean))];
+    const { data: collectors } = collectorIds.length > 0
+      ? await db.from('workers').select('id, name').in('id', collectorIds)
+      : { data: [] };
+    const collectorMap = {};
+    for (const w of collectors || []) collectorMap[w.id] = w.name;
+    for (const l of logs || []) {
+      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+    }
 
     return res.json({ donor: donor || null, logs: logs || [], receipts: receipts || [] });
   } catch (error) {
