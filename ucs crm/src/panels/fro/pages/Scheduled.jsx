@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { CalendarClock, Clock, AlarmClock, AlertTriangle, ChevronRight, Phone, Search, Inbox } from 'lucide-react';
 import { getScheduled, getCallbacks } from '../api/donors';
 import DispositionModal from '../components/DispositionModal';
 import { SkeletonTable } from '../../../components/Skeleton';
@@ -8,15 +9,32 @@ const TABS = [
   { id: 'callback', label: 'Callback' },
 ];
 
-function getTimeColor(scheduledAt) {
-  const diff = new Date(scheduledAt) - new Date();
+const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+
+function fmtDur(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return '<1 min';
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return mm ? `${h}h ${mm}m` : `${h}h`;
+}
+
+function getTimeInfo(scheduledAt, now) {
+  if (!scheduledAt) return { label: 'Un-scheduled', bg: '#eef2ff', color: '#4338ca', rel: '—' };
+  const diff = new Date(scheduledAt).getTime() - now;
   const mins = diff / 60000;
-  if (diff < 0) return { bg:'#fef2f2', color:'#991b1b', label:'Overdue' };
-  if (mins <= 1) return { bg:'#ffedd5', color:'#9a3412', label:'Due now' };
-  if (mins <= 2) return { bg:'#fef3c7', color:'#92400e', label:'Due soon' };
-  if (mins <= 5) return { bg:'#fef9c3', color:'#854d0e', label:'Upcoming' };
-  if (mins <= 15) return { bg:'#f0fdf4', color:'#166534', label:'Scheduled' };
-  return { bg:'#f0fdf4', color:'#166534', label:'Scheduled' };
+  if (diff < 0) return { label: 'Overdue', bg: '#fee2e2', color: '#b91c1c', rel: `${fmtDur(-diff)} ago` };
+  if (mins <= 2) return { label: 'Due now', bg: '#ffedd5', color: '#c2410c', rel: `in ${fmtDur(diff)}` };
+  if (mins <= 15) return { label: 'Due soon', bg: '#fef3c7', color: '#b45309', rel: `in ${fmtDur(diff)}` };
+  if (mins <= 60) return { label: 'Upcoming', bg: '#dcfce7', color: '#15803d', rel: `in ${fmtDur(diff)}` };
+  return { label: 'Scheduled', bg: '#f0fdf4', color: '#166534', rel: `in ${fmtDur(diff)}` };
+}
+
+function fmtTime(scheduledAt) {
+  try {
+    return new Date(scheduledAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
 }
 
 export default function Scheduled() {
@@ -25,6 +43,13 @@ export default function Scheduled() {
   const [loading, setLoading] = useState(true);
   const [modalDonor, setModalDonor] = useState(null);
   const [refetch, setRefetch] = useState(0);
+  const [query, setQuery] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   const loadRows = () => {
     setLoading(true);
@@ -58,72 +83,162 @@ export default function Scheduled() {
 
   useEffect(() => { loadRows(); }, [refetch]);
 
-  const openModal = (row) => {
-    setModalDonor(row);
-  };
+  const { scheduledRows, callbackRows } = useMemo(() => {
+    const deduped = rows.filter((r, i, a) => i === a.findIndex(x => x.id === r.id));
+    return {
+      scheduledRows: deduped.filter(r => r.type === 'scheduled'),
+      callbackRows: deduped.filter(r => r.type === 'callback'),
+    };
+  }, [rows]);
 
-  const handlePopDone = () => {
-    setModalDonor(null);
-    setRefetch(n => n + 1);
-  };
+  const list = useMemo(() => {
+    const base = tab === 'scheduled' ? scheduledRows : callbackRows;
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? base.filter(r => (r.donor_name || '').toLowerCase().includes(q) || (r.donor_mobile || '').includes(q))
+      : base;
+    return [...filtered].sort((a, b) => {
+      const ta = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Infinity;
+      const tb = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Infinity;
+      return ta - tb;
+    });
+  }, [tab, scheduledRows, callbackRows, query]);
 
-  if (loading) return <SkeletonTable rows={8} />;
+  const stats = useMemo(() => {
+    const base = tab === 'scheduled' ? scheduledRows : callbackRows;
+    const s = { overdue: 0, soon: 0, upcoming: 0, none: 0 };
+    for (const r of base) {
+      if (!r.scheduled_at) { s.none++; continue; }
+      const mins = (new Date(r.scheduled_at).getTime() - now) / 60000;
+      if (mins < 0) s.overdue++;
+      else if (mins <= 15) s.soon++;
+      else s.upcoming++;
+    }
+    return s;
+  }, [tab, scheduledRows, callbackRows, now]);
 
-  const dedupedRows = rows.filter((r, i, a) => i === a.findIndex(x => x.id === r.id));
-  const scheduledRows = dedupedRows.filter(r => r.type === 'scheduled');
-  const callbackRows = dedupedRows.filter(r => r.type === 'callback');
-  const list = tab === 'scheduled' ? scheduledRows : callbackRows;
+  const CHIPS = [
+    { key: 'overdue', label: 'Overdue', value: stats.overdue, Icon: AlertTriangle, bg: '#fee2e2', color: '#b91c1c' },
+    { key: 'soon', label: 'Due in 15 min', value: stats.soon, Icon: AlarmClock, bg: '#ffedd5', color: '#c2410c' },
+    { key: 'upcoming', label: 'Upcoming', value: stats.upcoming, Icon: CalendarClock, bg: '#dcfce7', color: '#15803d' },
+    { key: 'none', label: 'Un-scheduled', value: stats.none, Icon: Clock, bg: '#eef2ff', color: '#4338ca' },
+  ];
+
+  const openModal = (row) => setModalDonor(row);
+  const handlePopDone = () => { setModalDonor(null); setRefetch(n => n + 1); };
+
+  if (loading) return <div style={{ padding: 18 }}><SkeletonTable rows={8} /></div>;
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-      {/* Tabs */}
-      <div style={{ display:'flex', borderBottom:'1px solid var(--line)', flexShrink:0 }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ padding:'10px 20px', border:'none', borderBottom: tab === t.id ? '2px solid var(--sage)' : '2px solid transparent', background:'transparent', fontSize:12, fontWeight:700, fontFamily:'inherit', cursor:'pointer', color: tab === t.id ? 'var(--sage)' : 'var(--ink-soft)' }}>
-            {t.label}
-         <span style={{ marginLeft:6, fontSize:10, color:'var(--ink-soft)' }}>({(t.id==='scheduled'?scheduledRows:callbackRows).length})</span>
-          </button>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Stat chips */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, padding: '14px 18px 4px', flexShrink: 0 }}>
+        {CHIPS.map(c => (
+          <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)', padding: '10px 14px' }}>
+            <span style={{ width: 30, height: 30, borderRadius: 9, background: c.bg, color: c.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <c.Icon size={15} />
+            </span>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.1 }}>{c.value}</div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>{c.label}</div>
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* Table */}
-      <div style={{ flex:1, overflowY:'auto' }}>
+      {/* Toolbar: segmented tabs + search */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '14px 18px', flexShrink: 0 }}>
+        <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 999, padding: 3 }}>
+          {TABS.map(t => {
+            const count = t.id === 'scheduled' ? scheduledRows.length : callbackRows.length;
+            const active = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{
+                  padding: '6px 16px', borderRadius: 999, border: 'none', fontFamily: 'inherit',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+                  background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)',
+                  boxShadow: active ? '0 1px 4px rgba(0,0,0,.18)' : 'none', transition: 'all .15s',
+                }}>
+                {t.label}
+                <span style={{
+                  minWidth: 17, padding: '0 5px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                  background: active ? 'rgba(255,255,255,.22)' : 'var(--line)', color: active ? '#fff' : 'var(--ink-soft)',
+                }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ position: 'relative' }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)' }} />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search name or mobile…"
+            style={{
+              padding: '7px 12px 7px 30px', border: '1px solid var(--line)', borderRadius: 999, background: 'var(--card-bg)',
+              fontSize: 12, fontFamily: 'inherit', outline: 'none', width: 210, color: 'var(--ink)',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* List */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '2px 18px 18px' }}>
         {list.length === 0 ? (
-          <div style={{ textAlign:'center', padding:40, fontSize:12, color:'var(--ink-soft)' }}>No {TABS.find(t => t.id === tab)?.label || tab} entries.</div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 220, gap: 10, color: 'var(--ink-soft)' }}>
+            <span style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Inbox size={24} />
+            </span>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{query ? 'No matching donors' : `No ${TABS.find(t => t.id === tab)?.label || ''} entries`}</div>
+            <div style={{ fontSize: 11 }}>{query ? 'Try a different name or mobile number.' : 'New scheduled contacts will appear here.'}</div>
+          </div>
         ) : (
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-            <thead>
-              <tr style={{ borderBottom:'1px solid var(--line)' }}>
-                <th style={{ textAlign:'left', padding:'8px 10px', fontSize:10, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Donor</th>
-                <th style={{ textAlign:'left', padding:'8px 10px', fontSize:10, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Mobile</th>
-                <th style={{ textAlign:'left', padding:'8px 10px', fontSize:10, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Schedule</th>
-                <th style={{ textAlign:'left', padding:'8px 10px', fontSize:10, fontWeight:600, textTransform:'uppercase', color:'var(--ink-soft)' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map(r => {
-                const st = r.scheduled_at ? getTimeColor(r.scheduled_at) : { bg:'#e0e7ff', color:'#4338ca', label:'Callback' };
-                return (
-                  <tr key={r.id} onClick={() => openModal(r)}
-                    style={{ borderBottom:'1px solid var(--line)', cursor:'pointer', transition:'background .1s' }}
-                    onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={{ padding:'8px 10px', fontWeight:600 }}>{r.donor_name || '—'}</td>
-                    <td style={{ padding:'8px 10px' }}>{r.donor_mobile || '—'}</td>
-                    <td style={{ padding:'8px 10px' }}>{r.scheduled_at ? new Date(r.scheduled_at).toLocaleString('en-GB') : '—'}</td>
-                    <td style={{ padding:'8px 10px' }}>
-                      <span style={{ display:'inline-block', padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:600, background:st.bg, color:st.color, textTransform:'capitalize' }}>{st.label}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {list.map(r => {
+              const info = getTimeInfo(r.scheduled_at, now);
+              const typePill = r.type === 'scheduled' ? { bg: '#dcfce7', color: '#166534' } : { bg: '#dbeafe', color: '#1e40af' };
+              return (
+                <div key={r.id} onClick={() => openModal(r)}
+                  onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                  onMouseOut={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.boxShadow = 'var(--shadow)'; e.currentTarget.style.transform = 'none'; }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                    background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)',
+                    boxShadow: 'var(--shadow)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s, border-color .12s',
+                  }}>
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#5B6B4E1A', color: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                    {initials(r.donor_name)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.donor_name || '—'}</span>
+                      <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: typePill.bg, color: typePill.color }}>
+                        {TABS.find(t => t.id === r.type)?.label || r.type}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink-soft)', marginTop: 3 }}>
+                      <Phone size={11} />
+                      <span>{r.donor_mobile || '—'}</span>
+                      {r.scheduled_at && <span style={{ color: 'var(--line)', margin: '0 3px' }}>•</span>}
+                      {r.scheduled_at && <span>{fmtTime(r.scheduled_at)}</span>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: info.bg, color: info.color }}>
+                      {info.label}
+                    </span>
+                    <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 3 }}>{info.rel}</div>
+                  </div>
+                  <ChevronRight size={16} style={{ color: 'var(--ink-soft)', flexShrink: 0 }} />
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Detail modal */}
       {modalDonor && (
         <DispositionModal
           donorId={modalDonor.id}
