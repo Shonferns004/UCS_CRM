@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, CheckCircle2, UserX, Smartphone, ChevronRight, Phone, Search, Inbox, MapPin } from 'lucide-react';
-import { getMyDonors, getDonorDetail, getFullDonorHistory, getDonorReceipts } from '../api/donors';
+import { getMyDonors, getDonorDetail, getDonorReceipts } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
 import ReceiptTemplate_MannCar from '../../accounts/components/ReceiptTemplate_MannCar';
@@ -66,7 +66,6 @@ export default function Donors() {
   const [modalLoading, setModalLoading] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
   const [historyFilter, setHistoryFilter] = useState('all');
-  const [unlocked, setUnlocked] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
   const [previewReceipt, setPreviewReceipt] = useState(null);
@@ -92,7 +91,6 @@ export default function Donors() {
     setModalDetail(null);
     setReceiptData(null);
     setHistoryFilter('all');
-    setUnlocked(false);
     setPreviewReceipt(null);
     setModalLoading(true);
     try {
@@ -115,35 +113,8 @@ export default function Donors() {
     setModalDetail(null);
     setReceiptData(null);
     setHistoryFilter('all');
-    setUnlocked(false);
     setPreviewReceipt(null);
   }, []);
-
-  const handleToggleLock = useCallback(async () => {
-    if (!modalDonor) return;
-    if (unlocked) {
-      setUnlocked(false);
-      setHistoryFilter('all');
-      setModalLoading(true);
-      try {
-        const data = await getDonorDetail(modalDonor.id, modalDonor.ngo_id);
-        setModalDetail(data);
-      } catch {
-        setModalDetail({ logs: [] });
-      }
-      setModalLoading(false);
-    } else {
-      setUnlocked(true);
-      setModalLoading(true);
-      try {
-        const data = await getFullDonorHistory(modalDonor.id, modalDonor.ngo_id, true);
-        setModalDetail(data);
-      } catch {
-        // keep existing
-      }
-      setModalLoading(false);
-    }
-  }, [modalDonor, unlocked]);
 
   const searchFiltered = donors.filter(d =>
     !search || (d.donor_name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -452,14 +423,10 @@ export default function Donors() {
             <div className="donor-modal-history-filters">
               {HISTORY_FILTERS.map(tab => (
                 <button key={tab.id} onClick={() => setHistoryFilter(tab.id)}
-                  className={`donor-modal-hf-btn ${historyFilter === tab.id ? 'active' : ''}`}
-                  style={(tab.id === 'tenyears' && !unlocked) ? { opacity: 0.5 } : {}}>
+                  className={`donor-modal-hf-btn ${historyFilter === tab.id ? 'active' : ''}`}>
                   {tab.label}
                 </button>
               ))}
-              <button className={`donor-modal-lock-toggle ${unlocked ? 'unlocked' : ''}`} onClick={handleToggleLock}>
-                {unlocked ? '\u{1F513} Unlocked' : '\u{1F512} Locked'}
-              </button>
             </div>
 
             <div className="donor-modal-logs">
@@ -516,17 +483,24 @@ export default function Donors() {
                           )}
                         </td>
                         <td>
-                          {l.accounts_status === 'verified' && (
-                            <button className="btn btn-sm" style={{ fontSize: 9, padding: '2px 6px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const rec = findReceiptForLog(l);
-                                if (rec) setPreviewReceipt(rec);
-                                else alert('No matching receipt found for this entry.');
-                              }}>
-                              View
-                            </button>
-                          )}
+                          {l.accounts_status === 'verified' && (() => {
+                            const rec = findReceiptForLog(l);
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {rec?.receipt_no && (
+                                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--ink)', fontWeight: 600 }}>{rec.receipt_no}</span>
+                                )}
+                                <button className="btn btn-sm" style={{ fontSize: 9, padding: '2px 6px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', alignSelf: 'flex-start' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (rec) setPreviewReceipt(rec);
+                                    else alert('No matching receipt found for this entry.');
+                                  }}>
+                                  View
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -534,27 +508,6 @@ export default function Donors() {
                 </table>
               )}
             </div>
-
-            {receiptData && receiptData.receipts && receiptData.receipts.length > 0 && (
-              <div style={{ borderTop: '1px solid var(--line)', marginTop: 8 }}>
-                <div style={{ padding: '10px 16px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>
-                  Receipts from Accounts ({receiptData.count}) &middot; Total: ₹{receiptData.totalAmount.toLocaleString('en-IN')}
-                </div>
-                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                  {receiptData.receipts.map(r => (
-                    <div key={r.id} onClick={() => setPreviewReceipt(r)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderTop: '1px solid var(--line)', fontSize: 11, cursor: 'pointer' }}
-                      onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
-                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                      <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--ink)', minWidth: 70 }}>{r.receipt_no}</span>
-                      <span style={{ color: 'var(--ink-soft)', minWidth: 90 }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
-                      <span style={{ fontWeight: 700, color: 'var(--sage)', marginLeft: 'auto' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</span>
-                      <span style={{ color: 'var(--sage)', fontWeight: 700, fontSize: 12 }}>&rsaquo;</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
