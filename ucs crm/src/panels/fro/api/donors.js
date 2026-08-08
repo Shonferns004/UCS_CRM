@@ -63,6 +63,10 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
+export async function getMyCollections() {
+  return api('/fro/dashboard/collections', { _prefix: 'ucs' })
+}
+
 export async function getRejectedLeads() {
   return api('/fro/rejected-leads', { _prefix: 'ucs' })
 }
@@ -130,8 +134,9 @@ export async function getFullDonorHistory(donorId, ngoId, unlockAll) {
   return api(`/fro/donors/${donorId}/full-history?${params}`, { _prefix: 'ucs' })
 }
 
-export async function getDonorReceipts(donorId) {
-  return api(`/fro/donors/${donorId}/receipts`, { _prefix: 'ucs' })
+export async function getDonorReceipts(donorId, ngoId) {
+  const params = ngoId ? `?ngo_id=${ngoId}` : ''
+  return api(`/fro/donors/${donorId}/receipts${params}`, { _prefix: 'ucs' })
 }
 
 export async function getReactivatedDonors(period) {
