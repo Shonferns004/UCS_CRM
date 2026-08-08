@@ -127,6 +127,10 @@ app.get(['/health', '/api/health'], async (req, res) => {
   }
 });
 
+app.get(['/api/shon', '/api/test-shon'], (req, res) => {
+  res.json({ message: 'hello how are you shon' });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
 app.use('/api/workers', workerBankImportRoutes);
