@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-export function Dropdown({ value, onChange, options, placeholder, renderOption, renderValue, customTrigger, customValue, onCustomChange, menuInset }) {
+export function Dropdown({ value, onChange, options, placeholder, renderOption, renderValue, customTrigger, customValue, onCustomChange, menuInset, searchable }) {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const inputRef = useRef(null)
+  const searchRef = useRef(null)
   const ref = useRef(null)
 
   useEffect(() => {
@@ -15,17 +17,27 @@ export function Dropdown({ value, onChange, options, placeholder, renderOption, 
     if (open && value === customTrigger && inputRef.current) inputRef.current.focus()
   }, [open, value, customTrigger])
 
+  useEffect(() => {
+    if (open && searchable && searchRef.current) searchRef.current.focus()
+  }, [open, searchable])
+
   const selected = options.find(o => (typeof o === 'string' ? o : o.value) === value)
+  const filtered = searchable && query ? options.filter(o => (typeof o === 'string' ? o : (o.label || o.value)).toLowerCase().includes(query.toLowerCase())) : options
 
   return (
     <div className={`dropdown${menuInset ? ' menu-inset' : ''}`} ref={ref}>
-      <button type="button" className="dropdown-trigger" onClick={() => setOpen(!open)}>
+      <button type="button" className="dropdown-trigger" onClick={() => { setOpen(!open); setQuery('') }}>
         {renderValue ? renderValue(selected) : (selected ? (typeof selected === 'string' ? selected : selected.label) : (placeholder || 'Select...'))}
         <ChevronDown />
       </button>
       {open && (
         <div className="dropdown-menu">
-          {options.map((opt) => {
+          {searchable && (
+            <div className="dropdown-item" style={{ padding: 6 }}>
+              <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search..." style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontFamily: 'inherit', fontSize: 13, outline: 'none', background: 'var(--paper)', color: 'var(--ink)' }} onClick={e => e.stopPropagation()} />
+            </div>
+          )}
+          {filtered.map((opt) => {
             const optValue = typeof opt === 'string' ? opt : opt.value
             const optLabel = typeof opt === 'string' ? opt : opt.label
             return (

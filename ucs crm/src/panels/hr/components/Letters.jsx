@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useHR } from '../store';
 import { Dropdown } from './ui';
-import { FileTxt } from '../icons';
+import { FileTxt, WhatsApp } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -14,6 +14,8 @@ const NGO_CONFIG = {
 };
 
 function getNgo(key) { return NGO_CONFIG[key] || NGO_CONFIG.BSCT; }
+
+function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
 function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const ngo = getNgo(ngoKey);
@@ -89,7 +91,16 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 </div>`;
 }
 
-function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey) {
+function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, docRows = []) {
+  const rows = docRows && docRows.length ? docRows : [{sr:1,doc:'',original:false,returned:false,remarks:''},{sr:2,doc:'',original:false,returned:false,remarks:''},{sr:3,doc:'',original:false,returned:false,remarks:''}];
+  const rowsHtml = rows.map(r => `
+<tr>
+<td style="border:1px solid #999;padding:14px 6px;text-align:center">${esc(r.sr)}</td>
+<td style="border:1px solid #999;padding:14px 6px">${esc(r.doc)}</td>
+<td style="border:1px solid #999;padding:14px 6px;text-align:center">${r.original ? '✓' : ''}</td>
+<td style="border:1px solid #999;padding:14px 6px;text-align:center">${r.returned ? '✓' : ''}</td>
+<td style="border:1px solid #999;padding:14px 6px">${esc(r.remarks)}</td>
+</tr>`).join('');
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
@@ -97,8 +108,6 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
   const subj = subjectText || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
   return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.3;color:#000;background:#fff;padding:25px 35px">
-<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
-<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
 <div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${subj}</div>
 <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
 <tr><td style="padding:2px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
@@ -118,9 +127,7 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey) {
 <th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:center;width:18%">Returned (✓)</th>
 <th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:24%">Remarks</th>
 </tr>
-<tr><td style="border:1px solid #999;padding:14px 6px;text-align:center">1</td><td style="border:1px solid #999;padding:14px 6px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
-<tr><td style="border:1px solid #999;padding:14px 6px;text-align:center">2</td><td style="border:1px solid #999;padding:14px 6px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
-<tr><td style="border:1px solid #999;padding:14px 6px;text-align:center">3</td><td style="border:1px solid #999;padding:14px 6px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
+${rowsHtml}
 </table>
 <div style="margin:12px 0 0 0;text-align:justify">
 <p style="margin:0 0 6px 0"><strong>Employee Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
@@ -139,8 +146,117 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey) {
 <div style="margin-top:4px"><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
 <div style="margin-top:4px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
 </div>
-<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
+<div style="margin-top:14px;padding-top:4px"><div style="border-top:1px solid #000;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
 </div>`;
+}
+
+function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows, editing, onToggleEdit, onDocRowChange, onAddDocRow, onRemoveDocRow }) {
+  const ngo = getNgo(ngoKey);
+  const r = w.role || w.department || 'Team Member';
+  const d = w.dept || w.department || 'General';
+  const jd = w.date_of_joining || w.created_at || '';
+  const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
+  const subj = subject || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
+  const inputStyle = { width: '100%', boxSizing: 'border-box', border: '1px solid #999', padding: '6px 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff' };
+  const th = { border: '1px solid #0B73C4', color: '#fff', padding: '4px 6px', textAlign: 'center' };
+  const thL = { ...th, textAlign: 'left' };
+  const td = { border: '1px solid #999', padding: editing ? '5px 6px' : '14px 6px', textAlign: 'center' };
+  const tdL = { ...td, textAlign: 'left' };
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto', fontFamily: "'Times New Roman', Times, serif", fontSize: 12, lineHeight: 1.3, color: '#000', background: '#fff', padding: '25px 35px' }}>
+      <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#082F5A', margin: '0 0 8px 0', textTransform: 'uppercase' }}>{subj}</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 8 }}>
+        <tbody>
+          <tr><td style={{ padding: '2px 0' }}><strong>Organization Name:</strong> {ngo.name}</td></tr>
+          <tr><td style={{ padding: '2px 0' }}><strong>Date of Submission:</strong> {dateText}</td></tr>
+        </tbody>
+      </table>
+      <div style={{ fontWeight: 700, color: '#082F5A', margin: '10px 0 4px 0' }}>Employee Details</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 8 }}>
+        <tbody>
+          <tr><td style={{ padding: '2px 0', width: '50%' }}><strong>Employee Name:</strong> {w.name}</td><td style={{ padding: '2px 0' }}><strong>Department:</strong> {d}</td></tr>
+          <tr><td style={{ padding: '2px 0' }}><strong>Designation:</strong> {r}</td><td style={{ padding: '2px 0' }}><strong>Date of Joining:</strong> {joiningDate}</td></tr>
+        </tbody>
+      </table>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontWeight: 700, color: '#082F5A', margin: '10px 0 4px 0' }}>
+        <span>Original Documents Submitted</span>
+        <button type="button" onClick={onToggleEdit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #0B73C4', background: '#fff', color: '#0B73C4', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{editing ? 'Done' : 'Edit'}</button>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: '#0B73C4', color: '#fff' }}>
+            <th style={{ ...thL, width: '8%' }}>Sr. No.</th>
+            <th style={{ ...thL, width: '32%' }}>Document Name</th>
+            <th style={{ ...th, width: '18%' }}>Original Submitted (✓)</th>
+            <th style={{ ...th, width: '18%' }}>Returned (✓)</th>
+            <th style={{ ...thL, width: '24%' }}>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {docRows.map((row, i) => (
+            <tr key={i}>
+              <td style={td}>
+                {editing
+                  ? <input type="number" value={row.sr} onChange={e => onDocRowChange(i, { sr: e.target.value })} style={{ ...inputStyle, width: 56, textAlign: 'center' }} />
+                  : row.sr}
+              </td>
+              <td style={tdL}>
+                {editing
+                  ? <input type="text" value={row.doc} placeholder="Document name" onChange={e => onDocRowChange(i, { doc: e.target.value })} style={inputStyle} />
+                  : (row.doc || '')}
+              </td>
+              <td style={td}>
+                {editing
+                  ? <input type="checkbox" checked={row.original} onChange={e => onDocRowChange(i, { original: e.target.checked })} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                  : (row.original ? '✓' : '')}
+              </td>
+              <td style={td}>
+                {editing
+                  ? <input type="checkbox" checked={row.returned} onChange={e => onDocRowChange(i, { returned: e.target.checked })} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                  : (row.returned ? '✓' : '')}
+              </td>
+              <td style={tdL}>
+                {editing
+                  ? <input type="text" value={row.remarks} placeholder="Remarks" onChange={e => onDocRowChange(i, { remarks: e.target.value })} style={inputStyle} />
+                  : (row.remarks || '')}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {editing && (
+        <div style={{ margin: '8px 0', display: 'flex', gap: 8 }}>
+          <button type="button" onClick={onAddDocRow} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #999', background: '#fff', color: '#082F5A', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>+ Add row</button>
+          {docRows.length > 1 && (
+            <button type="button" onClick={() => onRemoveDocRow(docRows.length - 1)} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #999', background: '#fff', color: '#b91c1c', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>− Remove last row</button>
+          )}
+        </div>
+      )}
+      <div style={{ margin: '12px 0 0 0', textAlign: 'justify' }}>
+        <p style={{ margin: '0 0 6px 0' }}><strong>Employee Declaration:</strong> I, <strong>{w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>{ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+        <tbody>
+          <tr><td style={{ padding: '2px 0' }}><strong>Employee Signature:</strong> _______________________</td></tr>
+        </tbody>
+      </table>
+      <div style={{ margin: '16px 0 0 0', border: '1px solid #082F5A', borderRadius: 6, padding: '10px 12px' }}>
+        <div style={{ fontWeight: 700, color: '#082F5A', textTransform: 'uppercase', marginBottom: 6 }}>HR Acknowledgement</div>
+        <div><strong>Received By (HR):</strong> {hrNameText}</div>
+        <div style={{ marginTop: 4 }}><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
+      </div>
+      <div style={{ margin: '12px 0 0 0', border: '1px solid #082F5A', borderRadius: 6, padding: '10px 12px' }}>
+        <div style={{ fontWeight: 700, color: '#082F5A', textTransform: 'uppercase', marginBottom: 6 }}>Document Return Acknowledgement <span style={{ fontWeight: 400, textTransform: 'none' }}>(To be filled at the time of return)</span></div>
+        <div>I confirm that I have received all my original documents listed above in good condition.</div>
+        <div style={{ marginTop: 4 }}><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+        <div style={{ marginTop: 4 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
+      </div>
+      <div style={{ marginTop: 14, paddingTop: 4 }}>
+        <div style={{ borderTop: '1px solid #000', marginBottom: 6 }}></div>
+        <div style={{ textAlign: 'center', fontSize: 12, color: '#6b7280' }}>    <strong>Regd. Address:</strong> {ngo.address}</div>
+      </div>
+    </div>
+  );
 }
 
 function buildExperienceLetterHTML(w, joiningDate, lastWorkingDate, hrNameText, subjectText, designation, ngoKey) {
@@ -231,6 +347,12 @@ export default function Letters() {
   const [loading, setLoading] = useState(true);
   const pdfRef = useRef(null);
   const pdfDocRef = useRef(null);
+  const [docRows, setDocRows] = useState([
+    { sr: 1, doc: '', original: false, returned: false, remarks: '' },
+    { sr: 2, doc: '', original: false, returned: false, remarks: '' },
+    { sr: 3, doc: '', original: false, returned: false, remarks: '' },
+  ]);
+  const [editDocs, setEditDocs] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -238,7 +360,7 @@ export default function Letters() {
     return () => { cancelled = true; };
   }, []);
 
-  const capturePdf = async (bodyText, letterType) => {
+  const capturePdf = async (bodyText, letterType, singlePage = false) => {
     const el = pdfRef.current;
     if (!el) return;
     el.style.display = 'block';
@@ -253,20 +375,29 @@ export default function Letters() {
     const pdfH = pdf.internal.pageSize.getHeight();
     const margin = 12;
     const printableW = pdfW - 2 * margin;
-    const imgH = (canvas.height * printableW) / canvas.width;
-    let remainingH = imgH;
-    let offsetY = 0;
-    for (let page = 0; remainingH > 0; page++) {
-      if (page > 0) pdf.addPage();
-      const pageH = Math.min(remainingH, pdfH - 2 * margin);
-      const srcH = (pageH * canvas.height) / imgH;
-      const pageCanvas = document.createElement('canvas');
-      pageCanvas.width = canvas.width;
-      pageCanvas.height = srcH;
-      pageCanvas.getContext('2d').drawImage(canvas, 0, offsetY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-      pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, printableW, pageH);
-      offsetY += srcH;
-      remainingH -= pageH;
+    if (singlePage) {
+      const availableH = pdfH - 2 * margin;
+      const naturalH = (canvas.height * printableW) / canvas.width;
+      const scale = Math.min(1, availableH / naturalH);
+      const drawW = printableW * scale;
+      const drawH = naturalH * scale;
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin + (printableW - drawW) / 2, margin, drawW, drawH);
+    } else {
+      const imgH = (canvas.height * printableW) / canvas.width;
+      let remainingH = imgH;
+      let offsetY = 0;
+      for (let page = 0; remainingH > 0; page++) {
+        if (page > 0) pdf.addPage();
+        const pageH = Math.min(remainingH, pdfH - 2 * margin);
+        const srcH = (pageH * canvas.height) / imgH;
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = srcH;
+        pageCanvas.getContext('2d').drawImage(canvas, 0, offsetY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+        pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, printableW, pageH);
+        offsetY += srcH;
+        remainingH -= pageH;
+      }
     }
     pdfDocRef.current = pdf;
   };
@@ -274,7 +405,7 @@ export default function Letters() {
   const generate = async () => {
     const w = workers.find(x => x.name === name);
     if (!w) return;
-    let body, today;
+    let body, today, odar = null;
     if (type === 'NOBSD') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
@@ -283,7 +414,8 @@ export default function Letters() {
     } else if (type === 'ODAR') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
-      body = buildODARDocumentHTML(w, dateText, hrNameText, subject, ngo);
+      body = buildODARDocumentHTML(w, dateText, hrNameText, subject, ngo, docRows);
+      odar = { w, dateText, hrNameText, subject, ngo };
       today = dateText;
     } else if (type === 'Joining letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
@@ -312,9 +444,9 @@ export default function Letters() {
       body = buildStyledLetterHTML(w, type, result.body, dateText, hrNameText, subject, type !== 'Offer letter', ngo);
       today = dateText;
     }
-    setOut({ today, body, type });
+    setOut({ today, body, type, odar });
     setShowDownload(false);
-    await capturePdf(body, type);
+    await capturePdf(body, type, type === 'ODAR');
     setShowDownload(true);
   };
 
@@ -324,13 +456,27 @@ export default function Letters() {
     }
   };
 
+  const shareWhatsApp = () => {
+    window.open(`https://wa.me/918879136938?text=${encodeURIComponent('hey')}`, '_blank');
+  };
+
   useEffect(() => {
     if (workers.length && !name) setName(workers[0].name);
   }, [workers, name]);
 
   useEffect(() => {
     if (showDownload) setShowDownload(false);
-  }, [name, type, letterDate, hrName, subject]);
+  }, [name, type, letterDate, hrName, subject, docRows]);
+
+  useEffect(() => {
+    if (!workers.length) return;
+    const t = setTimeout(generate, 400);
+    return () => clearTimeout(t);
+  }, [ngo, name, type, letterDate, hrName, subject, docRows, workers]);
+
+  const updateDocRow = (i, patch) => setDocRows(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addDocRow = () => setDocRows(rows => [...rows, { sr: rows.length + 1, doc: '', original: false, returned: false, remarks: '' }]);
+  const removeDocRow = (i) => setDocRows(rows => rows.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, sr: idx + 1 })));
 
   return (
     <div className="card">
@@ -351,7 +497,7 @@ export default function Letters() {
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
           </label>
           <label className="field">Volunteer
-            <Dropdown value={name} onChange={e=>setName(e.target.value)}
+            <Dropdown value={name} onChange={e=>setName(e.target.value)} searchable
               options={workers.map(w => ({value: w.name, label: w.name}))} />
           </label>
           <label className="field">Letter type
@@ -366,13 +512,30 @@ export default function Letters() {
           <label className="field">Designation
             <Dropdown value={subject} onChange={e => { if (e.target.value === '__add_role__') { const r = prompt('Enter role name:'); if (r && r.trim()) { setExtraRoles(p => [...p, r.trim()]); setSubject(r.trim()); } } else { setSubject(e.target.value); } }} options={[...[...new Set([...workers.map(w => w.role || w.department || 'Team Member'), ...extraRoles])].sort().map(v => ({ value: v, label: v })), { value: '__add_role__', label: '+ Add Role' }]} renderOption={o => o.value === '__add_role__' ? <span style={{color:'#dc2626',fontWeight:600}}>+ Add Role</span> : o.label} />
           </label>
-          <label className="field btn-field"><span>&nbsp;</span>{!showDownload ? <button className="btn btn-primary" onClick={generate}><FileTxt width={16}/> Generate</button> : <button className="btn btn-primary" onClick={downloadPdf} style={{background:'#dc2626',color:'#fff',fontWeight:600,border:'1px solid #b91c1c'}}><FileTxt width={16}/> Download PDF</button>}</label>
+          <label className="field btn-field"><span>&nbsp;</span>{showDownload && (
+            <span style={{ display: 'inline-flex', gap: 8 }}>
+              <button className="btn btn-primary" onClick={downloadPdf} title="Download PDF" style={{ background:'#dc2626', color:'#fff', border:'1px solid #b91c1c', padding:'9px 11px' }}><FileTxt size={18}/></button>
+              <button className="btn btn-primary" onClick={shareWhatsApp} title="Send via WhatsApp" style={{ background:'#25D366', color:'#fff', border:'1px solid #1da851', padding:'9px 11px' }}><WhatsApp size={18}/></button>
+            </span>
+          )}</label>
         </div>
         )}
 
         {out && (
           <div className="letter">
-            <div dangerouslySetInnerHTML={{ __html: out.body }} />
+            {type === 'ODAR' && out.odar ? (
+              <ODARDocumentPreview
+                {...out.odar}
+                docRows={docRows}
+                editing={editDocs}
+                onToggleEdit={() => setEditDocs(e => !e)}
+                onDocRowChange={updateDocRow}
+                onAddDocRow={addDocRow}
+                onRemoveDocRow={removeDocRow}
+              />
+            ) : (
+              <div dangerouslySetInnerHTML={{ __html: out.body }} />
+            )}
           </div>
         )}
       </div>
