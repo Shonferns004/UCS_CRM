@@ -5,6 +5,7 @@ import db from '../config/db.js';
 import { getWorkerByLoginId, getWorkerById } from '../models/workerModel.js';
 import { getUserByEmail, getUserByName } from '../models/userModel.js';
 import { getHRByEmail } from '../models/hrModel.js';
+import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
 
 dotenv.config();
 
@@ -288,7 +289,9 @@ export const impersonateFRO = async (req, res) => {
     const { worker_id } = req.body;
     if (!worker_id) return res.status(400).json({ message: 'worker_id is required' });
 
-    const target = await getWorkerById(parseInt(worker_id, 10));
+    // workers.id is a UUID — never parseInt it (that would truncate ids like
+    // "108a3f4e-..." to 108 and fail the uuid comparison in Postgres).
+    const target = await getWorkerById(String(worker_id).trim());
     if (!target) return res.status(404).json({ message: 'Worker not found' });
     if (target.is_active === false || target.employment_status === 'terminated') {
       return res.status(403).json({ message: 'Account is deactivated' });
@@ -311,6 +314,23 @@ export const impersonateFRO = async (req, res) => {
 
     if (!isSuper && req.user.ngo_id && target.ngo_id && req.user.ngo_id !== target.ngo_id) {
       return res.status(403).json({ message: 'Can only impersonate FROs of your own NGO' });
+    }
+
+    // Work-as FRO requires a valid admin-generated 4-digit code (single use, 5-min expiry).
+    const { code } = req.body;
+    const codeStr = String(code || '').trim();
+    if (!/^\d{4}$/.test(codeStr)) {
+      return res.status(400).json({ message: 'A 4-digit code is required to impersonate an FRO' });
+    }
+
+    const codeRow = await findValidImpersonationCode(codeStr, req.user.ngo_id || null);
+    if (!codeRow) {
+      return res.status(400).json({ message: 'Invalid or expired code' });
+    }
+
+    const used = await markImpersonationCodeUsed(codeRow.id, req.user.id || null);
+    if (!used) {
+      return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
     const token = jwt.sign(

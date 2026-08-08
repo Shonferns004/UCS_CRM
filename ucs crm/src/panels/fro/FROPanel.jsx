@@ -126,6 +126,9 @@ export default function FROPanel() {
   const [showWorkAs, setShowWorkAs] = useState(false)
   const [froList, setFroList] = useState([])
   const [workAsLoading, setWorkAsLoading] = useState(false)
+  const [pendingTarget, setPendingTarget] = useState(null)
+  const [codeInput, setCodeInput] = useState('')
+  const [codeSubmitting, setCodeSubmitting] = useState(false)
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
@@ -139,14 +142,25 @@ export default function FROPanel() {
     finally { setWorkAsLoading(false) }
   }
 
-  const doImpersonate = async (worker) => {
+  const pickImpersonateTarget = (worker) => {
+    setShowWorkAs(false)
+    setPendingTarget(worker)
+    setCodeInput('')
+  }
+
+  const doImpersonate = async () => {
+    if (!pendingTarget) return
+    setCodeSubmitting(true)
     try {
-      const res = await impersonateFRO(worker.id)
+      const res = await impersonateFRO(pendingTarget.id, codeInput.trim())
       startImpersonation(res.token, res.user)
+      setPendingTarget(null)
       window.location.reload()
     } catch (e) {
       console.error('Error:', e.message)
       alert(e.message || 'Could not switch FRO')
+    } finally {
+      setCodeSubmitting(false)
     }
   }
 
@@ -454,7 +468,7 @@ export default function FROPanel() {
                     <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>No other FROs available</div>
                   )}
                   {froList.map(w => (
-                    <div key={w.id} onClick={() => { setShowWorkAs(false); if (w.id !== user?.id) doImpersonate(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
+                    <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
                       <span style={{ fontWeight: 600 }}>{w.name}</span>
                       {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
                     </div>
@@ -497,6 +511,38 @@ export default function FROPanel() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
             <span><b>{userName}</b>'s account · you are {user?.imposter_name || 'an administrator'}. Collections credit to {userName}.</span>
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit work-as</button>
+          </div>
+        )}
+        {pendingTarget && (
+          <div className="modal-overlay" onClick={() => setPendingTarget(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360, padding: 22, borderRadius: 'var(--radius)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
+                Work as {pendingTarget.name}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
+                Enter the 4-digit code from your admin to authorize switching.
+              </div>
+              <input
+                value={codeInput}
+                onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
+                placeholder="••••"
+                inputMode="numeric"
+                autoFocus
+                style={{ width: '100%', textAlign: 'center', fontSize: 28, fontWeight: 700, letterSpacing: 12, padding: '10px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }}
+              />
+              <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+                <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+                <button
+                  className="btn"
+                  onClick={doImpersonate}
+                  disabled={codeInput.length !== 4 || codeSubmitting}
+                  style={{ flex: 1, justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
+                >
+                  {codeSubmitting ? 'Switching…' : 'Switch'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
         {showStats && (
