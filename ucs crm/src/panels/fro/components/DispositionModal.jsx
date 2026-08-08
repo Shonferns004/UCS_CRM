@@ -34,7 +34,7 @@ const isThisMonth = (dateStr) => {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 };
 
-export default function DispositionModal({ donorId, ngoId, donorName, donorMobile, scheduledAt: origScheduledAt, onClose, onDone }) {
+export default function DispositionModal({ donorId, ngoId, donorName, donorMobile, scheduledAt: origScheduledAt, onClose, onDone, onSnooze }) {
   const [profile, setProfile] = useState(null);
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -460,6 +460,13 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
         </div>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '12px 16px', borderTop: '1px solid var(--line)' }}>
+          {onSnooze && (
+            <button onClick={onSnooze} disabled={saving}
+              style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? .4 : 1, display: 'flex', alignItems: 'center', gap: 4, marginRight: 'auto' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>alarm</span>
+              Snooze 2 min
+            </button>
+          )}
           <button onClick={onClose} disabled={saving || !selected}
             style={{ padding: '7px 12px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: saving || !selected ? 'not-allowed' : 'pointer', opacity: saving ? .4 : selected ? 1 : 0.4 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving || !selected}

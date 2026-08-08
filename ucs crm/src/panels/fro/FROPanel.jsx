@@ -9,6 +9,7 @@ import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
 import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
+import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
 import { CallProvider } from './CallContext'
@@ -221,6 +222,7 @@ export default function FROPanel() {
   const notifRef = useRef(null);
   const pollRef = useRef(null);
   const poppedIds = useRef(new Set());
+  const snoozedUntil = useRef({});
   const [autoPopTick, setAutoPopTick] = useState(0);
 
   const markRead = async (notifId) => {
@@ -253,6 +255,16 @@ export default function FROPanel() {
     setRefetch(n => n + 1);
     loadNotifications();
     loadReminders();
+  };
+
+  const handleSnooze = () => {
+    if (modalDonor?.id) {
+      snoozedUntil.current[modalDonor.id] = Date.now() + 2 * 60 * 1000;
+      poppedIds.current.delete(modalDonor.id);
+    }
+    setModalNotifId(null);
+    setModalDonor(null);
+    toast('Snoozed — will pop up again in 2 min', 'info');
   };
 
   const loadNotifications = () => {
@@ -407,7 +419,8 @@ export default function FROPanel() {
 
   useEffect(() => {
     if (modalDonor) return;
-    const due = dueItems.filter(r => !poppedIds.current.has(r.id))
+    const now = Date.now();
+    const due = dueItems.filter(r => !poppedIds.current.has(r.id) && !(snoozedUntil.current[r.id] > now))
       .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
     if (due.length > 0) {
       poppedIds.current.add(due[0].id);
@@ -753,6 +766,7 @@ export default function FROPanel() {
           scheduledAt={modalDonor.scheduled_at}
           onClose={() => { setModalNotifId(null); setModalDonor(null); poppedIds.current.clear(); }}
           onDone={handlePopDone}
+          onSnooze={handleSnooze}
         />
       )}
       <NotificationDrawer topOffset={72}
