@@ -441,14 +441,16 @@ export default function Donors() {
                       <th>Date</th>
                       <th>Amount</th>
                       <th>Mode</th>
-                      <th>Payment ID</th>
                       <th>Status</th>
                       <th>Receipt</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredLogs.map(l => (
-                      <tr key={l.id}>
+                    {filteredLogs.map(l => {
+                      const rec = findReceiptForLog(l);
+                      return (
+                      <tr key={l.id} onClick={rec ? (e) => { e.stopPropagation(); setPreviewReceipt(rec); } : undefined}
+                        style={rec ? { cursor: 'pointer' } : {}}>
                         <td style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
                           {(() => {
                             const d = (l.action === 'donation' || (l.disposition_detail === 'lead_done' && l.accounts_status === 'verified'))
@@ -468,9 +470,6 @@ export default function Donors() {
                         <td style={{ fontSize: 11 }}>
                           {l.payment_mode || l.mode || '—'}
                         </td>
-                        <td style={{ fontSize: 10, fontFamily: 'monospace', color: '#6b7280' }}>
-                          {l.upi_transaction_id ? `*${l.upi_transaction_id}` : l.payment_id ? `*${l.payment_id}` : '—'}
-                        </td>
                         <td>
                           {l.accounts_status === 'verified' ? (
                             <span className="pill pill-green" style={{ fontSize: 9 }}>&#10003; Verified</span>
@@ -483,27 +482,16 @@ export default function Donors() {
                           )}
                         </td>
                         <td>
-                          {l.accounts_status === 'verified' && (() => {
-                            const rec = findReceiptForLog(l);
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                {rec?.receipt_no && (
-                                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--ink)', fontWeight: 600 }}>{rec.receipt_no}</span>
-                                )}
-                                <button className="btn btn-sm" style={{ fontSize: 9, padding: '2px 6px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', alignSelf: 'flex-start' }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (rec) setPreviewReceipt(rec);
-                                    else alert('No matching receipt found for this entry.');
-                                  }}>
-                                  View
-                                </button>
-                              </div>
-                            );
-                          })()}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--ink)', fontWeight: 600 }}>
+                              {rec?.receipt_no || '—'}
+                            </span>
+                            {rec && <ChevronRight size={13} style={{ color: 'var(--ink-soft)', flexShrink: 0 }} />}
+                          </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
