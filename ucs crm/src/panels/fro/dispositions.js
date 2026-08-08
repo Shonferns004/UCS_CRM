@@ -39,6 +39,7 @@ export const CONNECTED = [
   { id: 'dnd', label: 'DND (Do Not Disturb)' },
   { id: 'wrong_person', label: 'Wrong Person' },
   { id: 'call_disconnected', label: 'Call Disconnected' },
+  { id: 'not_possible', label: 'Not Possible' },
 ];
 
 export const ALL_DISPOSITIONS = [...NOT_CONNECTED, ...CONNECTED];
