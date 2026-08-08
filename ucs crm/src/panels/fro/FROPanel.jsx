@@ -7,7 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
-import { api } from '../../api/auth'
+import { api, impersonateFRO, getFroWorkersForImpersonation, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
@@ -121,6 +121,39 @@ export default function FROPanel() {
   const [waUnreadCounts, setWaUnreadCounts] = useState({ total: 0 })
   const [themeName, setThemeName] = useState(() => localStorage.getItem('fro_theme') || 'sky')
   const menuRef = useRef(null)
+  const workAsRef = useRef(null)
+
+  const [showWorkAs, setShowWorkAs] = useState(false)
+  const [froList, setFroList] = useState([])
+  const [workAsLoading, setWorkAsLoading] = useState(false)
+  const impersonating = isImpersonating()
+
+  const openWorkAs = async () => {
+    setShowWorkAs(v => !v)
+    if (froList.length > 0) return
+    setWorkAsLoading(true)
+    try {
+      const res = await getFroWorkersForImpersonation()
+      setFroList(res?.workers || [])
+    } catch (e) { console.error('Error:', e.message); }
+    finally { setWorkAsLoading(false) }
+  }
+
+  const doImpersonate = async (worker) => {
+    try {
+      const res = await impersonateFRO(worker.id)
+      startImpersonation(res.token, res.user)
+      window.location.reload()
+    } catch (e) {
+      console.error('Error:', e.message)
+      alert(e.message || 'Could not switch FRO')
+    }
+  }
+
+  const doExitImpersonation = () => {
+    exitImpersonation()
+    window.location.reload()
+  }
 
   useEffect(() => {
     if (themes[themeName]) {
@@ -306,10 +339,11 @@ export default function FROPanel() {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
       if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifList(false)
+      if (workAsRef.current && !workAsRef.current.contains(e.target)) setShowWorkAs(false)
     }
-    if (showMenu || showNotifList) document.addEventListener('mousedown', handler)
+    if (showMenu || showNotifList || showWorkAs) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showMenu, showNotifList])
+  }, [showMenu, showNotifList, showWorkAs])
 
   const loadReminders = () => {
     Promise.all([getScheduled(), getCallbacks()]).then(([scheduled, callbacks]) => {
@@ -408,13 +442,33 @@ export default function FROPanel() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
             </div>
+            <div ref={workAsRef} style={{ position: 'relative' }}>
+              <div onClick={openWorkAs} title={impersonating ? `Working as ${userName}` : 'Work as another FRO'} style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', background: impersonating ? 'var(--sage-soft, rgba(22,163,74,.15))' : undefined }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={impersonating ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M16 8h.01"/><path d="M8 12h8"/><path d="M8 8h.01"/><path d="M16 12h.01"/></svg>
+              </div>
+              {showWorkAs && (
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: 220, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, zIndex: 60 }}>
+                  <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Work as FRO</div>
+                  {workAsLoading && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>}
+                  {!workAsLoading && froList.length === 0 && (
+                    <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>No other FROs available</div>
+                  )}
+                  {froList.map(w => (
+                    <div key={w.id} onClick={() => { setShowWorkAs(false); if (w.id !== user?.id) doImpersonate(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
+                      <span style={{ fontWeight: 600 }}>{w.name}</span>
+                      {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
               <div className="avatar">{initials}</div>
               {showMenu && (
                 <div className="user-menu">
                   <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
                     <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
-                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>FRO</div>
+                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>{impersonating && user?.imposter_name ? `Working as FRO · you are ${user.imposter_name}` : 'FRO'}</div>
                   </div>
                   <div className="user-menu-divider" />
                   <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
@@ -438,6 +492,13 @@ export default function FROPanel() {
              onThemeChange={(key) => setThemeName(key)}
           />
         </header>
+        {impersonating && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+            <span><b>{userName}</b>'s account · you are {user?.imposter_name || 'an administrator'}. Collections credit to {userName}.</span>
+            <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit work-as</button>
+          </div>
+        )}
         {showStats && (
             <div className="modal-overlay" onClick={() => setShowStats(false)}>
               <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
