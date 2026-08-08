@@ -66,7 +66,7 @@ export default function Donors() {
       setModalDetail({ logs: [] });
     }
     try {
-      const data = await getDonorReceipts(d.id);
+      const data = await getDonorReceipts(d.id, d.ngo_id);
       setReceiptData(data);
     } catch {
       // receipts optional
@@ -350,6 +350,11 @@ export default function Donors() {
                         </td>
                         <td style={{ fontWeight: 700, color: 'var(--sage)' }}>
                           ₹{Number(l.amount_collected || 0).toLocaleString('en-IN')}
+                          {l.fro_worker_name && (
+                            <div style={{ fontWeight: 400, color: 'var(--ink-soft)', fontSize: 9, marginTop: 1 }}>
+                              by {l.fro_worker_name}
+                            </div>
+                          )}
                         </td>
                         <td style={{ fontSize: 11 }}>
                           {l.payment_mode || l.mode || '—'}

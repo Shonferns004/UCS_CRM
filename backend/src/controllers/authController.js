@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-import { getWorkerByLoginId } from '../models/workerModel.js';
+import db from '../config/db.js';
+import { getWorkerByLoginId, getWorkerById } from '../models/workerModel.js';
 import { getUserByEmail, getUserByName } from '../models/userModel.js';
 import { getHRByEmail } from '../models/hrModel.js';
 
@@ -275,5 +276,102 @@ export const unifiedLogin = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: 'Login failed' });
+  }
+};
+
+// Super admin, NGO admin, or FRO may "work as" an FRO. The impersonated token
+// keeps the operator's identity (imposter_id) so collection credit, accounts
+// verification, and notifications follow the operator, while donor/assignment
+// ownership follows the impersonated FRO (token id).
+export const impersonateFRO = async (req, res) => {
+  try {
+    const { worker_id } = req.body;
+    if (!worker_id) return res.status(400).json({ message: 'worker_id is required' });
+
+    const target = await getWorkerById(parseInt(worker_id, 10));
+    if (!target) return res.status(404).json({ message: 'Worker not found' });
+    if (target.is_active === false || target.employment_status === 'terminated') {
+      return res.status(403).json({ message: 'Account is deactivated' });
+    }
+
+    const targetDept = String(target.department || '').toLowerCase().trim();
+    if (targetDept !== 'fro') {
+      return res.status(400).json({ message: 'Only FRO workers can be impersonated' });
+    }
+
+    const operatorRole = req.user.role;
+    const operatorDept = String(req.user.department || '').toLowerCase().trim();
+    const isSuper = operatorRole === 'super_admin' || operatorRole === 'master';
+    const isNgoAdmin = operatorRole === 'admin' || operatorDept === 'ngo admin';
+    const isOperatorFro = operatorRole === 'fro' || operatorDept === 'fro';
+
+    if (!isSuper && !isNgoAdmin && !isOperatorFro) {
+      return res.status(403).json({ message: 'Not allowed to impersonate an FRO' });
+    }
+
+    if (!isSuper && req.user.ngo_id && target.ngo_id && req.user.ngo_id !== target.ngo_id) {
+      return res.status(403).json({ message: 'Can only impersonate FROs of your own NGO' });
+    }
+
+    const token = jwt.sign(
+      {
+        id: target.id,
+        login_id: target.login_id,
+        ngo_id: target.ngo_id,
+        role: 'fro',
+        department: target.department || 'fro',
+        name: target.name,
+        impersonation: true,
+        imposter_id: req.user.id,
+        imposter_name: req.user.name || '',
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: TOKEN_EXPIRY }
+    );
+
+    return res.json({
+      token,
+      role: 'fro',
+      user: {
+        id: target.id,
+        name: target.name,
+        email: target.email,
+        login_id: target.login_id,
+        ngo_id: target.ngo_id,
+        role: 'fro',
+        department: target.department,
+        impersonation: true,
+        imposter_id: req.user.id,
+        imposter_name: req.user.name || '',
+      },
+      message: `Working as ${target.name}`,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// FROs the current user is allowed to impersonate (for the "Work as" picker).
+export const getFroWorkersForImpersonation = async (req, res) => {
+  try {
+    const operatorRole = req.user.role;
+    const operatorDept = String(req.user.department || '').toLowerCase().trim();
+    const isSuper = operatorRole === 'super_admin' || operatorRole === 'master';
+
+    let query = db
+      .from('workers')
+      .select('id, name, login_id, ngo_id, department')
+      .ilike('department', 'fro');
+
+    if (!isSuper && req.user.ngo_id) {
+      query = query.eq('ngo_id', req.user.ngo_id);
+    }
+
+    const { data, error } = await query.order('name', { ascending: true });
+    if (error) throw error;
+
+    return res.json({ workers: (data || []).filter((w) => w.id !== req.user.id) });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 };

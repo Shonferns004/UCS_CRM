@@ -67,3 +67,43 @@ export async function login(identifier, password) {
     _prefix: 'ucs',
   })
 }
+
+export async function impersonateFRO(workerId) {
+  return api('/auth/impersonate', {
+    method: 'POST',
+    body: JSON.stringify({ worker_id: workerId }),
+    _prefix: 'ucs',
+  })
+}
+
+export async function getFroWorkersForImpersonation() {
+  return api('/auth/fro-workers', { _prefix: 'ucs' })
+}
+
+export function isImpersonating() {
+  const u = getUser('ucs')
+  return !!(u && u.impersonation)
+}
+
+// Switch to an impersonated FRO session, remembering the original session so we
+// can switch back.
+export function startImpersonation(token, user) {
+  const origToken = getToken('ucs')
+  const origUser = getUser('ucs')
+  if (origToken) localStorage.setItem('ucs_original_token', origToken)
+  if (origUser) localStorage.setItem('ucs_original_user', JSON.stringify(origUser))
+  setSession('ucs', token, user)
+}
+
+// Restore the pre-impersonation session.
+export function exitImpersonation() {
+  const t = localStorage.getItem('ucs_original_token')
+  const u = localStorage.getItem('ucs_original_user')
+  if (t) {
+    setSession('ucs', t, u ? JSON.parse(u) : null)
+  } else {
+    clearSession('ucs')
+  }
+  localStorage.removeItem('ucs_original_token')
+  localStorage.removeItem('ucs_original_user')
+}
