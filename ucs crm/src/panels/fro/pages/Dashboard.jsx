@@ -9,6 +9,16 @@ import { useCall } from '../CallContext'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
 
+const fmtStamp = (v) => {
+  if (!v) return '—'
+  const iso = String(v)
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(iso) || /^\d{4}-\d{2}-\d{2}T00:00:00(?:\.\d+)?Z$/.test(iso)
+  if (isDateOnly) {
+    return new Date(iso.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+  return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
   const m = Math.floor(seconds / 60)
@@ -765,7 +775,7 @@ export default function Dashboard() {
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(d.amount)}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(d.date).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{fmtStamp(d.date)}</div>
                     </div>
                   </div>
                 ))
@@ -930,7 +940,7 @@ export default function Dashboard() {
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(c.amount_collected)}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(c.collected_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{fmtStamp(c.collected_at)}</div>
                     </div>
                   </div>
                 ))
