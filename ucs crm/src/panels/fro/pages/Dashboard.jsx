@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { getMyDashboard, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
+import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
@@ -110,6 +110,9 @@ export default function Dashboard() {
   const [monthlyDonors, setMonthlyDonors] = useState([])
   const [showMonthlyModal, setShowMonthlyModal] = useState(false)
   const [assignedView, setAssignedView] = useState('total')
+  const [showCollections, setShowCollections] = useState(false)
+  const [collectionsData, setCollectionsData] = useState(null)
+  const [collectionsLoading, setCollectionsLoading] = useState(false)
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -187,6 +190,20 @@ export default function Dashboard() {
       alert(err.message)
     } finally {
       setSending(false)
+    }
+  }
+
+  const openCollections = async () => {
+    setShowCollections(true)
+    setCollectionsLoading(true)
+    try {
+      const res = await getMyCollections()
+      setCollectionsData(res || { collections: [], month: '' })
+    } catch (err) {
+      console.error('Error:', err.message)
+      setCollectionsData({ collections: [], month: '' })
+    } finally {
+      setCollectionsLoading(false)
     }
   }
 
@@ -295,7 +312,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: '1.5px solid var(--sage)', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
+        <div className="card" onClick={openCollections} style={{ marginBottom: 0, padding: '16px 18px', border: '1.5px solid var(--sage)', background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)', cursor: 'pointer', transition: 'transform .12s, box-shadow .12s' }} onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.06)' }} onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
             <Icon color="var(--sage)">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="17" y2="12"/><path d="M17 6v12"/>
@@ -309,6 +326,9 @@ export default function Dashboard() {
           {achieved_target != null && (
             <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 500 }}>Admin target: ₹{Number(achieved_target).toLocaleString('en-IN')}</div>
           )}
+          <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            View collections →
+          </div>
         </div>
 
         <div className="card" style={{ marginBottom: 0, padding: '16px 18px', border: `1.5px solid ${remaining > 0 ? '#e53e3e' : 'var(--sage)'}`, background: remaining > 0 ? 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)' }}>
@@ -699,7 +719,7 @@ export default function Dashboard() {
       </div>
 
       {barData.length > 0 && (
-        <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
           <div className="card" style={{ marginBottom: 0, flex: 7 }}>
             <div className="card-head"><h3>Target vs Collection</h3></div>
             <div className="card-pad" style={{ width:'100%', height:220 }}>
@@ -742,6 +762,58 @@ export default function Dashboard() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showCollections && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
+          onClick={() => setShowCollections(false)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
+                  {collectionsLoading ? 'Loading…' : `${collectionsData?.month || ''} · ${collectionsData?.collections?.length || 0} collection${collectionsData?.collections?.length === 1 ? '' : 's'}`}
+                </div>
+              </div>
+              <button onClick={() => setShowCollections(false)}
+                style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
+                ×
+              </button>
+            </div>
+            <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
+              {collectionsLoading ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
+              ) : (collectionsData?.collections || []).length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collections this month</div>
+              ) : (
+                (collectionsData?.collections || []).map(c => (
+                  <div key={c.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
+                    background: 'var(--bg)', border: '1px solid var(--line)',
+                  }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: c.is_work_as ? '#f59e0b' : 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                      {c.donor_name?.charAt(0) || '?'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</div>
+                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{c.donor_mobile || '—'}</div>
+                      {c.is_work_as && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3, fontSize: 8.5, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', padding: '1px 6px', borderRadius: 999 }}>
+                          from {c.owner_name || 'another FRO'}'s donor
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(c.amount_collected)}</div>
+                      <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{new Date(c.collected_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
