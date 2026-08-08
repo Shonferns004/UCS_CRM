@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { createReceipt, findReceiptByLogId, listAllReceipts } from '../models/receiptModel.js';
+import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
 import XLSX from 'xlsx';
@@ -20,7 +20,7 @@ export const getLeadList = async (req, res) => {
         id, action, disposition_category, disposition_detail, amount_collected,
         payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at, verified_at,
         upi_transaction_id, transaction_datetime, payment_from, payment_mode,
-        assignment_id,
+        assignment_id, fro_worker_id,
         fro_assignments!inner(
           id,
           donor_id,
@@ -72,7 +72,7 @@ export const getLeadList = async (req, res) => {
       payment_from: r.payment_from || null,
       payment_mode: r.payment_mode || null,
       verified_at: r.verified_at || null,
-      agent_id: r.fro_assignments?.fro_worker_id,
+      agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
     }));
@@ -186,7 +186,7 @@ export const verifyLead = async (req, res) => {
     }
 
     // Notify FRO that their lead was verified (FCM + notification_log)
-    const froWorkerId = log.fro_assignments?.fro_worker_id;
+    const froWorkerId = log.fro_worker_id;
     const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
     if (froWorkerId) {
       try {
@@ -375,7 +375,7 @@ export const rejectLead = async (req, res) => {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
 
-    const froWorkerId = log.fro_assignments?.fro_worker_id;
+    const froWorkerId = log.fro_worker_id;
     const assignmentNgoId = log.fro_assignments?.ngo_id;
     const assignmentStation = log.fro_assignments?.station;
     const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
@@ -633,8 +633,56 @@ export const getReceipt = async (req, res) => {
 
 export const getReceiptList = async (req, res) => {
   try {
-    const receipts = await listAllReceipts();
-    return res.json(receipts);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const search = (req.query.search || '').trim();
+    const project = (req.query.project || '').trim();
+    const link = req.query.link === 'unlinked' ? 'unlinked' : (req.query.link === 'linked' ? 'linked' : '');
+
+    // Cheap global aggregates + project options (unfiltered).
+    const statsRes = await db._pool.query(
+      `SELECT count(*)::int AS count,
+              COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
+              count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
+       FROM receipts`
+    );
+    const projectsRes = await db._pool.query(
+      `SELECT project_id, count(*)::int AS n FROM receipts GROUP BY project_id ORDER BY n DESC`
+    );
+
+    const where = [];
+    const params = [];
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(`(donor_name ILIKE $${params.length} OR receipt_no ILIKE $${params.length})`);
+    }
+    if (project) {
+      params.push(project);
+      where.push(`project_id = $${params.length}`);
+    }
+    if (link === 'linked') where.push('donor_id IS NOT NULL');
+    if (link === 'unlinked') where.push('donor_id IS NULL');
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+    const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
+
+    params.push(limit, (page - 1) * limit);
+    const rowsRes = await db._pool.query(
+      `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+              receipt_date, mode, payment_id, bank_name, address, pan_number, email,
+              donor_id, agent_name, sent, sent_at, created_at
+       FROM receipts ${whereSql}
+       ORDER BY created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    return res.json({
+      data: rowsRes.rows,
+      total: totalRes.rows[0].n,
+      stats: statsRes.rows[0],
+      projects: projectsRes.rows.map(p => p.project_id),
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -839,8 +887,9 @@ export const getDayEndReport = async (req, res) => {
     const { data: froLogs, error: fErr } = await db
       .from('fro_donor_logs')
       .select(`
-        amount_collected, accounts_status, verified_at, created_at,
-        fro_assignments!inner(fro_worker_id, workers!inner(id, name, login_id))
+        amount_collected, accounts_status, verified_at, created_at, fro_worker_id,
+        fro_assignments!inner(fro_worker_id),
+        workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id)
       `)
       .gte('created_at', dateFrom)
       .lte('created_at', dateTo);
@@ -850,9 +899,9 @@ export const getDayEndReport = async (req, res) => {
     let totalCollected = 0;
     let totalSubmitted = 0;
     for (const log of froLogs || []) {
-      const wid = log.fro_assignments?.fro_worker_id;
-      const wName = log.fro_assignments?.workers?.name || 'Unknown';
-      const wLogin = log.fro_assignments?.workers?.login_id || '';
+      const wid = log.fro_worker_id;
+      const wName = log.workers?.name || 'Unknown';
+      const wLogin = log.workers?.login_id || '';
       const amount = Number(log.amount_collected || 0);
       totalSubmitted += amount;
       if (log.accounts_status === 'verified') totalCollected += amount;
@@ -912,12 +961,38 @@ function normalizeReceiptDate(val) {
   return null;
 }
 
+export const getImportNgoOptions = async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('ngos')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return res.json((data || []).map(n => ({ id: n.id, name: n.name })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const importReceipts = async (req, res) => {
   try {
-    const { receipts } = req.body;
+    const { receipts, ngo_id } = req.body;
     if (!receipts || !Array.isArray(receipts) || receipts.length === 0) {
       return res.status(400).json({ message: 'No receipts data provided' });
     }
+    if (!ngo_id) {
+      return res.status(400).json({ message: 'Please select the NGO this receipt batch belongs to' });
+    }
+    const { data: ngoRow, error: ngoErr } = await db
+      .from('ngos')
+      .select('id, name, is_active')
+      .eq('id', ngo_id)
+      .single();
+    if (ngoErr || !ngoRow || !ngoRow.is_active) {
+      return res.status(400).json({ message: 'Selected NGO is invalid or inactive' });
+    }
+    const batchProjectId = ngoRow.name.toLowerCase();
 
     const parsed = receipts.map(r => {
       const row = {};
@@ -959,6 +1034,8 @@ export const importReceipts = async (req, res) => {
     if (parsed.length === 0) {
       return res.status(400).json({ message: 'No valid receipts found after filtering' });
     }
+
+    for (const p of parsed) p.parsed.project_id = batchProjectId;
 
     // Duplicate check against DB (batched at 100)
     const incomingNos = [...new Set(parsed.map(p => p.parsed.receipt_no).filter(Boolean))];
@@ -1158,7 +1235,7 @@ export const importReceipts = async (req, res) => {
             const ASSIGN_BATCH = 1000;
             for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
               const { data, error: asgnErr } = await from('fro_assignments')
-                .select('id, donor_id, fro_worker_id, assigned_at')
+                .select('id, donor_id, fro_worker_id, ngo_id, assigned_at')
                 .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
                 .not('status', 'eq', 'reassigned')
                 .not('status', 'eq', 'donation_collected')
@@ -1168,9 +1245,13 @@ export const importReceipts = async (req, res) => {
               openAssignments.push(...(data || []));
             }
 
+            // Only credit an assignment that belongs to the selected NGO, so a
+            // BSCT receipt never closes/credits an AFLF or MANN lead for the
+            // same donor.
             const assignmentByDonor = {};
             for (const a of openAssignments) {
               if (!a.fro_worker_id) continue;
+              if (a.ngo_id !== ngo_id) continue;
               const cur = assignmentByDonor[a.donor_id];
               if (!cur || new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) assignmentByDonor[a.donor_id] = a;
             }
@@ -1366,12 +1447,43 @@ const deleteLinkedLogs = async (logIds) => {
   return deleted;
 };
 
+const cleanupImportAutoCredits = async () => {
+  // Import auto-credit logs are never linked via receipts.log_id — they only
+  // carry the assignment_id plus this notes marker. Deleting the receipts
+  // alone leaves them (and their closed assignments) behind, which would both
+  // keep old wrong FRO credits and block a re-upload from crediting again.
+  let cleaned = 0;
+  while (true) {
+    const { data: logs } = await db
+      .from('fro_donor_logs')
+      .select('id, assignment_id')
+      .ilike('notes', 'Auto-credited from imported receipt%')
+      .limit(1000);
+    const rows = logs || [];
+    if (rows.length === 0) break;
+    const ids = rows.map(r => r.id);
+    const assignmentIds = [...new Set(rows.map(r => r.assignment_id).filter(Boolean))];
+    try { await db.from('notification_log').delete().in('fro_donor_log_id', ids); } catch (e) { console.warn('notification_log cleanup skipped:', e.message); }
+    const { data: deleted } = await db.from('fro_donor_logs').delete().in('id', ids).select('id');
+    cleaned += deleted?.length || 0;
+    if (assignmentIds.length > 0) {
+      const { error } = await db.from('fro_assignments')
+        .update({ status: 'pending', updated_at: new Date().toISOString() })
+        .in('id', assignmentIds)
+        .eq('status', 'donation_collected');
+      if (error) console.warn('assignment reopen skipped:', error.message);
+    }
+  }
+  return cleaned;
+};
+
 export const clearReceipts = async (req, res) => {
   try {
     const batch = req.query.batch ? parseInt(req.query.batch) : null;
     const shouldReverse = req.query.reverse === '1';
 
     const reversed = batch ? (shouldReverse ? await reverseDonorTotals() : 0) : await reverseDonorTotals();
+    const cleanedAutoCredits = (batch ? shouldReverse : true) ? await cleanupImportAutoCredits() : 0;
 
     let deleted = 0, remaining = 0;
     let deletedLogs = 0;
@@ -1402,7 +1514,7 @@ export const clearReceipts = async (req, res) => {
       deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
     }
 
-    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed, deletedLogs });
+    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed, deletedLogs, cleanedAutoCredits });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
