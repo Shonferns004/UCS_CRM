@@ -809,6 +809,15 @@ export const claimSuspenseReceipt = async (req, res) => {
   }
 };
 
+// OR-groups matching donations / verified lead-dones on their ACTUAL collection
+// date (imported receipts carry the real date in transaction_datetime; verified
+// lead-dones count on verified_at), falling back to created_at — mirrors
+// logCollectionDate(). Flat form (no nested or()) for the query builder.
+const REACTIVATED_DATE_OR = (s, e) =>
+  `and(action.eq.donation,created_at.gte.${s}${e ? `,created_at.lte.${e}` : ''}),` +
+  `and(action.eq.donation,transaction_datetime.gte.${s}${e ? `,transaction_datetime.lte.${e}` : ''}),` +
+  `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${s}${e ? `,verified_at.lte.${e}` : ''})`;
+
 export const getReactivatedDonors = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -830,15 +839,13 @@ export const getReactivatedDonors = async (req, res) => {
 
     const [periodDonorsRes, fyDonorsRes] = await Promise.all([
       withStationNgoPairs(db.from('fro_donor_logs')
-        .select('donor_id, amount_collected, created_at, donor_profiles!inner(name, mobile_number), fro_assignments!inner(station, ngo_id)')
+        .select('donor_id, amount_collected, created_at, transaction_datetime, verified_at, donor_profiles!inner(name, mobile_number), fro_assignments!inner(station, ngo_id)')
         .in('fro_assignments.station', stationNames)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', periodStart).lte('created_at', periodEnd), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+        .or(REACTIVATED_DATE_OR(periodStart, periodEnd)), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
       withStationNgoPairs(db.from('fro_donor_logs')
-        .select('donor_id, created_at, fro_assignments!inner(station, ngo_id)')
+        .select('donor_id, created_at, transaction_datetime, verified_at, fro_assignments!inner(station, ngo_id)')
         .in('fro_assignments.station', stationNames)
-        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-        .gte('created_at', fyStart.toISOString()), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
+        .or(REACTIVATED_DATE_OR(fyStart.toISOString())), myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'),
     ]);
 
     const periodLogs = filterByScope(periodDonorsRes.data, myScope, l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`);
@@ -846,20 +853,22 @@ export const getReactivatedDonors = async (req, res) => {
 
     const fyBeforePeriodDonors = new Set();
     for (const log of fyLogs || []) {
-      if (log.created_at < fyBeforeEnd) fyBeforePeriodDonors.add(log.donor_id);
+      if (logCollectionDate(log) && logCollectionDate(log) < fyBeforeEnd) fyBeforePeriodDonors.add(log.donor_id);
     }
 
     const seen = new Set();
     const donors = [];
     for (const log of periodLogs || []) {
+      const collectedAt = logCollectionDate(log);
       if (!log.donor_id || fyBeforePeriodDonors.has(log.donor_id) || seen.has(log.donor_id)) continue;
+      if (!inRange(collectedAt, periodStart, periodEnd)) continue;
       seen.add(log.donor_id);
       donors.push({
         donor_id: log.donor_id,
         donor_name: log.donor_profiles?.name || 'Unknown',
         donor_mobile: log.donor_profiles?.mobile_number || '',
         amount: parseFloat(log.amount_collected || 0),
-        date: log.created_at,
+        date: collectedAt,
       });
     }
 

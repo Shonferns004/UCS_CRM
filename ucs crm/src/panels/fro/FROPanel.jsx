@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarClock, Users, ArrowLeftRight, Gift, HeartCrack, Ticket, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, CalendarClock, Users, Gift, HeartCrack, Ticket, MessageCircle } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -17,7 +17,6 @@ import SettingsDrawer from '../../components/SettingsDrawer'
 import ToastContainer from '../../components/Toast'
 import Dashboard from './pages/Dashboard'
 import MyDonors from './pages/MyDonors'
-import TransferredLeads from './pages/TransferredLeads'
 import RejectedLeads from './pages/RejectedLeads'
 import Donors from './pages/Donors'
 import Scheduled from './pages/Scheduled'
@@ -30,7 +29,6 @@ const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { id: 'scheduled', path: '/fro/scheduled', label: 'Follow Up / Callback', Icon: CalendarClock },
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
-  { id: 'transferred-leads', path: '/fro/transferred-leads', label: 'Transferred', Icon: ArrowLeftRight },
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', Icon: HeartCrack },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
@@ -735,7 +733,6 @@ export default function FROPanel() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="scheduled" element={<Scheduled />} />
             <Route path="my-leads" element={<MyDonors />} />
-            <Route path="transferred-leads" element={<TransferredLeads />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
             <Route path="donors" element={<Donors />} />
             <Route path="history" element={<History />} />
