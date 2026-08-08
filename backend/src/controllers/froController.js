@@ -1128,7 +1128,7 @@ export const updateDonorType = async (req, res) => {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const { donor_type } = req.body;
-    const validTypes = ['monthly', 'quarterly', 'yearly', 'one_time'];
+    const validTypes = ['monthly', 'quarterly', 'half_yearly', 'yearly', 'one_time'];
     if (!donor_type || !validTypes.includes(donor_type)) {
       return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly, one_time' });
     }

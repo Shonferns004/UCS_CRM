@@ -63,6 +63,8 @@ function DonationDoneStamp({ donor }) {
           <div style={{ fontSize: type === 'one_time' ? 20 : 18, fontWeight: 900, letterSpacing: 1.2 }}>
             {type === 'quarterly'
               ? 'DONATION FOR THIS QUARTER DONE'
+              : type === 'half_yearly'
+              ? 'DONATION FOR THIS HALF-YEAR DONE'
               : type === 'yearly'
               ? 'DONATION FOR THIS YEAR DONE'
               : type === 'one_time'
@@ -78,6 +80,8 @@ function DonationDoneStamp({ donor }) {
         <div style={{ marginTop: 22, fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
           {type === 'quarterly' ? (
             <>This donor already donated for this quarter. Press <strong>NEXT</strong> to continue to the next donor.</>
+          ) : type === 'half_yearly' ? (
+            <>This donor already donated for this half-year. Press <strong>NEXT</strong> to continue to the next donor.</>
           ) : type === 'yearly' ? (
             <>This donor already donated for this year. Press <strong>NEXT</strong> to continue to the next donor.</>
           ) : type === 'one_time' ? (
@@ -1199,6 +1203,7 @@ export default function MyDonors() {
                     <option value="">— Select —</option>
                     <option value="monthly">Monthly</option>
                     <option value="quarterly">Quarterly</option>
+                    <option value="half_yearly">Half-Yearly</option>
                     <option value="yearly">Yearly</option>
                     <option value="one_time">One Time</option>
                   </select>
