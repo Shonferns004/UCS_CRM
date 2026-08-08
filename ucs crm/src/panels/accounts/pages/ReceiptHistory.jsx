@@ -9,8 +9,8 @@ import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
 
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
-const DB_TO_TEMPLATE = { maan: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
-const PROJECT_LABELS = { maan: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
+const DB_TO_TEMPLATE = { maan: 'manncar', mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
+const PROJECT_LABELS = { maan: 'Mann Care Foundation', mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
 const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
 const nameKey = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -103,6 +103,8 @@ export default function ReceiptHistory() {
   const [importResult, setImportResult] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [ngoId, setNgoId] = useState('');
+  const [ngoOptions, setNgoOptions] = useState([]);
   const [dPage, setDPage] = useState(1);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -116,6 +118,7 @@ export default function ReceiptHistory() {
 
   const handleFile = useCallback(async (file) => {
     if (!file) return;
+    if (!ngoId) { alert('Please select the NGO for this upload first'); return; }
     const name = file.name.toLowerCase();
     if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
       alert('Please upload a valid Excel/CSV file'); return;
@@ -145,7 +148,7 @@ export default function ReceiptHistory() {
 
       for (let i = 0; i < chunks.length; i++) {
         setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
-        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i] }, 300000);
+        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i], ngo_id: ngoId }, 300000);
         totalImported += res.imported || 0;
         totalMatched += res.matchedDonors || 0;
         totalFailed += res.failedCount || 0;
@@ -167,7 +170,7 @@ export default function ReceiptHistory() {
       load();
     } catch (err) { alert('Import failed: ' + err.message); }
     finally { setImporting(false); setUploadProgress(0); setUploadStatus(''); }
-  }, []);
+  }, [ngoId]);
 
   const handleCleanUp = async () => {
     setShowCleanModal(false);
@@ -214,6 +217,10 @@ export default function ReceiptHistory() {
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {});
+  }, []);
 
   useEffect(() => { setDPage(1); }, [searchQuery, projectFilter, receiptTab]);
 
@@ -374,6 +381,19 @@ export default function ReceiptHistory() {
             <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete all receipts">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', flexShrink: 0 }}>NGO</label>
+            <select
+              value={ngoId}
+              onChange={e => setNgoId(e.target.value)}
+              style={{ flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff', color: '#111827' }}
+            >
+              <option value="">Select NGO for this upload...</option>
+              {ngoOptions.map(n => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
           </div>
           <div
             onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
