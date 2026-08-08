@@ -9,11 +9,8 @@ import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
 
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
-const DB_TO_TEMPLATE = { maan: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
-const PROJECT_LABELS = { maan: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
-
-const phoneKey = value => String(value || '').replace(/\D/g, '').slice(-10);
-const nameKey = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const DB_TO_TEMPLATE = { maan: 'manncar', mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
+const PROJECT_LABELS = { maan: 'Mann Care Foundation', mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -89,6 +86,9 @@ const StatCard = ({ icon, label, value, sub, color, className = '' }) => (
 
 export default function ReceiptHistory() {
   const [receipts, setReceipts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [serverStats, setServerStats] = useState({ count: 0, total_amount: 0, donors: 0 });
+  const [projectList, setProjectList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
   const [donorDetail, setDonorDetail] = useState(null);
@@ -96,14 +96,15 @@ export default function ReceiptHistory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [receiptTab, setReceiptTab] = useState('linked');
-  const [donorProfiles, setDonorProfiles] = useState([]);
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
-  const [dPage, setDPage] = useState(1);
+  const [ngoId, setNgoId] = useState('');
+  const [ngoOptions, setNgoOptions] = useState([]);
+  const [page, setPage] = useState(1);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -111,11 +112,31 @@ export default function ReceiptHistory() {
   const [deleteProgress, setDeleteProgress] = useState(0);
   const [showCleanModal, setShowCleanModal] = useState(false);
   const fileRef = useRef(null);
-  const perPage = 40;
   const CHUNK_SIZE = 100;
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', '100');
+    if (searchQuery.trim()) params.set('search', searchQuery.trim());
+    if (projectFilter) params.set('project', projectFilter);
+    if (receiptTab === 'linked') params.set('link', 'linked');
+    if (receiptTab === 'unlinked') params.set('link', 'unlinked');
+    apiGet(`/accounts/receipts?${params.toString()}`)
+      .then((res) => {
+        setReceipts(Array.isArray(res?.data) ? res.data : []);
+        setTotal(Number(res?.total) || 0);
+        setServerStats(res?.stats || { count: 0, total_amount: 0, donors: 0 });
+        setProjectList(Array.isArray(res?.projects) ? res.projects.filter(Boolean) : []);
+      })
+      .catch((err) => { console.error('API error:', err.message); })
+      .finally(() => setLoading(false));
+  }, [page, searchQuery, projectFilter, receiptTab]);
 
   const handleFile = useCallback(async (file) => {
     if (!file) return;
+    if (!ngoId) { alert('Please select the NGO for this upload first'); return; }
     const name = file.name.toLowerCase();
     if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
       alert('Please upload a valid Excel/CSV file'); return;
@@ -145,7 +166,7 @@ export default function ReceiptHistory() {
 
       for (let i = 0; i < chunks.length; i++) {
         setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
-        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i] }, 300000);
+        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i], ngo_id: ngoId }, 300000);
         totalImported += res.imported || 0;
         totalMatched += res.matchedDonors || 0;
         totalFailed += res.failedCount || 0;
@@ -167,7 +188,7 @@ export default function ReceiptHistory() {
       load();
     } catch (err) { alert('Import failed: ' + err.message); }
     finally { setImporting(false); setUploadProgress(0); setUploadStatus(''); }
-  }, []);
+  }, [ngoId, load]);
 
   const handleCleanUp = async () => {
     setShowCleanModal(false);
@@ -199,102 +220,30 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  const load = () => {
-    setLoading(true);
-    Promise.all([
-      apiGet('/accounts/receipts'),
-      apiGet('/accounts/donors?limit=100000&page=1').catch(() => ({ data: [] })),
-    ])
-      .then(([receiptRows, donorResponse]) => {
-        setReceipts(Array.isArray(receiptRows) ? receiptRows : []);
-        setDonorProfiles(donorResponse?.data || []);
-      })
-      .catch((err) => { console.error('API error:', err.message); })
-      .finally(() => setLoading(false));
-  };
+  useEffect(() => { setPage(1); }, [searchQuery, projectFilter, receiptTab]);
 
-  useEffect(load, []);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => { setDPage(1); }, [searchQuery, projectFilter, receiptTab]);
-
-  const stats = useMemo(() => {
-    const totalAmount = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
-    const donorSet = new Set();
-    receipts.forEach(r => {
-      const mobile = (r.donor_mobile || '').replace(/\D/g, '');
-      if (mobile) donorSet.add(mobile);
-    });
-    const byProject = {};
-    receipts.forEach(r => {
-      const pid = r.project_id || 'other';
-      byProject[pid] = (byProject[pid] || 0) + 1;
-    });
-    return { total: receipts.length, donors: donorSet.size, totalAmount, byProject };
-  }, [receipts]);
-
-  const filtered = useMemo(() => {
-    return receipts.filter(r => {
-      if (projectFilter && r.project_id !== projectFilter) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchName = (r.donor_name || '').toLowerCase().includes(q);
-        const matchNo = (r.receipt_no || '').toLowerCase().includes(q);
-        if (!matchName && !matchNo) return false;
-      }
-      return true;
-    });
-  }, [receipts, searchQuery, projectFilter]);
-
-  const linkedReceiptIds = useMemo(() => {
-    const mobiles = new Set(donorProfiles.map(donor => phoneKey(donor.mobile_number)).filter(Boolean));
-    const names = new Set(donorProfiles.map(donor => nameKey(donor.name || donor.bank_donor_name || donor.agent_donor_name)).filter(Boolean));
-    const firstNameIndex = {};
-    donorProfiles.forEach(p => {
-      const key = nameKey(p.name || p.bank_donor_name || p.agent_donor_name || '');
-      if (key) {
-        const first = key.split(/\s+/)[0];
-        if (first && first.length >= 2) {
-          if (!firstNameIndex[first]) firstNameIndex[first] = [];
-          firstNameIndex[first].push(key);
-        }
-      }
-    });
-    return new Set(receipts.filter(receipt => {
-      if (receipt.donor_id || receipt.donorId) return true;
-      const mobile = phoneKey(receipt.donor_mobile);
-      if (mobile) return mobiles.has(mobile);
-      const name = nameKey(receipt.donor_name);
-      if (!name) return false;
-      if (names.has(name)) return true;
-      const first = name.split(/\s+/)[0];
-      if (first && firstNameIndex[first]) {
-        return firstNameIndex[first].some(pn => pn.startsWith(name) || name.startsWith(pn) || pn.includes(name) || name.includes(pn));
-      }
-      return false;
-    }).map(receipt => receipt.id));
-  }, [receipts, donorProfiles]);
-
-  const displayedReceipts = useMemo(() => filtered.filter(receipt =>
-    receiptTab === 'linked' ? linkedReceiptIds.has(receipt.id) : !linkedReceiptIds.has(receipt.id)
-  ), [filtered, receiptTab, linkedReceiptIds]);
+  useEffect(() => {
+    apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {});
+  }, []);
 
   const uniqueDonors = useMemo(() => {
     const seen = new Set();
-    return displayedReceipts.filter(r => {
+    return receipts.filter(r => {
       const mobile = (r.donor_mobile || '').replace(/\D/g, '');
       if (!mobile) return true;
       if (seen.has(mobile)) return false;
       seen.add(mobile);
       return true;
     });
-  }, [displayedReceipts]);
+  }, [receipts]);
 
-  const totalPages = Math.ceil(uniqueDonors.length / perPage) || 1;
-  const paginatedDonors = uniqueDonors.slice((dPage - 1) * perPage, dPage * perPage);
+  const totalPages = Math.ceil(total / 100) || 1;
 
   const donorMap = useMemo(() => {
     const map = {};
-    displayedReceipts.forEach(d => {
+    receipts.forEach(d => {
       const mobile = (d.donor_mobile || '').replace(/\D/g, '');
       const key = mobile || (d.donor_name || '').toLowerCase().trim();
       if (!map[key]) map[key] = { receipts: [], count: 0, total: 0 };
@@ -303,7 +252,7 @@ export default function ReceiptHistory() {
       map[key].total += Number(d.amount || 0);
     });
     return map;
-  }, [displayedReceipts]);
+  }, [receipts]);
 
   const handlePreview = async (r) => {
     if (donorDetail) setSavedDetail(donorDetail);
@@ -360,11 +309,6 @@ export default function ReceiptHistory() {
     if (savedDetail) { setDonorDetail(savedDetail); setSavedDetail(null); }
   };
 
-  const projectOptions = useMemo(() => {
-    const seen = new Set();
-    return receipts.filter(r => { if (seen.has(r.project_id)) return false; seen.add(r.project_id); return true; }).map(r => r.project_id);
-  }, [receipts]);
-
   return (
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
@@ -374,6 +318,19 @@ export default function ReceiptHistory() {
             <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete all receipts">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', flexShrink: 0 }}>NGO</label>
+            <select
+              value={ngoId}
+              onChange={e => setNgoId(e.target.value)}
+              style={{ flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff', color: '#111827' }}
+            >
+              <option value="">Select NGO for this upload...</option>
+              {ngoOptions.map(n => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
           </div>
           <div
             onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
@@ -462,9 +419,9 @@ export default function ReceiptHistory() {
             ))}
           </>
         ) : (<>
-        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} label="Total Receipts" value={stats.total} color="#5B6B4E" />
-        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Total Donors" value={stats.donors} color="#8b5cf6" />
-        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} color="#16a34a" />
+        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} label="Total Receipts" value={serverStats.count} color="#5B6B4E" />
+        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Total Donors" value={serverStats.donors} color="#8b5cf6" />
+        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(serverStats.total_amount)} color="#16a34a" />
         </>)}
       </div>
 
@@ -486,11 +443,11 @@ export default function ReceiptHistory() {
           />
           <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
             <option value="">All Projects</option>
-            {projectOptions.map(pid => (
+            {projectList.map(pid => (
               <option key={pid} value={pid}>{PROJECT_LABELS[pid] || pid}</option>
             ))}
           </select>
-          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{displayedReceipts.length} receipts</span>
+          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
         </div>
         <div className="table-wrap">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -501,12 +458,12 @@ export default function ReceiptHistory() {
                   <div className="sk" style={{ flex: 1, height: 14, borderRadius: 4 }} />
                 </div>
               ))
-            ) : displayedReceipts.length === 0 ? (
+            ) : receipts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
                 {searchQuery || projectFilter ? 'No receipts match your filters.' : receiptTab === 'unlinked' ? 'All receipts are linked to donors.' : 'No linked receipts yet.'}
               </div>
             ) : (
-              paginatedDonors.map(r => {
+              uniqueDonors.map(r => {
                 const rMobile = (r.donor_mobile || '').replace(/\D/g, '');
                 const key = rMobile || (r.donor_name || '').toLowerCase().trim();
                 const info = donorMap[key] || { receipts: [], count: 0, total: 0 };
@@ -514,21 +471,7 @@ export default function ReceiptHistory() {
                 return (
                   <div key={r.id} onClick={() => {
                     const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
-                    const profileMobile = rMobileClean.length >= 10 ? rMobileClean : null;
-                    let profile = profileMobile ? donorProfiles.find(p => phoneKey(p.mobile_number) === profileMobile) : null;
-                    if (!profile) {
-                      const receiptNameKey = nameKey(r.donor_name);
-                      if (receiptNameKey) {
-                        const first = receiptNameKey.split(/\s+/)[0];
-                        profile = donorProfiles.find(p => {
-                          const pn = nameKey(p.name || p.bank_donor_name || p.agent_donor_name || '');
-                          return pn && first && pn.split(/\s+/)[0] === first && (pn.startsWith(receiptNameKey) || receiptNameKey.startsWith(pn) || pn.includes(receiptNameKey) || receiptNameKey.includes(pn));
-                        });
-                      }
-                    }
-                    const realName = profile?.name || r.donor_name;
-                    const realMobile = profile?.mobile_number || (rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile);
-                    setDonorDetail({ name: realName, mobile: realMobile, receipts: info.receipts });
+                    setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: info.receipts });
                   }}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', transition: 'background .12s' }}
                     onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
@@ -546,13 +489,13 @@ export default function ReceiptHistory() {
           </div>
           {!loading && totalPages > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
-              <button onClick={() => setDPage(p => Math.max(1, p - 1))} disabled={dPage === 1}
-                style={{ padding: '4px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, cursor: 'pointer', opacity: dPage === 1 ? 0.4 : 1 }}>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                style={{ padding: '4px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, cursor: 'pointer', opacity: page === 1 ? 0.4 : 1 }}>
                 &larr; Prev
               </button>
-              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Page {dPage} of {totalPages} ({uniqueDonors.length} donors)</span>
-              <button onClick={() => setDPage(p => Math.min(totalPages, p + 1))} disabled={dPage === totalPages}
-                style={{ padding: '4px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, cursor: 'pointer', opacity: dPage === totalPages ? 0.4 : 1 }}>
+              <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Page {page} of {totalPages} ({total} receipts)</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                style={{ padding: '4px 10px', border: '1px solid var(--line)', borderRadius: 5, background: '#fff', fontSize: 10, fontWeight: 600, cursor: 'pointer', opacity: page === totalPages ? 0.4 : 1 }}>
                 Next &rarr;
               </button>
             </div>
@@ -668,7 +611,7 @@ export default function ReceiptHistory() {
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5" style={{ marginBottom: 12 }}>
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
               </svg>
-              <p style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>This will permanently delete <strong>all {receipts.length} receipts</strong>.</p>
+              <p style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>This will permanently delete <strong>all {total} receipts</strong>.</p>
               <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>Donor donation history (totals, dates, and collected status) will also be removed.</p>
               <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>This action cannot be undone.</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>

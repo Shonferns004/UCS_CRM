@@ -63,6 +63,8 @@ function DonationDoneStamp({ donor }) {
           <div style={{ fontSize: type === 'one_time' ? 20 : 18, fontWeight: 900, letterSpacing: 1.2 }}>
             {type === 'quarterly'
               ? 'DONATION FOR THIS QUARTER DONE'
+              : type === 'half_yearly'
+              ? 'DONATION FOR THIS HALF-YEAR DONE'
               : type === 'yearly'
               ? 'DONATION FOR THIS YEAR DONE'
               : type === 'one_time'
@@ -78,6 +80,8 @@ function DonationDoneStamp({ donor }) {
         <div style={{ marginTop: 22, fontSize: 11, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
           {type === 'quarterly' ? (
             <>This donor already donated for this quarter. Press <strong>NEXT</strong> to continue to the next donor.</>
+          ) : type === 'half_yearly' ? (
+            <>This donor already donated for this half-year. Press <strong>NEXT</strong> to continue to the next donor.</>
           ) : type === 'yearly' ? (
             <>This donor already donated for this year. Press <strong>NEXT</strong> to continue to the next donor.</>
           ) : type === 'one_time' ? (
@@ -1199,6 +1203,7 @@ export default function MyDonors() {
                     <option value="">— Select —</option>
                     <option value="monthly">Monthly</option>
                     <option value="quarterly">Quarterly</option>
+                    <option value="half_yearly">Half-Yearly</option>
                     <option value="yearly">Yearly</option>
                     <option value="one_time">One Time</option>
                   </select>
@@ -1650,6 +1655,9 @@ export default function MyDonors() {
                           </div>
                           {isThisMonth(logDate(log)) && (log.remark || log.notes) && <div className="tl-note">{log.remark || log.notes}</div>}
                           {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
+                          {log.fro_worker_name && (
+                            <div className="tl-note" style={{ color: 'var(--ink-soft)', fontSize: 9 }}>Collected by {log.fro_worker_name}</div>
+                          )}
                           {log.disposition_detail === 'lead_done' && (
                             <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--md-tertiary-fixed, #e0e7ff)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>
                               {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
