@@ -114,6 +114,26 @@ export default function ReceiptHistory() {
   const fileRef = useRef(null);
   const CHUNK_SIZE = 100;
 
+  const load = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('limit', '100');
+    if (searchQuery.trim()) params.set('search', searchQuery.trim());
+    if (projectFilter) params.set('project', projectFilter);
+    if (receiptTab === 'linked') params.set('link', 'linked');
+    if (receiptTab === 'unlinked') params.set('link', 'unlinked');
+    apiGet(`/accounts/receipts?${params.toString()}`)
+      .then((res) => {
+        setReceipts(Array.isArray(res?.data) ? res.data : []);
+        setTotal(Number(res?.total) || 0);
+        setServerStats(res?.stats || { count: 0, total_amount: 0, donors: 0 });
+        setProjectList(Array.isArray(res?.projects) ? res.projects.filter(Boolean) : []);
+      })
+      .catch((err) => { console.error('API error:', err.message); })
+      .finally(() => setLoading(false));
+  }, [page, searchQuery, projectFilter, receiptTab]);
+
   const handleFile = useCallback(async (file) => {
     if (!file) return;
     if (!ngoId) { alert('Please select the NGO for this upload first'); return; }
@@ -199,26 +219,6 @@ export default function ReceiptHistory() {
       load();
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
-
-  const load = useCallback(() => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    params.set('page', String(page));
-    params.set('limit', '100');
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (projectFilter) params.set('project', projectFilter);
-    if (receiptTab === 'linked') params.set('link', 'linked');
-    if (receiptTab === 'unlinked') params.set('link', 'unlinked');
-    apiGet(`/accounts/receipts?${params.toString()}`)
-      .then((res) => {
-        setReceipts(Array.isArray(res?.data) ? res.data : []);
-        setTotal(Number(res?.total) || 0);
-        setServerStats(res?.stats || { count: 0, total_amount: 0, donors: 0 });
-        setProjectList(Array.isArray(res?.projects) ? res.projects.filter(Boolean) : []);
-      })
-      .catch((err) => { console.error('API error:', err.message); })
-      .finally(() => setLoading(false));
-  }, [page, searchQuery, projectFilter, receiptTab]);
 
   useEffect(() => { setPage(1); }, [searchQuery, projectFilter, receiptTab]);
 
