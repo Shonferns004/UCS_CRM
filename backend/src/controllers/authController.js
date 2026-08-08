@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import db from '../config/db.js';
 import { getWorkerByLoginId, getWorkerById } from '../models/workerModel.js';
-import { getUserByEmail, getUserByName } from '../models/userModel.js';
+import { getUserByEmail, getUserByName, getUserById } from '../models/userModel.js';
 import { getHRByEmail } from '../models/hrModel.js';
 import { findValidImpersonationCode, markImpersonationCodeUsed } from '../models/impersonationCodeModel.js';
 
@@ -151,7 +151,7 @@ export const unifiedLogin = async (req, res) => {
       else if (dept === 'digital' || dept.includes('develop')) role = 'digital';
       else role = 'worker';
       const token = jwt.sign(
-        { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, role, department: worker.department },
+        { id: worker.id, login_id: worker.login_id, ngo_id: worker.ngo_id, name: worker.name, role, department: worker.department },
         process.env.JWT_SECRET,
         { expiresIn: expiry }
       );
@@ -333,6 +333,18 @@ export const impersonateFRO = async (req, res) => {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
+    // Resolve the operator's display name. New worker tokens carry it, but older
+    // sessions / admin accounts may not — fall back to a DB lookup.
+    let imposterName = req.user.name || '';
+    if (!imposterName && req.user.id != null) {
+      const opWorker = await getWorkerById(String(req.user.id));
+      if (opWorker?.name) imposterName = opWorker.name;
+      else {
+        const opUser = await getUserById(req.user.id);
+        if (opUser?.name) imposterName = opUser.name;
+      }
+    }
+
     const token = jwt.sign(
       {
         id: target.id,
@@ -343,7 +355,7 @@ export const impersonateFRO = async (req, res) => {
         name: target.name,
         impersonation: true,
         imposter_id: req.user.id,
-        imposter_name: req.user.name || '',
+        imposter_name: imposterName,
       },
       process.env.JWT_SECRET,
       { expiresIn: TOKEN_EXPIRY }
@@ -362,7 +374,7 @@ export const impersonateFRO = async (req, res) => {
         department: target.department,
         impersonation: true,
         imposter_id: req.user.id,
-        imposter_name: req.user.name || '',
+        imposter_name: imposterName,
       },
       message: `Working as ${target.name}`,
     });

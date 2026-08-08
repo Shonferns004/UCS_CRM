@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { generateImpersonationCode, listImpersonationCodes } from '../api/auth';
+import { listImpersonationCodes } from '../api/auth';
 
 const CODE_TTL_MINUTES = 5;
 
@@ -19,75 +19,27 @@ const fmtTime = (iso) => {
 export default function Codes() {
   const [codes, setCodes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [newCode, setNewCode] = useState(null);
 
-  const load = () => {
+  useEffect(() => {
     setLoading(true);
     listImpersonationCodes()
       .then(r => setCodes(r?.codes || []))
       .catch((err) => { console.error('Error:', err.message); })
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const generate = async () => {
-    setGenerating(true);
-    setNewCode(null);
-    try {
-      const r = await generateImpersonationCode();
-      setNewCode(r);
-      load();
-    } catch (err) {
-      console.error('Error:', err.message);
-      alert(err.message || 'Could not generate code');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const autoHide = () => {
-    if (!newCode) return;
-    const t = setTimeout(() => setNewCode(null), CODE_TTL_MINUTES * 60 * 1000);
-    return () => clearTimeout(t);
-  };
-  useEffect(autoHide, [newCode]);
+  }, []);
 
   return (
     <div>
-      <div className="card" style={{ padding: '18px 20px', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <h3 style={{ margin: '0 0 4px' }}>Work-as FRO codes</h3>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-              Generate a single-use 4-digit code. Share it with an FRO — they enter it when switching to work as another FRO. Codes expire after {CODE_TTL_MINUTES} minutes.
-            </div>
-          </div>
-          <button
-            className="btn"
-            onClick={generate}
-            disabled={generating}
-            style={{ minWidth: 150, justifyContent: 'center' }}
-          >
-            {generating ? 'Generating…' : '+ Generate code'}
-          </button>
+      <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+        <h3 style={{ margin: '0 0 4px' }}>Work-as FRO codes</h3>
+        <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
+          FROs generate a single-use 4-digit code from their app when switching to work as another FRO. Codes expire after {CODE_TTL_MINUTES} minutes and are logged here with the FRO who created them.
         </div>
-
-        {newCode && (
-          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 18, padding: '14px 16px', borderRadius: 12, background: 'var(--sage-soft, rgba(22,163,74,.1))', border: '1px solid var(--sage, #16a34a)' }}>
-            <div style={{ fontSize: 38, fontWeight: 700, letterSpacing: 8, fontFamily: 'monospace', color: 'var(--sage, #16a34a)' }}>{newCode.code}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-soft, #64748b)' }}>
-              <div>Active · single use</div>
-              <div>Expires {fmtTime(newCode.expires_at)}</div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="card">
         <div className="card-head">
-          <h3>Recent codes</h3>
+          <h3>Code log</h3>
         </div>
         {loading ? (
           <div style={{ padding: 20, fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>Loading…</div>
@@ -98,6 +50,7 @@ export default function Codes() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--line, #e2e8f0)' }}>
+                  <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Created by</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Code</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Status</th>
                   <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, textTransform: 'uppercase', color: 'var(--ink-soft, #64748b)' }}>Created</th>
@@ -110,6 +63,7 @@ export default function Codes() {
                   const st = statusOf(c);
                   return (
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--line, #e2e8f0)' }}>
+                      <td style={{ padding: '10px 16px', fontSize: 12.5, fontWeight: 600 }}>{c.created_by_name || '\u2014'}</td>
                       <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontWeight: 600, letterSpacing: 2 }}>{c.code}</td>
                       <td style={{ padding: '10px 16px' }}>
                         <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: st.color, background: `${st.color}1a` }}>{st.label}</span>

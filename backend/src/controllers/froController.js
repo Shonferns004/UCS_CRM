@@ -610,9 +610,9 @@ export const getDashboard = async (req, res) => {
   }
 };
 
-// List this month's collections for the "Collected" card modal, showing each
-// donor and, when the collection came from another FRO's donor (work-as), the
-// owning FRO.
+// List this month's collections for the "Collected" card modal. For work-as
+// collections (from another FRO's donor) the owning FRO's identity is masked so
+// the operator cannot tell which FRO the donor belonged to.
 export const getMyCollections = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -639,6 +639,7 @@ export const getMyCollections = async (req, res) => {
       .map((l) => {
         const amount = parseFloat(l.amount_collected || 0);
         const collected_at = logCollectionDate(l);
+        const is_work_as = l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId;
         return {
           id: l.id,
           donor_id: l.donor_id,
@@ -646,15 +647,163 @@ export const getMyCollections = async (req, res) => {
           donor_mobile: l.donor_profiles?.mobile_number || '',
           amount_collected: amount,
           collected_at,
-          owner_worker_id: l.fro_assignments?.fro_worker_id ?? null,
-          owner_name: l.fro_assignments?.workers?.name || null,
-          is_work_as: l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId,
+          owner_worker_id: is_work_as ? null : (l.fro_assignments?.fro_worker_id ?? null),
+          owner_name: is_work_as ? null : (l.fro_assignments?.workers?.name || null),
+          is_work_as,
         };
       })
       .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd))
       .sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
 
     return res.json({ month: monthStart.slice(0, 7), collections });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Suspense receipts (this month only) + claims ────────────
+// IST current-month bounds shared by the suspense endpoints.
+function currentMonthBoundsIST() {
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(new Date().getTime() + istOffset);
+  const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0));
+  const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
+  const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999));
+  return { month: monthStart.toISOString().slice(0, 7), monthStart: monthStart.toISOString().slice(0, 10), monthEnd: monthEnd.toISOString().slice(0, 10) };
+}
+
+async function myProjectSet(workerId) {
+  const { allowedNgoIds } = await getMyStationScope(workerId);
+  if (allowedNgoIds.length === 0) return [];
+  const { data: ngos } = await db.from('ngos').select('id, name').in('id', allowedNgoIds);
+  return (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
+}
+
+export const getSuspenseReceipts = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const projectSet = await myProjectSet(workerId);
+    if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
+    const { month, monthStart, monthEnd } = currentMonthBoundsIST();
+
+    const { data: receipts, error } = await db
+      .from('receipts')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, created_at')
+      .is('donor_id', null)
+      .gte('receipt_date', monthStart)
+      .lte('receipt_date', monthEnd)
+      .in('project_id', projectSet)
+      .order('receipt_date', { ascending: false });
+    if (error) throw error;
+
+    const receiptIds = (receipts || []).map(r => r.id);
+    let claims = [];
+    if (receiptIds.length > 0) {
+      const { data: c, error: cErr } = await db
+        .from('receipt_claims')
+        .select('receipt_id, fro_worker_id, status')
+        .in('receipt_id', receiptIds);
+      if (cErr) throw cErr;
+      claims = c || [];
+    }
+
+    const claimCountByReceipt = {};
+    const myClaimStatusByReceipt = {};
+    for (const cl of claims) {
+      claimCountByReceipt[cl.receipt_id] = (claimCountByReceipt[cl.receipt_id] || 0) + 1;
+      if (cl.fro_worker_id === workerId && !myClaimStatusByReceipt[cl.receipt_id]) {
+        myClaimStatusByReceipt[cl.receipt_id] = cl.status;
+      }
+    }
+
+    const result = (receipts || []).map(r => ({
+      id: r.id,
+      receipt_no: r.receipt_no,
+      donor_name: r.donor_name,
+      donor_mobile: r.donor_mobile,
+      amount: parseFloat(r.amount || 0),
+      receipt_date: r.receipt_date,
+      project_id: r.project_id,
+      claim_count: claimCountByReceipt[r.id] || 0,
+      my_claim_status: myClaimStatusByReceipt[r.id] || null,
+    }));
+
+    return res.json({ month, receipts: result });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const claimSuspenseReceipt = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const receiptId = parseInt(req.params.receiptId, 10);
+    const { donor_id, notes } = req.body || {};
+    if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
+
+    const projectSet = await myProjectSet(workerId);
+
+    const { data: receipt, error: rErr } = await db
+      .from('receipts')
+      .select('id, donor_id, project_id, receipt_date, amount, donor_name')
+      .eq('id', receiptId)
+      .single();
+    if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
+    if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
+    if (projectSet.length > 0 && !projectSet.includes(receipt.project_id)) {
+      return res.status(403).json({ message: 'Receipt does not belong to your NGO' });
+    }
+
+    const { monthStart, month } = currentMonthBoundsIST();
+    if (!receipt.receipt_date || receipt.receipt_date.slice(0, 7) !== month) {
+      return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
+    }
+
+    const { data: existing } = await db
+      .from('receipt_claims')
+      .select('id, status')
+      .eq('receipt_id', receiptId)
+      .eq('fro_worker_id', workerId)
+      .maybeSingle();
+    if (existing) {
+      return res.status(409).json({
+        message: existing.status === 'verified' ? 'You already claimed this receipt and it was verified' : 'You already claimed this receipt',
+        claim_id: existing.id,
+        status: existing.status,
+      });
+    }
+
+    const { data: inserted, error: insErr } = await db
+      .from('receipt_claims')
+      .insert({
+        receipt_id: receiptId,
+        fro_worker_id: workerId,
+        project_id: receipt.project_id,
+        donor_id: donor_id ? parseInt(donor_id, 10) : null,
+        notes: notes || null,
+        status: 'pending',
+      })
+      .select()
+      .single();
+    if (insErr) {
+      if ((insErr.message || '').includes('duplicate')) return res.status(409).json({ message: 'You already claimed this receipt' });
+      throw insErr;
+    }
+
+    try {
+      const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
+      for (const u of (accounts || [])) {
+        await db.from('notification_log').insert({
+          worker_id: u.id,
+          type: 'claim_requested',
+          title: 'Suspense Claim',
+          body: `${req.user.name || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} (receipt #${receiptId}).`,
+          sent_at: new Date().toISOString(),
+        });
+      }
+    } catch (e) { console.error('Claim notification error:', e.message); }
+
+    return res.status(201).json({ message: 'Claim submitted for verification', claim: inserted });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1376,7 +1525,15 @@ export const getDonorLogs = async (req, res) => {
     const collectorMap = {};
     for (const w of collectors || []) collectorMap[w.id] = w.name;
     for (const l of logs || []) {
-      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      // Hide the collector's identity from the impersonated FRO. The log's
+      // fro_worker_id is the person who actually collected (which differs from
+      // the requester when working as another FRO), so only reveal the name
+      // when the requester is the collector themselves.
+      if (l.fro_worker_id != null && l.fro_worker_id === workerId) {
+        l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      } else {
+        l.fro_worker_name = null;
+      }
     }
 
     return res.json({ logs, total_collected: totalCollected, next_schedule: nextSchedule });
@@ -2277,7 +2434,11 @@ export const getDonorHistory = async (req, res) => {
     const collectorMap = {};
     for (const w of collectors || []) collectorMap[w.id] = w.name;
     for (const l of logs || []) {
-      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      if (l.fro_worker_id != null && l.fro_worker_id === workerId) {
+        l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      } else {
+        l.fro_worker_name = null;
+      }
     }
 
     return res.json({ donor: donors || null, logs: logs || [], receipts: receipts || [] });
@@ -2698,7 +2859,12 @@ export const getFullDonorHistory = async (req, res) => {
     const collectorMap = {};
     for (const w of collectors || []) collectorMap[w.id] = w.name;
     for (const l of logs || []) {
-      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      // Hide the collector's identity from the impersonated FRO (work-as).
+      if (l.fro_worker_id != null && l.fro_worker_id === workerId) {
+        l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      } else {
+        l.fro_worker_name = null;
+      }
     }
 
     return res.json({ donor: donor || null, logs: logs || [], receipts: receipts || [] });

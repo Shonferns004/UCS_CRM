@@ -76,6 +76,14 @@ export async function impersonateFRO(workerId, code) {
   })
 }
 
+export async function generateImpersonationCode() {
+  return api('/impersonation-codes/generate', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    _prefix: 'ucs',
+  })
+}
+
 export async function getFroWorkersForImpersonation() {
   return api('/auth/fro-workers', { _prefix: 'ucs' })
 }
