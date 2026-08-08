@@ -7,6 +7,49 @@ import jsPDF from 'jspdf';
 
 const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','ODAR'];
 
+const HR_MESSAGES = [
+  {
+    key: 'm1',
+    label: 'Day 1 – Normal Warning',
+    heading: 'A. Employee Absent Without Prior Information',
+    subject: 'Subject: Absence without Prior Information',
+    body: 'Dear [Employee Name],\n\nYou were absent from work today without informing your Reporting Manager or the HR Department. Kindly share the reason for your absence immediately and confirm your availability to resume work. Timely communication is mandatory as per work policy. Please respond to this message at the earliest.\n\nRegards,\nHR Department'
+  },
+  {
+    key: 'm2',
+    label: 'Day 2 – Final Warning',
+    subject: 'Subject: Final Warning for Continuous Unauthorized Absence',
+    body: 'Dear [Employee Name],\n\nThis is your second consecutive day of absence without prior approval or valid communication. Despite our previous communication, we have not received a satisfactory response from your side. You are instructed to report to work immediately or provide a valid explanation along with supporting documents (if applicable) within 24 hours. Failure to do so may lead to disciplinary action, including termination of your work & position.\n\nRegards,\nHR Department'
+  },
+  {
+    key: 'm3',
+    label: 'Day 3 – Termination Message',
+    subject: 'Subject: Termination Due to Unauthorized Absence',
+    body: 'Dear [Employee Name],\n\nAs you have remained absent for three consecutive working days without prior approval and have failed to provide a valid explanation despite repeated communications, the management has decided to terminate your work & position with immediate effect. You are requested to complete the exit formalities and return all company property (if any). We wish you the very best for your future.\n\nRegards,\nHR Department'
+  },
+  {
+    key: 'm4',
+    label: 'Day 1 – Acknowledgement Message',
+    heading: 'B. Employee Informed HR Before Taking Leave',
+    body: 'Dear [Employee Name],\n\nThank you for informing the HR Department regarding your absence. We understand your situation and hope everything is fine. Your leave request has been noted. Please keep us updated regarding your condition and inform us about your expected date of joining. Take care, and we wish you a speedy recovery (if applicable change this line as per the situation).\n\nRegards,\nHR Department'
+  },
+  {
+    key: 'm5',
+    label: 'Day 2 – Request for Supporting Documents',
+    body: 'Dear [Employee Name],\n\nWe hope you are doing well. As your leave has continued, kindly share the relevant supporting document (such as a medical certificate or any emergency proof) and confirm your expected date of rejoining. This will help us process your leave as per policy. Thank you for your cooperation.\n\nRegards,\nHR Department'
+  },
+  {
+    key: 'm6',
+    label: 'Day 3 – Follow-up Message',
+    body: 'Dear [Employee Name],\n\nThis is a reminder regarding your continued absence. Kindly update us on your current situation and confirm your joining date. If you have not yet submitted the required supporting documents, please do so immediately. Failure to respond may result in your leave being treated as unauthorized, and further action may be taken as per policy.\n\nRegards,\nHR Department'
+  },
+  {
+    key: 'm7',
+    label: 'Reminder Notice – No Leave Application Form',
+    body: 'Dear Employee,\n\nYou have remained absent from work without informing the HR Department, and no Leave Application Form has been submitted. This is a violation of the attendance policy. You are instructed to immediately raise a leave request through the mobile app and inform your reporting manager or the HR Department with the reason for your absence. Please treat this as an official message. Repeated unauthorized absence or failure to follow the leave procedure may lead to disciplinary action as per the organization\'s HR policy.\n\nHR Department'
+  }
+];
+
 const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
   AFLF: { name: 'AFLF', logo: '/logo/aflf-logo.png', alt: 'AFLF', footer: 'AFLF', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.', logoSize: 140 },
@@ -353,6 +396,7 @@ export default function Letters() {
     { sr: 3, doc: '', original: false, returned: false, remarks: '' },
   ]);
   const [editDocs, setEditDocs] = useState(false);
+  const [sopSel, setSopSel] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -456,8 +500,20 @@ export default function Letters() {
     }
   };
 
+  const cleanPhone = (p) => {
+    if (!p) return '';
+    let d = String(p).replace(/\D/g, '');
+    if (d.length === 10) d = '91' + d;
+    return d;
+  };
+
   const shareWhatsApp = () => {
-    window.open(`https://wa.me/918879136938?text=${encodeURIComponent('hey')}`, '_blank');
+    const sel = HR_MESSAGES.find(m => m.key === sopSel);
+    const worker = workers.find(x => x.name === name);
+    const number = cleanPhone(worker?.phone) || '918879136938';
+    let text = 'hey';
+    if (sel) text = [sel.heading, sel.label, sel.subject, sel.body].filter(Boolean).join('\n\n').replace(/\[Employee Name\]/g, name || '[Employee Name]');
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   useEffect(() => {
@@ -493,23 +549,26 @@ export default function Letters() {
           </div>
         ) : (
         <div className="form-row">
-          <label className="field">NGOs
+          <label className="field" style={{ flex: '0 0 105px', minWidth: 0 }}>NGOs
             <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
           </label>
-          <label className="field">Volunteer
+          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Volunteer
             <Dropdown value={name} onChange={e=>setName(e.target.value)} searchable
               options={workers.map(w => ({value: w.name, label: w.name}))} />
           </label>
-          <label className="field">Letter type
+          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Letter type
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
           </label>
-          <label className="field">Last Working Date
+          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Employee Message
+            <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
+          </label>
+          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Last Working Date
             <input type="date" value={letterDate} onChange={e=>setLetterDate(e.target.value)} style={{padding:'9px 11px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:14,fontFamily:'inherit',outline:'none',background:'var(--paper)',color:'var(--ink)'}} />
           </label>
-          <label className="field">HR name
+          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>HR name
             <Dropdown value={hrName} onChange={e=>setHrName(e.target.value)} options={[{value:'',label:'Select HR...'}, ...workers.filter(w => (w.dept||w.department||'').toLowerCase().includes('hr') || (w.dept||w.department||'').toLowerCase().includes('admin')).map(w => ({value: w.name, label: w.name}))]} />
           </label>
-          <label className="field">Designation
+          <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Designation
             <Dropdown value={subject} onChange={e => { if (e.target.value === '__add_role__') { const r = prompt('Enter role name:'); if (r && r.trim()) { setExtraRoles(p => [...p, r.trim()]); setSubject(r.trim()); } } else { setSubject(e.target.value); } }} options={[...[...new Set([...workers.map(w => w.role || w.department || 'Team Member'), ...extraRoles])].sort().map(v => ({ value: v, label: v })), { value: '__add_role__', label: '+ Add Role' }]} renderOption={o => o.value === '__add_role__' ? <span style={{color:'#dc2626',fontWeight:600}}>+ Add Role</span> : o.label} />
           </label>
           <label className="field btn-field"><span>&nbsp;</span>{showDownload && (
@@ -521,7 +580,7 @@ export default function Letters() {
         </div>
         )}
 
-        {out && (
+        {out && !sopSel && (
           <div className="letter">
             {type === 'ODAR' && out.odar ? (
               <ODARDocumentPreview
@@ -538,6 +597,18 @@ export default function Letters() {
             )}
           </div>
         )}
+        {sopSel && (() => {
+          const m = HR_MESSAGES.find(x => x.key === sopSel);
+          if (!m) return null;
+          return (
+            <div className="letter">
+              {m.heading && <div style={{ fontSize: 15, fontWeight: 700, color: '#082F5A', marginBottom: 12 }}>{m.heading}</div>}
+              <div style={{ fontWeight: 700, color: '#082F5A', marginBottom: 4 }}>{m.label}</div>
+              {m.subject && <div style={{ fontStyle: 'italic', marginBottom: 4 }}>{m.subject}</div>}
+              <div style={{ whiteSpace: 'pre-wrap' }}>{m.body.replace(/\[Employee Name\]/g, name || '[Employee Name]')}</div>
+            </div>
+          );
+        })()}
       </div>
       <div ref={pdfRef} style={{
         position:'fixed', left:'-9999px', top:0,
