@@ -6,10 +6,11 @@ import { SkeletonProfile } from '../../../components/Skeleton';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
+import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
-import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, DISPOSITION_ORDER, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES } from '../dispositions';
+import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, DISPOSITION_ORDER, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -25,14 +26,11 @@ const PROJECTS = [
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
+const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : (DISPOSITION_ORDER[s] ?? 99) + 1);
 function filterAndSortDonors(list) {
   return list
     .filter(d => !HIDDEN_STATUSES.has(d.status))
-    .sort((a, b) => {
-      const oa = a.status === 'pending' ? 0 : (DISPOSITION_ORDER[a.status] ?? 99);
-      const ob = b.status === 'pending' ? 0 : (DISPOSITION_ORDER[b.status] ?? 99);
-      return oa - ob;
-    });
+    .sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
 }
 
 const PAGE_SIZE = 200;
@@ -101,15 +99,19 @@ function useTomorrowStr() {
 }
 
 function findNextDonorIndex(donors, currentId) {
-  // Priority 1: pending (no disposition yet), skip current donor
+  // Priority 1: scheduled/callback leads (pinned to the top of the stack)
+  for (let i = 0; i < donors.length; i++) {
+    if (SCHEDULE_TYPES.has(donors[i].status) && donors[i].id !== currentId) return i;
+  }
+  // Priority 2: pending (no disposition yet), skip current donor
   for (let i = 0; i < donors.length; i++) {
     if (donors[i].status === 'pending' && donors[i].id !== currentId) return i;
   }
-  // Priority 2: not connected, skip current
+  // Priority 3: not connected, skip current
   for (let i = 0; i < donors.length; i++) {
     if (NOT_CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId) return i;
   }
-  // Priority 3: connected, skip current
+  // Priority 4: connected, skip current
   for (let i = 0; i < donors.length; i++) {
     if (CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId) return i;
   }
@@ -160,6 +162,7 @@ export default function MyDonors() {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [searchingAll, setSearchingAll] = useState(false);
   const [returnToDonor, setReturnToDonor] = useState(null);
+  const [resumeTo, setResumeTo] = useState(null);
   const [showAllLogs, setShowAllLogs] = useState(false);
   const [externalDonor, setExternalDonor] = useState(null);
   const searchRef = useRef(null);
@@ -177,6 +180,7 @@ export default function MyDonors() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setResumeTo(null);
     setExternalDonor(null);
 
     const load = async (tab) => {
@@ -604,10 +608,24 @@ export default function MyDonors() {
       const newDonors = filterAndSortDonors(loaded);
       setDonors(newDonors);
       setTotal(rTotal);
-      const nextIdx = findNextDonorIndex(newDonors, donor.id);
-      setIndex(nextIdx);
-      const nextDonor = newDonors[nextIdx];
-      if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+      const advance = () => {
+        const nextIdx = findNextDonorIndex(newDonors, donor.id);
+        setIndex(nextIdx);
+        const nextDonor = newDonors[nextIdx];
+        if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+      };
+      if (resumeTo) {
+        const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
+        setResumeTo(null);
+        if (ridx >= 0) {
+          setIndex(ridx);
+          saveProgress(dataTab, newDonors[ridx].id, ridx);
+        } else {
+          advance();
+        }
+      } else {
+        advance();
+      }
       clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
@@ -806,6 +824,7 @@ export default function MyDonors() {
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
       if (returnToDonor) {
+        setResumeTo(null);
         const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
         const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
         const newDonors = filterAndSortDonors(loaded);
@@ -824,10 +843,24 @@ export default function MyDonors() {
         const newDonors = filterAndSortDonors(loaded);
         setDonors(newDonors);
         setTotal(rTotal);
-        const nextIdx = findNextDonorIndex(newDonors, donor.id);
-        setIndex(nextIdx);
-        const nextDonor = newDonors[nextIdx];
-        if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+        const advance = () => {
+          const nextIdx = findNextDonorIndex(newDonors, donor.id);
+          setIndex(nextIdx);
+          const nextDonor = newDonors[nextIdx];
+          if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+        };
+        if (resumeTo) {
+          const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
+          setResumeTo(null);
+          if (ridx >= 0) {
+            setIndex(ridx);
+            saveProgress(dataTab, newDonors[ridx].id, ridx);
+          } else {
+            advance();
+          }
+        } else {
+          advance();
+        }
       }
       clearFormState();
     } catch (err) {
@@ -876,6 +909,7 @@ export default function MyDonors() {
   };
 
   const handleSelectSearchResult = async (resultIdx) => {
+    setResumeTo(null);
     const r = searchResults[resultIdx];
     const donorId = r?.id || r?.donor_id;
     const curDonor = donors[index];
@@ -953,6 +987,7 @@ export default function MyDonors() {
   const handleButtonClick = () => {
     if (selected) { handleSave(); return; }
     if (externalDonor) {
+      setResumeTo(null);
       const backIdx = returnToDonor?.idx ?? 0;
       const backDonor = donors[backIdx];
       setExternalDonor(null);
@@ -962,15 +997,26 @@ export default function MyDonors() {
       return;
     }
     if (returnToDonor) {
+      setResumeTo(null);
       setIndex(returnToDonor.idx);
       setReturnToDonor(null);
       return;
+    }
+    if (resumeTo) {
+      const ridx = donors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
+      setResumeTo(null);
+      if (ridx >= 0) {
+        setIndex(ridx);
+        saveProgress(dataTab, donors[ridx].id, ridx);
+        return;
+      }
     }
     const nextIdx = findNextDonorIndex(donors, donor.id);
     if (nextIdx === index || !donors[nextIdx]) {
       setMessage({ type: 'error', text: 'No more donors' });
       return;
     }
+    if (donor && nextIdx < index) setResumeTo({ id: donor.id, ngo_id: donor.ngo_id });
     setIndex(nextIdx);
     saveProgress(dataTab, donors[nextIdx].id, nextIdx);
   };
@@ -1374,19 +1420,21 @@ export default function MyDonors() {
               <div className="detail-dropdown-row">
                 <div className="dd">
                   <label>Connected</label>
-                  <select value={selected !== null && isConnected(selected) ? selected : ''} onChange={e => { if (e.target.value) handleDropdownChange(e.target.value); }}
-                    style={{ borderColor: selected !== null && isConnected(selected) ? '#16a34a' : undefined }}>
-                    <option value="">— Select —</option>
-                    {CONNECTED.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
-                  </select>
+                  <DispositionDropdown
+                    options={CONNECTED}
+                    value={selected !== null && isConnected(selected) ? selected : ''}
+                    onChange={id => { if (id) handleDropdownChange(id); }}
+                    tone={selected !== null && isConnected(selected) ? 'green' : null}
+                  />
                 </div>
                 <div className="dd">
                   <label>Not Connected</label>
-                  <select value={selected !== null && !isConnected(selected) ? selected : ''} onChange={e => { if (e.target.value) handleDropdownChange(e.target.value); }}
-                    style={{ borderColor: selected !== null && !isConnected(selected) ? '#dc2626' : undefined }}>
-                    <option value="">— Select —</option>
-                    {NOT_CONNECTED.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
-                  </select>
+                  <DispositionDropdown
+                    options={NOT_CONNECTED}
+                    value={selected !== null && !isConnected(selected) ? selected : ''}
+                    onChange={id => { if (id) handleDropdownChange(id); }}
+                    tone={selected !== null && !isConnected(selected) ? 'red' : null}
+                  />
                 </div>
               </div>
 
@@ -1608,6 +1656,7 @@ export default function MyDonors() {
 
     <div className="fro-action-bar">
       <button className="btn-prev" disabled={index === 0 || saving} onClick={() => {
+        setResumeTo(null);
         if (externalDonor) {
           const backIdx = returnToDonor?.idx ?? 0;
           const backDonor = donors[backIdx];
