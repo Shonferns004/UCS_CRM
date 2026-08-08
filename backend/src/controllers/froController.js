@@ -639,6 +639,7 @@ export const getMyCollections = async (req, res) => {
       .map((l) => {
         const amount = parseFloat(l.amount_collected || 0);
         const collected_at = logCollectionDate(l);
+        const is_work_as = l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId;
         return {
           id: l.id,
           donor_id: l.donor_id,
@@ -646,9 +647,9 @@ export const getMyCollections = async (req, res) => {
           donor_mobile: l.donor_profiles?.mobile_number || '',
           amount_collected: amount,
           collected_at,
-          owner_worker_id: l.fro_assignments?.fro_worker_id ?? null,
-          owner_name: l.fro_assignments?.workers?.name || null,
-          is_work_as: l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId,
+          owner_worker_id: is_work_as ? null : (l.fro_assignments?.fro_worker_id ?? null),
+          owner_name: is_work_as ? null : (l.fro_assignments?.workers?.name || null),
+          is_work_as,
         };
       })
       .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd))
@@ -1524,7 +1525,15 @@ export const getDonorLogs = async (req, res) => {
     const collectorMap = {};
     for (const w of collectors || []) collectorMap[w.id] = w.name;
     for (const l of logs || []) {
-      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      // Hide the collector's identity from the impersonated FRO. The log's
+      // fro_worker_id is the person who actually collected (which differs from
+      // the requester when working as another FRO), so only reveal the name
+      // when the requester is the collector themselves.
+      if (l.fro_worker_id != null && l.fro_worker_id === workerId) {
+        l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      } else {
+        l.fro_worker_name = null;
+      }
     }
 
     return res.json({ logs, total_collected: totalCollected, next_schedule: nextSchedule });
@@ -2425,7 +2434,11 @@ export const getDonorHistory = async (req, res) => {
     const collectorMap = {};
     for (const w of collectors || []) collectorMap[w.id] = w.name;
     for (const l of logs || []) {
-      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      if (l.fro_worker_id != null && l.fro_worker_id === workerId) {
+        l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      } else {
+        l.fro_worker_name = null;
+      }
     }
 
     return res.json({ donor: donors || null, logs: logs || [], receipts: receipts || [] });
@@ -2846,7 +2859,12 @@ export const getFullDonorHistory = async (req, res) => {
     const collectorMap = {};
     for (const w of collectors || []) collectorMap[w.id] = w.name;
     for (const l of logs || []) {
-      if (l.fro_worker_id != null) l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      // Hide the collector's identity from the impersonated FRO (work-as).
+      if (l.fro_worker_id != null && l.fro_worker_id === workerId) {
+        l.fro_worker_name = collectorMap[l.fro_worker_id] || null;
+      } else {
+        l.fro_worker_name = null;
+      }
     }
 
     return res.json({ donor: donor || null, logs: logs || [], receipts: receipts || [] });

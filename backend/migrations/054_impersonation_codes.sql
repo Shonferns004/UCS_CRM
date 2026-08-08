@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS impersonation_codes (
   code VARCHAR(4) NOT NULL,
   ngo_id UUID,
   created_by UUID,
+  created_by_name VARCHAR(200),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ,

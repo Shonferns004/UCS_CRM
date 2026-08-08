@@ -1,9 +1,9 @@
 import db from '../config/db.js';
 
-export const createImpersonationCode = async ({ code, ngo_id, created_by, expires_at }) => {
+export const createImpersonationCode = async ({ code, ngo_id, created_by, created_by_name, expires_at }) => {
   const { data, error } = await db
     .from('impersonation_codes')
-    .insert([{ code, ngo_id, created_by, expires_at }])
+    .insert([{ code, ngo_id, created_by, created_by_name, expires_at }])
     .select()
     .single();
   if (error) throw error;
