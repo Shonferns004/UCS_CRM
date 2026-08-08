@@ -1,6 +1,7 @@
 name: Deploy Frontend (ucs crm)
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
     paths:
