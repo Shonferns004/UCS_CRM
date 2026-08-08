@@ -38,3 +38,4 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "ucs crm/dist/*"
           target: /var/www/crm
+          strip_components: 2
