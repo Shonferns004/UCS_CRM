@@ -912,12 +912,38 @@ function normalizeReceiptDate(val) {
   return null;
 }
 
+export const getImportNgoOptions = async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('ngos')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return res.json((data || []).map(n => ({ id: n.id, name: n.name })));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const importReceipts = async (req, res) => {
   try {
-    const { receipts } = req.body;
+    const { receipts, ngo_id } = req.body;
     if (!receipts || !Array.isArray(receipts) || receipts.length === 0) {
       return res.status(400).json({ message: 'No receipts data provided' });
     }
+    if (!ngo_id) {
+      return res.status(400).json({ message: 'Please select the NGO this receipt batch belongs to' });
+    }
+    const { data: ngoRow, error: ngoErr } = await db
+      .from('ngos')
+      .select('id, name, is_active')
+      .eq('id', ngo_id)
+      .single();
+    if (ngoErr || !ngoRow || !ngoRow.is_active) {
+      return res.status(400).json({ message: 'Selected NGO is invalid or inactive' });
+    }
+    const batchProjectId = ngoRow.name.toLowerCase();
 
     const parsed = receipts.map(r => {
       const row = {};
@@ -959,6 +985,8 @@ export const importReceipts = async (req, res) => {
     if (parsed.length === 0) {
       return res.status(400).json({ message: 'No valid receipts found after filtering' });
     }
+
+    for (const p of parsed) p.parsed.project_id = batchProjectId;
 
     // Duplicate check against DB (batched at 100)
     const incomingNos = [...new Set(parsed.map(p => p.parsed.receipt_no).filter(Boolean))];
@@ -1158,7 +1186,7 @@ export const importReceipts = async (req, res) => {
             const ASSIGN_BATCH = 1000;
             for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
               const { data, error: asgnErr } = await from('fro_assignments')
-                .select('id, donor_id, fro_worker_id, assigned_at')
+                .select('id, donor_id, fro_worker_id, ngo_id, assigned_at')
                 .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
                 .not('status', 'eq', 'reassigned')
                 .not('status', 'eq', 'donation_collected')
@@ -1168,9 +1196,13 @@ export const importReceipts = async (req, res) => {
               openAssignments.push(...(data || []));
             }
 
+            // Only credit an assignment that belongs to the selected NGO, so a
+            // BSCT receipt never closes/credits an AFLF or MANN lead for the
+            // same donor.
             const assignmentByDonor = {};
             for (const a of openAssignments) {
               if (!a.fro_worker_id) continue;
+              if (a.ngo_id !== ngo_id) continue;
               const cur = assignmentByDonor[a.donor_id];
               if (!cur || new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) assignmentByDonor[a.donor_id] = a;
             }
@@ -1366,12 +1398,43 @@ const deleteLinkedLogs = async (logIds) => {
   return deleted;
 };
 
+const cleanupImportAutoCredits = async () => {
+  // Import auto-credit logs are never linked via receipts.log_id — they only
+  // carry the assignment_id plus this notes marker. Deleting the receipts
+  // alone leaves them (and their closed assignments) behind, which would both
+  // keep old wrong FRO credits and block a re-upload from crediting again.
+  let cleaned = 0;
+  while (true) {
+    const { data: logs } = await db
+      .from('fro_donor_logs')
+      .select('id, assignment_id')
+      .ilike('notes', 'Auto-credited from imported receipt%')
+      .limit(1000);
+    const rows = logs || [];
+    if (rows.length === 0) break;
+    const ids = rows.map(r => r.id);
+    const assignmentIds = [...new Set(rows.map(r => r.assignment_id).filter(Boolean))];
+    try { await db.from('notification_log').delete().in('fro_donor_log_id', ids); } catch (e) { console.warn('notification_log cleanup skipped:', e.message); }
+    const { data: deleted } = await db.from('fro_donor_logs').delete().in('id', ids).select('id');
+    cleaned += deleted?.length || 0;
+    if (assignmentIds.length > 0) {
+      const { error } = await db.from('fro_assignments')
+        .update({ status: 'pending', updated_at: new Date().toISOString() })
+        .in('id', assignmentIds)
+        .eq('status', 'donation_collected');
+      if (error) console.warn('assignment reopen skipped:', error.message);
+    }
+  }
+  return cleaned;
+};
+
 export const clearReceipts = async (req, res) => {
   try {
     const batch = req.query.batch ? parseInt(req.query.batch) : null;
     const shouldReverse = req.query.reverse === '1';
 
     const reversed = batch ? (shouldReverse ? await reverseDonorTotals() : 0) : await reverseDonorTotals();
+    const cleanedAutoCredits = (batch ? shouldReverse : true) ? await cleanupImportAutoCredits() : 0;
 
     let deleted = 0, remaining = 0;
     let deletedLogs = 0;
@@ -1402,7 +1465,7 @@ export const clearReceipts = async (req, res) => {
       deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
     }
 
-    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed, deletedLogs });
+    return res.json({ deleted, remaining, total: deleted + remaining, reversedDonorLinks: reversed, deletedLogs, cleanedAutoCredits });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
