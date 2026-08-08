@@ -610,9 +610,9 @@ export const getDashboard = async (req, res) => {
   }
 };
 
-// List this month's collections for the "Collected" card modal, showing each
-// donor and, when the collection came from another FRO's donor (work-as), the
-// owning FRO.
+// List this month's collections for the "Collected" card modal. For work-as
+// collections (from another FRO's donor) the owning FRO's identity is masked so
+// the operator cannot tell which FRO the donor belonged to.
 export const getMyCollections = async (req, res) => {
   try {
     const workerId = req.user.id;
