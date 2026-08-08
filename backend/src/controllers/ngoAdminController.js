@@ -988,7 +988,7 @@ export const getAccountsPending = async (req, res) => {
       .select(`
         id, action, disposition_category, disposition_detail, amount_collected,
         payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at,
-        assignment_id,
+        assignment_id, fro_worker_id,
         fro_assignments!inner(
           id,
           donor_id,
@@ -996,7 +996,8 @@ export const getAccountsPending = async (req, res) => {
           status,
           donor_profiles!inner(id, name, mobile_number, city, pan_number),
           workers!inner(id, name, login_id)
-        )
+        ),
+        workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id)
       `)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
@@ -1021,9 +1022,9 @@ export const getAccountsPending = async (req, res) => {
       donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || '',
       donor_city: r.fro_assignments?.donor_profiles?.city || '',
       donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
-      worker_id: r.fro_assignments?.fro_worker_id,
-      worker_name: r.fro_assignments?.workers?.name || 'Unknown',
-      worker_login: r.fro_assignments?.workers?.login_id || '',
+      worker_id: r.fro_worker_id,
+      worker_name: r.workers?.name || 'Unknown',
+      worker_login: r.workers?.login_id || '',
     }));
 
     return res.json(result);
@@ -2363,7 +2364,7 @@ export const getCallAnalytics = async (req, res) => {
     // Build base filter
     let logQuery = db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(donor_id, ngo_id, station, fro_worker_id, workers!left(name, login_id))')
+      .select('*, fro_assignments!inner(donor_id, ngo_id, station, fro_worker_id), workers!fro_donor_logs_fro_worker_id_fkey(name, login_id)')
       .gte('created_at', fromDate)
       .lte('created_at', toDate);
 
@@ -2373,7 +2374,7 @@ export const getCallAnalytics = async (req, res) => {
       logQuery = logQuery.in('fro_assignments.ngo_id', ngoIds);
     }
     if (station) logQuery = logQuery.eq('fro_assignments.station', station);
-    if (fro_id) logQuery = logQuery.eq('fro_assignments.fro_worker_id', fro_id);
+    if (fro_id) logQuery = logQuery.eq('fro_worker_id', fro_id);
 
     const { data: logs, error } = await logQuery;
     if (error) throw error;
@@ -2385,13 +2386,13 @@ export const getCallAnalytics = async (req, res) => {
     // Per FRO breakdown
     const froMap = {};
     for (const l of logs || []) {
-      const wid = l.fro_assignments?.fro_worker_id;
+      const wid = l.fro_worker_id;
       if (!wid) continue;
       if (!froMap[wid]) {
         froMap[wid] = {
           fro_worker_id: wid,
-          fro_name: l.fro_assignments?.workers?.name || 'Unknown',
-          login_id: l.fro_assignments?.workers?.login_id || '',
+          fro_name: l.workers?.name || 'Unknown',
+          login_id: l.workers?.login_id || '',
           total: 0, connected: 0, not_connected: 0, talk_seconds: 0,
         };
       }

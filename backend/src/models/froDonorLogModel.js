@@ -52,8 +52,8 @@ export function inRange(date, start, end) {
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
-    .eq('fro_assignments.fro_worker_id', workerId)
+    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
+    .eq('fro_worker_id', workerId)
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
@@ -68,8 +68,8 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
-    .eq('fro_assignments.fro_worker_id', workerId)
+    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
+    .eq('fro_worker_id', workerId)
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
@@ -96,8 +96,8 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
 
   let query = db
     .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_assignments!inner(fro_worker_id)')
-    .in('fro_assignments.fro_worker_id', workerIds);
+    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id, fro_assignments!inner(fro_worker_id, ngo_id)')
+    .in('fro_worker_id', workerIds);
 
   if (ngoIds && ngoIds.length > 0) {
     query = query.in('fro_assignments.ngo_id', ngoIds);
@@ -118,7 +118,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   const unverifiedToday = {}; for (const id of workerIds) unverifiedToday[id] = init();
 
   for (const d of data || []) {
-    const wId = d.fro_assignments?.fro_worker_id;
+    const wId = d.fro_worker_id;
     if (!wId || !(wId in monthCollection)) continue;
     const amount = parseFloat(d.amount_collected || 0);
 
@@ -227,8 +227,8 @@ export const getTotalCollectedByDonorAndWorker = async (donorId, workerId) => {
 export const getVerifiedCollection = async (workerId, startDate, endDate) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, fro_assignments!inner(fro_worker_id)')
-    .eq('fro_assignments.fro_worker_id', workerId)
+    .select('amount_collected, fro_worker_id')
+    .eq('fro_worker_id', workerId)
     .eq('disposition_detail', 'lead_done')
     .eq('accounts_status', 'verified')
     .gte('verified_at', startDate)
@@ -243,8 +243,8 @@ export const getVerifiedCollection = async (workerId, startDate, endDate) => {
 export const getUnverifiedCollection = async (workerId, startDate, endDate) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, fro_assignments!inner(fro_worker_id)')
-    .eq('fro_assignments.fro_worker_id', workerId)
+    .select('amount_collected, fro_worker_id')
+    .eq('fro_worker_id', workerId)
     .eq('disposition_detail', 'lead_done')
     .eq('accounts_status', 'pending')
     .gte('created_at', startDate)

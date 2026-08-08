@@ -619,8 +619,8 @@ export const getFroLiveStatus = async (req, res) => {
         .in('fro_worker_id', froWorkerIds),
       db
         .from('fro_donor_logs')
-        .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_assignments!inner(fro_worker_id)')
-        .in('fro_assignments.fro_worker_id', froWorkerIds)
+        .select('amount_collected, action, disposition_detail, accounts_status, created_at, verified_at, fro_worker_id')
+        .in('fro_worker_id', froWorkerIds)
         .or(
           `and(action.eq.donation,created_at.gte.${todayStart.toISOString()},created_at.lte.${todayEnd.toISOString()}),` +
           `and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified,verified_at.gte.${todayStart.toISOString()},verified_at.lte.${todayEnd.toISOString()}),` +
@@ -660,7 +660,7 @@ export const getFroLiveStatus = async (req, res) => {
     const perWorkerToday = {};
     for (const wid of froWorkerIds) perWorkerToday[wid] = 0;
     for (const d of allTodayLogs?.data || []) {
-      const wid = d.fro_assignments?.fro_worker_id;
+      const wid = d.fro_worker_id;
       if (!wid || !(wid in perWorkerToday)) continue;
       perWorkerToday[wid] += parseFloat(d.amount_collected || 0);
     }
@@ -901,8 +901,8 @@ export const getFroWorkerDashboard = async (req, res) => {
 
     const { data: leadDoneData } = await db
       .from('fro_donor_logs')
-      .select('donor_id, created_at, fro_assignments!inner(fro_worker_id)')
-      .eq('fro_assignments.fro_worker_id', workerId)
+      .select('donor_id, created_at, fro_worker_id')
+      .eq('fro_worker_id', workerId)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
       .eq('accounts_status', 'verified');
