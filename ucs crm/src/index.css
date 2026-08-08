@@ -566,7 +566,7 @@
 .panel-hr .feed-item:last-child { border-bottom:none; }
 .panel-hr .feed-item .tdot { width:7px; height:7px; border-radius:50%; background:var(--sage); margin-top:6px; flex-shrink:0; }
 .panel-hr .feed-item .ft { font-size:11px; color:var(--ink-soft); margin-top:1px; }
-.panel-hr .letter { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); padding:28px 30px; margin-top:16px; font-size:13.5px; line-height:1.8; white-space:pre-wrap; color:#34302a; }
+.panel-hr .letter { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); padding:14px 26px; margin-top:16px; font-size:13.5px; line-height:1.8; white-space:pre-wrap; color:#34302a; }
 .panel-hr .dropdown { position:relative; display:inline-block; cursor:pointer; user-select:none; }
 .panel-hr .dropdown-trigger { display:flex; align-items:center; gap:6px; width:100%; background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); padding:9px 11px; font-size:14px; color:var(--ink); font-family:inherit; cursor:pointer; text-align:left; outline:none; }
 .panel-hr .dropdown.open .dropdown-trigger { border-color:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
