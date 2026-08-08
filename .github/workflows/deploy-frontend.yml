@@ -1,0 +1,40 @@
+name: Deploy Frontend (ucs crm)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ucs crm/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: 'ucs crm/package-lock.json'
+
+      - name: Build
+        env:
+          VITE_API_URL: https://43-200-198-122.sslip.io/api
+          VITE_SOCKET_URL: https://43-200-198-122.sslip.io
+          VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
+          VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
+        run: |
+          cd "ucs crm"
+          npm ci
+          npm run build
+
+      - name: Deploy dist to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 43.200.198.122
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "ucs crm/dist/*"
+          target: /var/www/crm
