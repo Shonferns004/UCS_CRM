@@ -134,8 +134,9 @@ export async function getFullDonorHistory(donorId, ngoId, unlockAll) {
   return api(`/fro/donors/${donorId}/full-history?${params}`, { _prefix: 'ucs' })
 }
 
-export async function getDonorReceipts(donorId) {
-  return api(`/fro/donors/${donorId}/receipts`, { _prefix: 'ucs' })
+export async function getDonorReceipts(donorId, ngoId) {
+  const params = ngoId ? `?ngo_id=${ngoId}` : ''
+  return api(`/fro/donors/${donorId}/receipts${params}`, { _prefix: 'ucs' })
 }
 
 export async function getReactivatedDonors(period) {

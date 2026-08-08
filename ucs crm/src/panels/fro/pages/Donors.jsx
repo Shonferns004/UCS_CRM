@@ -66,7 +66,7 @@ export default function Donors() {
       setModalDetail({ logs: [] });
     }
     try {
-      const data = await getDonorReceipts(d.id);
+      const data = await getDonorReceipts(d.id, d.ngo_id);
       setReceiptData(data);
     } catch {
       // receipts optional
