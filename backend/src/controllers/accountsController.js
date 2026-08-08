@@ -1037,7 +1037,8 @@ export const importReceipts = async (req, res) => {
 
     for (const p of parsed) p.parsed.project_id = batchProjectId;
 
-    // Duplicate check against DB (batched at 100)
+    // Duplicate check against DB (batched at 100). Scoped by NGO so each NGO's
+    // own receipt-number series (1..n) never collides with another NGO's.
     const incomingNos = [...new Set(parsed.map(p => p.parsed.receipt_no).filter(Boolean))];
     const existingReceiptIds = new Map();
     if (incomingNos.length > 0) {
@@ -1046,6 +1047,7 @@ export const importReceipts = async (req, res) => {
         const { data: existing } = await db
           .from('receipts')
           .select('id, receipt_no')
+          .eq('project_id', batchProjectId)
           .in('receipt_no', batch);
         for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r.id);
       }
@@ -1112,6 +1114,8 @@ export const importReceipts = async (req, res) => {
         const result = await db.transaction(async ({ from }) => {
           // Retry-safe dedupe: anything already in the DB is skipped, so a
           // re-upload (or a partial previous run) never creates duplicates.
+          // Scoped by NGO (project_id) so each NGO's own 1..n series is deduped
+          // against itself only.
           const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
           const alreadyInserted = new Set();
           if (nos.length > 0) {
@@ -1119,6 +1123,7 @@ export const importReceipts = async (req, res) => {
             for (let i = 0; i < nos.length; i += DEDUPE_BATCH) {
               const { data: existing, error: dedupeErr } = await from('receipts')
                 .select('receipt_no')
+                .eq('project_id', batchProjectId)
                 .in('receipt_no', nos.slice(i, i + DEDUPE_BATCH));
               if (dedupeErr) throw new Error(dedupeErr.message);
               for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
