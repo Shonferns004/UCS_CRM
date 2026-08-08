@@ -5,7 +5,7 @@ import { FileTxt } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter'];
+const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD'];
 
 const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
