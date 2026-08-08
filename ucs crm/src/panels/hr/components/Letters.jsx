@@ -5,7 +5,7 @@ import { FileTxt } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD'];
+const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','ODAR'];
 
 const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
@@ -46,6 +46,99 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
 <p style="margin:0 0 6px 0">We look forward to a long and mutually rewarding association with you. Welcome aboard!</p>
 </div>
 <div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p></div>
+<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
+</div>`;
+}
+
+function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey) {
+  const ngo = getNgo(ngoKey);
+  const r = w.role || w.department || 'Team Member';
+  const subj = subjectText || 'NO OBJECTION & BASIC SALARY DECLARATION';
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.3;color:#000;background:#fff;padding:25px 35px">
+<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
+<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${subj}</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+<div style="text-align:justify">
+<p style="margin:0 0 6px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer / Employee. I hereby declare and confirm the following:</p>
+<ol style="margin:0 0 6px 0;padding-left:22px">
+<li style="margin-bottom:4px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
+<li style="margin-bottom:4px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
+<li style="margin-bottom:4px">In such circumstances, I have no objection if the organization limits my monthly payment to <strong>₹6,000 (Rupees Six Thousand Only)</strong> as Volunteer Expenses/Honorarium, until further review by the Management.</li>
+<li style="margin-bottom:4px">I clearly understand that the payment of ₹6,000 is towards volunteer expenses/honorarium and shall not be considered as a guaranteed salary or permanent entitlement.</li>
+<li style="margin-bottom:4px">I accept that the Management's decision regarding my remuneration, based on my performance and conduct, shall be final and binding.</li>
+<li style="margin-bottom:4px">I confirm that I am signing this declaration voluntarily, without any pressure, coercion, or undue influence, after fully understanding its contents.</li>
+</ol>
+<p style="margin:0 0 6px 0">I have read, understood, and accepted all the above terms and conditions.</p>
+<div style="margin:14px 0;height:1px;background:#d1d5db"></div>
+<table style="width:100%;border-collapse:collapse;font-size:12px">
+<tr><td style="padding:2px 0"><strong>Employee/Volunteer Name:</strong> ${w.name}</td><td style="padding:2px 0"><strong>Designation:</strong> ${r}</td></tr>
+<tr><td style="padding:2px 0"><strong>Signature of Employee/Volunteer:</strong> _______________________</td><td style="padding:2px 0"><strong>Date:</strong> ____ / ____ / _____</td></tr>
+</table>
+<div style="margin:16px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
+<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">HR Verification</div>
+<div><strong>HR Name:</strong> ${hrNameText}</div>
+<div style="margin-top:4px"><strong>Signature:</strong> ______________ &nbsp;&nbsp; <strong>Date:</strong> __ / __ / __</div>
+</div>
+<div style="margin:12px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
+<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">Management Approval</div>
+<div><strong>Authorized Signatory:</strong> _____________</div>
+</div>
+</div>
+<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
+</div>`;
+}
+
+function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey) {
+  const ngo = getNgo(ngoKey);
+  const r = w.role || w.department || 'Team Member';
+  const d = w.dept || w.department || 'General';
+  const jd = w.date_of_joining || w.created_at || '';
+  const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
+  const subj = subjectText || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.3;color:#000;background:#fff;padding:25px 35px">
+<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
+<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${subj}</div>
+<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
+<tr><td style="padding:2px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
+<tr><td style="padding:2px 0"><strong>Date of Submission:</strong> ${dateText}</td></tr>
+</table>
+<div style="font-weight:700;color:#082F5A;margin:10px 0 4px 0">Employee Details</div>
+<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
+<tr><td style="padding:2px 0;width:50%"><strong>Employee Name:</strong> ${w.name}</td><td style="padding:2px 0"><strong>Department:</strong> ${d}</td></tr>
+<tr><td style="padding:2px 0"><strong>Designation:</strong> ${r}</td><td style="padding:2px 0"><strong>Date of Joining:</strong> ${joiningDate}</td></tr>
+</table>
+<div style="font-weight:700;color:#082F5A;margin:10px 0 4px 0">Original Documents Submitted</div>
+<table style="width:100%;border-collapse:collapse;font-size:12px">
+<tr style="background:#0B73C4;color:#fff">
+<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:8%">Sr. No.</th>
+<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:32%">Document Name</th>
+<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:center;width:18%">Original Submitted (✓)</th>
+<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:center;width:18%">Returned (✓)</th>
+<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:24%">Remarks</th>
+</tr>
+<tr><td style="border:1px solid #999;padding:14px 6px;text-align:center">1</td><td style="border:1px solid #999;padding:14px 6px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
+<tr><td style="border:1px solid #999;padding:14px 6px;text-align:center">2</td><td style="border:1px solid #999;padding:14px 6px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
+<tr><td style="border:1px solid #999;padding:14px 6px;text-align:center">3</td><td style="border:1px solid #999;padding:14px 6px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
+</table>
+<div style="margin:12px 0 0 0;text-align:justify">
+<p style="margin:0 0 6px 0"><strong>Employee Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
+<tr><td style="padding:2px 0"><strong>Employee Signature:</strong> _______________________</td></tr>
+</table>
+<div style="margin:16px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
+<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">HR Acknowledgement</div>
+<div><strong>Received By (HR):</strong> ${hrNameText}</div>
+<div style="margin-top:4px"><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
+</div>
+<div style="margin:12px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
+<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">Document Return Acknowledgement <span style="font-weight:400;text-transform:none">(To be filled at the time of return)</span></div>
+<div>I confirm that I have received all my original documents listed above in good condition.</div>
+<div style="margin-top:4px"><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+<div style="margin-top:4px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
+</div>
 <div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
 </div>`;
 }
@@ -182,7 +275,17 @@ export default function Letters() {
     const w = workers.find(x => x.name === name);
     if (!w) return;
     let body, today;
-    if (type === 'Joining letter') {
+    if (type === 'NOBSD') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const hrNameText = hrName || '{{hr_name}}';
+      body = buildNoBSDDeclarationHTML(w, dateText, hrNameText, subject, ngo);
+      today = dateText;
+    } else if (type === 'ODAR') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
+      const hrNameText = hrName || '{{hr_name}}';
+      body = buildODARDocumentHTML(w, dateText, hrNameText, subject, ngo);
+      today = dateText;
+    } else if (type === 'Joining letter') {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{date}}';
       const hrNameText = hrName || '{{hr_name}}';
       body = buildJoiningLetterHTML(w, dateText, hrNameText, subject, ngo);
