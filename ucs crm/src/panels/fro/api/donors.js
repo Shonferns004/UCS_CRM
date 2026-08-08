@@ -67,6 +67,15 @@ export async function getMyCollections() {
   return api('/fro/dashboard/collections', { _prefix: 'ucs' })
 }
 
+export async function getSuspenseReceipts() {
+  return api('/fro/dashboard/suspense', { _prefix: 'ucs' })
+}
+
+export async function claimSuspenseReceipt(receiptId, data) {
+  const body = data ? JSON.stringify(data) : '{}'
+  return api(`/fro/dashboard/suspense/${receiptId}/claim`, { method: 'POST', body, _prefix: 'ucs' })
+}
+
 export async function getRejectedLeads() {
   return api('/fro/rejected-leads', { _prefix: 'ucs' })
 }

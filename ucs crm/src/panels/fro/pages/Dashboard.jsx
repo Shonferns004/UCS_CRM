@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
-import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
+import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors, getSuspenseReceipts, claimSuspenseReceipt } from '../api/donors'
 import { getMyTarget } from '../api/target'
 import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
@@ -93,6 +93,86 @@ const STATUS_COLORS = {
   not_reachable: '#9ca3af', scheduled: '#a78bfa',
 }
 
+const CLAIM_BADGES = {
+  pending: { text: 'Claimed · Pending', color: '#b45309', bg: '#fef3c7' },
+  verified: { text: 'Claim Verified', color: '#166534', bg: '#dcfce7' },
+  rejected: { text: 'Claim Rejected', color: '#b91c1c', bg: '#fee2e2' },
+}
+
+function SuspenseCard({ month, receipts = [], loading, onClaim }) {
+  const total = receipts.reduce((s, r) => s + Number(r.amount || 0), 0)
+  return (
+    <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+            background: 'linear-gradient(135deg, #2563eb 0%, #60a5fa 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 15 }}>inbox</span>
+          </span>
+          <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>Suspense Receipts</h3>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!loading && receipts.length > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600 }}>{currency(total)} total</span>
+          )}
+          <span style={{
+            padding: '3px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+            background: receipts.length ? 'rgba(37,99,235,.1)' : '#f1f5f9',
+            color: receipts.length ? '#1d4ed8' : 'var(--ink-soft)',
+          }}>
+            {loading ? '...' : `${receipts.length} unclaimed`}
+          </span>
+        </div>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginBottom: 10 }}>
+        Unlinked donations received in {month} waiting for an owner. Claim one to get credit after accounts verification.
+      </div>
+      {loading ? (
+        <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '12px 0' }}>Loading suspense receipts...</div>
+      ) : receipts.length === 0 ? (
+        <div style={{ fontSize: 11, color: 'var(--ink-soft)', padding: '12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
+          No suspense receipts this month.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
+          {receipts.map(r => {
+            const badge = CLAIM_BADGES[r.my_claim_status]
+            return (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--bg)' }}>
+                <span style={{ width: 32, height: 32, borderRadius: 999, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ color: '#4f46e5', fontSize: 16 }}>person</span>
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {r.donor_name || 'Unknown donor'}
+                    {r.donor_mobile ? <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}> · {r.donor_mobile}</span> : null}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
+                    Receipt #{r.receipt_no || r.id} · {r.receipt_date}
+                    {r.claim_count > 0 ? ` · ${r.claim_count} claim${r.claim_count > 1 ? 's' : ''}` : ''}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{currency(r.amount)}</div>
+                {badge ? (
+                  <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 9.5, fontWeight: 700, whiteSpace: 'nowrap', background: badge.bg, color: badge.color }}>{badge.text}</span>
+                ) : (
+                  <button onClick={() => onClaim(r)} style={{ padding: '6px 13px', borderRadius: 8, border: 'none', background: 'var(--sage)', color: '#fff', fontSize: 10.5, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    Claim
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const CACHE_KEY = 'fro_dashboard'
 
 export default function Dashboard() {
@@ -119,6 +199,14 @@ export default function Dashboard() {
   const [reactivatedLoading, setReactivatedLoading] = useState(false)
   const [showReactivatedModal, setShowReactivatedModal] = useState(false)
   const [incentiveOnly, setIncentiveOnly] = useState(false)
+  const [suspense, setSuspense] = useState({ month: '', receipts: [] })
+  const [suspenseLoading, setSuspenseLoading] = useState(true)
+  const [showClaimModal, setShowClaimModal] = useState(false)
+  const [claimReceipt, setClaimReceipt] = useState(null)
+  const [claimNotes, setClaimNotes] = useState('')
+  const [claimError, setClaimError] = useState('')
+  const [claimSuccess, setClaimSuccess] = useState(false)
+  const [claiming, setClaiming] = useState(false)
 
   const today = new Date()
   const day = today.getDate()
@@ -170,6 +258,15 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    getSuspenseReceipts()
+      .then(data => { if (!cancelled) setSuspense(data || { month: '', receipts: [] }) })
+      .catch((err) => { console.error('API error:', err.message); if (!cancelled) setSuspense({ month: '', receipts: [] }) })
+      .finally(() => { if (!cancelled) setSuspenseLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     setReactivatedLoading(true)
     getReactivatedDonors(reactivatedFilter).then(data => {
       setReactivatedDonors(data?.donors || [])
@@ -204,6 +301,31 @@ export default function Dashboard() {
       setCollectionsData({ collections: [], month: '' })
     } finally {
       setCollectionsLoading(false)
+    }
+  }
+
+  const openClaimModal = (r) => {
+    setClaimReceipt(r)
+    setClaimNotes('')
+    setClaimError('')
+    setClaimSuccess(false)
+    setShowClaimModal(true)
+  }
+
+  const submitClaim = async () => {
+    if (!claimReceipt) return
+    setClaiming(true)
+    setClaimError('')
+    try {
+      await claimSuspenseReceipt(claimReceipt.id, { notes: claimNotes.trim() || undefined })
+      setClaimSuccess(true)
+      const data = await getSuspenseReceipts()
+      setSuspense(data || { month: '', receipts: [] })
+      setTimeout(() => setShowClaimModal(false), 1200)
+    } catch (err) {
+      setClaimError(err.message)
+    } finally {
+      setClaiming(false)
     }
   }
 
@@ -884,6 +1006,44 @@ export default function Dashboard() {
         </div>
       )}
 
+      {showClaimModal && claimReceipt && (
+        <div onClick={() => { if (!claiming && !claimSuccess) setShowClaimModal(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background:'#fff', borderRadius:12, width:400, maxWidth:'92vw', padding:20, boxShadow:'0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize:14, fontWeight:700, marginBottom:4 }}>Claim Suspense Receipt</div>
+            <div style={{ fontSize:10, color:'var(--ink-soft)', marginBottom:12 }}>Your claim goes to accounts for verification. Verified claims are added to your collected.</div>
+            <div style={{ background:'var(--bg)', border:'1px solid var(--line)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--ink)' }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
+              <div style={{ fontSize:10.5, color:'var(--ink-soft)', marginTop:2 }}>
+                Receipt #{claimReceipt.receipt_no || claimReceipt.id} · {claimReceipt.receipt_date}
+                {claimReceipt.donor_mobile ? ` · ${claimReceipt.donor_mobile}` : ''}
+              </div>
+              <div style={{ fontSize:14, fontWeight:800, color:'var(--sage)', marginTop:6 }}>{currency(claimReceipt.amount)}</div>
+            </div>
+            {claimSuccess ? (
+              <div style={{ textAlign:'center', padding:'16px 0', color:'var(--sage)', fontWeight:600, fontSize:12 }}>
+                <span className="material-symbols-outlined" style={{ fontSize:18, verticalAlign:'middle', marginRight:4 }}>check_circle</span>
+                Claim submitted for verification
+              </div>
+            ) : (
+              <>
+                <textarea value={claimNotes} onChange={e => setClaimNotes(e.target.value)} rows={3}
+                  placeholder="Optional note for accounts (how you know this donor)..."
+                  style={{ width:'100%', padding:8, border:'1px solid var(--line)', borderRadius:6, fontSize:11, fontFamily:'inherit', resize:'vertical', boxSizing:'border-box' }} />
+                {claimError && <div style={{ fontSize:10.5, color:'#b91c1c', marginTop:6 }}>{claimError}</div>}
+                <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+                  <button onClick={() => setShowClaimModal(false)} disabled={claiming}
+                    style={{ padding:'7px 16px', border:'1px solid var(--line)', borderRadius:6, background:'#fff', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer' }}>Cancel</button>
+                  <button onClick={submitClaim} disabled={claiming}
+                    style={{ padding:'7px 16px', border:'none', borderRadius:6, background:'var(--sage)', color:'#fff', fontSize:11, fontWeight:700, fontFamily:'inherit', cursor:'pointer', opacity: claiming ? .5 : 1 }}>
+                    {claiming ? 'Claiming...' : 'Submit Claim'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 14, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--sage)' }}>stack_star</span>
@@ -925,6 +1085,8 @@ export default function Dashboard() {
           <IncentiveCalendar akiPerDay={akiPerDay} monthStr={monthStr} onlyEligible={incentiveOnly} />
         </div>
       </div>
+
+      <SuspenseCard month={suspense.month} receipts={suspense.receipts} loading={suspenseLoading} onClaim={openClaimModal} />
     </div>
   )
 }

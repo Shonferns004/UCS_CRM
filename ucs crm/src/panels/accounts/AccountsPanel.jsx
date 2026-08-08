@@ -10,6 +10,7 @@ import { useRealtime } from '../../hooks/useRealtime'
 import Dashboard from './pages/Dashboard'
 import Donors from './pages/Donors'
 import ReceiptHistory from './pages/ReceiptHistory'
+import ReceiptClaims from './pages/ReceiptClaims'
 import BankAudit from './pages/BankAudit'
 import AssetRegister from './pages/AssetRegister'
 import Reports from './pages/Reports'
@@ -29,6 +30,8 @@ const NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg> },
   { id: 'receipt-history', path: '/accounts/receipt-history', label: 'Receipt History',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
+  { id: 'receipt-claims', path: '/accounts/receipt-claims', label: 'Receipt Claims',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> },
   { id: 'donors', path: '/accounts/donors', label: 'Donors',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   { id: 'receipt-generator', path: '/accounts/receipt-generator', label: 'Receipts',
@@ -256,6 +259,7 @@ export default function AccountsPanel() {
             <Route path="receipts" element={<Navigate to="/accounts/receipt-history" replace />} />
             <Route path="donors" element={<Donors />} />
             <Route path="receipt-history" element={<ReceiptHistory />} />
+            <Route path="receipt-claims" element={<ReceiptClaims />} />
             <Route path="receipt-generator" element={<Receipts />} />
             <Route path="bank-audit" element={<BankAudit />} />
             <Route path="suspense" element={<SuspensePage />} />
