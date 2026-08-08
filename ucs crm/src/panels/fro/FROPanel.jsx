@@ -7,7 +7,7 @@ import { getScheduled, getCallbacks } from './api/donors'
 import { getMyDashboard } from './api/donors'
 import { getMyTarget } from './api/target'
 import { useRealtime } from '../../hooks/useRealtime'
-import { api, impersonateFRO, getFroWorkersForImpersonation, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
+import { api, impersonateFRO, generateImpersonationCode, getFroWorkersForImpersonation, isImpersonating, startImpersonation, exitImpersonation } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
@@ -126,13 +126,17 @@ export default function FROPanel() {
   const [showWorkAs, setShowWorkAs] = useState(false)
   const [froList, setFroList] = useState([])
   const [workAsLoading, setWorkAsLoading] = useState(false)
+  const [workAsSearch, setWorkAsSearch] = useState('')
   const [pendingTarget, setPendingTarget] = useState(null)
   const [codeInput, setCodeInput] = useState('')
   const [codeSubmitting, setCodeSubmitting] = useState(false)
+  const [generatingCode, setGeneratingCode] = useState(false)
+  const [codeGenerated, setCodeGenerated] = useState(false)
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
     setShowWorkAs(v => !v)
+    setWorkAsSearch('')
     if (froList.length > 0) return
     setWorkAsLoading(true)
     try {
@@ -146,7 +150,24 @@ export default function FROPanel() {
     setShowWorkAs(false)
     setPendingTarget(worker)
     setCodeInput('')
+    setCodeGenerated(false)
   }
+
+  const generateCodeForSwitch = async () => {
+    setGeneratingCode(true)
+    try {
+      await generateImpersonationCode()
+      setCodeGenerated(true)
+      setCodeInput('')
+    } catch (e) {
+      console.error('Error:', e.message)
+      alert(e.message || 'Could not generate code')
+    } finally {
+      setGeneratingCode(false)
+    }
+  }
+
+  const filteredFroList = froList.filter(w => !workAsSearch || (w.name || '').toLowerCase().includes(workAsSearch.toLowerCase()))
 
   const doImpersonate = async () => {
     if (!pendingTarget) return
@@ -461,18 +482,28 @@ export default function FROPanel() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={impersonating ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M16 8h.01"/><path d="M8 12h8"/><path d="M8 8h.01"/><path d="M16 12h.01"/></svg>
               </div>
               {showWorkAs && (
-                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: 220, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, zIndex: 60 }}>
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 240, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, zIndex: 60 }}>
                   <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Work as FRO</div>
+                  <input
+                    value={workAsSearch}
+                    onChange={e => setWorkAsSearch(e.target.value)}
+                    placeholder="Search FRO…"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', marginBottom: 4, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-soft, #f1f5f9)', color: 'var(--ink)', fontSize: 12, outline: 'none', fontFamily: 'inherit' }}
+                  />
                   {workAsLoading && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>Loading…</div>}
-                  {!workAsLoading && froList.length === 0 && (
-                    <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>No other FROs available</div>
-                  )}
-                  {froList.map(w => (
-                    <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
-                      <span style={{ fontWeight: 600 }}>{w.name}</span>
-                      {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
+                  {!workAsLoading && (
+                    <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                      {filteredFroList.map(w => (
+                        <div key={w.id} onClick={() => { if (w.id !== user?.id) pickImpersonateTarget(w); }} style={{ cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, background: w.id === user?.id ? 'var(--bg-soft, #f1f5f9)' : undefined, color: 'var(--ink)' }}>
+                          <span style={{ fontWeight: 600 }}>{w.name}</span>
+                          {w.id === user?.id && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
+                        </div>
+                      ))}
+                      {filteredFroList.length === 0 && (
+                        <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>{froList.length === 0 ? 'No other FROs available' : 'No matching FROs'}</div>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
@@ -509,7 +540,7 @@ export default function FROPanel() {
         {impersonating && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-            <span><b>{userName}</b>'s account · you are {user?.imposter_name || 'an administrator'}. Collections credit to {userName}.</span>
+            <span><b>{userName}</b>'s account · you are {user?.imposter_name || 'an administrator'}. Collections credit to {user?.imposter_name || 'you'}.</span>
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit work-as</button>
           </div>
         )}
@@ -520,16 +551,27 @@ export default function FROPanel() {
                 Work as {pendingTarget.name}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
-                Enter the 4-digit code from your admin to authorize switching.
+                {codeGenerated
+                  ? 'Code generated! Ask your admin for the code and enter it below to switch.'
+                  : 'Generate a code to authorize switching. Your admin will share the code with you.'}
               </div>
+              {!codeGenerated && (
+                <button
+                  className="btn"
+                  onClick={generateCodeForSwitch}
+                  disabled={generatingCode}
+                  style={{ width: '100%', justifyContent: 'center', background: 'var(--sage)', color: '#fff' }}
+                >
+                  {generatingCode ? 'Generating…' : '+ Generate code'}
+                </button>
+              )}
               <input
                 value={codeInput}
                 onChange={e => setCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 onKeyDown={e => { if (e.key === 'Enter' && codeInput.length === 4) doImpersonate(); }}
                 placeholder="••••"
                 inputMode="numeric"
-                autoFocus
-                style={{ width: '100%', textAlign: 'center', fontSize: 28, fontWeight: 700, letterSpacing: 12, padding: '10px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }}
+                style={{ width: '100%', textAlign: 'center', fontSize: 24, fontWeight: 700, letterSpacing: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--line)', background: 'var(--card-bg)', color: 'var(--ink)', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box', marginTop: 14 }}
               />
               <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
                 <button className="btn" onClick={() => setPendingTarget(null)} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>

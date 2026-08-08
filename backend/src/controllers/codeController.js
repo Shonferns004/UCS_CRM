@@ -22,6 +22,7 @@ export const generateCode = async (req, res) => {
       code,
       ngo_id: ngoId,
       created_by: req.user.id || null,
+      created_by_name: req.user.name || '',
       expires_at: expiresAt,
     });
 
