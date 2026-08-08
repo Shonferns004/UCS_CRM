@@ -1,9 +1,16 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, CheckCircle2, UserX, Smartphone, ChevronRight, Phone, Search, Inbox, MapPin } from 'lucide-react';
 import { getMyDonors, getDonorDetail, getFullDonorHistory, getDonorReceipts } from '../api/donors';
 import { SkeletonDonors } from '../../../components/Skeleton';
 import { getWhatsAppChatUrl } from '../utils/whatsappProject';
+import ReceiptTemplate_MannCar from '../../accounts/components/ReceiptTemplate_MannCar';
+import ReceiptTemplate_Ashray from '../../accounts/components/ReceiptTemplate_Ashray';
+import ReceiptTemplate_BeingSevak from '../../accounts/components/ReceiptTemplate_BeingSevak';
+import { generateReceiptPDF } from '../../accounts/services/pdfGenerator';
+
+const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
+const DB_TO_TEMPLATE = { maan: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 
 const PERIOD_FILTERS = [
   { id: 'all', label: 'All' },
@@ -29,6 +36,23 @@ const ACTIVITY_TABS = [
 
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+const buildReceiptDonor = (receipt, fallbackName) => ({
+  'Receipt No.': receipt.receipt_no || '',
+  'Receipt Date': receipt.receipt_date || '',
+  'Donor Name': receipt.donor_name || fallbackName || '',
+  'Address 1': receipt.address || '',
+  'PAN No.': receipt.pan_number || '',
+  'Email ID': receipt.email || '',
+  'Amount': receipt.amount || 0,
+  'Mode of Payment (MOP)': receipt.mode || '',
+  'Payment ID No.': receipt.payment_id || '',
+  'Donor Bank Name': receipt.bank_name || '',
+  'Account Of': 'Corpus',
+  'City': '',
+  'State': '',
+  'Pincode': '',
+});
+
 export default function Donors() {
   const navigate = useNavigate();
   const [donors, setDonors] = useState([]);
@@ -45,6 +69,8 @@ export default function Donors() {
   const [unlocked, setUnlocked] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
+  const [previewReceipt, setPreviewReceipt] = useState(null);
+  const receiptPreviewRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -67,6 +93,7 @@ export default function Donors() {
     setReceiptData(null);
     setHistoryFilter('all');
     setUnlocked(false);
+    setPreviewReceipt(null);
     setModalLoading(true);
     try {
       const data = await getDonorDetail(d.id, d.ngo_id);
@@ -89,6 +116,7 @@ export default function Donors() {
     setReceiptData(null);
     setHistoryFilter('all');
     setUnlocked(false);
+    setPreviewReceipt(null);
   }, []);
 
   const handleToggleLock = useCallback(async () => {
@@ -190,6 +218,36 @@ export default function Donors() {
   const goWhatsApp = (d) => {
     localStorage.setItem('donors_last_view', JSON.stringify({ page, perPage, search, filter, period }));
     navigate(getWhatsAppChatUrl(d));
+  };
+
+  const findReceiptForLog = (l) => {
+    const receipts = receiptData?.receipts || [];
+    if (receipts.length === 0) return null;
+    const upi = (l.upi_transaction_id || l.payment_id || '').trim();
+    if (upi) {
+      const byUpi = receipts.find(r => r.payment_id && String(r.payment_id).trim() === upi);
+      if (byUpi) return byUpi;
+    }
+    const amt = Number(l.amount_collected || 0);
+    const d = l.transaction_datetime || l.verified_at || l.created_at;
+    if (d && amt) {
+      const day = new Date(d).toDateString();
+      const byAmountDate = receipts.find(r =>
+        Number(r.amount || 0) === amt && r.receipt_date && new Date(r.receipt_date).toDateString() === day
+      );
+      if (byAmountDate) return byAmountDate;
+    }
+    return null;
+  };
+
+  const handleDownloadReceipt = async () => {
+    if (!previewReceipt || !receiptPreviewRef.current) return;
+    try {
+      const pdf = await generateReceiptPDF(receiptPreviewRef.current);
+      pdf.save(`receipt_${(previewReceipt.receipt_no || 'download').replace(/[/\\]/g, '_')}.pdf`);
+    } catch (err) {
+      alert('Download failed: ' + err.message);
+    }
   };
 
   const segmentedPill = (bg, border, radius, padding) => ({
@@ -351,7 +409,8 @@ export default function Donors() {
       </div>
 
       {modalDonor && (
-        <div className="donor-modal-overlay" onClick={closeModal}>
+        <>
+          <div className="donor-modal-overlay" onClick={closeModal}>
           <div className="donor-modal" onClick={e => e.stopPropagation()}>
             <div className="donor-modal-header">
               <div className="donor-modal-title-row">
@@ -459,7 +518,12 @@ export default function Donors() {
                         <td>
                           {l.accounts_status === 'verified' && (
                             <button className="btn btn-sm" style={{ fontSize: 9, padding: '2px 6px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                              onClick={(e) => { e.stopPropagation(); alert('Receipt preview coming soon') }}>
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const rec = findReceiptForLog(l);
+                                if (rec) setPreviewReceipt(rec);
+                                else alert('No matching receipt found for this entry.');
+                              }}>
                               View
                             </button>
                           )}
@@ -478,10 +542,14 @@ export default function Donors() {
                 </div>
                 <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                   {receiptData.receipts.map(r => (
-                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderTop: '1px solid var(--line)', fontSize: 11 }}>
+                    <div key={r.id} onClick={() => setPreviewReceipt(r)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderTop: '1px solid var(--line)', fontSize: 11, cursor: 'pointer' }}
+                      onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                       <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--ink)', minWidth: 70 }}>{r.receipt_no}</span>
                       <span style={{ color: 'var(--ink-soft)', minWidth: 90 }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
                       <span style={{ fontWeight: 700, color: 'var(--sage)', marginLeft: 'auto' }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</span>
+                      <span style={{ color: 'var(--sage)', fontWeight: 700, fontSize: 12 }}>&rsaquo;</span>
                     </div>
                   ))}
                 </div>
@@ -489,6 +557,36 @@ export default function Donors() {
             )}
           </div>
         </div>
+
+        {previewReceipt && (() => {
+          const projectKey = (previewReceipt.project_id || modalDonor?.donor_project || '').toLowerCase();
+          const templateId = DB_TO_TEMPLATE[projectKey] || 'beingsevak';
+          const ReceiptComp = TEMPLATES[templateId];
+          const donor = buildReceiptDonor(previewReceipt, modalDonor?.donor_name);
+          return (
+            <div className="donor-modal-overlay" onClick={() => setPreviewReceipt(null)}>
+              <div className="donor-modal" style={{ maxWidth: 860, width: '94%' }} onClick={e => e.stopPropagation()}>
+                <div className="donor-modal-header">
+                  <div className="donor-modal-title-row">
+                    <span className="donor-modal-name">Receipt Preview — {previewReceipt.receipt_no || 'Receipt'}</span>
+                    <button
+                      style={{ fontSize: 11, padding: '5px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, whiteSpace: 'nowrap' }}
+                      onClick={handleDownloadReceipt}>
+                      Download PDF
+                    </button>
+                    <button className="donor-modal-close" onClick={() => setPreviewReceipt(null)}>&times;</button>
+                  </div>
+                </div>
+                <div className="donor-modal-logs" style={{ background: '#f3f4f6', padding: 20 }}>
+                  <div ref={receiptPreviewRef} data-receipt-print style={{ transform: 'scale(.78)', transformOrigin: 'top center' }}>
+                    <ReceiptComp donor={donor} index={0} project={templateId} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        </>
       )}
     </div>
   );
