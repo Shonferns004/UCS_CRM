@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { createReceipt, findReceiptByLogId, listAllReceipts } from '../models/receiptModel.js';
+import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
 import XLSX from 'xlsx';
@@ -633,8 +633,56 @@ export const getReceipt = async (req, res) => {
 
 export const getReceiptList = async (req, res) => {
   try {
-    const receipts = await listAllReceipts();
-    return res.json(receipts);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const search = (req.query.search || '').trim();
+    const project = (req.query.project || '').trim();
+    const link = req.query.link === 'unlinked' ? 'unlinked' : (req.query.link === 'linked' ? 'linked' : '');
+
+    // Cheap global aggregates + project options (unfiltered).
+    const statsRes = await db._pool.query(
+      `SELECT count(*)::int AS count,
+              COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
+              count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
+       FROM receipts`
+    );
+    const projectsRes = await db._pool.query(
+      `SELECT project_id, count(*)::int AS n FROM receipts GROUP BY project_id ORDER BY n DESC`
+    );
+
+    const where = [];
+    const params = [];
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(`(donor_name ILIKE $${params.length} OR receipt_no ILIKE $${params.length})`);
+    }
+    if (project) {
+      params.push(project);
+      where.push(`project_id = $${params.length}`);
+    }
+    if (link === 'linked') where.push('donor_id IS NOT NULL');
+    if (link === 'unlinked') where.push('donor_id IS NULL');
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+    const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
+
+    params.push(limit, (page - 1) * limit);
+    const rowsRes = await db._pool.query(
+      `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+              receipt_date, mode, payment_id, bank_name, address, pan_number, email,
+              donor_id, agent_name, sent, sent_at, created_at
+       FROM receipts ${whereSql}
+       ORDER BY created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    return res.json({
+      data: rowsRes.rows,
+      total: totalRes.rows[0].n,
+      stats: statsRes.rows[0],
+      projects: projectsRes.rows.map(p => p.project_id),
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
