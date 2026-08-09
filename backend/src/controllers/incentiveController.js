@@ -8,20 +8,41 @@ import {
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import { getWorkerById } from '../models/workerModel.js';
 import {
-  getAchievements,
-  getAchievement,
   upsertAchievement,
   deleteAchievement,
-  getMonthlyAchievementTotal,
   bulkUpsertAchievements,
-  getAllFRODailyAchievements,
 } from '../models/dailyAchievementModel.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
+import { getMergedDailyAmounts, sumDailyAmounts, sumDailyAKI } from '../utils/dailyAchievementAggregator.js';
 
 function getAutoTarget(salary, monthsEmployed) {
   const multipliers = [1, 2.5, 3];
-  const idx = Math.min(monthsEmployed - 1, multipliers.length - 1);
+  const idx = Math.min(Math.max(monthsEmployed - 1, 0), multipliers.length - 1);
   return Math.round(salary * multipliers[idx]);
+}
+
+async function getOrCreateTarget(workerId, worker, month) {
+  const target = await getTarget(workerId, month);
+  if (target) return target;
+
+  const activeSalary = await getActiveSalaryByWorker(workerId);
+  if (!activeSalary) return null;
+
+  const [y, m] = month.split('-');
+  const monthsEmployed = getMonthsEmployed(worker.created_at, new Date(parseInt(y), parseInt(m), 0));
+  const computed = {
+    worker_id: workerId,
+    month,
+    target_amount: getAutoTarget(parseFloat(activeSalary.salary), monthsEmployed),
+    is_auto_generated: true,
+  };
+
+  try {
+    return await upsertTarget(computed);
+  } catch (error) {
+    console.error('Auto-target persist failed, using computed value:', error.message);
+    return computed;
+  }
 }
 
 function getISTMonthBounds() {
@@ -144,7 +165,9 @@ export const getMyTarget = async (req, res) => {
 
 export const getWorkerTargetForMonth = async (req, res) => {
   try {
-    const target = await getTarget(req.params.workerId, req.params.month);
+    const { workerId, month } = req.params;
+    const worker = await getWorkerById(workerId);
+    const target = worker ? await getOrCreateTarget(workerId, worker, month) : null;
     return res.json(target || { hasTarget: false });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -176,12 +199,7 @@ export const getWorkerAchievements = async (req, res) => {
     const lastDay = new Date(Date.UTC(parseInt(y), parseInt(m), 0)).getUTCDate();
     const startDate = `${y}-${m}-01`;
     const endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
-    const records = await getAchievements(workerId, startDate, endDate);
-    const withAki = records.map(r => ({
-      ...r,
-      dayName: getDayName(r.date),
-      aki: calculateAKI(parseFloat(r.amount), getDayName(r.date)),
-    }));
+    const withAki = await getMergedDailyAmounts(workerId, startDate, endDate);
     return res.json(withAki);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -210,20 +228,14 @@ export const getIncentiveSummary = async (req, res) => {
     const worker = await getWorkerById(workerId);
     if (!worker) return res.status(404).json({ message: 'Worker not found' });
 
-    const target = await getTarget(workerId, startDate);
+    const target = await getOrCreateTarget(workerId, worker, startDate);
     if (!target) return res.json({ hasIncentive: false, message: 'No target set for this month' });
 
-    const achievements = await getAchievements(workerId, startDate, endDate);
-    const monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+    const akiPerDay = await getMergedDailyAmounts(workerId, startDate, endDate);
+    const monthlyAchievement = sumDailyAmounts(akiPerDay);
     const monthlyTarget = parseFloat(target.target_amount);
 
-    const akiPerDay = achievements.map(r => ({
-      date: r.date,
-      amount: parseFloat(r.amount),
-      dayName: getDayName(r.date),
-      aki: calculateAKI(parseFloat(r.amount), getDayName(r.date)),
-    }));
-    const totalAKI = akiPerDay.reduce((sum, r) => sum + r.aki, 0);
+    const totalAKI = sumDailyAKI(akiPerDay);
 
     const monthsEmployed = getMonthsEmployed(worker.created_at);
     const isNewJoiner = monthsEmployed <= 3;
@@ -261,21 +273,17 @@ export const getMonthlySummary = async (req, res) => {
   try {
     const { startDate, endDate } = getISTMonthBounds();
     const workers = await getFROWorkersWithSalary();
-    const allAchievements = await getAllFRODailyAchievements(startDate, endDate);
 
     const results = [];
     for (const worker of workers) {
       const target = await getTarget(worker.id, startDate);
       if (!target) continue;
 
-      const workerAchs = allAchievements.filter(a => a.worker_id === worker.id);
-      const monthlyAchievement = workerAchs.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+      const daily = await getMergedDailyAmounts(worker.id, startDate, endDate);
+      const monthlyAchievement = sumDailyAmounts(daily);
       const monthlyTarget = parseFloat(target.target_amount);
 
-      const totalAKI = workerAchs.reduce((sum, r) => {
-        const dayName = getDayName(r.date);
-        return sum + calculateAKI(parseFloat(r.amount), dayName);
-      }, 0);
+      const totalAKI = sumDailyAKI(daily);
 
       const monthsEmployed = getMonthsEmployed(worker.created_at);
       const isNewJoiner = monthsEmployed <= 3;
