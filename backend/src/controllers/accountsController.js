@@ -1563,8 +1563,25 @@ export const listReceiptClaims = async (req, res) => {
     }
     const workerMap = {};
     if (workerIds.length > 0) {
-      const { data: workers } = await db.from('users').select('id, name, login_id').in('id', workerIds);
+      const { data: workers } = await db.from('workers').select('id, name, login_id').in('id', workerIds);
       for (const w of workers || []) workerMap[w.id] = w;
+      const missingIds = workerIds.filter(id => !workerMap[id]);
+      if (missingIds.length > 0) {
+        const { data: users } = await db.from('users').select('id, name, login_id').in('id', missingIds);
+        for (const u of users || []) workerMap[u.id] = u;
+      }
+    }
+    const stationMap = {};
+    if (workerIds.length > 0) {
+      const { data: stationAssigns } = await db
+        .from('fro_station_assignments')
+        .select('fro_worker_id, station, ngo_id')
+        .in('fro_worker_id', workerIds);
+      for (const sa of stationAssigns || []) {
+        if (!stationMap[sa.fro_worker_id]) {
+          stationMap[sa.fro_worker_id] = { station: sa.station || null, ngo_id: sa.ngo_id || null };
+        }
+      }
     }
     const donorMap = {};
     if (donorIds.length > 0) {
@@ -1572,14 +1589,18 @@ export const listReceiptClaims = async (req, res) => {
       for (const d of donors || []) donorMap[d.id] = d;
     }
 
-    return res.json(claims.map(c => ({
-      ...c,
-      receipt: receiptMap[c.receipt_id] || null,
-      claimant: workerMap[c.fro_worker_id]
-        ? { id: workerMap[c.fro_worker_id].id, name: workerMap[c.fro_worker_id].name, login_id: workerMap[c.fro_worker_id].login_id }
-        : null,
-      suggested_donor: c.donor_id ? (donorMap[c.donor_id] || null) : null,
-    })));
+    return res.json(claims.map(c => {
+      const w = workerMap[c.fro_worker_id];
+      const station = stationMap[c.fro_worker_id] || null;
+      return {
+        ...c,
+        receipt: receiptMap[c.receipt_id] || null,
+        claimant: w
+          ? { id: w.id, name: w.name, login_id: w.login_id, station: station?.station || null, station_ngo_id: station?.ngo_id || null }
+          : null,
+        suggested_donor: c.donor_id ? (donorMap[c.donor_id] || null) : null,
+      };
+    }));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
