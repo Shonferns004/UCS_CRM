@@ -468,6 +468,88 @@ export const rejectLead = async (req, res) => {
   }
 };
 
+export const deleteLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    const { data: log, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('id, action, disposition_detail, accounts_status, fro_worker_id, fro_assignments!inner(id, status, donor_id, fro_worker_id)')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) {
+      return res.status(404).json({ message: 'Log entry not found' });
+    }
+
+    if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
+      return res.status(400).json({ message: 'Only lead verification entries can be deleted' });
+    }
+
+    if (log.accounts_status !== 'pending') {
+      return res.status(400).json({ message: `Only pending leads can be deleted (this one is ${log.accounts_status || 'processed'})` });
+    }
+
+    const assignmentId = log.fro_assignments?.id;
+
+    const { error: delError } = await db
+      .from('fro_donor_logs')
+      .delete()
+      .eq('id', logId);
+    if (delError) throw delError;
+
+    // Revert the assignment so the FRO can rework this lead
+    if (assignmentId) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+        .eq('id', assignmentId);
+      if (asgnError) throw asgnError;
+    }
+
+    return res.json({ message: 'Lead deleted', log_id: logId });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteAllPendingLeads = async (req, res) => {
+  try {
+    const { data: logs, error: listError } = await db
+      .from('fro_donor_logs')
+      .select('id, assignment_id')
+      .eq('action', 'disposition')
+      .eq('disposition_detail', 'lead_done')
+      .eq('accounts_status', 'pending');
+
+    if (listError) throw listError;
+
+    const ids = (logs || []).map(l => l.id);
+    const assignmentIds = [...new Set((logs || []).map(l => l.assignment_id).filter(Boolean))];
+
+    if (ids.length > 0) {
+      const { error: delError } = await db
+        .from('fro_donor_logs')
+        .delete()
+        .in('id', ids);
+      if (delError) throw delError;
+    }
+
+    if (assignmentIds.length > 0) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+        .in('id', assignmentIds)
+        .eq('status', 'lead_done');
+      if (asgnError) throw asgnError;
+    }
+
+    return res.json({ message: 'Pending leads deleted', deleted: ids.length });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Inline Field Update ───────────────────────────────────
 
 const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'pan_number', 'notes', 'remark',
@@ -1563,8 +1645,25 @@ export const listReceiptClaims = async (req, res) => {
     }
     const workerMap = {};
     if (workerIds.length > 0) {
-      const { data: workers } = await db.from('users').select('id, name, login_id').in('id', workerIds);
+      const { data: workers } = await db.from('workers').select('id, name, login_id').in('id', workerIds);
       for (const w of workers || []) workerMap[w.id] = w;
+      const missingIds = workerIds.filter(id => !workerMap[id]);
+      if (missingIds.length > 0) {
+        const { data: users } = await db.from('users').select('id, name, login_id').in('id', missingIds);
+        for (const u of users || []) workerMap[u.id] = u;
+      }
+    }
+    const stationMap = {};
+    if (workerIds.length > 0) {
+      const { data: stationAssigns } = await db
+        .from('fro_station_assignments')
+        .select('fro_worker_id, station, ngo_id')
+        .in('fro_worker_id', workerIds);
+      for (const sa of stationAssigns || []) {
+        if (!stationMap[sa.fro_worker_id]) {
+          stationMap[sa.fro_worker_id] = { station: sa.station || null, ngo_id: sa.ngo_id || null };
+        }
+      }
     }
     const donorMap = {};
     if (donorIds.length > 0) {
@@ -1572,14 +1671,18 @@ export const listReceiptClaims = async (req, res) => {
       for (const d of donors || []) donorMap[d.id] = d;
     }
 
-    return res.json(claims.map(c => ({
-      ...c,
-      receipt: receiptMap[c.receipt_id] || null,
-      claimant: workerMap[c.fro_worker_id]
-        ? { id: workerMap[c.fro_worker_id].id, name: workerMap[c.fro_worker_id].name, login_id: workerMap[c.fro_worker_id].login_id }
-        : null,
-      suggested_donor: c.donor_id ? (donorMap[c.donor_id] || null) : null,
-    })));
+    return res.json(claims.map(c => {
+      const w = workerMap[c.fro_worker_id];
+      const station = stationMap[c.fro_worker_id] || null;
+      return {
+        ...c,
+        receipt: receiptMap[c.receipt_id] || null,
+        claimant: w
+          ? { id: w.id, name: w.name, login_id: w.login_id, station: station?.station || null, station_ngo_id: station?.ngo_id || null }
+          : null,
+        suggested_donor: c.donor_id ? (donorMap[c.donor_id] || null) : null,
+      };
+    }));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
