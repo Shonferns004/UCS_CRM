@@ -48,10 +48,55 @@ export const removeSource = async (req, res) => {
   }
 };
 
+function currentMonthIST() {
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(new Date().getTime() + istOffset);
+  return istNow.getUTCFullYear() + '-' + String(istNow.getUTCMonth() + 1).padStart(2, '0');
+}
+
 export const listEntries = async (req, res) => {
   try {
     const { date_from, date_to, source_id, status } = req.query;
     const entries = await BankAudit.getEntries({ date_from, date_to, source_id, status });
+
+    // Merge unresolved suspense receipts (donor_id null, no agent) into the list.
+    // They are shown under the Pending view only; once matched they leave the
+    // receipts suspense set (donor_id set) and disappear on the next reload.
+    const showSuspense = !status || status === 'unverified';
+    if (showSuspense) {
+      const suspense = await BankAudit.getUnlinkedReceipts();
+      if (suspense.length > 0) {
+        const currentMonth = currentMonthIST();
+        const requestedMonth = date_from ? date_from.slice(0, 7) : null;
+        const includeAll = !requestedMonth || requestedMonth === currentMonth;
+        const rows = includeAll
+          ? suspense
+          : suspense.filter((r) => (r.receipt_date || '').slice(0, 7) === requestedMonth);
+
+        const suspenseRows = rows.map((r) => {
+          const receiptMonth = (r.receipt_date || '').slice(0, 7);
+          return {
+            id: `suspense-${r.id}`,
+            kind: 'suspense',
+            receipt_id: r.id,
+            receipt_no: r.receipt_no,
+            project_id: r.project_id,
+            donor_mobile: r.donor_mobile,
+            transaction_date: r.receipt_date,
+            amount: r.amount,
+            payment_id: r.payment_id || null,
+            payer_name: r.donor_name,
+            remarks: r.receipt_no ? `Suspense receipt ${r.receipt_no}` : 'Suspense receipt',
+            source_id: null,
+            bank_audit_sources: { name: 'Suspense Receipt' },
+            status: 'unverified',
+            carried_from: includeAll && receiptMonth && receiptMonth !== currentMonth ? receiptMonth : null,
+          };
+        });
+        entries.push(...suspenseRows);
+      }
+    }
+
     return res.json(entries);
   } catch (error) {
     return res.status(500).json({ message: error.message });
