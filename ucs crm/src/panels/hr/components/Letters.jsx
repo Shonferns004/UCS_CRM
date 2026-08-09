@@ -99,38 +99,62 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
   const subj = subjectText || 'NO OBJECTION & BASIC SALARY DECLARATION';
-  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.3;color:#000;background:#fff;padding:25px 35px">
-<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
-<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${subj}</div>
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
-<div style="text-align:justify">
-<p style="margin:0 0 6px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer / Employee. I hereby declare and confirm the following:</p>
-<ol style="margin:0 0 6px 0;padding-left:22px">
-<li style="margin-bottom:4px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
-<li style="margin-bottom:4px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
-<li style="margin-bottom:4px">In such circumstances, I have no objection if the organization limits my monthly payment to <strong>₹6,000 (Rupees Six Thousand Only)</strong> as Volunteer Expenses/Honorarium, until further review by the Management.</li>
-<li style="margin-bottom:4px">I clearly understand that the payment of ₹6,000 is towards volunteer expenses/honorarium and shall not be considered as a guaranteed salary or permanent entitlement.</li>
-<li style="margin-bottom:4px">I accept that the Management's decision regarding my remuneration, based on my performance and conduct, shall be final and binding.</li>
-<li style="margin-bottom:4px">I confirm that I am signing this declaration voluntarily, without any pressure, coercion, or undue influence, after fully understanding its contents.</li>
-</ol>
-<p style="margin:0 0 6px 0">I have read, understood, and accepted all the above terms and conditions.</p>
-<div style="margin:14px 0;height:1px;background:#d1d5db"></div>
-<table style="width:100%;border-collapse:collapse;font-size:12px">
-<tr><td style="padding:2px 0"><strong>Employee/Volunteer Name:</strong> ${w.name}</td><td style="padding:2px 0"><strong>Designation:</strong> ${r}</td></tr>
-<tr><td style="padding:2px 0"><strong>Signature of Employee/Volunteer:</strong> _______________________</td><td style="padding:2px 0"><strong>Date:</strong> ____ / ____ / _____</td></tr>
-</table>
-<div style="margin:16px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
-<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">HR Verification</div>
-<div><strong>HR Name:</strong> ${hrNameText}</div>
-<div style="margin-top:4px"><strong>Signature:</strong> ______________ &nbsp;&nbsp; <strong>Date:</strong> __ / __ / __</div>
+  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:16px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="background:#EAF1F8;flex-shrink:0;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:8px 44px 0;display:flex;align-items:center">
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:112px;height:112px;object-fit:contain;margin-right:18px;flex-shrink:0" />
+<div style="flex:1">
+<div style="font-size:27px;font-weight:700;color:#134987;letter-spacing:0.5px;line-height:1.12">BEING SEVAK CHARITABLE TRUST</div>
+<div style="font-size:12px;color:#134987;margin-top:5px"><strong>Regd. No.:</strong> E-31948 (Mumbai)&nbsp;|&nbsp;<strong>80G Regd. No.:</strong> ACTB6422FE20214&nbsp;|&nbsp;<strong>PAN:</strong> AACTB6422F</div>
+<div style="margin-top:10px;display:flex;gap:8px">
+<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">Public Charitable Trust</span>
+<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">80G Tax Exempted</span>
 </div>
-<div style="margin:12px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
-<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">Management Approval</div>
+</div>
+</div>
+<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:0 44px"><div style="height:1px;background:#ccd6e4;margin:16px 0 0"></div></div>
+</div>
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:0 44px;position:relative;z-index:1">
+<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">${subj}</div>
+<div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
+<p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer / Employee. I hereby declare and confirm the following:</p>
+<ol style="margin:0 0 10px 0;padding-left:26px">
+<li style="margin-bottom:8px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
+<li style="margin-bottom:8px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
+<li style="margin-bottom:8px">In such circumstances, I have no objection if the organization limits my monthly payment to <strong>₹6,000 (Rupees Six Thousand Only)</strong> as Volunteer Expenses/Honorarium, until further review by the Management.</li>
+<li style="margin-bottom:8px">I clearly understand that the payment of ₹6,000 is towards volunteer expenses/honorarium and shall not be considered as a guaranteed salary or permanent entitlement.</li>
+<li style="margin-bottom:8px">I accept that the Management's decision regarding my remuneration, based on my performance and conduct, shall be final and binding.</li>
+<li style="margin-bottom:8px">I confirm that I am signing this declaration voluntarily, without any pressure, coercion, or undue influence, after fully understanding its contents.</li>
+</ol>
+<p style="margin:0 0 10px 0">I have read, understood, and accepted all the above terms and conditions.</p>
+<div style="margin:22px 0;height:1px;background:#d1d5db"></div>
+<table style="width:100%;border-collapse:collapse">
+<tr><td style="padding:4px 0"><strong>Employee/Volunteer Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td></tr>
+<tr><td style="padding:4px 0"><strong>Signature of Employee/Volunteer:</strong> _______________________</td><td style="padding:4px 0"><strong>Date:</strong> ____ / ____ / _____</td></tr>
+</table>
+<div style="margin:20px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
+<div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Verification</div>
+<div><strong>HR Name:</strong> ${hrNameText}</div>
+<div style="margin-top:6px"><strong>Signature:</strong> ______________ &nbsp;&nbsp; <strong>Date:</strong> __ / __ / __</div>
+</div>
+<div style="margin:16px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
+<div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">Management Approval</div>
 <div><strong>Authorized Signatory:</strong> _____________</div>
 </div>
 </div>
-<div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
+</div>
+<div style="background:#134987;color:#fff;flex-shrink:0;font-size:11.5px;line-height:1.6;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:18px 44px;display:flex;align-items:center;justify-content:space-between;gap:24px">
+<div>
+<strong>Regd. No. E-31948 (Mumbai)</strong><br />
+Administrative Office: A-401, New Delhi APt., Near Chandavarkar Lane, Near Railway Station, Borivali (W), Mumbai - 40092.
+</div>
+<div style="text-align:right;white-space:nowrap">
++91 8879035035<br />being.sevak@gmail.com<br />www.being.sevak.org
+</div>
+</div>
+</div>
 </div>`;
 }
 
@@ -138,11 +162,11 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
   const rows = docRows && docRows.length ? docRows : [{sr:1,doc:'',original:false,returned:false,remarks:''},{sr:2,doc:'',original:false,returned:false,remarks:''},{sr:3,doc:'',original:false,returned:false,remarks:''}];
   const rowsHtml = rows.map(r => `
 <tr>
-<td style="border:1px solid #999;padding:14px 6px;text-align:center">${esc(r.sr)}</td>
-<td style="border:1px solid #999;padding:14px 6px">${esc(r.doc)}</td>
-<td style="border:1px solid #999;padding:14px 6px;text-align:center">${r.original ? '✓' : ''}</td>
-<td style="border:1px solid #999;padding:14px 6px;text-align:center">${r.returned ? '✓' : ''}</td>
-<td style="border:1px solid #999;padding:14px 6px">${esc(r.remarks)}</td>
+<td style="border:1px solid #999;padding:10px 8px;text-align:center">${esc(r.sr)}</td>
+<td style="border:1px solid #999;padding:10px 8px">${esc(r.doc)}</td>
+<td style="border:1px solid #999;padding:10px 8px;text-align:center">${r.original ? '✓' : ''}</td>
+<td style="border:1px solid #999;padding:10px 8px;text-align:center">${r.returned ? '✓' : ''}</td>
+<td style="border:1px solid #999;padding:10px 8px">${esc(r.remarks)}</td>
 </tr>`).join('');
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
@@ -150,46 +174,74 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
   const jd = w.date_of_joining || w.created_at || '';
   const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
   const subj = subjectText || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
-  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.3;color:#000;background:#fff;padding:25px 35px">
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${subj}</div>
-<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-<tr><td style="padding:2px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
-<tr><td style="padding:2px 0"><strong>Date of Submission:</strong> ${dateText}</td></tr>
+  return `<div style="width:900px;min-height:1273px;margin:0 auto;background:#fff;font-family:'Times New Roman',Times,serif;font-size:15.5px;color:#111;position:relative;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="background:#EAF1F8;flex-shrink:0;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:8px 44px 0;display:flex;align-items:center">
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:112px;height:112px;object-fit:contain;margin-right:18px;flex-shrink:0" />
+<div style="flex:1">
+<div style="font-size:27px;font-weight:700;color:#134987;letter-spacing:0.5px;line-height:1.12">BEING SEVAK CHARITABLE TRUST</div>
+<div style="font-size:12px;color:#134987;margin-top:5px"><strong>Regd. No.:</strong> E-31948 (Mumbai)&nbsp;|&nbsp;<strong>80G Regd. No.:</strong> ACTB6422FE20214&nbsp;|&nbsp;<strong>PAN:</strong> AACTB6422F</div>
+<div style="margin-top:10px;display:flex;gap:8px">
+<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">Public Charitable Trust</span>
+<span style="background:#B1C6DF;color:#134987;font-size:11px;font-weight:600;padding:3px 14px;border-radius:12px">80G Tax Exempted</span>
+</div>
+</div>
+</div>
+<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:0 44px"><div style="height:1px;background:#ccd6e4;margin:16px 0 0"></div></div>
+</div>
+<div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:0 44px;position:relative;z-index:1">
+<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">${subj}</div>
+<div style="padding:10px 0 24px;line-height:1.65;text-align:justify">
+<table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+<tr><td style="padding:4px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
+<tr><td style="padding:4px 0"><strong>Date of Submission:</strong> ${dateText}</td></tr>
 </table>
-<div style="font-weight:700;color:#082F5A;margin:10px 0 4px 0">Employee Details</div>
-<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-<tr><td style="padding:2px 0;width:50%"><strong>Employee Name:</strong> ${w.name}</td><td style="padding:2px 0"><strong>Department:</strong> ${d}</td></tr>
-<tr><td style="padding:2px 0"><strong>Designation:</strong> ${r}</td><td style="padding:2px 0"><strong>Date of Joining:</strong> ${joiningDate}</td></tr>
+<div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Employee Details</div>
+<table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+<tr><td style="padding:4px 0;width:50%"><strong>Employee Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Department:</strong> ${d}</td></tr>
+<tr><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td><td style="padding:4px 0"><strong>Date of Joining:</strong> ${joiningDate}</td></tr>
 </table>
-<div style="font-weight:700;color:#082F5A;margin:10px 0 4px 0">Original Documents Submitted</div>
-<table style="width:100%;border-collapse:collapse;font-size:12px">
-<tr style="background:#0B73C4;color:#fff">
-<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:8%">Sr. No.</th>
-<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:32%">Document Name</th>
-<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:center;width:18%">Original Submitted (✓)</th>
-<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:center;width:18%">Returned (✓)</th>
-<th style="border:1px solid #0B73C4;color:#fff;padding:4px 6px;text-align:left;width:24%">Remarks</th>
+<div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Original Documents Submitted</div>
+<table style="width:100%;border-collapse:collapse">
+<tr style="background:#134987;color:#fff">
+<th style="border:1px solid #134987;color:#fff;padding:7px 6px;text-align:left;width:8%">Sr. No.</th>
+<th style="border:1px solid #134987;color:#fff;padding:7px 6px;text-align:left;width:32%">Document Name</th>
+<th style="border:1px solid #134987;color:#fff;padding:7px 6px;text-align:center;width:18%">Original Submitted (✓)</th>
+<th style="border:1px solid #134987;color:#fff;padding:7px 6px;text-align:center;width:18%">Returned (✓)</th>
+<th style="border:1px solid #134987;color:#fff;padding:7px 6px;text-align:left;width:24%">Remarks</th>
 </tr>
 ${rowsHtml}
 </table>
-<div style="margin:12px 0 0 0;text-align:justify">
-<p style="margin:0 0 6px 0"><strong>Employee Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
+<div style="margin:14px 0 0 0;text-align:justify">
+<p style="margin:0 0 8px 0"><strong>Employee Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
 </div>
-<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
-<tr><td style="padding:2px 0"><strong>Employee Signature:</strong> _______________________</td></tr>
+<table style="width:100%;border-collapse:collapse;margin-top:8px">
+<tr><td style="padding:4px 0"><strong>Employee Signature:</strong> _______________________</td></tr>
 </table>
-<div style="margin:16px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
-<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">HR Acknowledgement</div>
+<div style="margin:18px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
+<div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Acknowledgement</div>
 <div><strong>Received By (HR):</strong> ${hrNameText}</div>
-<div style="margin-top:4px"><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
+<div style="margin-top:6px"><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
 </div>
-<div style="margin:12px 0 0 0;border:1px solid #082F5A;border-radius:6px;padding:10px 12px">
-<div style="font-weight:700;color:#082F5A;text-transform:uppercase;margin-bottom:6px">Document Return Acknowledgement <span style="font-weight:400;text-transform:none">(To be filled at the time of return)</span></div>
+<div style="margin:14px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
+<div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">Document Return Acknowledgement <span style="font-weight:400;text-transform:none">(To be filled at the time of return)</span></div>
 <div>I confirm that I have received all my original documents listed above in good condition.</div>
-<div style="margin-top:4px"><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
-<div style="margin-top:4px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
+<div style="margin-top:6px"><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+<div style="margin-top:6px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
 </div>
-<div style="margin-top:14px;padding-top:4px"><div style="border-top:1px solid #000;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
+</div>
+</div>
+<div style="background:#134987;color:#fff;flex-shrink:0;font-size:11.5px;line-height:1.6;position:relative;z-index:1;print-color-adjust:exact;-webkit-print-color-adjust:exact">
+<div style="width:794px;margin:0 auto;box-sizing:border-box;padding:18px 44px;display:flex;align-items:center;justify-content:space-between;gap:24px">
+<div>
+<strong>Regd. No. E-31948 (Mumbai)</strong><br />
+Administrative Office: A-401, New Delhi APt., Near Chandavarkar Lane, Near Railway Station, Borivali (W), Mumbai - 40092.
+</div>
+<div style="text-align:right;white-space:nowrap">
++91 8879035035<br />being.sevak@gmail.com<br />www.being.sevak.org
+</div>
+</div>
+</div>
 </div>`;
 }
 
@@ -201,33 +253,51 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
   const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '______________';
   const subj = subject || 'ORIGINAL DOCUMENTS ACKNOWLEDGEMENT RECORD';
   const inputStyle = { width: '100%', boxSizing: 'border-box', border: '1px solid #999', padding: '6px 8px', fontSize: 12, fontFamily: 'inherit', background: '#fff' };
-  const th = { border: '1px solid #0B73C4', color: '#fff', padding: '4px 6px', textAlign: 'center' };
+  const th = { border: '1px solid #134987', color: '#fff', padding: '7px 6px', textAlign: 'center' };
   const thL = { ...th, textAlign: 'left' };
-  const td = { border: '1px solid #999', padding: editing ? '5px 6px' : '14px 6px', textAlign: 'center' };
+  const td = { border: '1px solid #999', padding: editing ? '5px 8px' : '10px 8px', textAlign: 'center' };
   const tdL = { ...td, textAlign: 'left' };
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', fontFamily: "'Times New Roman', Times, serif", fontSize: 12, lineHeight: 1.3, color: '#000', background: '#fff', padding: '25px 35px' }}>
-      <div style={{ textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#082F5A', margin: '0 0 8px 0', textTransform: 'uppercase' }}>{subj}</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 8 }}>
-        <tbody>
-          <tr><td style={{ padding: '2px 0' }}><strong>Organization Name:</strong> {ngo.name}</td></tr>
-          <tr><td style={{ padding: '2px 0' }}><strong>Date of Submission:</strong> {dateText}</td></tr>
-        </tbody>
-      </table>
-      <div style={{ fontWeight: 700, color: '#082F5A', margin: '10px 0 4px 0' }}>Employee Details</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 8 }}>
-        <tbody>
-          <tr><td style={{ padding: '2px 0', width: '50%' }}><strong>Employee Name:</strong> {w.name}</td><td style={{ padding: '2px 0' }}><strong>Department:</strong> {d}</td></tr>
-          <tr><td style={{ padding: '2px 0' }}><strong>Designation:</strong> {r}</td><td style={{ padding: '2px 0' }}><strong>Date of Joining:</strong> {joiningDate}</td></tr>
-        </tbody>
-      </table>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontWeight: 700, color: '#082F5A', margin: '10px 0 4px 0' }}>
-        <span>Original Documents Submitted</span>
-        <button type="button" onClick={onToggleEdit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #0B73C4', background: '#fff', color: '#0B73C4', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{editing ? 'Done' : 'Edit'}</button>
+    <div style={{ width: 900, minHeight: 1273, margin: '0 auto', fontFamily: "'Times New Roman', Times, serif", fontSize: 15.5, lineHeight: 1.65, color: '#111', background: '#fff', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
+      <div style={{ background: '#EAF1F8', flexShrink: 0, position: 'relative', zIndex: 1, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
+      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', padding: '8px 44px 0', display: 'flex', alignItems: 'center' }}>
+        <img src={ngo.logo} alt={ngo.alt} style={{ width: 112, height: 112, objectFit: 'contain', marginRight: 18, flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 27, fontWeight: 700, color: '#134987', letterSpacing: 0.5, lineHeight: 1.12 }}>BEING SEVAK CHARITABLE TRUST</div>
+          <div style={{ fontSize: 12, color: '#134987', marginTop: 5 }}><strong>Regd. No.:</strong> E-31948 (Mumbai)&nbsp;|&nbsp;<strong>80G Regd. No.:</strong> ACTB6422FE20214&nbsp;|&nbsp;<strong>PAN:</strong> AACTB6422F</div>
+          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+            <span style={{ background: '#B1C6DF', color: '#134987', fontSize: 11, fontWeight: 600, padding: '3px 14px', borderRadius: 12 }}>Public Charitable Trust</span>
+            <span style={{ background: '#B1C6DF', color: '#134987', fontSize: 11, fontWeight: 600, padding: '3px 14px', borderRadius: 12 }}>80G Tax Exempted</span>
+          </div>
+        </div>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', padding: '0 44px' }}>
+        <div style={{ height: 1, background: '#ccd6e4', margin: '16px 0 0' }}></div>
+      </div>
+      </div>
+      <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', flex: 1, padding: '0 44px', position: 'relative', zIndex: 1 }}>
+      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#134987', textTransform: 'uppercase', letterSpacing: 0.5, margin: '20px 0 6px' }}>{subj}</div>
+      <div style={{ padding: '10px 0 24px', textAlign: 'justify' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
+        <tbody>
+          <tr><td style={{ padding: '4px 0' }}><strong>Organization Name:</strong> {ngo.name}</td></tr>
+          <tr><td style={{ padding: '4px 0' }}><strong>Date of Submission:</strong> {dateText}</td></tr>
+        </tbody>
+      </table>
+      <div style={{ fontWeight: 700, color: '#134987', margin: '14px 0 6px 0' }}>Employee Details</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
+        <tbody>
+          <tr><td style={{ padding: '4px 0', width: '50%' }}><strong>Employee Name:</strong> {w.name}</td><td style={{ padding: '4px 0' }}><strong>Department:</strong> {d}</td></tr>
+          <tr><td style={{ padding: '4px 0' }}><strong>Designation:</strong> {r}</td><td style={{ padding: '4px 0' }}><strong>Date of Joining:</strong> {joiningDate}</td></tr>
+        </tbody>
+      </table>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontWeight: 700, color: '#134987', margin: '14px 0 6px 0' }}>
+        <span>Original Documents Submitted</span>
+        <button type="button" onClick={onToggleEdit} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #134987', background: '#fff', color: '#134987', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>{editing ? 'Done' : 'Edit'}</button>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ background: '#0B73C4', color: '#fff' }}>
+          <tr style={{ background: '#134987', color: '#fff' }}>
             <th style={{ ...thL, width: '8%' }}>Sr. No.</th>
             <th style={{ ...thL, width: '32%' }}>Document Name</th>
             <th style={{ ...th, width: '18%' }}>Original Submitted (✓)</th>
@@ -269,34 +339,43 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
       </table>
       {editing && (
         <div style={{ margin: '8px 0', display: 'flex', gap: 8 }}>
-          <button type="button" onClick={onAddDocRow} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #999', background: '#fff', color: '#082F5A', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>+ Add row</button>
+          <button type="button" onClick={onAddDocRow} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #999', background: '#fff', color: '#134987', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>+ Add row</button>
           {docRows.length > 1 && (
             <button type="button" onClick={() => onRemoveDocRow(docRows.length - 1)} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #999', background: '#fff', color: '#b91c1c', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>− Remove last row</button>
           )}
         </div>
       )}
-      <div style={{ margin: '12px 0 0 0', textAlign: 'justify' }}>
-        <p style={{ margin: '0 0 6px 0' }}><strong>Employee Declaration:</strong> I, <strong>{w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>{ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
+      <div style={{ margin: '14px 0 0 0', textAlign: 'justify' }}>
+        <p style={{ margin: '0 0 8px 0' }}><strong>Employee Declaration:</strong> I, <strong>{w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>{ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginTop: 6 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
         <tbody>
-          <tr><td style={{ padding: '2px 0' }}><strong>Employee Signature:</strong> _______________________</td></tr>
+          <tr><td style={{ padding: '4px 0' }}><strong>Employee Signature:</strong> _______________________</td></tr>
         </tbody>
       </table>
-      <div style={{ margin: '16px 0 0 0', border: '1px solid #082F5A', borderRadius: 6, padding: '10px 12px' }}>
-        <div style={{ fontWeight: 700, color: '#082F5A', textTransform: 'uppercase', marginBottom: 6 }}>HR Acknowledgement</div>
+      <div style={{ margin: '18px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
+        <div style={{ fontWeight: 700, color: '#134987', textTransform: 'uppercase', marginBottom: 8 }}>HR Acknowledgement</div>
         <div><strong>Received By (HR):</strong> {hrNameText}</div>
-        <div style={{ marginTop: 4 }}><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
+        <div style={{ marginTop: 6 }}><strong>Signature:</strong> __________________ &nbsp;&nbsp; <strong>Date:</strong> ____ / ____ / ____</div>
       </div>
-      <div style={{ margin: '12px 0 0 0', border: '1px solid #082F5A', borderRadius: 6, padding: '10px 12px' }}>
-        <div style={{ fontWeight: 700, color: '#082F5A', textTransform: 'uppercase', marginBottom: 6 }}>Document Return Acknowledgement <span style={{ fontWeight: 400, textTransform: 'none' }}>(To be filled at the time of return)</span></div>
+      <div style={{ margin: '14px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
+        <div style={{ fontWeight: 700, color: '#134987', textTransform: 'uppercase', marginBottom: 8 }}>Document Return Acknowledgement <span style={{ fontWeight: 400, textTransform: 'none' }}>(To be filled at the time of return)</span></div>
         <div>I confirm that I have received all my original documents listed above in good condition.</div>
-        <div style={{ marginTop: 4 }}><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
-        <div style={{ marginTop: 4 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
+        <div style={{ marginTop: 6 }}><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+        <div style={{ marginTop: 6 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
       </div>
-      <div style={{ marginTop: 14, paddingTop: 4 }}>
-        <div style={{ borderTop: '1px solid #000', marginBottom: 6 }}></div>
-        <div style={{ textAlign: 'center', fontSize: 12, color: '#6b7280' }}>    <strong>Regd. Address:</strong> {ngo.address}</div>
+      </div>
+      </div>
+      <div style={{ background: '#134987', color: '#fff', flexShrink: 0, fontSize: 11.5, lineHeight: 1.6, position: 'relative', zIndex: 1, printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}>
+        <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', padding: '18px 44px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+          <div>
+            <strong>Regd. No. E-31948 (Mumbai)</strong><br />
+            Administrative Office: A-401, New Delhi APt., Near Chandavarkar Lane, Near Railway Station, Borivali (W), Mumbai - 40092.
+          </div>
+          <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+            +91 8879035035<br />being.sevak@gmail.com<br />www.being.sevak.org
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -409,6 +488,7 @@ export default function Letters() {
     if (!el) return;
     el.style.display = 'block';
     el.style.padding = '0';
+    el.style.width = singlePage ? '900px' : '800px';
     el.innerHTML = bodyText;
     await document.fonts?.ready;
     await new Promise(r => setTimeout(r, 100));
@@ -420,12 +500,11 @@ export default function Letters() {
     const margin = 12;
     const printableW = pdfW - 2 * margin;
     if (singlePage) {
-      const availableH = pdfH - 2 * margin;
-      const naturalH = (canvas.height * printableW) / canvas.width;
-      const scale = Math.min(1, availableH / naturalH);
-      const drawW = printableW * scale;
+      const naturalH = (canvas.height * pdfW) / canvas.width;
+      const scale = Math.min(1, pdfH / naturalH);
+      const drawW = pdfW * scale;
       const drawH = naturalH * scale;
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin + (printableW - drawW) / 2, margin, drawW, drawH);
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', (pdfW - drawW) / 2, (pdfH - drawH) / 2, drawW, drawH);
     } else {
       const imgH = (canvas.height * printableW) / canvas.width;
       let remainingH = imgH;
@@ -490,7 +569,7 @@ export default function Letters() {
     }
     setOut({ today, body, type, odar });
     setShowDownload(false);
-    await capturePdf(body, type, type === 'ODAR');
+    await capturePdf(body, type, type === 'ODAR' || type === 'NOBSD');
     setShowDownload(true);
   };
 
@@ -593,7 +672,7 @@ export default function Letters() {
                 onRemoveDocRow={removeDocRow}
               />
             ) : (
-              <div dangerouslySetInnerHTML={{ __html: out.body }} />
+              <div style={{ whiteSpace: 'normal' }} dangerouslySetInnerHTML={{ __html: out.body }} />
             )}
           </div>
         )}
@@ -613,7 +692,7 @@ export default function Letters() {
       <div ref={pdfRef} style={{
         position:'fixed', left:'-9999px', top:0,
         fontFamily:'Arial, sans-serif', fontSize:14, lineHeight:1.6,
-        padding:40, color:'#000', background:'#fff', whiteSpace:'pre-wrap',
+        padding:40, color:'#000', background:'#fff',
         width:'800px', display:'none'
       }} />
     </div>
