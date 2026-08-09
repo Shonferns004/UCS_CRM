@@ -14,12 +14,17 @@ export const upsertTarget = async (data) => {
   return result;
 };
 
+// A worker can hold multiple fro_monthly_targets rows per month (one per
+// ngo_id). Pick the most recently set row deterministically so the dashboard
+// target query never trips the wrapper's single-row check on duplicate rows.
 export const getTargetByWorker = async (workerId, month) => {
   const { data, error } = await db
     .from('fro_monthly_targets')
     .select('*')
     .eq('fro_worker_id', workerId)
     .eq('month', month)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) throw error;
   return data;
