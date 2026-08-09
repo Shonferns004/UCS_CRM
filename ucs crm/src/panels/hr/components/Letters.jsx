@@ -119,7 +119,7 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
 <p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer / Employee. I hereby declare and confirm the following:</p>
-<ol style="margin:0 0 10px 0;padding-left:26px">
+<ol style="margin:0 0 10px 0;padding-left:26px;text-align:left">
 <li style="margin-bottom:8px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
 <li style="margin-bottom:8px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
 <li style="margin-bottom:8px">In such circumstances, I have no objection if the organization limits my monthly payment to <strong>₹6,000 (Rupees Six Thousand Only)</strong> as Volunteer Expenses/Honorarium, until further review by the Management.</li>
