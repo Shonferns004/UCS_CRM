@@ -71,7 +71,7 @@ async function calculateLateMinutes(punchInTime, workerId) {
   const h = ist.getUTCHours();
   const m = ist.getUTCMinutes();
 
-  let effectiveStart = await getOfficeStart();
+  let effectiveStart = await getOfficeStart(workerId);
   const todayHalfDay = await getApprovedHalfDayLeave(workerId, istDateStr(new Date(punchInTime)));
   if (todayHalfDay && todayHalfDay.half_start_time) {
     const [hd, hm] = todayHalfDay.half_start_time.split(':').map(Number);
@@ -276,12 +276,12 @@ export const updateAttendanceRecord = async (req, res) => {
     if (late_minutes !== undefined) updates.late_minutes = late_minutes;
     if (date !== undefined) updates.date = date;
 
+    const existing = punch_in_time !== undefined ? await getAttendanceById(id) : null;
     if (punch_in_time !== undefined) {
       if (punch_in_time === null) {
         updates.late_minutes = 0;
         if (status === undefined) updates.status = 'absent';
-      } else if (late_minutes === undefined) {
-        const existing = await getAttendanceById(id);
+      } else if (late_minutes === undefined || (existing && existing.punch_in_time !== punch_in_time)) {
         if (existing) {
           updates.late_minutes = await calculateLateMinutes(punch_in_time, existing.worker_id);
           if (status === undefined) updates.status = updates.late_minutes > 0 ? 'late' : 'present';

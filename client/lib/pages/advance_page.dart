@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/api_service.dart';
 import '../main.dart';
 import '../utils/responsive.dart';
+import '../widgets/skeleton_loader.dart';
 
 class AdvancePage extends StatefulWidget {
   final ScrollController? scrollController;
@@ -149,7 +150,7 @@ class _AdvancePageState extends State<AdvancePage> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             child: _submitting
-                ? SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const ButtonSkeleton()
                 : Text('Submit Request', style: TextStyle(fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600, color: Colors.white)),
           ),
         ),

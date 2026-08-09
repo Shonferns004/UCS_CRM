@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../services/api_service.dart';
+import '../widgets/skeleton_loader.dart';
 
 class PrintFormPage extends StatefulWidget {
   const PrintFormPage({super.key});
@@ -266,7 +267,25 @@ class _PrintFormPageState extends State<PrintFormPage> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return SkeletonLoader(
+        child: Scaffold(
+          backgroundColor: const Color(0xFFf6fafe),
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+              children: const [
+                SkeletonBlock(height: 32, width: 180),
+                SizedBox(height: 24),
+                SkeletonBlock(height: 200),
+                SizedBox(height: 16),
+                SkeletonBlock(height: 200),
+                SizedBox(height: 16),
+                SkeletonBlock(height: 48),
+              ],
+            ),
+          ),
+        ),
+      );
     }
     if (_error != null) {
       return Center(
@@ -295,7 +314,11 @@ class _PrintFormPageState extends State<PrintFormPage> {
     return PdfPreview(
       build: (format) => _buildPdf(format),
       pdfFileName: 'onboarding_form_${_data!['profile']?['name'] ?? 'employee'}',
-      loadingWidget: const Center(child: CircularProgressIndicator()),
+      loadingWidget: const SkeletonLoader(
+        child: Center(
+          child: SkeletonBlock(width: 260, height: 200, borderRadius: 12),
+        ),
+      ),
       canChangeOrientation: true,
       canDebug: false,
       initialPageFormat: PdfPageFormat.a4,

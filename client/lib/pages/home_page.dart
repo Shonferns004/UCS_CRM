@@ -118,10 +118,12 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       final worker = await ApiService.getWorkerData();
       _workerName = worker?['name'] ?? '';
       _workerId = worker?['id']?.toString() ?? '';
+      final isAdmin = (worker?['role']?.toString().toLowerCase() == 'admin' ||
+          worker?['department']?.toString().toLowerCase() == 'ngo admin');
 
       if (_workerId.isNotEmpty) {
         try {
-          RealtimeService.instance.init(_workerId);
+          RealtimeService.instance.init(_workerId, isAdmin: isAdmin);
         } catch (_) {}
       }
       RealtimeService.instance.removeListener(_onRealtimeChange);
@@ -233,6 +235,19 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     });
   }
 
+  void _cacheTodayState(String? punchIn, String? punchOut) {
+    final today = {
+      'officeStartTime': _officeStartTime,
+      'officeEndTime': _officeEndTime,
+      'lateUsed': _lateUsed,
+      'attendance': {
+        'punch_in_time': punchIn,
+        'punch_out_time': punchOut,
+      },
+    };
+    ApiService.cacheTodayStatus(today);
+  }
+
   Future<bool> _requestLocationPermission() async {
     bool service = await Geolocator.isLocationServiceEnabled();
     if (!service) {
@@ -296,14 +311,16 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         punchMethod: result['punch_method'] as String?,
       );
       final lm = (data['lateMinutes'] ?? 0) as int;
+      final now = DateTime.now();
       setState(() {
         _isPunchedIn = true;
-        _punchInTime = DateTime.now();
+        _punchInTime = now;
         _isPunchedOut = false;
         _punchOutTime = null;
         if (lm > 0) _lateUsed += lm;
         _updateWorked();
       });
+      _cacheTodayState(now.toIso8601String(), null);
       _geofence.start();
       if (mounted) {
         HapticFeedback.vibrate();
@@ -354,11 +371,13 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         (result['lng'] as num).toDouble(),
         punchMethod: result['punch_method'] as String?,
       );
+      final now = DateTime.now();
       setState(() {
         _isPunchedOut = true;
-        _punchOutTime = DateTime.now();
+        _punchOutTime = now;
         _updateWorked();
       });
+      _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
       _geofence.stop();
       if (mounted) {
         HapticFeedback.vibrate();

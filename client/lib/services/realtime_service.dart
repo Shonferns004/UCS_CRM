@@ -9,6 +9,7 @@ enum RealtimeEvent {
   loans,
   notifications,
   corrections,
+  codes,
 }
 
 class RealtimeService extends ChangeNotifier {
@@ -18,24 +19,27 @@ class RealtimeService extends ChangeNotifier {
   socket_io.Socket? _socket;
   bool _initialized = false;
   String? _workerId;
+  bool _isAdmin = false;
   RealtimeEvent? _lastEvent;
 
   static const _tableEvents = <String, RealtimeEvent>{
     'attendance': RealtimeEvent.attendance,
     'leaves': RealtimeEvent.leaves,
-    'loans': RealtimeEvent.loans,
+    'worker_loans': RealtimeEvent.loans,
     'notification_log': RealtimeEvent.notifications,
     'attendance_corrections': RealtimeEvent.corrections,
+    'impersonation_codes': RealtimeEvent.codes,
   };
 
   RealtimeEvent? get lastEvent => _lastEvent;
   bool get isConnected => _socket != null;
 
-  Future<void> init(String workerId) async {
-    if (_initialized && _workerId == workerId) return;
+  Future<void> init(String workerId, {bool isAdmin = false}) async {
+    if (_initialized && _workerId == workerId && _isAdmin == isAdmin) return;
     _disconnect();
     _initialized = true;
     _workerId = workerId;
+    _isAdmin = isAdmin;
 
     final token = await ApiService.getToken();
     final socket = socket_io.io(
@@ -57,7 +61,7 @@ class RealtimeService extends ChangeNotifier {
       final event = _tableEvents[payload['table']];
       if (event == null) return;
       final row = payload['new'] ?? payload['old'];
-      if (row is Map) {
+      if (row is Map && !_isAdmin) {
         final rowWorkerId = row['worker_id'];
         if (rowWorkerId != null && rowWorkerId.toString() != workerId) return;
       }
@@ -82,6 +86,7 @@ class RealtimeService extends ChangeNotifier {
     }
     _initialized = false;
     _workerId = null;
+    _isAdmin = false;
   }
 
   @override

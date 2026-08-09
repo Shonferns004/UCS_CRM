@@ -59,7 +59,7 @@ const PGRST116 = { message: 'JSON object requested, multiple (or no) rows return
 const REALTIME_TABLES = new Set([
   'notification_log', 'fro_donor_logs', 'bank_audit_entries', 'rejected_lead_tickets',
   'fro_assignments', 'fro_live_status', 'messages', 'conversations',
-  'attendance', 'leaves', 'loans', 'attendance_corrections',
+  'attendance', 'leaves', 'worker_loans', 'attendance_corrections', 'impersonation_codes',
 ]);
 
 function emitRealtimeRows(table, eventType, rows) {

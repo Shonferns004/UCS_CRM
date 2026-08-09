@@ -14,6 +14,9 @@ import 'pages/login_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/codes_page.dart';
+import 'pages/requests_page.dart';
+import 'pages/admin_attendance_page.dart';
 import 'pages/splash_page.dart';
 
 bool firebaseInitialized = false;
@@ -423,12 +426,26 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   int _tabChangeVersion = 0;
   Map<String, dynamic>? _announcement;
+  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
     _loadAnnouncement();
+    _loadRole();
   }
+
+  Future<void> _loadRole() async {
+    final isAdmin = await ApiService.isNgoAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        if (_currentIndex > _maxTabIndex()) _currentIndex = 0;
+      });
+    }
+  }
+
+  int _maxTabIndex() => _isAdmin ? 4 : 1;
 
   Future<void> _loadAnnouncement() async {
     final announcement = RemoteConfigService.instance.announcement;
@@ -450,9 +467,63 @@ class _MainShellState extends State<MainShell> {
     setState(() => _announcement = null);
   }
 
+  void _switchTo(int index) {
+    if (_currentIndex != index) {
+      _tabChangeVersion++;
+      setState(() => _currentIndex = index);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final announcementVisible = _announcement != null;
+    final children = [
+      HomePage(tabChangeVersion: _tabChangeVersion),
+      if (_isAdmin) CodesPage(),
+      if (_isAdmin) RequestsPage(),
+      if (_isAdmin) AdminAttendancePage(),
+      ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
+    ];
+    final navItems = [
+      _NavItem(
+        icon: LucideIcons.house,
+        activeIcon: LucideIcons.house,
+        label: 'Home',
+        isActive: _currentIndex == 0,
+        onTap: () => _switchTo(0),
+      ),
+      if (_isAdmin) ...[
+        _NavItem(
+          icon: LucideIcons.shieldCheck,
+          activeIcon: LucideIcons.shieldCheck,
+          label: 'Codes',
+          isActive: _currentIndex == 1,
+          onTap: () => _switchTo(1),
+        ),
+        _NavItem(
+          icon: LucideIcons.inbox,
+          activeIcon: LucideIcons.inbox,
+          label: 'Requests',
+          isActive: _currentIndex == 2,
+          onTap: () => _switchTo(2),
+        ),
+        _NavItem(
+          icon: LucideIcons.calendarCheck2,
+          activeIcon: LucideIcons.calendarCheck2,
+          label: 'Attendance',
+          isActive: _currentIndex == 3,
+          onTap: () => _switchTo(3),
+        ),
+      ],
+      _NavItem(
+        icon: LucideIcons.circleUserRound,
+        activeIcon: LucideIcons.circleUserRound,
+        label: 'Profile',
+        isActive: _currentIndex == (_isAdmin ? 4 : 1),
+        onTap: () => _switchTo(_isAdmin ? 4 : 1),
+      ),
+    ];
+
     return Scaffold(
       body: Column(
         children: [
@@ -464,10 +535,7 @@ class _MainShellState extends State<MainShell> {
           Expanded(
             child: IndexedStack(
               index: _currentIndex,
-              children: [
-                HomePage(tabChangeVersion: _tabChangeVersion),
-                ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
-              ],
+              children: children,
             ),
           ),
         ],
@@ -487,22 +555,7 @@ class _MainShellState extends State<MainShell> {
             ],
           ),
           child: Row(
-            children: [
-              _NavItem(
-                icon: LucideIcons.house,
-                activeIcon: LucideIcons.house,
-                label: 'Home',
-                isActive: _currentIndex == 0,
-                onTap: () { if (_currentIndex != 0) { _tabChangeVersion++; setState(() => _currentIndex = 0); } },
-              ),
-              _NavItem(
-                icon: LucideIcons.circleUserRound,
-                 activeIcon: LucideIcons.circleUserRound,
-                label: 'Profile',
-                isActive: _currentIndex == 1,
-                onTap: () { if (_currentIndex != 1) { _tabChangeVersion++; setState(() => _currentIndex = 1); } },
-              ),
-            ],
+            children: navItems,
           ),
         ),
       ),

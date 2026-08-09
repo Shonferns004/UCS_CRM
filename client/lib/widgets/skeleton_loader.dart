@@ -43,11 +43,13 @@ class SkeletonBlock extends StatelessWidget {
   final double width;
   final double height;
   final double borderRadius;
+  final Color color;
   const SkeletonBlock({
     super.key,
     this.width = double.infinity,
     required this.height,
     this.borderRadius = 8,
+    this.color = const Color(0xFFe0e4ea),
   });
 
   @override
@@ -56,7 +58,7 @@ class SkeletonBlock extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: const Color(0xFFe0e4ea),
+        color: color,
         borderRadius: BorderRadius.circular(borderRadius),
       ),
     );
@@ -97,6 +99,80 @@ class HomeSkeleton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Generic card-list skeleton for page-level loading states.
+class ListSkeleton extends StatelessWidget {
+  final int itemCount;
+  const ListSkeleton({super.key, this.itemCount = 8});
+
+  @override
+  Widget build(BuildContext context) {
+    return SkeletonLoader(
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: itemCount,
+        itemBuilder: (context, i) => Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFf6fafe),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFe0e4ea)),
+          ),
+          child: const Row(
+            children: [
+              SkeletonBlock(width: 40, height: 40, borderRadius: 20),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBlock(height: 14, width: 120),
+                    SizedBox(height: 8),
+                    SkeletonBlock(height: 12),
+                  ],
+                ),
+              ),
+              SkeletonBlock(width: 60, height: 24, borderRadius: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen skeleton used while a page loads its initial data.
+class PageSkeleton extends StatelessWidget {
+  const PageSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SkeletonLoader(
+      child: Scaffold(
+        backgroundColor: Color(0xFFf6fafe),
+        body: SafeArea(
+          child: ListSkeleton(),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small pulsing block used inside buttons while an action is in progress.
+class ButtonSkeleton extends StatelessWidget {
+  final double size;
+  final Color color;
+  const ButtonSkeleton({super.key, this.size = 20, this.color = Colors.white});
+
+  @override
+  Widget build(BuildContext context) {
+    return SkeletonLoader(
+      child: SkeletonBlock(width: size, height: size, borderRadius: 4, color: color),
     );
   }
 }

@@ -72,7 +72,6 @@ flutter:
   assets:
     - assets/logo/
     - assets/splash/
-    - assets/adi-registration.properties
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

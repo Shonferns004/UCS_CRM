@@ -175,6 +175,14 @@ class ApiService {
     return null;
   }
 
+  static Future<bool> isNgoAdmin() async {
+    final worker = await getWorkerData();
+    if (worker == null) return false;
+    final role = worker['role']?.toString().toLowerCase();
+    final dept = worker['department']?.toString().toLowerCase();
+    return role == 'admin' || dept == 'ngo admin';
+  }
+
   static Future<void> clearAuth() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('worker_token');
@@ -282,6 +290,10 @@ class ApiService {
     await prefs.setString(_todayCacheKey(), jsonEncode(data));
   }
 
+  static Future<void> cacheTodayStatus(Map<String, dynamic> data) async {
+    await _cacheTodayStatus(data);
+  }
+
   static Future<Map<String, dynamic>> getTodayStatus() async {
     final res = await _get(
       Uri.parse('$baseUrl/attendance/today'),
@@ -348,6 +360,131 @@ class ApiService {
     if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch loans') : 'Failed to fetch loans');
     if (body is List) return body;
     return body['loans'] ?? [];
+  }
+
+  // ---- Admin: attendance codes ----
+  static Future<List<dynamic>> getImpersonationCodes() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/impersonation-codes'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch codes') : 'Failed to fetch codes');
+    return (body is Map ? body['codes'] : null) ?? [];
+  }
+
+  // ---- Admin: all workers attendance ----
+  static Future<List<dynamic>> getAllAttendance() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/attendance/all'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch attendance') : 'Failed to fetch attendance');
+    if (body is List) return body;
+    return body['records'] ?? [];
+  }
+
+  // ---- Admin: workers list ----
+  static Future<List<dynamic>> getAllWorkers() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/workers'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch workers') : 'Failed to fetch workers');
+    if (body is List) return body;
+    return body['workers'] ?? [];
+  }
+
+  // ---- Admin: worker monthly attendance ----
+  static Future<List<dynamic>> getWorkerMonthlyAttendance(String workerId, String month) async {
+    final res = await _get(
+      Uri.parse('$baseUrl/attendance/worker/$workerId?month=$month'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch worker attendance') : 'Failed to fetch worker attendance');
+    if (body is List) return body;
+    return body['records'] ?? [];
+  }
+
+  // ---- Admin: create attendance record ----
+  static Future<Map<String, dynamic>> createAttendance(Map<String, dynamic> payload) async {
+    final res = await _post(
+      Uri.parse('$baseUrl/attendance'),
+      headers: await _headers(),
+      body: jsonEncode(payload),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception(body is Map ? (body['message'] ?? 'Failed to add attendance') : 'Failed to add attendance');
+    }
+    return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+  }
+
+  // ---- Admin: update attendance record ----
+  static Future<Map<String, dynamic>> updateAttendance(String id, Map<String, dynamic> payload) async {
+    final res = await _put(
+      Uri.parse('$baseUrl/attendance/$id'),
+      headers: await _headers(),
+      body: jsonEncode(payload),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) {
+      throw Exception(body is Map ? (body['message'] ?? 'Failed to update attendance') : 'Failed to update attendance');
+    }
+    return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+  }
+
+  // ---- Admin: pending leave requests ----
+  static Future<List<dynamic>> getPendingLeaves() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/leaves/pending'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch pending leaves') : 'Failed to fetch pending leaves');
+    if (body is List) return body;
+    return body['leaves'] ?? [];
+  }
+
+  static Future<Map<String, dynamic>> decideLeave(String id, String status, {String? remark}) async {
+    final res = await _put(
+      Uri.parse('$baseUrl/leaves/$id/status'),
+      headers: await _headers(),
+      body: jsonEncode({'status': status, if (remark != null) 'admin_remark': remark}),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to update leave') : 'Failed to update leave');
+    return body is Map ? Map<String, dynamic>.from(body) : {};
+  }
+
+  // ---- Admin: pending advance requests ----
+  static Future<List<dynamic>> getPendingLoans() async {
+    final res = await _get(
+      Uri.parse('$baseUrl/loans/pending'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to fetch pending advances') : 'Failed to fetch pending advances');
+    if (body is List) return body;
+    return body['loans'] ?? [];
+  }
+
+  static Future<Map<String, dynamic>> decideLoan(String id, String status, {double? monthlyDeduction, String? remark}) async {
+    final res = await _put(
+      Uri.parse('$baseUrl/loans/$id/decide'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'status': status,
+        if (monthlyDeduction != null) 'monthly_deduction': monthlyDeduction,
+        if (remark != null) 'hr_remark': remark,
+      }),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) throw Exception(body is Map ? (body['message'] ?? 'Failed to update advance') : 'Failed to update advance');
+    return body is Map ? Map<String, dynamic>.from(body) : {};
   }
 
   static Future<Map<String, dynamic>?> getCachedProfile() async {
