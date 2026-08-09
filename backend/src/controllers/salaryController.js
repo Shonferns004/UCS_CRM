@@ -13,8 +13,8 @@ import { getMonthlyAttendance, upsertAttendanceStatus } from '../models/attendan
 import { getWorkerById } from '../models/workerModel.js';
 import { getAllocationsByWorker } from '../models/workerNgoAllocationModel.js';
 import { getTarget, upsertTarget } from '../models/incentiveModel.js';
-import { getAchievements } from '../models/dailyAchievementModel.js';
 import { calculateAKI, getDayName, getMonthsEmployed, AKI_RANGES } from '../utils/incentive.js';
+import { getMergedDailyAmounts } from '../utils/dailyAchievementAggregator.js';
 import { computeSundayStats, computePaidDays } from '../utils/salaryDays.js';
 import { getActiveLoansByWorker } from '../models/loanModel.js';
 import { getHolidaysInRange } from '../models/holidayModel.js';
@@ -142,7 +142,7 @@ export const getWorkerSalaryWithAllocations = async (req, res) => {
             : null,
           lateJoin,
         });
-        const achievements = await getAchievements(workerId, startDate, endDate);
+        const achievements = await getMergedDailyAmounts(workerId, startDate, endDate);
 
         // Sunday AKI — each worked Sunday (including a cancelled one) earns its own AKI
         const isAttended = (s) => {
@@ -378,7 +378,7 @@ export const getMySalaryBreakdown = async (req, res) => {
         }
         currentTarget = parseFloat(tgt.target_amount);
 
-        const achievements = await getAchievements(workerId, startDate, endDate);
+        const achievements = await getMergedDailyAmounts(workerId, startDate, endDate);
         monthlyAchievement = achievements.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
 
         incentiveAKI = achievements.reduce((sum, r) => sum + calculateAKI(parseFloat(r.amount || 0), getDayName(r.date)), 0);
