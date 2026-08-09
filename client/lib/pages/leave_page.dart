@@ -466,7 +466,7 @@ class _LeavePageState extends State<LeavePage> {
               elevation: 1,
             ),
             child: _submitting
-                ? SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const ButtonSkeleton()
                 : Text('Submit Application', style: TextStyle(fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600, color: Colors.white)),
           ),
         ),

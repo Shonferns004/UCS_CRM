@@ -52,8 +52,39 @@ export default function AttendanceCalendar({ workerId, worker }) {
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
   const [panelErr, setPanelErr] = useState('')
+  const [officeStart, setOfficeStart] = useState(null) // { hour, minute }
 
   const dateKey = (d) => `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+
+  // Effective office start for this worker: personal shift overrides global setting.
+  const getEffectiveOfficeStart = () => {
+    if (worker?.shift_start_time) {
+      const [h, m] = worker.shift_start_time.split(':').map(Number)
+      return { hour: h || 10, minute: m || 0 }
+    }
+    if (officeStart) return officeStart
+    return { hour: 10, minute: 0 }
+  }
+
+  // Late minutes from an IST "HH:mm" punch-in string, clamped at 0.
+  const calcLateMin = (timeStr) => {
+    if (!timeStr) return 0
+    const [hh, mm] = timeStr.split(':').map(Number)
+    if (isNaN(hh) || isNaN(mm)) return 0
+    const start = getEffectiveOfficeStart()
+    const punchMin = hh * 60 + mm
+    const startMin = start.hour * 60 + start.minute
+    return Math.max(0, punchMin - startMin)
+  }
+
+  useEffect(() => {
+    api('/settings').then((settings) => {
+      if (settings && settings.office_start_time) {
+        const [h, m] = String(settings.office_start_time).split(':').map(Number)
+        setOfficeStart({ hour: h || 10, minute: m || 0 })
+      }
+    }).catch(() => {})
+  }, [])
 
   const load = () => {
     const mm = String(month + 1).padStart(2, '0')
@@ -245,7 +276,7 @@ export default function AttendanceCalendar({ workerId, worker }) {
             </label>
             <label className="att-field">
               <span>Punch In</span>
-              <input type="time" value={draft.punchIn} onChange={e => setDraft({ ...draft, punchIn: e.target.value })} />
+              <input type="time" value={draft.punchIn} onChange={e => setDraft({ ...draft, punchIn: e.target.value, lateMinutes: String(calcLateMin(e.target.value)) })} />
             </label>
             <label className="att-field">
               <span>Punch Out</span>

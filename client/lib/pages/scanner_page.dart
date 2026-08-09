@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/api_service.dart';
+import '../widgets/skeleton_loader.dart';
 
 class ScannerPage extends StatefulWidget {
   final int delaySeconds;
@@ -206,7 +207,9 @@ class _ScannerPageState extends State<ScannerPage>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(color: Colors.white),
+                    SkeletonLoader(
+                      child: SkeletonBlock(width: 48, height: 48, borderRadius: 24, color: Colors.white24),
+                    ),
                     SizedBox(height: 16),
                     Text('Starting camera...', style: TextStyle(color: Colors.white70)),
                   ],
