@@ -363,7 +363,7 @@ export default function Recruiters() {
                   {formErrors.phone && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{formErrors.phone}</div>}
                 </label>
                 <label className="field">DOB
-                  <DatePicker value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} />
+                  <DatePicker value={form.dob} onChange={v => setForm(f => ({ ...f, dob: v }))} />
                   <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{formAge !== null ? `Age: ${formAge}` : ''}</div>
                 </label>
               </div>
