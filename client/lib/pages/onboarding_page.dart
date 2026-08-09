@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../main.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../widgets/skeleton_loader.dart';
 
 class OnboardingPage extends StatefulWidget {
   final VoidCallback onComplete;
@@ -416,15 +417,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   Widget _buildLoadingSkeleton() {
-    final sc = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(color: sc.secondary),
-          const SizedBox(height: 20),
-          Text('Loading...', style: GoogleFonts.manrope(fontSize: 16, color: sc.onSurfaceVariant)),
-        ],
+    return const SkeletonLoader(
+      child: Center(
+        child: SkeletonBlock(width: 240, height: 140, borderRadius: 12),
       ),
     );
   }
@@ -538,7 +533,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
           child: _submitting
-              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? const ButtonSkeleton(size: 22)
               : Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -987,7 +982,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   child: _photoUploading
                       ? Container(
                           color: sc.inverseSurface.withValues(alpha: 0.3),
-                          child: const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3)),
+                          child: const Center(child: ButtonSkeleton(size: 32)),
                         )
                       : _uploadedPhotoUrl != null
                           ? Image.network(_uploadedPhotoUrl!, fit: BoxFit.cover, width: 180, height: 180,
@@ -1004,7 +999,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             child: TextButton.icon(
               onPressed: _photoUploading ? null : _pickPhoto,
               icon: _photoUploading
-                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: sc.secondary))
+                  ? const ButtonSkeleton(size: 16, color: Color(0xFF64748b))
                   : Icon(LucideIcons.camera, color: sc.onSurfaceVariant),
               label: Text(
                 _photoUploading ? 'Uploading...' : (_uploadedPhotoUrl != null ? 'Retake Photo' : 'Tap to Take Photo'),
