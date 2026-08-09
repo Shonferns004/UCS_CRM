@@ -3,6 +3,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
 import DonorPicker from '../components/DonorPicker';
+import { TimePicker } from '../../fro/components/TimePicker';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -382,20 +383,7 @@ export default function BankAudit(){
             </label>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Payment Time</span>
-              <DatePicker
-                selected={fm.payment_time ? (()=>{const [h,m]=fm.payment_time.split(':').map(Number);const d=new Date();d.setHours(h,m,0,0);return d})() : null}
-                onChange={date=>{const ts=date?String(date.getHours()).padStart(2,'0')+':'+String(date.getMinutes()).padStart(2,'0'):'';setFm(p=>({...p,payment_time:ts}))}}
-                showTimeSelect
-                showTimeSelectOnly
-                timeCaption="Time"
-                timeFormat="hh:mm aa"
-                dateFormat="hh:mm aa"
-                placeholderText="Pick a time..."
-                className="field-input"
-                wrapperStyle={{width:'100%'}}
-                calendarClassName="bank-audit-cal"
-                customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
-              />
+              <TimePicker value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))} placeholder="Select time" />
             </label>
           </div>
         </div>
