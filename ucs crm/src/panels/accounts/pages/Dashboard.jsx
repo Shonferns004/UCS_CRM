@@ -24,7 +24,18 @@ const StatCard = ({ icon, label, value, sub, color, loading: l }) => (
   </div>
 );
 
-export default function Dashboard() {
+export function LeadStatCards({ stats, loading }) {
+  return (
+    <div className="stats-grid">
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} label="Pending" value={stats.pending.length} sub={`${currency(stats.pendingAmount)} total`} color="#e67e22" loading={loading} />
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>} label="Verified" value={stats.verified.length} sub={`${currency(stats.verifiedAmount)} total`} color="#16a34a" loading={loading} />
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Verified Today" value={stats.verifiedToday.length} sub={`${currency(stats.verifiedTodayAmount)} collected`} color="#3b82f6" loading={loading} />
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} sub={`Across ${stats.totalLeads} leads`} color="#5B6B4E" loading={loading} />
+    </div>
+  );
+}
+
+export default function Dashboard({ embedded, onStats }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,8 +80,12 @@ export default function Dashboard() {
     const verifiedToday = verified.filter(l => l.verified_at && new Date(l.verified_at).toDateString() === today);
     const verifiedTodayAmount = verifiedToday.reduce((s, l) => s + Number(l.amount || 0), 0);
 
-    return { pending, verified, rejected, pendingAmount, verifiedAmount, totalAmount, verifiedToday, verifiedTodayAmount };
+    return { pending, verified, rejected, pendingAmount, verifiedAmount, totalAmount, verifiedToday, verifiedTodayAmount, totalLeads: leads.length };
   }, [leads]);
+
+  const osRef = useRef(onStats);
+  osRef.current = onStats;
+  useEffect(() => { if (embedded && osRef.current) osRef.current({ stats, loading }); }, [stats, loading, embedded]);
 
   const filtered = useMemo(() => {
     let result = leads;
@@ -110,18 +125,9 @@ export default function Dashboard() {
     alert(`${verified.length} verified leads sent to Receipts page. Go to Receipts → Load from Saved.`);
   };
 
-  if (viewingId) {
-    return <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); }} />;
-  }
-
   return (
     <div>
-      <div className="stats-grid">
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} label="Pending" value={stats.pending.length} sub={`${currency(stats.pendingAmount)} total`} color="#e67e22" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>} label="Verified" value={stats.verified.length} sub={`${currency(stats.verifiedAmount)} total`} color="#16a34a" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Verified Today" value={stats.verifiedToday.length} sub={`${currency(stats.verifiedTodayAmount)} collected`} color="#3b82f6" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} sub={`Across ${leads.length} leads`} color="#5B6B4E" loading={loading} />
-      </div>
+      {!embedded && <LeadStatCards stats={stats} loading={loading} />}
 
       <div className="card">
         <div className="filter-bar">
@@ -190,6 +196,19 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {viewingId && (
+        <div className="ldm-overlay" onClick={() => { setViewingId(null); load(); }}>
+          <div className="ldm-wrap" onClick={e => e.stopPropagation()}>
+            <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); }} />
+          </div>
+          <style>{`
+            .ldm-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:2000;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:20px 16px 96px}
+            .ldm-wrap{width:100%;max-width:1100px;background:var(--bg);border-radius:16px;border:1px solid var(--line);box-shadow:0 24px 80px rgba(0,0,0,.3);position:relative}
+            .ldm-wrap .action-bar{left:0;right:0}
+            @media(max-width:640px){.ldm-overlay{padding:10px 8px 84px}}
+          `}</style>
+        </div>
+      )}
     </div>
   );
 }
