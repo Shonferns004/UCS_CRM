@@ -126,6 +126,7 @@ export default function ReceiptClaims() {
                 <th>Amount</th>
                 <th>Receipt Date</th>
                 <th>Claimant</th>
+                <th>Station</th>
                 <th>Claimed At</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -133,9 +134,9 @@ export default function ReceiptClaims() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No claims found</td></tr>
+                <tr><td colSpan={9} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No claims found</td></tr>
               ) : (
                 items.map(item => (
                   <tr key={item.id}>
@@ -144,6 +145,7 @@ export default function ReceiptClaims() {
                     <td><strong style={{ color: 'var(--sage)' }}>{currency(item.receipt?.amount)}</strong></td>
                     <td style={{ fontSize: 12 }}>{fmtDay(item.receipt?.receipt_date)}</td>
                     <td style={{ fontSize: 12 }}>{item.claimant?.name || '\u2014'}</td>
+                    <td style={{ fontSize: 12 }}>{item.claimant?.station || '\u2014'}</td>
                     <td style={{ fontSize: 12 }}>{fmtDate(item.claimed_at)}</td>
                     <td>{statusPill(item.status)}</td>
                     <td>
@@ -181,8 +183,10 @@ export default function ReceiptClaims() {
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--sage)', whiteSpace: 'nowrap' }}>{currency(verifyTarget.receipt?.amount)}</div>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 8 }}>
-                  Claimed by <strong>{verifyTarget.claimant?.name || '\u2014'}</strong> on {fmtDate(verifyTarget.claimed_at)}
-                  {verifyTarget.receipt?.project_id ? ` · NGO: ${verifyTarget.receipt.project_id.toUpperCase()}` : ''}
+                  Claimed by <strong>{verifyTarget.claimant?.name || '\u2014'}</strong>
+                  {verifyTarget.claimant?.station ? ` \u00B7 Station: ${verifyTarget.claimant.station}` : ''}
+                  {' on '}{fmtDate(verifyTarget.claimed_at)}
+                  {verifyTarget.receipt?.project_id ? ` \u00B7 NGO: ${verifyTarget.receipt.project_id.toUpperCase()}` : ''}
                 </div>
                 {verifyTarget.notes && (
                   <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 8, whiteSpace: 'pre-wrap' }}>
@@ -247,7 +251,8 @@ export default function ReceiptClaims() {
             </div>
             <div className="modal-body">
               <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 10 }}>
-                Reject claim for <strong>{currency(rejectTarget.receipt?.amount)}</strong> ({rejectTarget.receipt?.donor_name || 'unknown donor'}) by {rejectTarget.claimant?.name || 'FRO'}.
+                Reject claim for <strong>{currency(rejectTarget.receipt?.amount)}</strong> ({rejectTarget.receipt?.donor_name || 'unknown donor'}) by {rejectTarget.claimant?.name || 'FRO'}
+                {rejectTarget.claimant?.station ? ` \u00B7 Station: ${rejectTarget.claimant.station}` : ''}.
               </div>
               <label className="field" style={{ marginBottom: 12 }}>
                 Reason (optional)
