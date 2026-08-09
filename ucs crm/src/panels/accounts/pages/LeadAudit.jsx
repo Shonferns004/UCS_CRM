@@ -10,13 +10,13 @@ function SectionTitle({ children }) {
 
 export default function LeadAudit() {
   const [leadStats, setLeadStats] = useState({ stats: EMPTY_STATS, loading: true });
-  const [audit, setAudit] = useState({ sources: [], summary: {}, loading: true });
+  const [audit, setAudit] = useState({ sources: [], summary: {}, suspense: null, loading: true });
 
   return (
     <div>
       <div style={{ display: 'grid', gap: 16, marginBottom: 16 }}>
         <LeadStatCards stats={leadStats.stats} loading={leadStats.loading} />
-        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} />
+        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspense={audit.suspense} />
       </div>
       <div className="two-col" style={{ alignItems: 'flex-start' }}>
         <div>

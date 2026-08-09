@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
@@ -9,6 +9,16 @@ import 'react-datepicker/dist/react-datepicker.css';
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 
+function currentMonthIST(){
+  const d=new Date(Date.now()+5.5*60*60*1000);
+  return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0');
+}
+function monthBounds(ym){
+  const [y,m]=ym.split('-').map(Number);
+  const last=new Date(Date.UTC(y,m,0)).getUTCDate();
+  return {from:ym+'-01',to:ym+'-'+String(last).padStart(2,'0')};
+}
+
 function Sk({h=14,w='100%'}){return <div style={{height:h,width:typeof w==='number'?w:w,borderRadius:6,background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}}/>}
 function SkStat(){return <div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}><div className="sk" style={{width:40,height:40,borderRadius:10,flexShrink:0}}/><div><Sk h={20} w={100}/><div style={{height:4}}/><Sk h={12} w={60}/></div></div>}
 
@@ -17,14 +27,22 @@ function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18p
 function Btn({s,on,ch,dis,ic,fg='#fff',bg='var(--sage)'}){return <button className="btn btn-sm" onClick={on} disabled={dis} style={{background:bg,color:fg,border:'none',display:'inline-flex',alignItems:'center',gap:4,fontSize:12,opacity:dis?.5:1}}>{ic}{ch}</button>}
 
 // ─── Audit Stat Cards ──────────────────────────────────────
-export function AuditStatCards({sources=[],summary={},loading=false}){
+export function AuditStatCards({sources=[],summary={},loading=false,suspense=null}){
   return <div className="stats-grid">
-    {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):sources.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
-      <div style={{width:40,height:40,borderRadius:10,background:C[i%C.length]+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C[i%C.length]} strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
-      </div>
-      <div><div style={{fontSize:20,fontWeight:700,color:C[i%C.length],lineHeight:1.2}}>{curr(summary[s.name]||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>{s.name}</div></div>
-    </div>)}
+    {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
+      {sources.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
+        <div style={{width:40,height:40,borderRadius:10,background:C[i%C.length]+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C[i%C.length]} strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        </div>
+        <div><div style={{fontSize:20,fontWeight:700,color:C[i%C.length],lineHeight:1.2}}>{curr(summary[s.name]||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>{s.name}</div></div>
+      </div>)}
+      {suspense!=null&&<div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
+        <div style={{width:40,height:40,borderRadius:10,background:'#B5603A18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5603A" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense Receipts · {suspense.count||0} open</div></div>
+      </div>}
+    </>}
   </div>;
 }
 
@@ -37,8 +55,8 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
       <div style={{display:'flex',gap:8,padding:'10px 14px',flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:4}}>
-          {selDate?<span style={{fontSize:12}}>Date</span>:<span style={{fontSize:12,fontWeight:600,color:'var(--sage)'}}>All Dates</span>}
-          <input type="date" value={selDate} onChange={e=>{const v=e.target.value;setSelDate(v);doLoad(v,statusTab)}} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:140}}/>
+          {selDate?<span style={{fontSize:12}}>Month</span>:<span style={{fontSize:12,fontWeight:600,color:'var(--sage)'}}>All Dates</span>}
+          <input type="month" value={selDate} onChange={e=>{const v=e.target.value;setSelDate(v);doLoad(v,statusTab)}} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:140}}/>
           {selDate&&<Btn on={()=>{setSelDate('');doLoad('',statusTab)}} ch="Clear" bg="transparent" fg="#6b7280" style={{fontSize:11,padding:'2px 6px'}}/>}
         </div>
         <select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
@@ -69,30 +87,37 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       ) : entries.length===0 ? (
         <div style={{textAlign:'center',padding:30,color:'#9ca3af',fontSize:13}}>No entries yet</div>
       ) : (srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered).map((e,idx)=>
-        <div key={e.id||idx} style={{display:'grid',gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr 70px',gap:8,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #f3f4f6',alignItems:'center',fontSize:12,background:idx%2===0?'#fff':'#fafafa'}}>
+        <div key={e.id||idx} style={{display:'grid',gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr 70px',gap:8,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #f3f4f6',alignItems:'center',fontSize:12,background:e.kind==='suspense'?'#fffaf5':(idx%2===0?'#fff':'#fafafa')}}>
           <div>
             <div style={{fontWeight:500,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}</div>
             <div style={{fontSize:10,color:'#9ca3af',marginTop:1}}>
-              <span className="pill pill-gray" style={{fontSize:8,padding:'1px 4px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
-              {e.remarks&&<span style={{marginLeft:4}}>{e.remarks}</span>}
+              {e.kind==='suspense'
+                ? <><span style={{fontSize:8,padding:'1px 5px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
+                    {e.receipt_no&&<span style={{marginLeft:4}}>#{e.receipt_no}</span>}
+                    {e.carried_from&&<span style={{marginLeft:6}}>carried from {e.carried_from}</span>}</>
+                : <><span className="pill pill-gray" style={{fontSize:8,padding:'1px 4px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
+                    {e.remarks&&<span style={{marginLeft:4}}>{e.remarks}</span>}</>}
             </div>
           </div>
-          <div style={{fontWeight:600,color:'var(--sage)',textAlign:'right'}}>{curr(e.amount)}</div>
+          <div style={{fontWeight:600,color:e.kind==='suspense'?'#B5603A':'var(--sage)',textAlign:'right'}}>{curr(e.amount)}</div>
           <div style={{fontSize:11,color:'#6b7280',fontFamily:'monospace'}}>{e.payment_id||'\u2014'}</div>
           <div style={{fontSize:11,color:'#6b7280'}}>{e.check_id||'\u2014'}</div>
           <div style={{fontSize:11,color:'#6b7280'}}>{e.payer_name||'\u2014'}</div>
           <div style={{display:'flex',gap:2,justifyContent:'center'}}>
-            {statusTab==='unverified'&&<>
-              <button onClick={()=>openEdit(e)} title="Edit" style={{border:'none',background:'#e5e7eb',color:'#374151',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button onClick={()=>handleDelete(e.id)} title="Delete" style={{border:'none',background:'#fef2f2',color:'#dc2626',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-            </>}
-            <button onClick={async()=>{if(confirm('Send to NGO Admin?'))try{await apiPut('/accounts/bank-audit/entries/'+e.id+'/assign-ngo',{});doLoad(selDate,statusTab)}catch(err){alert(err.message)}}} title="Send to NGO" style={{border:'none',background:'#fff7ed',color:'#B5603A',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </button>
+            {e.kind==='suspense'
+              ? <span style={{fontSize:9,color:'#d8b4a0',whiteSpace:'nowrap'}}>link via claims</span>
+              : <>{statusTab==='unverified'&&<>
+                  <button onClick={()=>openEdit(e)} title="Edit" style={{border:'none',background:'#e5e7eb',color:'#374151',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button onClick={()=>handleDelete(e.id)} title="Delete" style={{border:'none',background:'#fef2f2',color:'#dc2626',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </>}
+                <button onClick={async()=>{if(confirm('Send to NGO Admin?'))try{await apiPut('/accounts/bank-audit/entries/'+e.id+'/assign-ngo',{});doLoad(selDate,statusTab)}catch(err){alert(err.message)}}} title="Send to NGO" style={{border:'none',background:'#fff7ed',color:'#B5603A',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </button>
+              </>}
           </div>
         </div>
       )}
@@ -103,7 +128,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 // ─── Main ──────────────────────────────────────────────────
 export default function BankAudit({embedded,onSummary}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
-  const[st,setSt]=useState('unverified');const[sd,setSd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');
+  const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[sf,setSf]=useState('');const[nf,setNf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
@@ -114,7 +139,7 @@ export default function BankAudit({embedded,onSummary}){
   async function load(dt,stv){
     const s=stv||srRef.current;setLd(true);setEr('');
     try{
-      const p=new URLSearchParams();if(dt){p.set('date_from',dt);p.set('date_to',dt)}p.set('status',s);
+      const p=new URLSearchParams();if(dt){const b=monthBounds(dt);p.set('date_from',b.from);p.set('date_to',b.to)}p.set('status',s);
       const q=p.toString();
       const res=await Promise.allSettled([apiGet('/accounts/bank-audit/entries?'+q),apiGet('/accounts/bank-audit/sources'),apiGet('/accounts/bank-audit/summary?'+q)]);
       if(res[0].status==='fulfilled')setE(res[0].value);else{console.error(res[0].reason);setEr('Failed: '+res[0].reason.message)}
@@ -123,10 +148,16 @@ export default function BankAudit({embedded,onSummary}){
   }
   useEffect(()=>{load(sd,st)},[sd, st]);
   useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current),onUpdate:()=>load(sd,srRef.current),onDelete:()=>load(sd,srRef.current)});
-  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,loading:ld})},[sr,su,ld,embedded]);
+  useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current),onUpdate:()=>load(sd,srRef.current),onDelete:()=>load(sd,srRef.current)});
 
-  const ngoKw={bsct:['beingsevak','being sevak','sevak'],maan:['mann','maan','manncar','mann care'],aflf:['ashray','aflf']};
-  const fe=nf?e.filter(e=>{const src=(e.bank_audit_sources?.name||'').toLowerCase();const rem=(e.remarks||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k))}):e;
+  const suspense=useMemo(()=>{
+    const rows=e.filter(x=>x.kind==='suspense');
+    return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
+  },[e]);
+  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld})},[sr,su,ld,embedded,suspense]);
+
+  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
+  const fe=nf?e.filter(e=>{const src=(e.bank_audit_sources?.name||'').toLowerCase();const rem=(e.remarks||'').toLowerCase();const prj=(e.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))}):e;
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
   const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
@@ -155,7 +186,7 @@ export default function BankAudit({embedded,onSummary}){
       .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff!important}
       .bank-audit-cal .react-datepicker__time-list-item:hover{background:#dcfce7!important}
     `}</style>
-    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld}/></div>}
+    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense}/></div>}
 
     {/* Pending / History sub-tabs */}
     <div style={{marginBottom:16,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',background:'#fff'}}>
