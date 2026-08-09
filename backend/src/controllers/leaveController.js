@@ -7,6 +7,7 @@ import {
   getLeaveById,
 } from '../models/leaveModel.js';
 import { getAllWorkers } from '../models/workerModel.js';
+import { notifyNgoAdmins } from '../services/adminNotifyService.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
@@ -123,6 +124,14 @@ export const apply = async (req, res) => {
 
     record.days = days;
     const result = await applyLeave(record);
+    const workerName = req.user?.name || `Worker ${workerId}`;
+    await notifyNgoAdmins(
+      req.user?.ngo_id,
+      'New leave request',
+      `${workerName} applied for ${type.replace('_', ' ')} leave`,
+      'leave',
+      result?.id
+    );
     return res.status(201).json({ message: 'Leave application submitted', leave: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });

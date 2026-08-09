@@ -94,6 +94,35 @@ export const getWorkerByLoginId = async (login_id) => {
   return data;
 };
 
+// NGO admins are workers with department 'ngo admin'. When ngoId is null the
+// caller wants super-admin scoped targets, so return all NGO admins.
+export const getNgoAdmins = async (ngo_id) => {
+  const { data, error } = await db
+    .from('workers')
+    .select('id, name, login_id, email, department, ngo_id')
+    .ilike('department', 'ngo admin')
+    .eq('employment_status', 'active')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+  if (error) throw error;
+
+  const admins = data || [];
+
+  if (ngo_id == null) return admins;
+
+  let allocatedIds = new Set();
+  const { data: ids, error: idsErr } = await db
+    .from('worker_ngo_allocations')
+    .select('worker_id')
+    .eq('ngo_id', ngo_id);
+  if (idsErr) throw idsErr;
+  allocatedIds = new Set((ids || []).map(r => r.worker_id));
+
+  return admins.filter(
+    (a) => a.ngo_id === ngo_id || allocatedIds.has(a.id)
+  );
+};
+
 // Resolve the worker backing a token. Prefer the exact login_id row (the one
 // the user logged in with) so FRO dashboards use the correct worker even if
 // the workers table has duplicate id rows; fall back to id lookup.
