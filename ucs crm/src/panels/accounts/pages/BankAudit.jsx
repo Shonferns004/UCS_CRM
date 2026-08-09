@@ -94,8 +94,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             <div style={{fontSize:10,color:'#9ca3af',marginTop:1}}>
               {e.kind==='suspense'
                 ? <><span style={{fontSize:8,padding:'1px 5px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
-                    {e.receipt_no&&<span style={{marginLeft:4}}>#{e.receipt_no}</span>}
-                    {e.carried_from&&<span style={{marginLeft:6}}>carried from {e.carried_from}</span>}</>
+                    {e.receipt_no&&<span style={{marginLeft:4}}>#{e.receipt_no}</span>}</>
                 : <><span className="pill pill-gray" style={{fontSize:8,padding:'1px 4px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
                     {e.remarks&&<span style={{marginLeft:4}}>{e.remarks}</span>}</>}
             </div>
