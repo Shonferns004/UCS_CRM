@@ -468,6 +468,88 @@ export const rejectLead = async (req, res) => {
   }
 };
 
+export const deleteLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    const { data: log, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('id, action, disposition_detail, accounts_status, fro_worker_id, fro_assignments!inner(id, status, donor_id, fro_worker_id)')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) {
+      return res.status(404).json({ message: 'Log entry not found' });
+    }
+
+    if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
+      return res.status(400).json({ message: 'Only lead verification entries can be deleted' });
+    }
+
+    if (log.accounts_status !== 'pending') {
+      return res.status(400).json({ message: `Only pending leads can be deleted (this one is ${log.accounts_status || 'processed'})` });
+    }
+
+    const assignmentId = log.fro_assignments?.id;
+
+    const { error: delError } = await db
+      .from('fro_donor_logs')
+      .delete()
+      .eq('id', logId);
+    if (delError) throw delError;
+
+    // Revert the assignment so the FRO can rework this lead
+    if (assignmentId) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+        .eq('id', assignmentId);
+      if (asgnError) throw asgnError;
+    }
+
+    return res.json({ message: 'Lead deleted', log_id: logId });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteAllPendingLeads = async (req, res) => {
+  try {
+    const { data: logs, error: listError } = await db
+      .from('fro_donor_logs')
+      .select('id, assignment_id')
+      .eq('action', 'disposition')
+      .eq('disposition_detail', 'lead_done')
+      .eq('accounts_status', 'pending');
+
+    if (listError) throw listError;
+
+    const ids = (logs || []).map(l => l.id);
+    const assignmentIds = [...new Set((logs || []).map(l => l.assignment_id).filter(Boolean))];
+
+    if (ids.length > 0) {
+      const { error: delError } = await db
+        .from('fro_donor_logs')
+        .delete()
+        .in('id', ids);
+      if (delError) throw delError;
+    }
+
+    if (assignmentIds.length > 0) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+        .in('id', assignmentIds)
+        .eq('status', 'lead_done');
+      if (asgnError) throw asgnError;
+    }
+
+    return res.json({ message: 'Pending leads deleted', deleted: ids.length });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Inline Field Update ───────────────────────────────────
 
 const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'pan_number', 'notes', 'remark',
