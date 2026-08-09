@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { apiGet } from '../api/auth';
+import { apiGet, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 
@@ -24,7 +24,18 @@ const StatCard = ({ icon, label, value, sub, color, loading: l }) => (
   </div>
 );
 
-export default function Dashboard() {
+export function LeadStatCards({ stats, loading }) {
+  return (
+    <div className="stats-grid">
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} label="Pending" value={stats.pending.length} sub={`${currency(stats.pendingAmount)} total`} color="#e67e22" loading={loading} />
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>} label="Verified" value={stats.verified.length} sub={`${currency(stats.verifiedAmount)} total`} color="#16a34a" loading={loading} />
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Verified Today" value={stats.verifiedToday.length} sub={`${currency(stats.verifiedTodayAmount)} collected`} color="#3b82f6" loading={loading} />
+      <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} sub={`Across ${stats.totalLeads} leads`} color="#5B6B4E" loading={loading} />
+    </div>
+  );
+}
+
+export default function Dashboard({ embedded, onStats }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +43,10 @@ export default function Dashboard() {
   const [ngoFilter, setNgoFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewingId, setViewingId] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
@@ -69,8 +84,12 @@ export default function Dashboard() {
     const verifiedToday = verified.filter(l => l.verified_at && new Date(l.verified_at).toDateString() === today);
     const verifiedTodayAmount = verifiedToday.reduce((s, l) => s + Number(l.amount || 0), 0);
 
-    return { pending, verified, rejected, pendingAmount, verifiedAmount, totalAmount, verifiedToday, verifiedTodayAmount };
+    return { pending, verified, rejected, pendingAmount, verifiedAmount, totalAmount, verifiedToday, verifiedTodayAmount, totalLeads: leads.length };
   }, [leads]);
+
+  const osRef = useRef(onStats);
+  osRef.current = onStats;
+  useEffect(() => { if (embedded && osRef.current) osRef.current({ stats, loading }); }, [stats, loading, embedded]);
 
   const filtered = useMemo(() => {
     let result = leads;
@@ -110,18 +129,40 @@ export default function Dashboard() {
     alert(`${verified.length} verified leads sent to Receipts page. Go to Receipts → Load from Saved.`);
   };
 
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await apiDelete('/accounts/leads/' + deleteConfirm.log_id);
+      setDeleteConfirm(null);
+      load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      await apiDelete('/accounts/leads');
+      setDeleteAllConfirm(false);
+      load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   if (viewingId) {
     return <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); }} />;
   }
 
   return (
     <div>
-      <div className="stats-grid">
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} label="Pending" value={stats.pending.length} sub={`${currency(stats.pendingAmount)} total`} color="#e67e22" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>} label="Verified" value={stats.verified.length} sub={`${currency(stats.verifiedAmount)} total`} color="#16a34a" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Verified Today" value={stats.verifiedToday.length} sub={`${currency(stats.verifiedTodayAmount)} collected`} color="#3b82f6" loading={loading} />
-        <StatCard icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(stats.totalAmount)} sub={`Across ${leads.length} leads`} color="#5B6B4E" loading={loading} />
-      </div>
+      {!embedded && <LeadStatCards stats={stats} loading={loading} />}
 
       <div className="card">
         <div className="filter-bar">
@@ -148,6 +189,11 @@ export default function Dashboard() {
               {'\u27A1'} Send to Receipts ({leads.length})
             </button>
           )}
+          {statusFilter === 'pending' && stats.pending.length > 0 && (
+            <button className="btn btn-sm" style={{ background:'#dc2626', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={() => setDeleteAllConfirm(true)}>
+              {'\u2715'} Delete All ({stats.pending.length})
+            </button>
+          )}
         </div>
         <div className="table-wrap">
           <table>
@@ -159,13 +205,14 @@ export default function Dashboard() {
                 <th>Agent</th>
                 <th>Status</th>
                 <th>Date</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} cols={6} />)
+                Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} cols={7} />)
                ) : filtered.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                   {searchQuery ? 'No leads match your search.' : 'No leads found.'}
                 </td></tr>
               ) : (
@@ -182,6 +229,19 @@ export default function Dashboard() {
                        <span className="pill pill-gray">{l.accounts_status || '\u2014'}</span>}
                     </td>
                     <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {l.accounts_status === 'pending' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm(l); }}
+                          title="Delete lead"
+                          style={{ border:'none', background:'#fef2f2', color:'#dc2626', borderRadius:6, width:26, height:26, cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center', padding:0, transition:'background .15s' }}
+                          onMouseOver={e=>e.currentTarget.style.background='#fee2e2'}
+                          onMouseOut={e=>e.currentTarget.style.background='#fef2f2'}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
@@ -189,6 +249,46 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div className="modal" style={{ maxWidth: 420, width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><h3>Delete Lead</h3></div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              <p style={{ margin: '0 0 6px', fontSize: 14 }}>Delete this pending lead entry?</p>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
+                <strong>{deleteConfirm.donor_name}</strong> ({currency(deleteConfirm.amount)}) will be removed and the assignment returned to the agent for rework. This cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button className="btn btn-sm" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</button>
+                <button className="btn btn-sm" onClick={handleDelete} disabled={deleting} style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteAllConfirm && (
+        <div className="modal-overlay" onClick={() => !deletingAll && setDeleteAllConfirm(false)}>
+          <div className="modal" style={{ maxWidth: 440, width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><h3>Delete All Pending Leads</h3></div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              <p style={{ margin: '0 0 6px', fontSize: 14 }}>Delete all {stats.pending.length} pending lead entries?</p>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
+                Every pending entry ({currency(stats.pendingAmount)} total) will be removed and the assignments returned to their agents for rework. This cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                <button className="btn btn-sm" onClick={() => setDeleteAllConfirm(false)} disabled={deletingAll}>Cancel</button>
+                <button className="btn btn-sm" onClick={handleDeleteAll} disabled={deletingAll} style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
+                  {deletingAll ? 'Deleting...' : `Delete All (${stats.pending.length})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -574,10 +574,6 @@ export default function Attendance() {
   const absentCount = todayCombined.filter(r => r.status === 'absent').length;
   const total = todayCombined.length;
 
-  const hPresent = historyRecords.filter(r => r.status === 'present').length;
-  const hLate = historyRecords.filter(r => r.status === 'late').length;
-  const hAbsent = historyRecords.filter(r => r.status === 'absent').length;
-
   return (
     <>
       <style>{`
@@ -687,7 +683,6 @@ export default function Attendance() {
                 <div className="card-title" style={{ justifyContent: 'space-between' }}>
                   <span>Workers Present Today &mdash; <span className="today-date">{todayIST}</span></span>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="btn btn-sm" onClick={() => window.print()}>Print</button>
                     <Dropdown className="role-filter" value={punchStatus} onChange={e => setPunchStatus(e.target.value)}
                       options={[{value:'',label:'All'},{value:'present',label:'Present'},{value:'late',label:'Late'},{value:'absent',label:'Absent'}]} />
                     <Dropdown className="role-filter" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
@@ -785,19 +780,6 @@ export default function Attendance() {
                     </button>
                   </div>
                 </div>
-              </div>
-
-              <div className="stats">
-                {loading ? (
-                  <SkeletonStats />
-                ) : (
-                  <>
-                    <div className="stat"><div className="stat-label">Total Records</div><div className="stat-value info">{historyRecords.length}</div></div>
-                    <div className="stat"><div className="stat-label">Present</div><div className="stat-value success">{hPresent}</div></div>
-                    <div className="stat"><div className="stat-label">Late</div><div className="stat-value warning">{hLate}</div></div>
-                    <div className="stat"><div className="stat-label">Absent</div><div className="stat-value error">{hAbsent}</div></div>
-                  </>
-                )}
               </div>
 
               <div className="card" style={{ padding: '20px 22px' }}>
