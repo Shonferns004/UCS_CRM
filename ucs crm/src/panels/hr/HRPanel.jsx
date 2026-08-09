@@ -22,7 +22,6 @@ import Recruiters from './components/Recruiters'
 import GenerateQR from './components/GenerateQR'
 import Loans from './components/Loans'
 import Tickets from './components/Tickets'
-import PhoneNumbers from './components/PhoneNumbers'
 import SettingsPage from './components/Settings'
 import { fetchTicketCount } from './store'
 import ToastContainer from '../../components/Toast'
@@ -39,7 +38,6 @@ const NAV = [
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
   { id:'loans',      path:'/hr/loans',       label:'Loans & Advances', icon:Grid, eyebrow:'Finance',  sub:'Approve and manage loans & advances' },
   { id:'tickets',    path:'/hr/tickets',     label:'Tickets',    icon:FileTxt, eyebrow:'Corrections', sub:'Attendance correction tickets' },
-  { id:'phone-numbers', path:'/hr/phone-numbers', label:'Phone Numbers', icon:Grid, eyebrow:'Contacts', sub:'Manage worker phone numbers' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -266,7 +264,6 @@ export default function HRPanel() {
         <Route path="qr" element={<GenerateQR />} />
         <Route path="loans" element={<Loans />} />
         <Route path="tickets" element={<Tickets />} />
-        <Route path="phone-numbers" element={<PhoneNumbers />} />
         <Route path="settings" element={<SettingsRoute />} />
         <Route path="*" element={<Navigate to="overview" replace />} />
       </Routes>
