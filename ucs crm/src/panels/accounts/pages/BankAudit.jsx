@@ -388,8 +388,8 @@ export default function BankAudit(){
                 showTimeSelect
                 showTimeSelectOnly
                 timeCaption="Time"
-                timeFormat="HH:mm"
-                dateFormat="HH:mm"
+                timeFormat="hh:mm aa"
+                dateFormat="hh:mm aa"
                 placeholderText="Pick a time..."
                 className="field-input"
                 wrapperStyle={{width:'100%'}}
