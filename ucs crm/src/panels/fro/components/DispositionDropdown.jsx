@@ -11,7 +11,7 @@ export function DispositionDropdown({ options, value, onChange, placeholder = 'â
     if (!open) return;
     const onMouseDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onScrollOrResize = () => setOpen(false);
+    const onScrollOrResize = (e) => { if (e.target && ref.current && ref.current.contains(e.target)) return; setOpen(false); };
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('keydown', onKey);
     window.addEventListener('scroll', onScrollOrResize, true);
