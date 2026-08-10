@@ -30,7 +30,7 @@ export default function Offboarding({ worker, onBack }) {
     setAction('absconded');
     try {
       await abscondWorker(worker.id);
-      setDone(true);
+      onBack();
     } catch (e) {
       setErr(e.message);
       setBusy(false);
@@ -43,7 +43,7 @@ export default function Offboarding({ worker, onBack }) {
     setAction('remained');
     try {
       await updateWorker(worker.id, { employment_status: 'active', is_active: true });
-      setDone(true);
+      onBack();
     } catch (e) {
       setErr(e.message);
       setBusy(false);
