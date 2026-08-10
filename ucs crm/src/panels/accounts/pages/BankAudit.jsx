@@ -3,7 +3,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
 import DonorPicker from '../components/DonorPicker';
-import { TimePicker } from '../../fro/components/TimePicker';
+import { ModernDateInput } from '../components/ModernDateInput';
+import { ModernTimeInput } from '../components/ModernTimeInput';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import RightPanel from '../components/RightPanel';
@@ -200,7 +201,7 @@ export default function BankAudit({embedded,onSummary}){
       .bank-audit-cal .react-datepicker__time-list-item{font-size:13px!important;padding:6px 12px!important}
       .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff}
       .bank-audit-cal .react-datepicker__time-list-item:hover{background:#dcfce7!important}
-      .react-datepicker__popper{z-index:3000!important}
+      .react-datepicker-popper{z-index:3000!important}
     `}</style>
     {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense}/></div>}
 
@@ -276,25 +277,11 @@ export default function BankAudit({embedded,onSummary}){
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
-              <DatePicker
-                selected={fm.transaction_date ? new Date(fm.transaction_date + 'T00:00:00') : null}
-                onChange={date=>{const ds=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'):'';setFm(p=>({...p,transaction_date:ds}));if(fer)setFer('')}}
-                dateFormat="dd MMM yyyy"
-                placeholderText="Pick a date..."
-                maxDate={new Date()}
-                showMonthDropdown
-                showYearDropdown
-                dropdownMode="select"
-                className="field-input"
-                wrapperStyle={{width:'100%'}}
-                calendarClassName="bank-audit-cal"
-                portalId="root"
-                customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
-              />
+              <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
             </label>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Payment Time</span>
-              <TimePicker value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))} placeholder="Select time" />
+              <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
             </label>
           </div>
         </div>
