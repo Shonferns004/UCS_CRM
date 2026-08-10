@@ -71,7 +71,8 @@ export const getEntries = async (filters = {}) => {
   let query = db
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name)')
-    .order('transaction_date', { ascending: false });
+    .order('transaction_date', { ascending: false })
+    .order('payment_time', { ascending: false });
 
   if (filters.date_from) query = query.gte('transaction_date', filters.date_from);
   if (filters.date_to) query = query.lte('transaction_date', filters.date_to);
