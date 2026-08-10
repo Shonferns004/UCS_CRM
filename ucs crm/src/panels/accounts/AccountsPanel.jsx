@@ -65,18 +65,22 @@ function Sidebar({ open, onClose, waUnreadCount }) {
       {open && <div className="sidebar-overlay" onClick={onClose} />}
       <aside className={`sidebar${open ? ' open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark">UFS</div>
-          <div><h1>UFS</h1><span>Accounts Panel</span></div>
+          <div className="brand-mark">UCS</div>
+          <div className="brand-copy">
+            <h1>UCS</h1>
+            <span>Accounts Panel</span>
+          </div>
         </div>
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Accounts navigation">
           {NAV.map(n => (
             <NavLink key={n.id} to={n.path} onClick={onClose}
+              data-nav-id={n.id}
               className={`snav-item ${location.pathname === n.path ? 'active' : ''}`}>
               <span className="ico">{n.icon}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span>{n.label}</span>
                 {n.id === 'whatsapp' && waUnreadCount > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, background: '#25D366', color: '#fff', borderRadius: 10, padding: '1px 7px', lineHeight: '16px', minWidth: 18, textAlign: 'center' }}>
+                  <span className="nav-badge">
                     {waUnreadCount > 9 ? '9+' : waUnreadCount}
                   </span>
                 )}
@@ -90,6 +94,7 @@ function Sidebar({ open, onClose, waUnreadCount }) {
 }
 
 export default function AccountsPanel() {
+  const rightDrawerWidth = 460
   const { user, logout } = useUcs()
   const [showMenu, setShowMenu] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -180,7 +185,7 @@ export default function AccountsPanel() {
   ];
 
   return (
-    <div className="app">
+    <div className={`app${sidebarOpen ? ' sidebar-open' : ''}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} waUnreadCount={waUnreadCount} />
       <div className="main">
         <header className="topbar">
@@ -244,7 +249,7 @@ export default function AccountsPanel() {
             views={settingsViews}
           />
         </header>
-        <div className="content-body" style={{ marginRight: drawerOpen ? 320 : 0, transition: 'margin-right .25s ease' }}>
+        <div className="content-body" style={{ marginRight: drawerOpen ? rightDrawerWidth : 0, transition: 'margin-right .25s ease' }}>
           <Routes>
             <Route index element={<Navigate to="leads" replace />} />
             <Route path="leads" element={<LeadAudit />} />
