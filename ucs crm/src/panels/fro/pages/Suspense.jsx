@@ -1,134 +1,126 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../../../api/auth';
+import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
 
-const apiGet = (p) => api(p, { _prefix: 'ucs' });
-const apiPut = (p, b) => api(p, { method: 'PUT', body: JSON.stringify(b), _prefix: 'ucs' });
-const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
+const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
-const DISPOSITIONS = [
-  { cat: 'follow_up', detail: 'call_back', label: 'Call Back' },
-  { cat: 'follow_up', detail: 'follow_up', label: 'Follow Up' },
-  { cat: 'follow_up', detail: 'not_interested', label: 'Not Interested' },
-  { cat: 'follow_up', detail: 'switched_off', label: 'Phone Switched Off' },
-  { cat: 'follow_up', detail: 'no_answer', label: 'No Answer' },
-  { cat: 'follow_up', detail: 'wrong_number', label: 'Wrong Number' },
-  { cat: 'donation', detail: 'lead_done', label: 'Lead Done' },
-  { cat: 'other', detail: 'resolved_suspense', label: 'Resolved' },
-];
+const CLAIM_BADGES = {
+  pending: { text: 'Claimed · Pending', color: '#b45309', bg: '#fef3c7' },
+  verified: { text: 'Claim Verified', color: '#166534', bg: '#dcfce7' },
+  rejected: { text: 'Claim Rejected', color: '#b91c1c', bg: '#fee2e2' },
+};
 
 export default function FroSuspense() {
-  const [entries, setEntries] = useState([]);
+  const [month, setMonth] = useState('');
+  const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [selectedLead, setSelectedLead] = useState(null);
-  const [screenshotUrl, setScreenshotUrl] = useState('');
-  const [donorName, setDonorName] = useState('');
-  const [donorMobile, setDonorMobile] = useState('');
-  const [amount, setAmount] = useState('');
-  const [disposition, setDisposition] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const searchTimer = useRef(null);
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [claimReceipt, setClaimReceipt] = useState(null);
+  const [claimNotes, setClaimNotes] = useState('');
+  const [claimError, setClaimError] = useState('');
+  const [claimSuccess, setClaimSuccess] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  const [claimDonor, setClaimDonor] = useState(null);
+  const [claimSearch, setClaimSearch] = useState('');
+  const [claimResults, setClaimResults] = useState([]);
+  const [claimSearching, setClaimSearching] = useState(false);
+  const claimTimer = useRef(null);
 
   const load = async () => {
-    setLoading(true);
     try {
-      const data = await apiGet('/fro/suspense');
-      setEntries(data || []);
-    } catch (err) { alert(err.message); }
-    finally { setLoading(false); }
+      const data = await getSuspenseReceipts();
+      setMonth(data?.month || '');
+      setReceipts(data?.receipts || []);
+    } catch (err) {
+      console.error('API error:', err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     let cancelled = false;
-    async function fetchData() {
-      setLoading(true);
+    (async () => {
       try {
-        const data = await apiGet('/fro/suspense');
-        if (!cancelled) setEntries(data || []);
-      } catch (err) { alert(err.message); }
+        const data = await getSuspenseReceipts();
+        if (!cancelled) {
+          setMonth(data?.month || '');
+          setReceipts(data?.receipts || []);
+        }
+      } catch (err) { console.error('API error:', err.message); }
       finally { if (!cancelled) setLoading(false); }
-    }
-    fetchData();
+    })();
     return () => { cancelled = true; };
   }, []);
 
-  useRealtime('bank_audit_entries', {
+  useRealtime('receipts', {
     event: '*',
     onInsert: () => load(),
     onUpdate: () => load(),
     onDelete: () => load(),
   });
 
-  const openModal = (entry) => {
-    setShowModal(entry);
-    setSearchQuery('');
-    setSearchResults([]);
-    setSelectedLead(null);
-    setScreenshotUrl('');
-    setDonorName('');
-    setDonorMobile('');
-    setAmount(entry.amount);
-    setDisposition('');
-    // Load recent dispositions on open
-    setTimeout(async () => {
+  const openClaimModal = (r) => {
+    setClaimReceipt(r);
+    setClaimNotes('');
+    setClaimError('');
+    setClaimSuccess(false);
+    setClaimDonor(null);
+    setClaimSearch('');
+    setClaimResults([]);
+    setShowClaimModal(true);
+  };
+
+  const searchClaimDonors = (q) => {
+    setClaimSearch(q);
+    clearTimeout(claimTimer.current);
+    if ((q || '').trim().length < 2) { setClaimResults([]); setClaimSearching(false); return; }
+    claimTimer.current = setTimeout(async () => {
+      setClaimSearching(true);
       try {
-        const data = await apiGet('/fro/suspense/search-dispositions?q=');
-        setSearchResults(data || []);
-      } catch (e) { console.error('Error:', e.message); }
-    }, 100);
+        const res = await searchDonorsByMobile(q.trim());
+        setClaimResults(Array.isArray(res) ? res : []);
+      } catch (err) {
+        setClaimResults([]);
+      } finally {
+        setClaimSearching(false);
+      }
+    }, 350);
   };
 
-  const handleSearch = (q) => {
-    setSearchQuery(q);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const data = await apiGet('/fro/suspense/search-dispositions?q=' + (q ? encodeURIComponent(q) : ''));
-        setSearchResults(data || []);
-      } catch (e) { console.error('Error:', e.message); }
-      finally { setSearching(false); }
-    }, q ? 300 : 0);
-  };
-
-  const selectLead = (lead) => {
-    setSelectedLead(lead);
-    setDonorName(lead.donor_name);
-    setDonorMobile(lead.donor_mobile || '');
-    setAmount(lead.amount || amount);
-    setSearchResults([]);
-    setSearchQuery(lead.donor_name);
-  };
-
-  const handleSubmit = async () => {
-    if (!donorName) { alert('Please provide donor name'); return; }
-    if (!disposition) { alert('Please select a disposition'); return; }
-    if (!showModal) return;
-    setSubmitting(true);
+  const submitClaim = async () => {
+    if (!claimReceipt) return;
+    if (!claimDonor) { setClaimError('Select the donor to claim this receipt'); return; }
+    setClaiming(true);
+    setClaimError('');
     try {
-      const disp = DISPOSITIONS.find(d => d.detail === disposition);
-      await apiPut('/fro/suspense/' + showModal.id + '/resolve', {
-        screenshot_url: screenshotUrl,
-        donor_name: donorName,
-        donor_mobile: donorMobile,
-        amount: parseFloat(amount) || 0,
-        disposition_category: disp?.cat || 'other',
-        disposition_detail: disposition,
-      });
-      setShowModal(null);
-      load();
-    } catch (err) { alert(err.message); }
-    finally { setSubmitting(false); }
+      await claimSuspenseReceipt(claimReceipt.id, { donor_id: claimDonor.id, notes: claimNotes.trim() || undefined });
+      setClaimSuccess(true);
+      const data = await getSuspenseReceipts();
+      setMonth(data?.month || '');
+      setReceipts(data?.receipts || []);
+      setTimeout(() => setShowClaimModal(false), 1200);
+    } catch (err) {
+      setClaimError(err.message);
+    } finally {
+      setClaiming(false);
+    }
   };
+
+  const total = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
 
   return (
     <div>
-      <div className="card-head" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', marginBottom: 14 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Assigned Suspense</h3>
+      <div className="card-head" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Suspense Receipts</h3>
+        <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
+          {month} · {loading ? '...' : `${receipts.length} unclaimed`}
+          {!loading && receipts.length > 0 ? ` · ${currency(total)} total` : ''}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '0 0 12px' }}>
+        Unlinked donations received in {month} waiting for an owner. Claim one to get credit after accounts verification.
       </div>
 
       <div className="card">
@@ -136,122 +128,122 @@ export default function FroSuspense() {
           <table>
             <thead>
               <tr>
-                <th>Payment ID</th>
-                <th>Source</th>
-                <th>Amount</th>
+                <th>Receipt No</th>
+                <th>Donor</th>
+                <th>Mobile</th>
                 <th>Date</th>
+                <th>Amount</th>
                 <th>Status</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>Loading...</td></tr>
-              ) : entries.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No suspense assigned</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading suspense receipts...</td></tr>
+              ) : receipts.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: 'middle', marginRight: 6 }}>check_circle</span>
+                  No suspense receipts this month.
+                </td></tr>
               ) : (
-                entries.map(e => (
-                  <tr key={e.id}>
-                    <td style={{ fontSize: 12 }}>{e.payment_id || '\u2014'}</td>
-                    <td><span className="pill pill-gray">{e.bank_audit_sources?.name || 'Unknown'}</span></td>
-                    <td><strong style={{ color: '#dc2626' }}>{currency(e.amount)}</strong></td>
-                    <td style={{ fontSize: 12 }}>{e.transaction_date || '\u2014'}</td>
-                    <td>{e.status === 'verified' ? <span className="pill pill-green">Resolved</span> : <span className="pill pill-yellow">Pending</span>}</td>
-                    <td>
-                      {e.status !== 'verified' && (
-                        <button className="btn btn-sm" onClick={() => openModal(e)} style={{ fontSize: 11, padding: '2px 8px', background: 'var(--sage)', color: '#fff', border: 'none' }}>
-                          Resolve
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                receipts.map(r => {
+                  const badge = CLAIM_BADGES[r.my_claim_status];
+                  return (
+                    <tr key={r.id}>
+                      <td style={{ fontSize: 12, fontWeight: 600 }}>#{r.receipt_no || r.id}</td>
+                      <td style={{ fontSize: 12.5, fontWeight: 600 }}>{r.donor_name || 'Unknown donor'}</td>
+                      <td style={{ fontSize: 12 }}>{r.donor_mobile || '\u2014'}</td>
+                      <td style={{ fontSize: 12 }}>{r.receipt_date || '\u2014'}</td>
+                      <td><strong style={{ color: 'var(--ink)' }}>{currency(r.amount)}</strong></td>
+                      <td>
+                        {badge ? (
+                          <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', background: badge.bg, color: badge.color }}>{badge.text}</span>
+                        ) : (
+                          <span className="pill pill-gray">Unclaimed</span>
+                        )}
+                      </td>
+                      <td>
+                        {!badge && (
+                          <button className="btn btn-sm" onClick={() => openClaimModal(r)} style={{ fontSize: 11, padding: '3px 12px', background: 'var(--sage)', color: '#fff', border: 'none' }}>
+                            Claim
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
-            <div className="modal-head">
-              <h3>Resolve Suspense</h3>
-              <button className="btn btn-sm btn-icon" onClick={() => setShowModal(null)} style={{ padding: 4 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+      {showClaimModal && claimReceipt && (
+        <div onClick={() => { if (!claiming && !claimSuccess) setShowClaimModal(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 400, maxWidth: '92vw', padding: 20, boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Claim Suspense Receipt</div>
+            <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginBottom: 12 }}>Your claim becomes a pending lead in Lead Verification. Accounts verifies it and adds it to your collected.</div>
+            <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 2 }}>
+                Receipt #{claimReceipt.receipt_no || claimReceipt.id} · {claimReceipt.receipt_date}
+                {claimReceipt.donor_mobile ? ` · ${claimReceipt.donor_mobile}` : ''}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--sage)', marginTop: 6 }}>{currency(claimReceipt.amount)}</div>
             </div>
-            <div className="modal-body">
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Search Past Dispositions</label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    value={searchQuery}
-                    onChange={e => handleSearch(e.target.value)}
-                    placeholder="Search or browse past dispositions..."
-                    style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', boxSizing: 'border-box' }}
-                    onFocus={() => searchResults.length > 0}
-                  />
-                  {searchResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-md)', zIndex: 50, maxHeight: 200, overflowY: 'auto', marginTop: 4 }}>
-                      {searchResults.map(r => (
-                        <div key={r.id}
-                          onClick={() => selectLead(r)}
-                          style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                          onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
-                          onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                          <div>
-                            <strong>{r.donor_name}</strong>
-                            {r.donor_mobile && <span style={{ color: 'var(--ink-soft)', marginLeft: 6, fontSize: 11 }}>{r.donor_mobile}</span>}
-                            <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 1 }}>{r.disposition_detail} | {new Date(r.created_at).toLocaleDateString('en-IN')}</div>
-                          </div>
-                          <span style={{ color: 'var(--sage)', fontWeight: 600 }}>{currency(r.amount)}</span>
-                        </div>
-                      ))}
+            {claimSuccess ? (
+              <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--sage)', fontWeight: 600, fontSize: 12 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: 'middle', marginRight: 4 }}>check_circle</span>
+                Claim submitted — pending in Lead Verification
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>SELECT DONOR</div>
+                {claimDonor ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg)', border: '1px solid var(--sage)', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimDonor.name}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{claimDonor.mobile_number || '—'}{claimDonor.city ? ` · ${claimDonor.city}` : ''}</div>
                     </div>
-                  )}
+                    <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]) }}
+                      style={{ border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      value={claimSearch}
+                      onChange={e => searchClaimDonors(e.target.value)}
+                      placeholder="Search donor by name or mobile..."
+                      style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
+                    />
+                    {claimSearching && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>Searching...</div>}
+                    {!claimSearching && claimResults.length > 0 && (
+                      <div style={{ marginTop: 6, border: '1px solid var(--line)', borderRadius: 8, maxHeight: 150, overflowY: 'auto' }}>
+                        {claimResults.map(d => (
+                          <div key={d.id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
+                            style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)', fontSize: 11.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{d.name}</span>
+                            <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{d.mobile_number || ''}{d.city ? ` · ${d.city}` : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+                <textarea value={claimNotes} onChange={e => setClaimNotes(e.target.value)} rows={2}
+                  placeholder="Optional note for accounts (how you know this donor)..."
+                  style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', marginTop: 8 }} />
+                {claimError && <div style={{ fontSize: 10.5, color: '#b91c1c', marginTop: 6 }}>{claimError}</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                  <button onClick={() => setShowClaimModal(false)} disabled={claiming}
+                    style={{ padding: '7px 16px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={submitClaim} disabled={claiming || !claimDonor}
+                    style={{ padding: '7px 16px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: (claiming || !claimDonor) ? .5 : 1 }}>
+                    {claiming ? 'Claiming...' : 'Submit Claim'}
+                  </button>
                 </div>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, marginBottom: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 10 }}>Entry Details</div>
-                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                  <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                    Donor Name *
-                    <input value={donorName} onChange={e => setDonorName(e.target.value)} placeholder="Donor name" />
-                  </label>
-                  <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                    Mobile
-                    <input value={donorMobile} onChange={e => setDonorMobile(e.target.value)} placeholder="Mobile" />
-                  </label>
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                  <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                    Amount
-                    <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} />
-                  </label>
-                  <label className="field" style={{ marginBottom: 0, flex: 1 }}>
-                    Screenshot URL
-                    <input value={screenshotUrl} onChange={e => setScreenshotUrl(e.target.value)} placeholder="Payment screenshot URL" />
-                  </label>
-                </div>
-                <label className="field" style={{ marginBottom: 0 }}>
-                  Disposition *
-                  <select value={disposition} onChange={e => setDisposition(e.target.value)}>
-                    <option value="">Select disposition...</option>
-                    {DISPOSITIONS.map(d => (
-                      <option key={d.detail} value={d.detail}>{d.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn" onClick={() => setShowModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Submitting...' : 'Resolve & Create Lead'}
-              </button>
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}
