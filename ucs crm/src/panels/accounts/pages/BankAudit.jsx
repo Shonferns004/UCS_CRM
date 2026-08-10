@@ -9,11 +9,52 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
+import { downloadSinglePDF } from '../services/pdfGenerator';
+import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar';
+import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray';
+import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' };
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:''};
+
+const NGO_MAP = {
+  bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
+  maan: { label: 'Mann Care', comp: ReceiptTemplateManncar },
+  aflf: { label: 'Ashray', comp: ReceiptTemplateAshray },
+};
+function getNgoSettings(project) {
+  const saved = localStorage.getItem('receipt_template_settings');
+  const defaults = NGO_MAP[project] || NGO_MAP.bsct;
+  if (!saved) return defaults;
+  try {
+    const overrides = JSON.parse(saved);
+    const o = overrides[project];
+    if (!o) return defaults;
+    return { label: defaults.label, comp: NGO_MAP[o.receiptDesign]?.comp || defaults.comp };
+  } catch { return defaults }
+}
+function entryToDonor(e) {
+  return {
+    'Donor Name': e.payer_name || e.donor_name || 'Unknown',
+    'Receipt No.': e.receipt_no || 'N/A',
+    'Receipt Date': e.transaction_date || e.receipt_date || '',
+    'Amount': e.amount,
+    'Payment ID No.': e.payment_id || '',
+    'PAN No.': e.donor_pan || '',
+    'Email ID': e.donor_email || '',
+    'Address 1': e.donor_address_1 || '',
+    'Address 2': e.donor_address_2 || '',
+    'City': e.donor_city || '',
+    'State': '',
+    'Pincode': e.donor_pin_code || '',
+    'Mode of Payment (MOP)': 'Bank',
+    'Donor Bank Name': '',
+    'Account Of': NGO_LABELS[e.project_id] || e.project_id || '',
+    'Project': e.project_id || 'bsct',
+  };
+}
 
 function currentMonthIST(){
   const d=new Date(Date.now()+5.5*60*60*1000);
@@ -60,7 +101,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am,onViewReceipt}){
   const PAGE_SIZE=20;
   const[pg,setPg]=useState(1);
   const visible=srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered;
@@ -136,6 +177,9 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           </div>
           {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:8,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap'}}>MATCHED{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
           {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:8,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
+          <button title="View Receipt" onClick={e=>{e.stopPropagation();onViewReceipt(e)}} style={{width:28,height:28,borderRadius:8,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#1d6f42',flexShrink:0,transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#f0fdf4';e.currentTarget.style.borderColor='#86efac'}} onMouseOut={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#d1d5db'}}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </button>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c4c9d0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><polyline points="9 18 15 12 9 6" /></svg>
         </div>
       )}
@@ -154,6 +198,7 @@ export default function BankAudit({embedded,onSummary}){
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[dt,setDt]=useState(null);const[cm,setCm]=useState(false);const[am,setAm]=useState(false);const[fd,setFd]=useState(false);
+  const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
 
@@ -199,6 +244,8 @@ export default function BankAudit({embedded,onSummary}){
   const confirmMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/confirm-match');setDt(null);setTo({msg:'Match confirmed and credited',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setDt(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
+  const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){alert('Failed to download PDF: '+e.message)}setDl(false)};
+  const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
   return <div>
@@ -241,6 +288,7 @@ export default function BankAudit({embedded,onSummary}){
       handleAddSrc={addSrc} handleDelSrc={delSrc} openEdit={openE}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={setDt}
       onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
+      onViewReceipt={setRp}
     />
 
     {/* Add/Edit Modal */}
@@ -441,6 +489,12 @@ export default function BankAudit({embedded,onSummary}){
         </div>
       </div>}
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
+        {(dt.receipt_id||dt.receipt_no)&&<div style={{display:'flex',gap:10,marginBottom:10}}>
+          <button className="btn btn-sm" style={{flex:1,background:'#1d6f42',color:'#fff',border:'none'}} onClick={()=>{setRp(dt);setDt(null)}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:-2,marginRight:4}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            View Receipt
+          </button>
+        </div>}
         {dt.kind==='suspense'
           ? <>
               <div style={{display:'flex',gap:10}}>
@@ -460,6 +514,25 @@ export default function BankAudit({embedded,onSummary}){
             </>}
       </div>
     </RightPanel>}
+
+    {/* Receipt Preview Modal */}
+    {rp&&(()=>{const donor=entryToDonor(rp);const ngo=donor['Project']||'bsct';const tpl=getNgoSettings(ngo);const Comp=tpl.comp;return <div className="modal-overlay" onClick={()=>setRp(null)} style={{zIndex:1000}}>
+      <div className="modal" style={{width:'95%',maxWidth:1060,height:'95vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header" style={{flexShrink:0}}>
+          <h3 style={{fontSize:15}}>{donor['Donor Name']} — {tpl.label}</h3>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <button className="btn btn-primary btn-sm" onClick={handleDownloadReceipt} disabled={dl}>{dl?'Generating...':'Download PDF'}</button>
+            <button className="btn btn-sm" onClick={handlePrintReceipt}>Print</button>
+            <button className="btn btn-sm" onClick={()=>setRp(null)}>Close</button>
+          </div>
+        </div>
+        <div className="modal-body" style={{flex:1,overflow:'auto',padding:20,display:'flex',justifyContent:'center'}}>
+          <div ref={receiptRef} data-receipt style={{display:'inline-block',transform:'scale(0.7)',transformOrigin:'top center'}}>
+            <Comp donor={donor} project={ngo} />
+          </div>
+        </div>
+      </div>
+    </div>})()}
 
     <Toast message={to.msg} type={to.type} visible={to.vis} onClose={()=>setTo(p=>({...p,vis:false}))}/>
   </div>;
