@@ -10,10 +10,13 @@ const CLAIM_BADGES = {
   rejected: { text: 'Claim Rejected', color: '#b91c1c', bg: '#fee2e2' },
 };
 
+const NGO_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
+
 export default function FroSuspense() {
   const [month, setMonth] = useState('');
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [ngoFilter, setNgoFilter] = useState('');
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReceipt, setClaimReceipt] = useState(null);
   const [claimNotes, setClaimNotes] = useState('');
@@ -107,16 +110,28 @@ export default function FroSuspense() {
     }
   };
 
-  const total = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const ngos = [...new Set((receipts || []).map(r => r.project_id).filter(Boolean))];
+  const filtered = ngoFilter ? (receipts || []).filter(r => r.project_id === ngoFilter) : (receipts || []);
+  const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
 
   return (
     <div>
-      <div className="card-head" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="card-head" style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>Suspense Receipts</h3>
-        <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
-          {month} · {loading ? '...' : `${receipts.length} unclaimed`}
-          {!loading && receipts.length > 0 ? ` · ${currency(total)} total` : ''}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {ngos.length > 0 && (
+            <select value={ngoFilter} onChange={e => setNgoFilter(e.target.value)} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', background: '#fff', cursor: 'pointer', outline: 'none' }}>
+              <option value="">All NGOs</option>
+              {ngos.map(p => (
+                <option key={p} value={p}>{NGO_LABELS[p] || p.toUpperCase()}</option>
+              ))}
+            </select>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--ink-soft)', fontWeight: 600 }}>
+            {month} · {loading ? '...' : `${filtered.length} unclaimed`}
+            {!loading && filtered.length > 0 ? ` · ${currency(total)} total` : ''}
+          </span>
+        </div>
       </div>
 
       <div style={{ fontSize: 11, color: 'var(--ink-soft)', margin: '0 0 12px' }}>
@@ -140,13 +155,13 @@ export default function FroSuspense() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>Loading suspense receipts...</td></tr>
-              ) : receipts.length === 0 ? (
+              ) : filtered.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-soft)' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: 'middle', marginRight: 6 }}>check_circle</span>
-                  No suspense receipts this month.
+                  No suspense receipts{ngoFilter ? ' for this NGO' : ''} this month.
                 </td></tr>
               ) : (
-                receipts.map(r => {
+                filtered.map(r => {
                   const badge = CLAIM_BADGES[r.my_claim_status];
                   return (
                     <tr key={r.id}>
