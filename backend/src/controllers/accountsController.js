@@ -385,6 +385,12 @@ export const rejectLead = async (req, res) => {
 
     if (updateAsgnError) throw updateAsgnError;
 
+    // Return any suspense receipt attached to the rejected lead back to the
+    // suspense pool (unclaimed) so another FRO can claim it.
+    try {
+      await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
+    } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
+
     if (log.fro_assignments?.donor_id) {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
@@ -1134,7 +1140,7 @@ export const importReceipts = async (req, res) => {
           email: row.email || row['Mail Id'] || row['Email ID'] || null,
           payment_id: row.payment_id || row['Payment Id No.'] || null,
           bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
-          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || null,
+          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || 'Suspense',
           sent: true,
           sent_at: new Date().toISOString(),
         },

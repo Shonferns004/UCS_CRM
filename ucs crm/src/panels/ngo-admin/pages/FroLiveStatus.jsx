@@ -37,8 +37,6 @@ export default function FroLiveStatus() {
 
   useEffect(() => {
     loadStatuses()
-    const interval = setInterval(loadStatuses, 30000)
-    return () => clearInterval(interval)
   }, [selectedNgoId, froId])
 
   useEffect(() => {

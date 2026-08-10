@@ -3,7 +3,8 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
 import DonorPicker from '../components/DonorPicker';
-import { TimePicker } from '../../fro/components/TimePicker';
+import { ModernDateInput } from '../components/ModernDateInput';
+import { ModernTimeInput } from '../components/ModernTimeInput';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import RightPanel from '../components/RightPanel';
@@ -208,11 +209,20 @@ export default function BankAudit({embedded,onSummary}){
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
   const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({...EMPTY_FM});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const delEntry=async()=>{if(!dci)return;try{await apiDelete('/accounts/bank-audit/entries/'+dci);setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
+  const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{
+    if(se.kind==='suspense'){
+      await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.payer_name||null,donor_mobile:se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct'});
+    }else{
+      await apiPut('/accounts/bank-audit/entries/'+se.id,fm);
+    }
+    setSe(null);setFm({...EMPTY_FM});setDt(null);setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const delEntry=async()=>{if(!dci)return;try{
+    if(dci.kind==='suspense'){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
+    else{await apiDelete('/accounts/bank-audit/entries/'+dci.id)}
+    setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
-  const openE=(entry)=>{setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||''});setSe(entry)};
+  const openE=(entry)=>{if(entry.kind==='suspense'){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',project_id:entry.project_id||'bsct'});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||''});setSe(entry)};
   const confirmMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/confirm-match');setDt(null);setTo({msg:'Match confirmed and credited',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setDt(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
@@ -269,7 +279,7 @@ export default function BankAudit({embedded,onSummary}){
           </div>
           <div>
             <h3 style={{fontSize:15,fontWeight:700,margin:0,color:'#111827'}}>{isEdit?'Edit Entry':'New Bank Entry'}</h3>
-            <p style={{fontSize:11,color:'#9ca3af',margin:0}}>{isEdit?'Update entry details':'Record a new transaction'}</p>
+            <p style={{fontSize:11,color:'#9ca3af',margin:0}}>{isEdit?(se.kind==='suspense'?'Update suspense receipt details':'Update entry details'):'Record a new transaction'}</p>
           </div>
         </div>
         <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:30,height:30,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#e5e7eb';e.currentTarget.style.color='#374151'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
@@ -288,7 +298,7 @@ export default function BankAudit({embedded,onSummary}){
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Source <span style={{color:'#dc2626'}}>*</span></span>
-              <select className="field-input" value={fm.src_id} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+              <select className="field-input" value={fm.src_id} disabled={isEdit&&se.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:isEdit&&se.kind==='suspense'?'#f3f4f6':'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
                 <option value="">Select source...</option>
                 {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -311,25 +321,11 @@ export default function BankAudit({embedded,onSummary}){
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
-              <DatePicker
-                selected={fm.transaction_date ? new Date(fm.transaction_date + 'T00:00:00') : null}
-                onChange={date=>{const ds=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'):'';setFm(p=>({...p,transaction_date:ds}));if(fer)setFer('')}}
-                dateFormat="dd MMM yyyy"
-                placeholderText="Pick a date..."
-                maxDate={new Date()}
-                showMonthDropdown
-                showYearDropdown
-                dropdownMode="select"
-                className="field-input"
-                wrapperStyle={{width:'100%'}}
-                calendarClassName="bank-audit-cal"
-                portalId="root"
-                customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
-              />
+              <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
             </label>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Payment Time</span>
-              <TimePicker value={fm.payment_time} onChange={e=>setFm(p=>({...p,payment_time:e.target.value}))} placeholder="Select time" />
+              <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
             </label>
           </div>
         </div>
@@ -473,19 +469,22 @@ export default function BankAudit({embedded,onSummary}){
       </div>}
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
         {dt.kind==='suspense'
-          ? <div style={{textAlign:'center',fontSize:11,color:'#d8b4a0'}}>Read-only — claim from your Suspense panel</div>
-          : st==='unverified'
-            ? <>
-              {dt.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:10}}>
+          ? <>
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openEdit(dt)}>{'\u270E'} Edit</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt);setDt(null)}}>{'\u2715'} Delete</button>
+              </div>
+            </>
+          : <>
+              {st==='unverified'&&dt.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:10}}>
                 <button className="btn btn-sm" style={{flex:1,background:'var(--sage)',color:'#fff',border:'none'}} disabled={cm} onClick={()=>confirmMatch(dt)}>Confirm Match</button>
                 <button className="btn btn-sm" style={{flex:1,background:'#f3f4f6',color:'#6b7280',border:'none'}} disabled={cm} onClick={()=>clearMatch(dt)}>Clear</button>
               </div>}
               <div style={{display:'flex',gap:10}}>
-                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>{const e=dt;setDt(null);openEdit(e)}}>{'\u270E'} Edit</button>
-                <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt.id);setDt(null)}}>{'\u2715'} Delete</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openEdit(dt)}>{'\u270E'} Edit</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt);setDt(null)}}>{'\u2715'} Delete</button>
               </div>
-            </>
-            : null}
+            </>}
       </div>
     </RightPanel>}
 

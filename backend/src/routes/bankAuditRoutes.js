@@ -7,6 +7,7 @@ import {
   listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched,
   listFroSuspense, resolveSuspenseEntry,
   runAutoMatch, confirmMatch, clearMatch,
+  editSuspenseReceipt, removeSuspenseReceipt,
 } from '../controllers/bankAuditController.js';
 
 const router = Router();
@@ -21,6 +22,9 @@ router.get('/entries', authenticateRole('accounts', 'super_admin'), listEntries)
 router.post('/entries', authenticateRole('accounts', 'super_admin'), addEntry);
 router.put('/entries/:id', authenticateRole('accounts', 'super_admin'), editEntry);
 router.delete('/entries/:id', authenticateRole('accounts', 'super_admin'), removeEntry);
+
+router.put('/suspense/:id', authenticateRole('accounts', 'super_admin'), editSuspenseReceipt);
+router.delete('/suspense/:id', authenticateRole('accounts', 'super_admin'), removeSuspenseReceipt);
 
 router.get('/entries/suggest', authenticateRole('accounts', 'super_admin'), suggestEntries);
 router.put('/entries/:id/verify', authenticateRole('accounts', 'super_admin'), markEntryVerified);
