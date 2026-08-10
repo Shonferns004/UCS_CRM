@@ -582,14 +582,28 @@ class _LazyIndexedStackState extends State<_LazyIndexedStack> {
   void initState() {
     super.initState();
     _built.add(widget.index);
+    // Pre-warm the remaining tabs after the first frame so switching tabs is
+    // instant once the user taps, without blocking the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _warmAll());
   }
 
   @override
   void didUpdateWidget(covariant _LazyIndexedStack oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.index < widget.children.length) {
+    if (widget.index >= 0 && widget.index < widget.children.length) {
       _built.add(widget.index);
     }
+    _warmAll();
+  }
+
+  void _warmAll() {
+    if (!mounted) return;
+    if (widget.children.indexed.every((e) => _built.contains(e.$1))) return;
+    setState(() {
+      for (var i = 0; i < widget.children.length; i++) {
+        _built.add(i);
+      }
+    });
   }
 
   @override
