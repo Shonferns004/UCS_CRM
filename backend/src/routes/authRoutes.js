@@ -1,20 +1,13 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
 import { adminLogin, unifiedLogin, salaryLogin, impersonateFRO, getFroWorkersForImpersonation } from '../controllers/authController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { message: 'Too many login attempts, please try again later.' },
-});
-
 const router = Router();
 
-router.post('/admin/login', authLimiter, adminLogin);
-router.post('/worker/login', authLimiter, unifiedLogin);
-router.post('/login', authLimiter, unifiedLogin);
-router.post('/salary-login', authLimiter, salaryLogin);
+router.post('/admin/login', adminLogin);
+router.post('/worker/login', unifiedLogin);
+router.post('/login', unifiedLogin);
+router.post('/salary-login', salaryLogin);
 router.post('/impersonate', authenticate, impersonateFRO);
 router.get('/fro-workers', authenticate, getFroWorkersForImpersonation);
 

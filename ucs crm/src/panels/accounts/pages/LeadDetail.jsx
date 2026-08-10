@@ -60,7 +60,8 @@ function ScreenshotImage({ src, onClick }) {
   );
 }
 
-export default function LeadDetail({ logId, onBack }) {
+export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }) {
+  const drawer = variant === 'drawer';
   const [lead, setLead] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -206,14 +207,14 @@ export default function LeadDetail({ logId, onBack }) {
 
   if (loading) {
     return (
-      <div style={{ paddingBottom:65 }}>
-        <div className="detail-header"><button className="back-btn" onClick={onBack}>{'\u2190'}</button><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>Lead Details</div></div></div>
-        <div className="two-col detail-layout">
+      <div>
+        {!drawer && <div className="detail-header"><button className="back-btn" onClick={onBack}>{'\u2190'}</button><div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>Lead Details</div></div></div>}
+        <div className="two-col detail-layout" style={drawer ? { gridTemplateColumns: '1fr' } : undefined}>
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <div className="card"><div className="card-head"><h3>Payment & Transaction Details</h3></div><div className="card-pad"><div className="info-grid">{[1,2,3,4,5,6,7,8].map(i=><div key={i}><SkeletonLabel /><SkeletonField w={`${50+Math.random()*40}%`} /></div>)}</div></div></div>
             <div className="card"><div className="card-head"><h3>Donor Information</h3></div><div className="card-pad"><div className="info-grid">{[1,2,3,4,5,6,7,8,9,10].map(i=><div key={i}><SkeletonLabel /><SkeletonField w={`${50+Math.random()*40}%`} /></div>)}</div></div></div>
           </div>
-          <div><div className="card" style={{overflow:'hidden'}}><ScreenshotImage src={null} /></div></div>
+          {!drawer && <div><div className="card" style={{overflow:'hidden'}}><ScreenshotImage src={null} /></div></div>}
         </div>
       </div>
     );
@@ -250,15 +251,15 @@ export default function LeadDetail({ logId, onBack }) {
   for (let y = new Date().getFullYear(); y >= 2022; y--) finYears.push(`FY ${y}-${(y+1).toString().slice(-2)}`);
 
   return (
-    <div style={{ paddingBottom:65 }}>
-      <div className="detail-header">
+    <div style={drawer ? undefined : { paddingBottom: 65 }}>
+      {!drawer && <div className="detail-header">
         <button className="back-btn" onClick={onBack}>{'\u2190'}</button>
         <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>Lead Details</div></div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {isVerified && <span className="pill pill-green">Verified</span>}
           {l.accounts_status==='rejected' && <span className="pill pill-red" title={l.rejection_reason||''}>Rejected</span>}
         </div>
-      </div>
+      </div>}
 
       {(l.notes||l.remark||l.rejection_reason)&&(
         <div className="card" style={{borderLeft:'3px solid #dc2626',marginBottom:16}}>
@@ -270,7 +271,7 @@ export default function LeadDetail({ logId, onBack }) {
         </div>
       )}
 
-      <div className="two-col detail-layout">
+      <div className="two-col detail-layout" style={drawer ? { gridTemplateColumns: '1fr' } : undefined}>
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
           <div className="card">
             <div className="card-head"><h3>Payment & Transaction Details</h3></div>
@@ -330,20 +331,42 @@ export default function LeadDetail({ logId, onBack }) {
         </div>
       )}
 
-      <div className="action-bar">
-        {isPending && (
-          <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
-            <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
-            <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
-          </div>
-        )}
-        {isVerified && receipt && (
-          <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
-            <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>
-            <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>
-          </div>
-        )}
-      </div>
+      {drawer ? (
+        <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',backdropFilter:'blur(16px)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
+          {isPending && (
+            <div style={{display:'flex',gap:12,width:'100%',alignItems:'center'}}>
+              {onDelete && (
+                <button onClick={onDelete} disabled={submitting} title="Delete lead" style={{border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:10,width:42,height:42,flexShrink:0,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fef2f2'}} onMouseOut={e=>{e.currentTarget.style.background='#fff'}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+              )}
+              <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
+              <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+            </div>
+          )}
+          {isVerified && receipt && (
+            <div style={{display:'flex',gap:12,width:'100%'}}>
+              <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>
+              <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="action-bar">
+          {isPending && (
+            <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
+              <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
+              <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+            </div>
+          )}
+          {isVerified && receipt && (
+            <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
+              <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>
+              <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {confirmOpen && (
         <div className="modal-overlay" onClick={()=>setConfirmOpen(false)}>

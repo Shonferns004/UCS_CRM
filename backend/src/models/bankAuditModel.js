@@ -1,5 +1,33 @@
 import db from '../config/db.js';
 
+// Suspense receipts: receipts with no linked donor and no assigned agent
+// (agent_name holds the literal placeholder 'Suspense'). They appear as rows in
+// the bank audit list until matched (donor_id set).
+export const getUnlinkedReceipts = async () => {
+  const { data, error } = await db
+    .from('receipts')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, created_at')
+    .is('donor_id', null)
+    .eq('agent_name', 'Suspense')
+    .order('receipt_date', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
+export const getNextReceiptNo = async (projectId) => {
+  const ngo = projectId || 'bsct';
+  const { data } = await db.from('receipts').select('receipt_no').eq('project_id', ngo);
+  let maxNum = 0;
+  for (const r of data || []) {
+    const nums = String(r.receipt_no).match(/\d+/g);
+    if (nums && nums.length > 0) {
+      const n = parseInt(nums[nums.length - 1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  return String(maxNum + 1);
+};
+
 export const getSources = async () => {
   const { data, error } = await db
     .from('bank_audit_sources')
@@ -129,17 +157,6 @@ export const verifyEntry = async (id) => {
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({ status: 'verified', updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*, bank_audit_sources(name)')
-    .single();
-  if (error) throw error;
-  return data;
-};
-
-export const assignToNgoAdmin = async (id, notes) => {
-  const { data, error } = await db
-    .from('bank_audit_entries')
-    .update({ assigned_to_ngo_admin: true, ngo_admin_notes: notes || null, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select('*, bank_audit_sources(name)')
     .single();

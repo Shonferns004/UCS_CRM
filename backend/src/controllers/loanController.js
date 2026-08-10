@@ -9,6 +9,7 @@ import {
   createDeduction,
   getDeductionsByLoan,
 } from '../models/loanModel.js';
+import { notifyNgoAdmins } from '../services/adminNotifyService.js';
 
 export const apply = async (req, res) => {
   try {
@@ -43,6 +44,14 @@ export const apply = async (req, res) => {
     };
 
     const result = await applyLoan(record);
+    const workerName = req.user?.name || `Worker ${workerId}`;
+    await notifyNgoAdmins(
+      req.user?.ngo_id,
+      'New advance request',
+      `${workerName} requested a ${type} of ${parsed}`,
+      'loan',
+      result?.id
+    );
     return res.status(201).json({ message: `${type} request submitted`, loan: result });
   } catch (error) {
     return res.status(500).json({ message: error.message });
