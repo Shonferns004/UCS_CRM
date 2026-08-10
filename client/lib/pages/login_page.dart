@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/api_service.dart';
+import '../widgets/skeleton_loader.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback onLogin;
@@ -48,8 +49,15 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     try {
       final data = await ApiService.login(_loginCtrl.text.trim(), _passCtrl.text);
       await ApiService.saveToken(data['token']);
-      await ApiService.saveWorkerData(data['user']);
+      final userData = data['user'];
+      if (userData is Map<String, dynamic>) {
+        userData['role'] = data['role'];
+        await ApiService.saveWorkerData(userData);
+      } else {
+        await ApiService.saveWorkerData({});
+      }
       await ApiService.saveLastLoginId(_loginCtrl.text.trim());
+      await ApiService.isNgoAdmin();
       if (mounted) widget.onLogin();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -215,7 +223,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                                 ? const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                                      ButtonSkeleton(size: 16),
                                       SizedBox(width: 10),
                                       Text('Signing in...', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
                                     ],

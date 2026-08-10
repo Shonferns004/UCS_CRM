@@ -14,6 +14,9 @@ import 'pages/login_page.dart';
 import 'pages/onboarding_page.dart';
 import 'pages/home_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/codes_page.dart';
+import 'pages/requests_page.dart';
+import 'pages/admin_attendance_page.dart';
 import 'pages/splash_page.dart';
 
 bool firebaseInitialized = false;
@@ -218,7 +221,7 @@ class UfsAttendApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
-      title: 'UFS Attend',
+      title: 'UCS Attend',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -313,6 +316,9 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _checkAuth() async {
     try {
       final token = await ApiService.getToken().timeout(const Duration(seconds: 2));
+      if (token != null) {
+        await ApiService.isNgoAdmin();
+      }
       if (token != null && firebaseInitialized) {
         await NotificationService().init();
       }
@@ -423,12 +429,26 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   int _tabChangeVersion = 0;
   Map<String, dynamic>? _announcement;
+  bool _isAdmin = ApiService.isCachedNgoAdmin();
 
   @override
   void initState() {
     super.initState();
     _loadAnnouncement();
+    _loadRole();
   }
+
+  Future<void> _loadRole() async {
+    final isAdmin = await ApiService.isNgoAdmin();
+    if (mounted) {
+      setState(() {
+        _isAdmin = isAdmin;
+        if (_currentIndex > _maxTabIndex()) _currentIndex = 0;
+      });
+    }
+  }
+
+  int _maxTabIndex() => _isAdmin ? 4 : 1;
 
   Future<void> _loadAnnouncement() async {
     final announcement = RemoteConfigService.instance.announcement;
@@ -450,9 +470,63 @@ class _MainShellState extends State<MainShell> {
     setState(() => _announcement = null);
   }
 
+  void _switchTo(int index) {
+    if (_currentIndex != index) {
+      _tabChangeVersion++;
+      setState(() => _currentIndex = index);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final announcementVisible = _announcement != null;
+    final children = [
+      HomePage(tabChangeVersion: _tabChangeVersion),
+      if (_isAdmin) CodesPage(),
+      if (_isAdmin) RequestsPage(),
+      if (_isAdmin) AdminAttendancePage(),
+      ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
+    ];
+    final navItems = [
+      _NavItem(
+        icon: LucideIcons.house,
+        activeIcon: LucideIcons.house,
+        label: 'Home',
+        isActive: _currentIndex == 0,
+        onTap: () => _switchTo(0),
+      ),
+      if (_isAdmin) ...[
+        _NavItem(
+          icon: LucideIcons.shieldCheck,
+          activeIcon: LucideIcons.shieldCheck,
+          label: 'Codes',
+          isActive: _currentIndex == 1,
+          onTap: () => _switchTo(1),
+        ),
+        _NavItem(
+          icon: LucideIcons.inbox,
+          activeIcon: LucideIcons.inbox,
+          label: 'Requests',
+          isActive: _currentIndex == 2,
+          onTap: () => _switchTo(2),
+        ),
+        _NavItem(
+          icon: LucideIcons.calendarCheck2,
+          activeIcon: LucideIcons.calendarCheck2,
+          label: 'Attendance',
+          isActive: _currentIndex == 3,
+          onTap: () => _switchTo(3),
+        ),
+      ],
+      _NavItem(
+        icon: LucideIcons.circleUserRound,
+        activeIcon: LucideIcons.circleUserRound,
+        label: 'Profile',
+        isActive: _currentIndex == (_isAdmin ? 4 : 1),
+        onTap: () => _switchTo(_isAdmin ? 4 : 1),
+      ),
+    ];
+
     return Scaffold(
       body: Column(
         children: [
@@ -462,12 +536,9 @@ class _MainShellState extends State<MainShell> {
               onDismiss: _dismissAnnouncement,
             ),
           Expanded(
-            child: IndexedStack(
+            child: _LazyIndexedStack(
               index: _currentIndex,
-              children: [
-                HomePage(tabChangeVersion: _tabChangeVersion),
-                ProfilePage(onLogout: widget.onLogout, tabChangeVersion: _tabChangeVersion),
-              ],
+              children: children,
             ),
           ),
         ],
@@ -487,25 +558,62 @@ class _MainShellState extends State<MainShell> {
             ],
           ),
           child: Row(
-            children: [
-              _NavItem(
-                icon: LucideIcons.house,
-                activeIcon: LucideIcons.house,
-                label: 'Home',
-                isActive: _currentIndex == 0,
-                onTap: () { if (_currentIndex != 0) { _tabChangeVersion++; setState(() => _currentIndex = 0); } },
-              ),
-              _NavItem(
-                icon: LucideIcons.circleUserRound,
-                 activeIcon: LucideIcons.circleUserRound,
-                label: 'Profile',
-                isActive: _currentIndex == 1,
-                onTap: () { if (_currentIndex != 1) { _tabChangeVersion++; setState(() => _currentIndex = 1); } },
-              ),
-            ],
+            children: navItems,
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LazyIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+  const _LazyIndexedStack({required this.index, required this.children});
+
+  @override
+  State<_LazyIndexedStack> createState() => _LazyIndexedStackState();
+}
+
+class _LazyIndexedStackState extends State<_LazyIndexedStack> {
+  final Set<int> _built = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _built.add(widget.index);
+    // Pre-warm the remaining tabs after the first frame so switching tabs is
+    // instant once the user taps, without blocking the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _warmAll());
+  }
+
+  @override
+  void didUpdateWidget(covariant _LazyIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.index >= 0 && widget.index < widget.children.length) {
+      _built.add(widget.index);
+    }
+    _warmAll();
+  }
+
+  void _warmAll() {
+    if (!mounted) return;
+    if (widget.children.indexed.every((e) => _built.contains(e.$1))) return;
+    setState(() {
+      for (var i = 0; i < widget.children.length; i++) {
+        _built.add(i);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IndexedStack(
+      index: widget.index,
+      children: [
+        for (var i = 0; i < widget.children.length; i++)
+          _built.contains(i) ? widget.children[i] : const SizedBox.shrink(),
+      ],
     );
   }
 }
@@ -644,7 +752,7 @@ class ForceUpdatePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'A new version (${cfg.minimumVersion}) of UFS Attend is available. Please update to continue.',
+                  'A new version (${cfg.minimumVersion}) of UCS Attend is available. Please update to continue.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.manrope(
                     fontSize: 14, fontWeight: FontWeight.w400, color: const Color(0xFF474d57),

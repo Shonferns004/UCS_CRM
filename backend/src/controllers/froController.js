@@ -690,6 +690,7 @@ export const getSuspenseReceipts = async (req, res) => {
       .from('receipts')
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, created_at')
       .is('donor_id', null)
+      .is('log_id', null)
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
@@ -738,18 +739,21 @@ export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
     const receiptId = parseInt(req.params.receiptId, 10);
-    const { donor_id, notes } = req.body || {};
+    const { donor_id, notes, screenshot_url } = req.body || {};
     if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
+    const donorId = donor_id ? parseInt(donor_id, 10) : null;
+    if (!donorId) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
 
     const projectSet = await myProjectSet(workerId);
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
-      .select('id, donor_id, project_id, receipt_date, amount, donor_name')
+      .select('id, donor_id, log_id, project_id, receipt_date, amount, donor_name')
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
     if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
+    if (receipt.log_id) return res.status(409).json({ message: 'This receipt has already been claimed' });
     if (projectSet.length > 0 && !projectSet.includes(receipt.project_id)) {
       return res.status(403).json({ message: 'Receipt does not belong to your NGO' });
     }
@@ -759,36 +763,81 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
     }
 
-    const { data: existing } = await db
-      .from('receipt_claims')
-      .select('id, status')
-      .eq('receipt_id', receiptId)
+    // Dedupe: if this FRO already has an unresolved pending lead_done for the
+    // same donor (e.g. they marked the lead done before, accounts could not
+    // match it because the money was sitting in suspense), attach the claimed
+    // receipt to that existing lead instead of creating a duplicate pending
+    // lead in Lead Verification for the same donor + agent.
+    const { data: existingPendingLead } = await db
+      .from('fro_donor_logs')
+      .select('id')
+      .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
+      .eq('action', 'disposition')
+      .eq('disposition_detail', 'lead_done')
+      .eq('accounts_status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
-    if (existing) {
-      return res.status(409).json({
-        message: existing.status === 'verified' ? 'You already claimed this receipt and it was verified' : 'You already claimed this receipt',
-        claim_id: existing.id,
-        status: existing.status,
-      });
+
+    if (existingPendingLead) {
+      await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
+      try {
+        const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
+        for (const u of (accounts || [])) {
+          await db.from('notification_log').insert({
+            worker_id: u.id,
+            type: 'claim_requested',
+            title: 'Suspense Claim',
+            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${receipt.donor_name || 'a donor'} — ready to verify.`,
+            sent_at: new Date().toISOString(),
+          });
+        }
+      } catch (e) { console.error('Claim notification error:', e.message); }
+      return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
     }
 
-    const { data: inserted, error: insErr } = await db
-      .from('receipt_claims')
+    // Attach to the donor's open assignment (or open a fresh one for this FRO) so
+    // the created lead shows up in Lead Verification (fro_donor_logs needs an
+    // assignment for the inner join there).
+    const { data: assignment } = await db
+      .from('fro_assignments')
+      .select('id, fro_worker_id')
+      .eq('donor_id', donorId)
+      .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
+      .maybeSingle();
+
+    let assignmentId = assignment?.id;
+    if (!assignmentId) {
+      const { data: created, error: asgErr } = await db
+        .from('fro_assignments')
+        .insert({ donor_id: donorId, fro_worker_id: workerId, status: 'lead_done' })
+        .select()
+        .single();
+      if (asgErr) throw asgErr;
+      assignmentId = created.id;
+    }
+
+    const { data: log, error: logErr } = await db
+      .from('fro_donor_logs')
       .insert({
-        receipt_id: receiptId,
+        assignment_id: assignmentId,
+        donor_id: donorId,
         fro_worker_id: workerId,
-        project_id: receipt.project_id,
-        donor_id: donor_id ? parseInt(donor_id, 10) : null,
-        notes: notes || null,
-        status: 'pending',
+        action: 'disposition',
+        disposition_detail: 'lead_done',
+        amount_collected: receipt.amount,
+        accounts_status: 'pending',
+        payment_screenshot_url: screenshot_url || null,
+        remark: notes || null,
+        transaction_datetime: receipt.receipt_date || null,
+        created_by: workerId,
       })
       .select()
       .single();
-    if (insErr) {
-      if ((insErr.message || '').includes('duplicate')) return res.status(409).json({ message: 'You already claimed this receipt' });
-      throw insErr;
-    }
+    if (logErr) throw logErr;
+
+    await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
@@ -797,13 +846,13 @@ export const claimSuspenseReceipt = async (req, res) => {
           worker_id: u.id,
           type: 'claim_requested',
           title: 'Suspense Claim',
-          body: `${req.user.name || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} (receipt #${receiptId}).`,
+          body: `${req.user.name || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} — pending in Lead Verification.`,
           sent_at: new Date().toISOString(),
         });
       }
     } catch (e) { console.error('Claim notification error:', e.message); }
 
-    return res.status(201).json({ message: 'Claim submitted for verification', claim: inserted });
+    return res.status(201).json({ message: 'Claim submitted; it is now pending in Lead Verification', log_id: log.id });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

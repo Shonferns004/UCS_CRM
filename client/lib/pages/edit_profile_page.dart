@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../main.dart';
 import '../utils/responsive.dart';
+import '../widgets/skeleton_loader.dart';
 
 class EditProfilePage extends StatefulWidget {
   final Map<String, dynamic> worker;
@@ -181,7 +182,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 TextButton(
                   onPressed: _busy ? null : _submitForReview,
                   child: _busy
-                      ? SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2))
+                      ? const ButtonSkeleton()
                       : Text('Submit for Review', style: GoogleFonts.hankenGrotesk(
                           fontSize: Responsive.sp(context, 14), fontWeight: FontWeight.w600,
                           color: hasChanges ? sc.primary : sc.onSurfaceVariant,

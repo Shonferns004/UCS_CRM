@@ -21,7 +21,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     const InitializationSettings(android: androidSettings, iOS: iosSettings),
   );
 
-  final title = message.notification?.title ?? message.data['title'] ?? 'UFS Attend';
+    final title = message.notification?.title ?? message.data['title'] ?? 'UCS Attend';
   final body = message.notification?.body ?? message.data['body'] ?? '';
   final payload = '${message.data['type'] ?? ''}|${message.data['referenceId'] ?? ''}';
 
@@ -32,8 +32,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     const NotificationDetails(
       android: AndroidNotificationDetails(
         'ufs_attend_channel',
-        'UFS Attend Notifications',
-        channelDescription: 'Push notifications from UFS Attend',
+        'UCS Attend Notifications',
+        channelDescription: 'Push notifications from UCS Attend',
         icon: 'notification_icon',
         importance: Importance.high,
         priority: Priority.high,
@@ -109,7 +109,7 @@ class NotificationService {
   }
 
   Future<void> _onForegroundMessage(RemoteMessage message) async {
-    final title = message.notification?.title ?? message.data['title'] ?? 'UFS Attend';
+  final title = message.notification?.title ?? message.data['title'] ?? 'UCS Attend';
     final body = message.notification?.body ?? message.data['body'] ?? '';
     final payload = '${message.data['type'] ?? ''}|${message.data['referenceId'] ?? ''}';
 
@@ -120,8 +120,8 @@ class NotificationService {
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'ufs_attend_channel',
-          'UFS Attend Notifications',
-          channelDescription: 'Push notifications from UFS Attend',
+          'UCS Attend Notifications',
+          channelDescription: 'Push notifications from UCS Attend',
           icon: 'notification_icon',
           importance: Importance.high,
           priority: Priority.high,

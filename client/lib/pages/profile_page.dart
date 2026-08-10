@@ -51,6 +51,8 @@ class _ProfilePageState extends State<ProfilePage> {
     if (widget.tabChangeVersion != oldWidget.tabChangeVersion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
+        _refreshHistoryFromNetwork();
+        _fetchCalendar();
       });
     }
   }
@@ -841,7 +843,7 @@ class _ProfilePageState extends State<ProfilePage> {
             if (_loadingTickets)
               Padding(
                 padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 16)),
-                child: Center(child: SizedBox(width: Responsive.pad(context, 20), height: Responsive.pad(context, 20), child: const CircularProgressIndicator(strokeWidth: 2))),
+                child: const Center(child: ButtonSkeleton()),
               )
             else if (pendingTickets.isEmpty)
               Padding(

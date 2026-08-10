@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useHR } from '../store';
 import { initials as initialsFn } from '../store';
+import { Plus, Trash, ArrowLeft, Pencil, Mail } from '../../../icons';
 import PrintForms from './forms/PrintForms';
 
 const titleCase = (s) => (s || '').replace(/\b\w/g, c => c.toUpperCase());
@@ -12,6 +13,41 @@ const avatarColorLocal = (name) => {
   return PALETTE[Math.abs(h) % PALETTE.length];
 };
 const tint = (hex) => hex + '22';
+
+function formCompletion(w) {
+  const val = (v) => v && typeof v === 'string' && v.trim() !== '';
+  const edu = (w.education || [])[0] || {};
+  const fam = (w.family || [])[0] || {};
+  const checks = [
+    val(w.name),
+    val(w.father_husband_name),
+    val(w.address),
+    val(w.phone),
+    val(w.dob),
+    val(w.marital_status),
+    val(w.email),
+    val(w.gender),
+    val(w.aadhar_number),
+    val(w.pan_number),
+    val(w.bank_name),
+    val(w.ifsc_code),
+    val(w.account_number),
+    val(edu.degree),
+    val(edu.institution),
+    val(fam.name),
+  ];
+  const filled = checks.filter(Boolean).length;
+  return { pct: Math.round((filled / checks.length) * 100), filled, total: checks.length };
+}
+
+const statusOf = (w) => w.employment_status || (w.is_active ? 'active' : 'inactive');
+const statusStyle = (w) => {
+  const st = statusOf(w);
+  if (st === 'active') return { bg: 'rgba(22,101,52,0.9)' };
+  if (st === 'absconded') return { bg: 'rgba(153,27,27,0.9)' };
+  if (st === 'offboarded') return { bg: 'rgba(67,56,202,0.9)' };
+  return { bg: 'rgba(55,65,81,0.9)' };
+};
 
 function MiniFormPreview({ worker }) {
   const w = worker;
@@ -172,15 +208,6 @@ function MiniFormPreview({ worker }) {
   );
 }
 
-function Field({ label, value }) {
-  return (
-    <label className="field" style={{ marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}>{label}</span>
-      <span style={{ fontSize: 14, color: 'var(--ink)' }}>{value || '—'}</span>
-    </label>
-  );
-}
-
 const inputStyle = {
   padding: '8px 12px',
   border: '1px solid var(--line)',
@@ -194,9 +221,9 @@ const inputStyle = {
   boxSizing: 'border-box',
 };
 
-function EditableField({ label, value, onChange, type = 'text', options, textarea, placeholder }) {
+function EditableField({ label, value, onChange, type = 'text', options, textarea, placeholder, wide }) {
   return (
-    <label className="field" style={{ marginBottom: 8 }}>
+    <label className={'field' + (wide ? ' wide' : '')}>
       <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500 }}>{label}</span>
       {options ? (
         <select style={inputStyle} value={value || ''} onChange={(e) => onChange(e.target.value)}>
@@ -226,15 +253,26 @@ function EditableField({ label, value, onChange, type = 'text', options, textare
   );
 }
 
-function EditField({ editing, label, value, onChange, ...props }) {
-  if (!editing) return <Field label={label} value={value} />;
-  return <EditableField label={label} value={value} onChange={onChange} {...props} />;
-}
+const IconUser = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>);
+const IconEdu = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/></svg>);
+const IconOrg = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>);
+const IconFam = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>);
+const IconBank = () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="21" x2="21" y2="21"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="5 6 12 3 19 6"/><line x1="4" y1="10" x2="4" y2="21"/><line x1="20" y1="10" x2="20" y2="21"/><line x1="8" y1="14" x2="8" y2="17"/><line x1="12" y1="14" x2="12" y2="17"/><line x1="16" y1="14" x2="16" y2="17"/></svg>);
+const IconPhone = () => (<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>);
+
+const SECTIONS = [
+  { id: 'personal', label: 'Personal', icon: <IconUser /> },
+  { id: 'education', label: 'Education', icon: <IconEdu /> },
+  { id: 'organizations', label: 'Organizations', icon: <IconOrg /> },
+  { id: 'family', label: 'Family', icon: <IconFam /> },
+  { id: 'bank', label: 'Bank', icon: <IconBank /> },
+];
 
 export default function HRForms() {
   const { fetchWorkers, fetchWorkerById, updateWorker } = useHR();
   const [workers, setWorkers] = useState([]);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -243,21 +281,35 @@ export default function HRForms() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  const [activeSection, setActiveSection] = useState('personal');
+  const contentRef = useRef(null);
+  const sectionRefs = useRef({});
 
   useEffect(() => {
     fetchWorkers().then(setWorkers).catch((err) => console.error('API error:', err.message)).finally(() => setLoading(false));
   }, []);
 
-  const filtered = workers.filter((w) =>
-    w.name?.toLowerCase().includes(search.toLowerCase()) ||
-    w.email?.toLowerCase().includes(search.toLowerCase()) ||
-    w.department?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = workers.filter((w) => {
+    const q = search.toLowerCase();
+    const matchQ = !q ||
+      (w.name || '').toLowerCase().includes(q) ||
+      (w.email || '').toLowerCase().includes(q) ||
+      (w.department || '').toLowerCase().includes(q);
+    if (!matchQ) return false;
+    if (statusFilter === 'incomplete') return formCompletion(w).pct < 100;
+    if (statusFilter) return statusOf(w) === statusFilter;
+    return true;
+  });
+
+  const totalCount = workers.length;
+  const activeCount = workers.filter((w) => statusOf(w) === 'active').length;
+  const incompleteCount = workers.filter((w) => formCompletion(w).pct < 100).length;
 
   const handleCardClick = async (worker) => {
     setSelectedWorker(worker);
     setLoadingPreview(true);
     setSaveMsg('');
+    setActiveSection('personal');
     try {
       const data = await fetchWorkerById(worker.id);
       setPreviewData(data);
@@ -322,14 +374,102 @@ export default function HRForms() {
     }
   };
 
+  const scrollToSection = (id) => {
+    const el = contentRef.current;
+    const node = sectionRefs.current[id];
+    if (el && node) {
+      const diff = node.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      el.scrollTo({ top: el.scrollTop + diff - 64, behavior: 'smooth' });
+    }
+    setActiveSection(id);
+  };
+
+  const onContentScroll = () => {
+    const el = contentRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    let current = SECTIONS[0].id;
+    for (const s of SECTIONS) {
+      const node = sectionRefs.current[s.id];
+      if (node && node.getBoundingClientRect().top - top <= 80) current = s.id;
+    }
+    setActiveSection(current);
+  };
+
   const d = previewData;
   const f = form || d;
-  const isEditing = true;
   const GENDERS = ['Male', 'Female', 'Other'];
   const MARITAL = ['Single', 'Married', 'Divorced', 'Widowed'];
 
   return (
     <>
+      <style>{`
+        .panel-hr .hrf-stats { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
+        .panel-hr .hrf-stat { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm); padding:14px 18px; flex:1; min-width:150px; box-shadow:var(--shadow); display:flex; align-items:center; gap:12px; }
+        .panel-hr .hrf-stat-num { font-size:26px; font-weight:700; line-height:1; color:var(--ink); }
+        .panel-hr .hrf-stat-lbl { font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.05em; margin-top:3px; }
+        .panel-hr .hrf-stat-dot { width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .panel-hr .hrf-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:22px; }
+        .panel-hr .hrf-search { position:relative; flex:1; min-width:220px; }
+        .panel-hr .hrf-search svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--ink-soft); pointer-events:none; }
+        .panel-hr .hrf-search input { width:100%; padding:10px 14px 10px 36px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:14px; font-family:inherit; outline:none; background:var(--paper); color:var(--ink); box-sizing:border-box; }
+        .panel-hr .hrf-search input:focus { border-color:var(--sage); }
+        .panel-hr .hrf-status-select { padding:10px 14px; border:1px solid var(--line); border-radius:var(--radius-sm); font-size:13px; font-family:inherit; background:var(--paper); color:var(--ink); outline:none; cursor:pointer; }
+        .panel-hr .hrf-grid-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:22px; }
+        .panel-hr .hrf-card { border-radius:16px; overflow:hidden; background:var(--paper); border:1px solid var(--line); box-shadow:var(--shadow); cursor:pointer; transition:transform .2s ease, box-shadow .2s ease; display:flex; flex-direction:column; }
+        .panel-hr .hrf-card:hover { transform:translateY(-4px); box-shadow:0 14px 40px rgba(0,0,0,.14); }
+        .panel-hr .hrf-doc { position:relative; height:186px; background:linear-gradient(180deg,#e8ecf1,#dde2e9); overflow:hidden; flex-shrink:0; }
+        .panel-hr .hrf-doc-label { position:absolute; top:10px; left:10px; z-index:2; font-size:10px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--ink-soft); background:rgba(255,255,255,.88); padding:3px 9px; border-radius:6px; display:inline-flex; align-items:center; gap:6px; }
+        .panel-hr .hrf-doc-paper { position:absolute; top:16px; left:50%; width:297px; height:421px; margin-left:-148px; background:#fff; box-shadow:0 8px 22px rgba(0,0,0,.22); overflow:hidden; border-radius:2px; }
+        .panel-hr .hrf-doc-paper > div { transform:scale(.5); transform-origin:top left; }
+        .panel-hr .hrf-status-pill { position:absolute; top:10px; right:10px; z-index:2; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; text-transform:capitalize; color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.18); }
+        .panel-hr .hrf-body { padding:16px 18px 18px; display:flex; flex-direction:column; gap:12px; flex:1; }
+        .panel-hr .hrf-id { display:flex; align-items:center; gap:12px; }
+        .panel-hr .hrf-avatar { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:17px; flex-shrink:0; overflow:hidden; }
+        .panel-hr .hrf-avatar img { width:100%; height:100%; object-fit:cover; }
+        .panel-hr .hrf-id-name { font-weight:700; font-size:15px; color:var(--ink); line-height:1.25; }
+        .panel-hr .hrf-id-dept { font-size:12px; color:var(--ink-soft); }
+        .panel-hr .hrf-progress-label { display:flex; justify-content:space-between; font-size:11px; color:var(--ink-soft); font-weight:600; margin-bottom:5px; }
+        .panel-hr .hrf-progress-track { height:6px; border-radius:99px; background:var(--line); overflow:hidden; }
+        .panel-hr .hrf-progress-fill { height:100%; border-radius:99px; transition:width .3s ease; background:var(--sage); }
+        .panel-hr .hrf-chips { display:flex; flex-wrap:wrap; gap:6px; }
+        .panel-hr .hrf-chip { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 9px; border-radius:99px; background:var(--sage-soft); color:var(--ink); max-width:100%; }
+        .panel-hr .hrf-chip span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .panel-hr .hrf-open { margin-top:auto; justify-content:center; }
+        .panel-hr .hrf-detail { display:flex; flex-direction:column; }
+        .panel-hr .hrf-detail-top { display:flex; align-items:center; gap:14px; padding:14px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+        .panel-hr .hrf-detail-id { display:flex; align-items:center; gap:12px; min-width:0; flex:1; }
+        .panel-hr .hrf-detail-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .panel-hr .hrf-detail-nav { display:flex; gap:4px; padding:10px 20px; border-bottom:1px solid var(--line); overflow-x:auto; background:var(--paper); scrollbar-width:none; }
+        .panel-hr .hrf-detail-nav::-webkit-scrollbar { display:none; }
+        .panel-hr .hrf-nav-item { display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:8px; border:none; background:transparent; color:var(--ink-soft); font-size:13px; font-weight:600; font-family:inherit; cursor:pointer; white-space:nowrap; transition:all .15s; }
+        .panel-hr .hrf-nav-item:hover { background:var(--sage-soft); color:var(--ink); }
+        .panel-hr .hrf-nav-item.active { background:var(--sage); color:#fff; }
+        .panel-hr .hrf-detail-body { max-height:calc(100vh - 330px); overflow-y:auto; padding:24px 26px 30px; }
+        .panel-hr .hrf-section { margin-bottom:32px; }
+        .panel-hr .hrf-section-title { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+        .panel-hr .hrf-section-title h3 { margin:0; font-size:15px; }
+        .panel-hr .hrf-section-icon { display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:9px; background:var(--sage-soft); color:var(--sage); flex-shrink:0; }
+        .panel-hr .hrf-section-count { margin-left:auto; font-size:11px; font-weight:700; color:var(--ink-soft); background:var(--line); padding:2px 10px; border-radius:99px; }
+        .panel-hr .hrf-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px 14px; }
+        .panel-hr .hrf-grid .field.wide { grid-column:1 / -1; }
+        .panel-hr .hrf-entry { border:1px solid var(--line); border-radius:var(--radius-sm); padding:16px; margin-bottom:12px; background:var(--paper); }
+        .panel-hr .hrf-entry-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+        .panel-hr .hrf-entry-title { font-weight:600; font-size:13px; color:var(--ink); display:flex; align-items:center; gap:8px; }
+        .panel-hr .hrf-add { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--sage); background:var(--sage-soft); border:none; padding:5px 11px; border-radius:7px; cursor:pointer; font-family:inherit; }
+        .panel-hr .hrf-add:hover { filter:brightness(.97); }
+        .panel-hr .hrf-empty { border:1px dashed var(--line); border-radius:var(--radius-sm); padding:20px; text-align:center; color:var(--ink-soft); font-size:13px; background:var(--paper); }
+        .panel-hr .hrf-print-btn { background:#dc2626; color:#fff; border-color:#dc2626; }
+        .panel-hr .hrf-print-btn:hover { background:#b91c1c; color:#fff; }
+        @media (max-width:640px) {
+          .panel-hr .hrf-grid-cards { grid-template-columns:1fr; }
+          .panel-hr .hrf-detail-top { padding:12px 14px; }
+          .panel-hr .hrf-detail-actions { width:100%; }
+          .panel-hr .hrf-detail-body { padding:16px; max-height:none; overflow:visible; }
+          .panel-hr .hrf-stat { min-width:calc(50% - 5px); }
+        }
+      `}</style>
+
       {/* ── BOX GRID VIEW ── */}
       {!selectedWorker && (
         <div className="card">
@@ -338,125 +478,109 @@ export default function HRForms() {
             <span className="sub">Volunteer onboarding forms</span>
           </div>
           <div className="card-pad">
-            <div style={{ marginBottom: 20 }}>
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name, email, or department..."
-                style={{
-                  padding: '8px 14px',
-                  border: '1px solid var(--line)',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: 14,
-                  fontFamily: 'inherit',
-                  outline: 'none',
-                  background: 'var(--paper)',
-                  color: 'var(--ink)',
-                  width: '100%',
-                  boxSizing: 'border-box',
-                }}
-              />
+            <div className="hrf-stats">
+              <div className="hrf-stat">
+                <span className="hrf-stat-dot" style={{ background: 'var(--sage-soft)', color: 'var(--sage)' }}><IconUser /></span>
+                <div>
+                  <div className="hrf-stat-num">{totalCount}</div>
+                  <div className="hrf-stat-lbl">Total Employees</div>
+                </div>
+              </div>
+              <div className="hrf-stat">
+                <span className="hrf-stat-dot" style={{ background: 'rgba(22,101,52,0.12)', color: '#166534' }}><IconFam /></span>
+                <div>
+                  <div className="hrf-stat-num">{activeCount}</div>
+                  <div className="hrf-stat-lbl">Active</div>
+                </div>
+              </div>
+              <div className="hrf-stat">
+                <span className="hrf-stat-dot" style={{ background: 'rgba(180,83,9,0.12)', color: '#b45309' }}><IconEdu /></span>
+                <div>
+                  <div className="hrf-stat-num">{incompleteCount}</div>
+                  <div className="hrf-stat-lbl">Incomplete Forms</div>
+                </div>
+              </div>
             </div>
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                gap: 24,
-              }}
-            >
+            <div className="hrf-toolbar">
+              <div className="hrf-search">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by name, email, or department..."
+                />
+              </div>
+              <select className="hrf-status-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="">All statuses</option>
+                <option value="active">Active</option>
+                <option value="absconded">Absconded</option>
+                <option value="offboarded">Offboarded</option>
+                <option value="incomplete">Incomplete forms</option>
+              </select>
+            </div>
+
+            <div className="hrf-grid-cards">
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} aria-hidden="true" style={{ borderRadius: 16, overflow: 'hidden', background: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.08)' }}>
-                    <div className="sk" style={{ height: 280, borderRadius: 0 }} />
-                    <div style={{ padding: 20 }}>
+                  <div key={i} aria-hidden="true" className="hrf-card">
+                    <div className="sk" style={{ height: 186, borderRadius: 0 }} />
+                    <div style={{ padding: 18 }}>
                       <div className="sk" style={{ width: '60%', height: 20, marginBottom: 8, borderRadius: 4 }} />
                       <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4 }} />
                     </div>
                   </div>
                 ))
               ) : (
-              filtered.map((w) => {
-                const name = w.name || 'Unknown';
-                const color = avatarColorLocal(name);
-                const age = w.dob ? Math.floor((Date.now() - new Date(w.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : null;
-                return (
-                  <div
-                    key={w.id}
-                    onClick={() => handleCardClick(w)}
-                    style={{
-                      borderRadius: 16,
-                      overflow: 'hidden',
-                      background: '#fff',
-                      boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
-                      cursor: 'pointer',
-                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-4px)';
-                      e.currentTarget.style.boxShadow = '0 14px 40px rgba(0,0,0,0.14)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.08)';
-                    }}
-                  >
-                    {/* Form preview section */}
-                    <div style={{ position: 'relative', height: 280, overflow: 'hidden' }}>
-                      <div style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        transform: 'scale(0.42)',
-                        transformOrigin: 'top left',
-                        pointerEvents: 'none',
-                      }}>
-                        <MiniFormPreview worker={w} />
+                filtered.map((w) => {
+                  const name = w.name || 'Unknown';
+                  const color = avatarColorLocal(name);
+                  const comp = formCompletion(w);
+                  const joinDate = w.created_at ? new Date(w.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '';
+                  return (
+                    <div key={w.id} className="hrf-card" onClick={() => handleCardClick(w)}>
+                      <div className="hrf-doc">
+                        <span className="hrf-doc-label">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                          Application Form
+                        </span>
+                        <div className="hrf-doc-paper">
+                          <MiniFormPreview worker={w} />
+                        </div>
+                        <span className="hrf-status-pill" style={statusStyle(w)}>{statusOf(w)}</span>
                       </div>
-                      {/* Dark overlay */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          background: 'rgba(0,0,0,0.38)',
-                          backdropFilter: 'blur(0.5px)',
-                        }}
-                      />
-                      {/* Status badge */}
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: 12,
-                          right: 12,
-                          padding: '3px 10px',
-                          borderRadius: 10,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          textTransform: 'capitalize',
-                          background: w.employment_status === 'active' || w.is_active ? 'rgba(22,101,52,0.85)' : w.employment_status === 'absconded' ? 'rgba(153,27,27,0.85)' : 'rgba(55,65,81,0.85)',
-                          color: '#fff',
-                          backdropFilter: 'blur(4px)',
-                        }}
-                      >
-                        {w.employment_status || (w.is_active ? 'Active' : 'Inactive')}
-                      </span>
-                    </div>
-
-                    {/* Bottom info section */}
-                    <div style={{ padding: 20, borderTop: '1px solid #E5E7EB' }}>
-                      <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', lineHeight: 1.2, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {name}
-                      </div>
-                      <div style={{ fontSize: 16, fontWeight: 500, color: '#6B7280' }}>
-                        {age !== null ? `Age: ${age}` : w.department || ''}
+                      <div className="hrf-body">
+                        <div className="hrf-id">
+                          <span className="hrf-avatar" style={{ background: tint(color), color }}>
+                            {w.photo_url ? <img src={w.photo_url} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : initialsFn(name)}
+                          </span>
+                          <div style={{ minWidth: 0 }}>
+                            <div className="hrf-id-name">{name}</div>
+                            <div className="hrf-id-dept">{w.department || 'Team Member'}</div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="hrf-progress-label">
+                            <span>Form completeness</span>
+                            <span>{comp.pct}%</span>
+                          </div>
+                          <div className="hrf-progress-track">
+                            <div className="hrf-progress-fill" style={{ width: comp.pct + '%', background: comp.pct === 100 ? '#166534' : comp.pct >= 60 ? 'var(--sage)' : '#c08a2e' }} />
+                          </div>
+                        </div>
+                        <div className="hrf-chips">
+                          {w.phone && <span className="hrf-chip"><IconPhone /><span>{w.phone}</span></span>}
+                          {w.email && <span className="hrf-chip"><Mail size={11} /><span>{w.email}</span></span>}
+                          {joinDate && <span className="hrf-chip"><span>Joined {joinDate}</span></span>}
+                        </div>
+                        <button className="btn btn-primary hrf-open" onClick={(e) => { e.stopPropagation(); handleCardClick(w); }}>
+                          <Pencil size={14} /> Open Form
+                        </button>
                       </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })
               )}
               {!loading && filtered.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 0', color: 'var(--ink-soft)' }}>
@@ -468,200 +592,186 @@ export default function HRForms() {
         </div>
       )}
 
-      {/* ── FORM PREVIEW VIEW ── */}
+      {/* ── FORM DETAIL VIEW ── */}
       {selectedWorker && (
-        <div className="card">
-          <div className="card-head" style={{ justifyContent: 'flex-start', gap: 12 }}>
-            <button className="btn" onClick={handleBack} style={{ fontSize: 13 }}>
-              ← Back
+        <div className="card hrf-detail">
+          <div className="hrf-detail-top">
+            <button className="btn btn-icon" onClick={handleBack} aria-label="Back">
+              <ArrowLeft size={18} />
             </button>
-            <h3 style={{ margin: 0 }}>Volunteer Form Preview</h3>
-            <button className="btn" onClick={save} disabled={saving} style={{ fontSize: 13, marginLeft: 'auto', background: 'var(--sage)', color: '#fff' }}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-            <button className="btn" onClick={cancelEdit} disabled={saving} style={{ fontSize: 13 }}>
-              Cancel
-            </button>
-            <button
-              className="btn"
-              onClick={() => setShowPrint(true)}
-              style={{ fontSize: 13, background: '#dc2626', color: '#fff' }}
-            >
-              Print All Forms
-            </button>
+            <div className="hrf-detail-id">
+              {d?.photo_url ? (
+                <img src={d.photo_url} alt="" style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }} />
+              ) : (
+                <span className="hrf-avatar" style={{ background: tint(avatarColorLocal((f?.name || '').trim() || '?')), color: avatarColorLocal((f?.name || '').trim() || '?') }}>
+                  {initialsFn(f?.name || '')}
+                </span>
+              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>{f?.name || '—'}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{f?.department || '—'}</div>
+              </div>
+            </div>
+            <div className="hrf-detail-actions">
+              <button className="btn" onClick={cancelEdit} disabled={saving}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button className="btn hrf-print-btn" onClick={() => setShowPrint(true)}>Print All Forms</button>
+            </div>
           </div>
-          <div className="card-pad" style={{ maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' }}>
+
+          <div className="hrf-detail-nav">
+            {SECTIONS.map((s) => (
+              <button key={s.id} className={'hrf-nav-item' + (activeSection === s.id ? ' active' : '')} onClick={() => scrollToSection(s.id)}>
+                {s.icon}<span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="hrf-detail-body" ref={contentRef} onScroll={onContentScroll}>
             {saveMsg && (
-              <div style={{ padding: '10px 14px', marginBottom: 16, borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 600, background: saveMsg.startsWith('Error') ? 'rgba(220,38,38,0.1)' : 'rgba(22,163,74,0.12)', color: saveMsg.startsWith('Error') ? '#b91c1c' : '#166534' }}>
+              <div style={{ padding: '10px 14px', marginBottom: 18, borderRadius: 'var(--radius-sm)', fontSize: 13, fontWeight: 600, background: saveMsg.startsWith('Error') ? 'rgba(220,38,38,0.1)' : 'rgba(22,163,74,0.12)', color: saveMsg.startsWith('Error') ? '#b91c1c' : '#166534' }}>
                 {saveMsg}
               </div>
             )}
             {loadingPreview ? (
               <div style={{ textAlign: 'center', padding: 48, color: 'var(--ink-soft)' }}>Loading...</div>
-            ) : d ? (
+            ) : d && f ? (
               <>
-                {/* Header with photo */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-                  {d.photo_url ? (
-                    <img
-                      src={d.photo_url}
-                      alt=""
-                      style={{ width: 72, height: 72, borderRadius: 14, objectFit: 'cover', flexShrink: 0 }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: 72,
-                        height: 72,
-                        borderRadius: 14,
-                        background: tint(avatarColorLocal(d.name || '')),
-                        color: avatarColorLocal(d.name || ''),
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontSize: 24,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {initialsFn(d.name || '')}
-                    </div>
-                  )}
-                  <div>
-                    <h3 style={{ margin: 0 }}>{f.name}</h3>
-                    <div style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{f.department || '—'}</div>
-                  </div>
-                </div>
-
                 {/* Personal Details */}
-                <h3 style={{ marginTop: 0, marginBottom: 16 }}>Personal Details</h3>
-                <div className="form-row">
-                  <EditField editing={isEditing} label="Full Name" value={f.name} onChange={setField('name')} />
-                  <EditField editing={isEditing} label="Email" value={f.email} onChange={setField('email')} />
-                </div>
-                <div className="form-row">
-                  <EditField editing={isEditing} label="Phone" value={f.phone} onChange={setField('phone')} />
-                  <EditField editing={isEditing} label="Alt. Phone" value={f.alternate_phone} onChange={setField('alternate_phone')} />
-                </div>
-                <EditField editing={isEditing} label="Father / Husband Name" value={f.father_husband_name} onChange={setField('father_husband_name')} />
-                <div className="form-row">
-                  <EditField editing={isEditing} label="Gender" value={f.gender} onChange={setField('gender')} options={GENDERS} />
-                    <EditField editing={isEditing} label="Date of Birth" type="date" value={f.dob ? f.dob.slice(0, 10) : ''} onChange={setField('dob')} />
-                </div>
-                <EditField editing={isEditing} label="Marital Status" value={f.marital_status} onChange={setField('marital_status')} options={MARITAL} />
-                <EditField editing={isEditing} label="Address" value={f.address} onChange={setField('address')} textarea={2} />
-                <div className="form-row">
-                  <EditField editing={isEditing} label="City" value={f.city} onChange={setField('city')} />
-                  <EditField editing={isEditing} label="State" value={f.state} onChange={setField('state')} />
-                </div>
-                <EditField editing={isEditing} label="Pincode" value={f.pincode} onChange={setField('pincode')} />
-                <div className="form-row">
-                  <EditField editing={isEditing} label="PAN Number" value={f.pan_number} onChange={setField('pan_number')} />
-                  <EditField editing={isEditing} label="Aadhaar Number" value={f.aadhar_number} onChange={setField('aadhar_number')} />
-                </div>
-                <EditField editing={isEditing} label="Permanent Address" value={f.permanent_address} onChange={setField('permanent_address')} textarea={2} />
-
-                {d.correspondence && (
-                  <>
-                    <h3 style={{ marginTop: 24, marginBottom: 16 }}>Correspondence Address</h3>
-                    <EditField editing={isEditing} label="Address" value={f.correspondence?.address} onChange={setCorrField('address')} textarea={2} />
-                    <div className="form-row">
-                      <EditField editing={isEditing} label="City" value={f.correspondence?.city} onChange={setCorrField('city')} />
-                      <EditField editing={isEditing} label="State" value={f.correspondence?.state} onChange={setCorrField('state')} />
-                    </div>
-                    <EditField editing={isEditing} label="Pincode" value={f.correspondence?.pincode} onChange={setCorrField('pincode')} />
-                  </>
-                )}
+                <section className="hrf-section" id="hrf-personal" ref={(el) => (sectionRefs.current['personal'] = el)}>
+                  <div className="hrf-section-title">
+                    <span className="hrf-section-icon"><IconUser /></span>
+                    <h3>Personal Details</h3>
+                  </div>
+                  <div className="hrf-grid">
+                    <EditableField label="Full Name" value={f.name} onChange={setField('name')} />
+                    <EditableField label="Email" value={f.email} onChange={setField('email')} />
+                    <EditableField label="Phone" value={f.phone} onChange={setField('phone')} />
+                    <EditableField label="Alt. Phone" value={f.alternate_phone} onChange={setField('alternate_phone')} />
+                    <EditableField label="Father / Husband Name" value={f.father_husband_name} onChange={setField('father_husband_name')} />
+                    <EditableField label="Gender" value={f.gender} onChange={setField('gender')} options={GENDERS} />
+                    <EditableField label="Date of Birth" type="date" value={f.dob ? f.dob.slice(0, 10) : ''} onChange={setField('dob')} />
+                    <EditableField label="Marital Status" value={f.marital_status} onChange={setField('marital_status')} options={MARITAL} />
+                    <EditableField label="PAN Number" value={f.pan_number} onChange={setField('pan_number')} />
+                    <EditableField label="Aadhaar Number" value={f.aadhar_number} onChange={setField('aadhar_number')} />
+                    <EditableField label="Address" value={f.address} onChange={setField('address')} textarea={2} wide />
+                    <EditableField label="City" value={f.city} onChange={setField('city')} />
+                    <EditableField label="State" value={f.state} onChange={setField('state')} />
+                    <EditableField label="Pincode" value={f.pincode} onChange={setField('pincode')} />
+                    <EditableField label="Permanent Address" value={f.permanent_address} onChange={setField('permanent_address')} textarea={2} wide />
+                  </div>
+                  {d.correspondence && (
+                    <>
+                      <div className="hrf-section-title" style={{ marginTop: 20 }}>
+                        <span className="hrf-section-icon" style={{ background: 'var(--clay-soft)', color: 'var(--clay)' }}><IconOrg /></span>
+                        <h3>Correspondence Address</h3>
+                      </div>
+                      <div className="hrf-grid">
+                        <EditableField label="Address" value={f.correspondence?.address} onChange={setCorrField('address')} textarea={2} wide />
+                        <EditableField label="City" value={f.correspondence?.city} onChange={setCorrField('city')} />
+                        <EditableField label="State" value={f.correspondence?.state} onChange={setCorrField('state')} />
+                        <EditableField label="Pincode" value={f.correspondence?.pincode} onChange={setCorrField('pincode')} />
+                      </div>
+                    </>
+                  )}
+                </section>
 
                 {/* Education */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>
-                  Education
-                  {(!f.education || f.education.length === 0) && (
-                    <button className="btn" onClick={addArrayItem('education')} style={{ fontSize: 12, marginLeft: 12 }}>+ Add Education</button>
-                  )}
-                </h3>
-                {!f.education || f.education.length === 0 ? (
-                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No education entries</p>
-                ) : f.education.map((e, i) => (
-                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <strong>Entry {i + 1}</strong>
-                      {isEditing && (
-                        <button className="btn" onClick={() => removeArrayItem('education')(i)} style={{ fontSize: 12, color: '#dc2626', background: 'transparent', border: '1px solid #dc2626' }}>Remove</button>
-                      )}
-                    </div>
-                    <div className="form-row" style={{ marginTop: 8 }}>
-                      <EditField editing={isEditing} label="Degree" value={e.degree} onChange={(v) => setArrayItem('education')(i, 'degree', v)} />
-                      <EditField editing={isEditing} label="Institution" value={e.institution} onChange={(v) => setArrayItem('education')(i, 'institution', v)} />
-                    </div>
-                    <div className="form-row">
-                      <EditField editing={isEditing} label="University" value={e.university} onChange={(v) => setArrayItem('education')(i, 'university', v)} />
-                      <EditField editing={isEditing} label="Year" value={e.year_of_passing || e.year || ''} onChange={(v) => setArrayItem('education')(i, 'year_of_passing', v)} />
-                    </div>
-                    <div className="form-row">
-                      <EditField editing={isEditing} label="From Year" value={e.from_year} onChange={(v) => setArrayItem('education')(i, 'from_year', v)} />
-                      <EditField editing={isEditing} label="To Year" value={e.to_year} onChange={(v) => setArrayItem('education')(i, 'to_year', v)} />
-                    </div>
-                    <EditField editing={isEditing} label="Percentage / Grade" value={e.percentage} onChange={(v) => setArrayItem('education')(i, 'percentage', v)} />
+                <section className="hrf-section" id="hrf-education" ref={(el) => (sectionRefs.current['education'] = el)}>
+                  <div className="hrf-section-title">
+                    <span className="hrf-section-icon"><IconEdu /></span>
+                    <h3>Education</h3>
+                    <span className="hrf-section-count">{f.education?.length || 0}</span>
+                    <button className="hrf-add" onClick={addArrayItem('education')}><Plus size={13} /> Add</button>
                   </div>
-                ))}
+                  {!f.education || f.education.length === 0 ? (
+                    <div className="hrf-empty">No education entries yet. Click “Add” to include qualification details.</div>
+                  ) : f.education.map((e, i) => (
+                    <div key={i} className="hrf-entry">
+                      <div className="hrf-entry-head">
+                        <span className="hrf-entry-title"><IconEdu /> Entry {i + 1}</span>
+                        <button className="btn btn-icon" onClick={() => removeArrayItem('education')(i)} aria-label="Remove entry" style={{ color: '#dc2626' }}><Trash size={15} /></button>
+                      </div>
+                      <div className="hrf-grid">
+                        <EditableField label="Degree" value={e.degree} onChange={(v) => setArrayItem('education')(i, 'degree', v)} />
+                        <EditableField label="Institution" value={e.institution} onChange={(v) => setArrayItem('education')(i, 'institution', v)} />
+                        <EditableField label="University" value={e.university} onChange={(v) => setArrayItem('education')(i, 'university', v)} />
+                        <EditableField label="Year of Passing" value={e.year_of_passing || e.year || ''} onChange={(v) => setArrayItem('education')(i, 'year_of_passing', v)} />
+                        <EditableField label="From Year" value={e.from_year} onChange={(v) => setArrayItem('education')(i, 'from_year', v)} />
+                        <EditableField label="To Year" value={e.to_year} onChange={(v) => setArrayItem('education')(i, 'to_year', v)} />
+                        <EditableField label="Percentage / Grade" value={e.percentage} onChange={(v) => setArrayItem('education')(i, 'percentage', v)} wide />
+                      </div>
+                    </div>
+                  ))}
+                </section>
 
                 {/* Previous Organizations */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Previous Organizations</h3>
-                {!f.previous_organizations || f.previous_organizations.length === 0 ? (
-                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No previous organizations</p>
-                ) : f.previous_organizations.map((o, i) => (
-                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <strong>Organization {i + 1}</strong>
-                      {isEditing && (
-                        <button className="btn" onClick={() => removeArrayItem('previous_organizations')(i)} style={{ fontSize: 12, color: '#dc2626', background: 'transparent', border: '1px solid #dc2626' }}>Remove</button>
-                      )}
-                    </div>
-                    <div className="form-row" style={{ marginTop: 8 }}>
-                      <EditField editing={isEditing} label="Organization Name" value={o.organization_name || o.name} onChange={(v) => setArrayItem('previous_organizations')(i, 'organization_name', v)} />
-                      <EditField editing={isEditing} label="Role / Designation" value={o.role || o.designation} onChange={(v) => setArrayItem('previous_organizations')(i, 'role', v)} />
-                    </div>
-                    <div className="form-row">
-                      <EditField editing={isEditing} label="From Year" value={o.from_year} onChange={(v) => setArrayItem('previous_organizations')(i, 'from_year', v)} />
-                      <EditField editing={isEditing} label="To Year" value={o.to_year} onChange={(v) => setArrayItem('previous_organizations')(i, 'to_year', v)} />
-                    </div>
+                <section className="hrf-section" id="hrf-organizations" ref={(el) => (sectionRefs.current['organizations'] = el)}>
+                  <div className="hrf-section-title">
+                    <span className="hrf-section-icon"><IconOrg /></span>
+                    <h3>Previous Organizations</h3>
+                    <span className="hrf-section-count">{f.previous_organizations?.length || 0}</span>
+                    <button className="hrf-add" onClick={addArrayItem('previous_organizations')}><Plus size={13} /> Add</button>
                   </div>
-                ))}
+                  {!f.previous_organizations || f.previous_organizations.length === 0 ? (
+                    <div className="hrf-empty">No previous organizations recorded.</div>
+                  ) : f.previous_organizations.map((o, i) => (
+                    <div key={i} className="hrf-entry">
+                      <div className="hrf-entry-head">
+                        <span className="hrf-entry-title"><IconOrg /> Organization {i + 1}</span>
+                        <button className="btn btn-icon" onClick={() => removeArrayItem('previous_organizations')(i)} aria-label="Remove entry" style={{ color: '#dc2626' }}><Trash size={15} /></button>
+                      </div>
+                      <div className="hrf-grid">
+                        <EditableField label="Organization Name" value={o.organization_name || o.name} onChange={(v) => setArrayItem('previous_organizations')(i, 'organization_name', v)} />
+                        <EditableField label="Role / Designation" value={o.role || o.designation} onChange={(v) => setArrayItem('previous_organizations')(i, 'role', v)} />
+                        <EditableField label="From Year" value={o.from_year} onChange={(v) => setArrayItem('previous_organizations')(i, 'from_year', v)} />
+                        <EditableField label="To Year" value={o.to_year} onChange={(v) => setArrayItem('previous_organizations')(i, 'to_year', v)} />
+                      </div>
+                    </div>
+                  ))}
+                </section>
 
                 {/* Family */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Family</h3>
-                {!f.family || f.family.length === 0 ? (
-                  <p style={{ color: 'var(--ink-soft)', fontSize: 13 }}>No family members</p>
-                ) : f.family.map((fm, i) => (
-                  <div key={i} style={{ padding: 16, marginBottom: 12, border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <strong>Member {i + 1}</strong>
-                      {isEditing && (
-                        <button className="btn" onClick={() => removeArrayItem('family')(i)} style={{ fontSize: 12, color: '#dc2626', background: 'transparent', border: '1px solid #dc2626' }}>Remove</button>
-                      )}
-                    </div>
-                    <div className="form-row" style={{ marginTop: 8 }}>
-                      <EditField editing={isEditing} label="Name" value={fm.name} onChange={(v) => setArrayItem('family')(i, 'name', v)} />
-                      <EditField editing={isEditing} label="Relationship" value={fm.relationship} onChange={(v) => setArrayItem('family')(i, 'relationship', v)} />
-                    </div>
-                    <div className="form-row">
-                      <EditField editing={isEditing} label="Occupation" value={fm.occupation} onChange={(v) => setArrayItem('family')(i, 'occupation', v)} />
-                      <EditField editing={isEditing} label="Phone" value={fm.phone} onChange={(v) => setArrayItem('family')(i, 'phone', v)} />
-                    </div>
+                <section className="hrf-section" id="hrf-family" ref={(el) => (sectionRefs.current['family'] = el)}>
+                  <div className="hrf-section-title">
+                    <span className="hrf-section-icon"><IconFam /></span>
+                    <h3>Family</h3>
+                    <span className="hrf-section-count">{f.family?.length || 0}</span>
+                    <button className="hrf-add" onClick={addArrayItem('family')}><Plus size={13} /> Add</button>
                   </div>
-                ))}
+                  {!f.family || f.family.length === 0 ? (
+                    <div className="hrf-empty">No family members recorded.</div>
+                  ) : f.family.map((fm, i) => (
+                    <div key={i} className="hrf-entry">
+                      <div className="hrf-entry-head">
+                        <span className="hrf-entry-title"><IconFam /> Member {i + 1}</span>
+                        <button className="btn btn-icon" onClick={() => removeArrayItem('family')(i)} aria-label="Remove entry" style={{ color: '#dc2626' }}><Trash size={15} /></button>
+                      </div>
+                      <div className="hrf-grid">
+                        <EditableField label="Name" value={fm.name} onChange={(v) => setArrayItem('family')(i, 'name', v)} />
+                        <EditableField label="Relationship" value={fm.relationship} onChange={(v) => setArrayItem('family')(i, 'relationship', v)} />
+                        <EditableField label="Occupation" value={fm.occupation} onChange={(v) => setArrayItem('family')(i, 'occupation', v)} />
+                        <EditableField label="Phone" value={fm.phone} onChange={(v) => setArrayItem('family')(i, 'phone', v)} />
+                      </div>
+                    </div>
+                  ))}
+                </section>
 
                 {/* Bank Details */}
-                <h3 style={{ marginTop: 24, marginBottom: 16 }}>Bank Details</h3>
-                <div className="form-row">
-                  <EditField editing={isEditing} label="Bank Name" value={f.bank_name} onChange={setField('bank_name')} />
-                  <EditField editing={isEditing} label="Account Holder" value={f.account_holder_name} onChange={setField('account_holder_name')} />
-                </div>
-                <div className="form-row">
-                  <EditField editing={isEditing} label="IFSC Code" value={f.ifsc_code} onChange={setField('ifsc_code')} />
-                  <EditField editing={isEditing} label="Account Number" value={f.account_number} onChange={setField('account_number')} />
-                </div>
+                <section className="hrf-section" id="hrf-bank" ref={(el) => (sectionRefs.current['bank'] = el)}>
+                  <div className="hrf-section-title">
+                    <span className="hrf-section-icon"><IconBank /></span>
+                    <h3>Bank Details</h3>
+                  </div>
+                  <div className="hrf-grid">
+                    <EditableField label="Bank Name" value={f.bank_name} onChange={setField('bank_name')} />
+                    <EditableField label="Account Holder" value={f.account_holder_name} onChange={setField('account_holder_name')} />
+                    <EditableField label="IFSC Code" value={f.ifsc_code} onChange={setField('ifsc_code')} />
+                    <EditableField label="Account Number" value={f.account_number} onChange={setField('account_number')} />
+                  </div>
+                </section>
               </>
             ) : null}
           </div>
