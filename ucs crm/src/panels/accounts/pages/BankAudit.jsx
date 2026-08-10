@@ -39,7 +39,7 @@ function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18p
 function Btn({s,on,ch,dis,ic,fg='#fff',bg='var(--sage)'}){return <button className="btn btn-sm" onClick={on} disabled={dis} style={{background:bg,color:fg,border:'none',display:'inline-flex',alignItems:'center',gap:4,fontSize:12,opacity:dis?.5:1}}>{ic}{ch}</button>}
 
 // ─── Audit Stat Cards ──────────────────────────────────────
-export function AuditStatCards({sources=[],summary={},loading=false,suspense=null}){
+export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null}){
   return <div className="stats-grid">
     {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
       {sources.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
@@ -52,20 +52,26 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
         <div style={{width:40,height:40,borderRadius:10,background:'#B5603A18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5603A" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
-        <div><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense Receipts · {suspense.count||0} open</div></div>
+        <div><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense Receipts · {suspense.count||0} open</div>
+          {setSuspenseNgo&&<div style={{display:'flex',gap:4,marginTop:8}}>
+            {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['maan','MANN']].map(([v,l])=>
+              <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#B5603A':'#FDE7DB',color:suspenseNgo===v?'#fff':'#B5603A',transition:'background .12s'}}>{l}</button>
+            )}
+          </div>}
+        </div>
       </div>}
     </>}
   </div>;
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
   const PAGE_SIZE=20;
   const[pg,setPg]=useState(1);
   const visible=srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered;
   const pageCount=Math.max(1,Math.ceil(visible.length/PAGE_SIZE));
   const pageItems=visible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
-  useEffect(()=>{setPg(1)},[statusTab,selDate,srcFilter,ngoFilter]);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   return <div>
     {error&&<div style={{display:'flex',alignItems:'center',gap:6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:13,color:'#991b1b'}}>
@@ -73,19 +79,33 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     </div>}
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
       <div style={{display:'flex',gap:8,padding:'10px 14px',flexWrap:'wrap',alignItems:'center'}}>
-        <div style={{display:'flex',alignItems:'center',gap:4}}>
-          {selDate?<span style={{fontSize:12}}>Month</span>:<span style={{fontSize:12,fontWeight:600,color:'var(--sage)'}}>All Dates</span>}
+        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+          <span style={{fontSize:12,color:'#6b7280'}}>Month</span>
           <DatePicker
             selected={selDate?new Date(selDate+'-01T00:00:00'):null}
-            onChange={date=>{const ym=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0'):'';setSelDate(ym);doLoad(ym,statusTab)}}
+            onChange={date=>{const ym=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0'):'';setSelDate(ym);setSelDay('');doLoad(ym,statusTab)}}
             dateFormat="MMM yyyy"
             showMonthYearPicker
             maxDate={new Date()}
             placeholderText="Pick month..."
             calendarClassName="bank-audit-cal"
+            customInput={<input style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:120,cursor:'pointer'}}/>}
+          />
+          <span style={{fontSize:12,color:'#6b7280'}}>Date</span>
+          <DatePicker
+            selected={selDay?new Date(selDay+'T00:00:00'):null}
+            onChange={date=>{const d=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'):'';setSelDay(d);setSelDate('');doLoad('',statusTab,d)}}
+            dateFormat="dd MMM"
+            maxDate={new Date()}
+            placeholderText="Pick date..."
+            showMonthDropdown
+            showYearDropdown
+            dropdownMode="select"
+            calendarClassName="bank-audit-cal"
+            portalId="root"
             customInput={<input style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:130,cursor:'pointer'}}/>}
           />
-          {selDate&&<Btn on={()=>{setSelDate('');doLoad('',statusTab)}} ch="Clear" bg="transparent" fg="#6b7280" style={{fontSize:11,padding:'2px 6px'}}/>}
+          {(selDate||selDay)&&<Btn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch="All Dates" bg="transparent" fg="#6b7280" style={{fontSize:11,padding:'2px 6px'}}/>}
         </div>
         <select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
           <option value="">All NGOs</option><option value="bsct">Being Sevak</option><option value="maan">Mann Care</option><option value="aflf">Ashray</option>
@@ -147,7 +167,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 // ─── Main ──────────────────────────────────────────────────
 export default function BankAudit({embedded,onSummary}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
-  const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[sf,setSf]=useState('');const[nf,setNf]=useState('');
+  const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({...EMPTY_FM});
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
@@ -156,28 +176,35 @@ export default function BankAudit({embedded,onSummary}){
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
 
-  async function load(dt,stv){
+  async function load(dt,stv,day){
     const s=stv||srRef.current;setLd(true);setEr('');
     try{
-      const p=new URLSearchParams();if(dt){const b=monthBounds(dt);p.set('date_from',b.from);p.set('date_to',b.to)}p.set('status',s);
+      const p=new URLSearchParams();
+      if(day){p.set('date_from',day);p.set('date_to',day)}
+      else if(dt){const b=monthBounds(dt);p.set('date_from',b.from);p.set('date_to',b.to)}
+      p.set('status',s);
       const q=p.toString();
       const res=await Promise.allSettled([apiGet('/accounts/bank-audit/entries?'+q),apiGet('/accounts/bank-audit/sources'),apiGet('/accounts/bank-audit/summary?'+q)]);
       if(res[0].status==='fulfilled')setE(res[0].value);else{console.error(res[0].reason);setEr('Failed: '+res[0].reason.message)}
       if(res[1].status==='fulfilled')setSr(res[1].value);if(res[2].status==='fulfilled')setSu(res[2].value);
     }catch(err){console.error(err);setEr(err.message)}finally{setLd(false)}
   }
-  useEffect(()=>{load(sd,st)},[sd, st]);
-  useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current),onUpdate:()=>load(sd,srRef.current),onDelete:()=>load(sd,srRef.current)});
-  useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current),onUpdate:()=>load(sd,srRef.current),onDelete:()=>load(sd,srRef.current)});
+  useEffect(()=>{load(sd,st,dd)},[sd,dd,st]);
+  useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
+  useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
 
   const suspense=useMemo(()=>{
-    const rows=e.filter(x=>x.kind==='suspense');
+    const rows=e.filter(x=>x.kind==='suspense'&&(!snf||x.project_id===snf));
     return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
-  },[e]);
-  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld})},[sr,su,ld,embedded,suspense]);
+  },[e,snf]);
+  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo:snf,setSuspenseNgo:setSnf})},[sr,su,ld,embedded,suspense,snf]);
 
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
-  const fe=nf?e.filter(e=>{const src=(e.bank_audit_sources?.name||'').toLowerCase();const rem=(e.remarks||'').toLowerCase();const prj=(e.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))}):e;
+  const fe=e.filter(en=>{
+    if(en.kind==='suspense'&&snf&&en.project_id!==snf)return false;
+    if(!nf)return true;
+    const src=(en.bank_audit_sources?.name||'').toLowerCase();const rem=(en.remarks||'').toLowerCase();const prj=(en.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k));
+  });
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
   const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
@@ -208,9 +235,9 @@ export default function BankAudit({embedded,onSummary}){
       .bank-audit-cal .react-datepicker__time-list-item{font-size:13px!important;padding:6px 12px!important}
       .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff}
       .bank-audit-cal .react-datepicker__time-list-item:hover{background:#dcfce7!important}
-      .react-datepicker__popper{z-index:3000!important}
+      .react-datepicker-popper{z-index:3000!important}
     `}</style>
-    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense}/></div>}
+    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense} suspenseNgo={snf} setSuspenseNgo={setSnf}/></div>}
 
     {/* Pending / History sub-tabs */}
     <div style={{marginBottom:16,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',background:'#fff'}}>
@@ -223,7 +250,7 @@ export default function BankAudit({embedded,onSummary}){
     <EntrySection
       loading={ld} entries={e} sources={sr} summary={su} error={er}
       statusTab={st} setStatusTab={setSt}
-      selDate={sd} setSelDate={setSd} doLoad={load}
+      selDate={sd} setSelDate={setSd} selDay={dd} setSelDay={setDd} doLoad={load}
       ngoFilter={nf} setNgoFilter={setNf} srcFilter={sf} setSrcFilter={setSf}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
       form={fm} setForm={setFm} editEntry={se} setEditEntry={setSe}
