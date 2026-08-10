@@ -163,7 +163,8 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : pageItems.map((e,idx)=>
         <div key={e.id||idx} className="entry-card" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',background:e.kind==='suspense'?'#fffaf5':undefined,cursor:'pointer'}} onClick={()=>onOpen(e)}>
           <div style={{minWidth:96}}>
-            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}{e.payment_time?<span style={{fontSize:10,color:'#9ca3af',fontWeight:500,marginLeft:6}}>{fmtTime(e.payment_time)}</span>:null}</div>
+            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}</div>
+            {e.payment_time && <div style={{fontSize:10,color:'#9ca3af',fontWeight:500}}>{fmtTime(e.payment_time)}</div>}
             <div style={{marginTop:2,minHeight:12,display:'flex',alignItems:'center',gap:4}}>
               {e.receipt_no
                 ? <><span style={{fontFamily:'monospace',fontSize:10,color:e.kind==='suspense'?'#B5603A':'var(--sage)'}}>#{e.receipt_no}</span>
