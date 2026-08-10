@@ -141,6 +141,7 @@ export default function Attendance() {
   allToday.forEach(r => { todayMap[r.worker_id] = r; });
 
   const todayCombined = (workers || []).filter(w => {
+    if (w.employment_status === 'absconded') return false;
     const role = w.department || 'Team Member';
     if (roleFilter && role !== roleFilter) return false;
     return true;
@@ -217,6 +218,7 @@ export default function Attendance() {
 
   const historyRecords = attendance.filter(r => {
     const worker = workers.find(w => w.id === r.worker_id);
+    if (worker && worker.employment_status === 'absconded') return false;
     if (worker && !r.workers?.id) r.workers = worker;
     if (dayFilter) {
       if (r.date !== dayFilter) return false;
@@ -255,6 +257,7 @@ export default function Attendance() {
   const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const dowOf = (dateStr) => new Date(dateStr + 'T00:00:00Z').getUTCDay();
   const detailWorkers = (workers || []).filter(w => {
+    if (w.employment_status === 'absconded') return false;
     if (deptFilterH && (w.department || '') !== deptFilterH) return false;
     if (searchWorker) {
       const n = (w.name || '').toLowerCase();
@@ -276,9 +279,10 @@ export default function Attendance() {
       if (s === 'half-day') return { in: fmt(rec.punch_in_time), out: 'h', status: 'half-day' };
       return { in: fmt(rec.punch_in_time), out: fmt(rec.punch_out_time), status: s };
     }
+    if (joinDate && dateStr === joinDate) return { in: 'J', out: '', status: 'joined' };
+    if (joinDate && dateStr < joinDate) return { in: '-', out: '-', status: 'joined' };
     if (dowOf(dateStr) === 0) return { in: '', out: '', status: 'sunday' };
     if (dateStr >= todayIST) return { in: '', out: '', status: '' };
-    if (joinDate && dateStr < joinDate) return { in: '', out: '', status: '' };
     return { in: 'A', out: '', status: 'absent' };
   };
   const cellCls = (c) => {
@@ -287,6 +291,7 @@ export default function Attendance() {
     if (c.status === 'leave') return 'cell-leave';
     if (c.status === 'half-day') return 'cell-half';
     if (c.status === 'sunday') return 'cell-sunday';
+    if (c.status === 'joined' && c.in === 'J') return 'cell-joined';
     return '';
   };
   const detailTotalMinutes = (w) => {
@@ -448,6 +453,7 @@ export default function Attendance() {
     };
     const rows = [];
     for (const w of workers) {
+      if (w.employment_status === 'absconded') continue;
       if (deptFilterH && (w.department || '') !== deptFilterH) continue;
       if (searchWorker) {
         const n = (w.name || '').toLowerCase();
@@ -588,6 +594,7 @@ export default function Attendance() {
         .matrix-table .cell-leave { background: #fef3c7; color: #b45309; font-weight: 700; }
         .matrix-table .cell-half { background: #ffedd5; color: #c2410c; font-weight: 700; }
         .matrix-table .cell-sunday { background: #f3f4f6; color: #9ca3af; }
+        .matrix-table .cell-joined { background: #dbeafe; color: #1d4ed8; font-weight: 700; }
         .matrix-table .cell-total { background: #e8f5e9; font-weight: 700; }
         .matrix-table .mat-spacer td { background: #111; border: none; height: 7px; padding: 0; line-height: 7px; }
         @media print {
