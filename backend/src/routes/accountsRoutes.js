@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { getLeadList, verifyLead, rejectLead, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, clearReceipts, getReceiptCount, getDonorsList, exportDonors, getDonorDetail, updateDonor, getImportNgoOptions } from '../controllers/accountsController.js';
+import { getLeadList, verifyLead, rejectLead, goBackLead, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, clearReceipts, getReceiptCount, getDonorsList, exportDonors, getDonorDetail, updateDonor, getImportNgoOptions } from '../controllers/accountsController.js';
 
 const router = Router();
 
@@ -9,6 +9,7 @@ router.use(authenticateRole('accounts', 'super_admin'));
 router.get('/leads', getLeadList);
 router.post('/leads/:logId/verify', verifyLead);
 router.post('/leads/:logId/reject', rejectLead);
+router.post('/leads/:logId/go-back', goBackLead);
 router.delete('/leads', deleteAllPendingLeads);
 router.delete('/leads/:logId', deleteLead);
 router.patch('/leads/:logId/field', patchLeadField);
