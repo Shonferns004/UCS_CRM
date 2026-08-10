@@ -198,8 +198,9 @@ export default function BankAudit({embedded,onSummary}){
       .bank-audit-cal .react-datepicker__close-icon::after{background:#9ca3af!important;font-size:14px!important;height:16px!important;width:16px!important}
       .bank-audit-cal .react-datepicker__triangle{display:none!important}
       .bank-audit-cal .react-datepicker__time-list-item{font-size:13px!important;padding:6px 12px!important}
-      .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff!important}
+      .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff}
       .bank-audit-cal .react-datepicker__time-list-item:hover{background:#dcfce7!important}
+      .react-datepicker__popper{z-index:3000!important}
     `}</style>
     {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense}/></div>}
 
@@ -287,7 +288,7 @@ export default function BankAudit({embedded,onSummary}){
                 className="field-input"
                 wrapperStyle={{width:'100%'}}
                 calendarClassName="bank-audit-cal"
-                withPortal
+                portalId="root"
                 customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
               />
             </label>
