@@ -57,6 +57,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
         await ApiService.saveWorkerData({});
       }
       await ApiService.saveLastLoginId(_loginCtrl.text.trim());
+      await ApiService.isNgoAdmin();
       if (mounted) widget.onLogin();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
