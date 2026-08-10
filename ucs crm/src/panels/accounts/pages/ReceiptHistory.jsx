@@ -15,6 +15,7 @@ const PROJECT_LABELS = { maan: 'Mann Care Foundation', mann: 'Mann Care Foundati
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
   receipt_date: ['receiptdate', 'recieptdate', 'donationdate', 'date', 'transactiondate', 'transdate'],
+  receipt_time: ['time', 'receipttime', 'donationtime', 'transactiontime'],
   donor_name: ['donorname', 'name'],
   donor_mobile: ['mobileno', 'mobile', 'mobilenumber', 'phone', 'phoneno', 'contactno'],
   amount: ['amount', 'donationamount'],
@@ -36,13 +37,30 @@ function formatImportDate(value) {
   return value == null ? '' : String(value).trim();
 }
 
+function formatImportTime(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  return value == null ? '' : String(value).trim();
+}
+
+function fmtTime12(t) {
+  if (!t) return '';
+  const [h, m] = String(t).split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return String(t);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
+}
+
 function prepareImportRows(rows) {
   return rows.map(row => {
     const fields = Object.fromEntries(Object.keys(row).map(key => [normalizeImportHeader(key), row[key]]));
     const result = { ...row };
     for (const [field, aliases] of Object.entries(IMPORT_FIELDS)) {
       const value = aliases.map(alias => fields[alias]).find(value => value !== undefined && value !== null && String(value).trim() !== '');
-      result[field] = field === 'receipt_date' ? formatImportDate(value) : (value == null ? '' : String(value).trim());
+      result[field] = field === 'receipt_date' ? formatImportDate(value)
+        : field === 'receipt_time' ? formatImportTime(value)
+        : (value == null ? '' : String(value).trim());
     }
     return result;
   }).filter(row => row.receipt_no || row.donor_name || row.amount);
@@ -395,6 +413,7 @@ export default function ReceiptHistory() {
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt No</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}> Amt </span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt Date</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Time</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mobile No.</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>MOP</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mail Id</span>
@@ -577,7 +596,7 @@ export default function ReceiptHistory() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: '#374151' }}>{r.receipt_no}</span>
-                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
                       {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
