@@ -328,7 +328,6 @@ function RecruiterDetailModal({ type, onClose }) {
 function PanelSummaryModal({ panel, onClose, dashboardData }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const timer = useRef(null)
 
   const fetchData = useCallback(() => {
     setLoading(true)
@@ -1164,7 +1163,6 @@ export default function Dashboard() {
   const [accountsModalStatus, setAccountsModalStatus] = useState(null)
   const [recruiterModalType, setRecruiterModalType] = useState(null)
   const [allUserList, setAllUserList] = useState([])
-  const froTimer = useRef(null)
   const [froLiveData, setFroLiveData] = useState([])
   const [selectedFro, setSelectedFro] = useState(null)
   const [deepFro, setDeepFro] = useState(null)
