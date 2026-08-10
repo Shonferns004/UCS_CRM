@@ -30,8 +30,7 @@ export const getLeadList = async (req, res) => {
           ngos!left(id, name),
           donor_profiles!inner(id, name, mobile_number, city, pan_number, address_1, email, project_supported, donation_count, total_amount, birth_date),
           workers!inner(id, name, login_id)
-        ),
-        receipts!receipts_log_id_fkey(id, receipt_no, donor_id)
+        )
       `)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
@@ -44,6 +43,20 @@ export const getLeadList = async (req, res) => {
     const { data, error } = await query;
 
     if (error) throw error;
+
+    const logIds = (data || []).map(r => r.id);
+    const receiptMap = {};
+    if (logIds.length) {
+      const { data: claimedReceipts, error: receiptErr } = await db
+        .from('receipts')
+        .select('id, receipt_no, donor_id, log_id')
+        .in('log_id', logIds);
+      if (!receiptErr) {
+        for (const rc of (claimedReceipts || [])) {
+          if (rc.log_id != null && !receiptMap[rc.log_id]) receiptMap[rc.log_id] = rc;
+        }
+      }
+    }
 
     const result = (data || []).map(r => ({
       log_id: r.id,
@@ -76,7 +89,7 @@ export const getLeadList = async (req, res) => {
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
-      claimed_receipt: Array.isArray(r.receipts) ? (r.receipts[0] || null) : (r.receipts || null),
+      claimed_receipt: receiptMap[r.id] || null,
     }));
 
     return res.json(result);
@@ -488,6 +501,157 @@ export const rejectLead = async (req, res) => {
   }
 };
 
+// Send a lead back to the FRO as if the lead_done disposition never happened.
+// Works for pending (incl. suspense-claimed) and already-verified leads: any
+// verification side-effects are reversed, the claimed suspense receipt returns
+// to the pool, the disposition log is removed, and the assignment reopens so the
+// FRO can rework it from scratch.
+export const goBackLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { reason } = req.body || {};
+
+    const { data: log, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number))')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) {
+      return res.status(404).json({ message: 'Log entry not found' });
+    }
+
+    if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
+      return res.status(400).json({ message: 'Only lead verification entries can be sent back' });
+    }
+
+    if (!['pending', 'verified'].includes(log.accounts_status)) {
+      return res.status(400).json({ message: `This lead is ${log.accounts_status || 'processed'} and cannot be sent back` });
+    }
+
+    const assignmentId = log.fro_assignments?.id;
+    const donorId = log.fro_assignments?.donor_id;
+
+    // Reverse verification side-effects if the lead was already verified.
+    if (log.accounts_status === 'verified') {
+      const { error: revertError } = await db
+        .from('fro_donor_logs')
+        .update({ accounts_status: 'pending', verified_at: null, verified_by: null })
+        .eq('id', logId);
+      if (revertError) throw revertError;
+
+      if (donorId) {
+        try {
+          const { data: donor } = await db
+            .from('donor_profiles')
+            .select('total_amount, donation_count')
+            .eq('id', donorId)
+            .single();
+          const amount = Number(log.amount_collected || 0);
+          await db.from('donor_profiles').update({
+            total_amount: Math.max(0, (donor?.total_amount || 0) - amount),
+            donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+            updated_at: new Date().toISOString(),
+          }).eq('id', donorId);
+        } catch (err) { console.error('Failed to reverse donor totals on go-back:', err.message); }
+      }
+    }
+
+    // Receipt handling: revert any linked bank audit entry, then either delete
+    // a verification-only receipt or release the money back to the pool.
+    const receipt = await findReceiptByLogId(logId);
+    if (receipt) {
+      const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
+      if (entry) {
+        const { error: eErr } = await db.from('bank_audit_entries').update({
+          status: 'unverified',
+          donor_id: null,
+          donor_mobile: null,
+          donor_email: null,
+          donor_pan: null,
+          donor_address_1: null,
+          donor_address_2: null,
+          donor_city: null,
+          donor_pin_code: null,
+          matched_lead_log_id: null,
+          match_status: null,
+          match_score: null,
+          matched_at: null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', entry.id);
+        if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
+      }
+
+      if (receipt.purpose === 'General Donation' && !entry) {
+        try { await db.from('receipts').delete().eq('id', receipt.id); }
+        catch (err) { console.error('Failed to delete verification receipt on go-back:', err.message); }
+      } else {
+        try { await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id); }
+        catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
+      }
+    }
+
+    // Revert an entry auto-verified from the lead's UPI transaction id.
+    if (log.upi_transaction_id) {
+      try {
+        const autoEntry = await getEntryByPaymentId(log.upi_transaction_id, 'verified');
+        if (autoEntry?.id) {
+          await db.from('bank_audit_entries').update({ status: 'unverified', updated_at: new Date().toISOString() }).eq('id', autoEntry.id);
+        }
+      } catch (err) { console.error('Failed to revert auto-verified entry on go-back:', err.message); }
+    }
+
+    // Clear child references, then remove the disposition log (cleared disposition).
+    try { await db.from('notification_log').delete().in('fro_donor_log_id', [logId]); }
+    catch (err) { console.warn('notification_log cleanup skipped:', err.message); }
+    try { await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', [logId]); }
+    catch (err) { console.warn('rejected_lead_tickets cleanup skipped:', err.message); }
+    const { error: delError } = await db.from('fro_donor_logs').delete().eq('id', logId);
+    if (delError) throw delError;
+
+    // Reopen the assignment so the FRO sees the lead again and can rework it.
+    if (assignmentId) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+        .eq('id', assignmentId);
+      if (asgnError) throw asgnError;
+    }
+
+    // Notify the FRO that their lead was sent back.
+    const froWorkerId = log.fro_worker_id;
+    const donorName = log.fro_assignments?.donor_profiles?.name || 'Unknown';
+    if (froWorkerId) {
+      const notifTitle = 'Lead Sent Back';
+      const notifBody = reason
+        ? `Your lead for ${donorName} (\u20B9${log.amount_collected || 0}) was sent back. Reason: ${reason}`
+        : `Your lead for ${donorName} (\u20B9${log.amount_collected || 0}) was sent back \u2014 please rework it.`;
+      const refId = /^\d+$/.test(String(logId)) ? parseInt(logId, 10) : null;
+      let fcmLogged = false;
+      try {
+        const pushResult = await sendPushNotification(froWorkerId, notifTitle, notifBody, 'lead_sent_back', refId);
+        fcmLogged = !!pushResult;
+      } catch (err) { console.error('FCM send error:', err.message); }
+      if (!fcmLogged) {
+        try {
+          await db.from('notification_log').insert({
+            worker_id: froWorkerId,
+            type: 'lead_sent_back',
+            title: notifTitle,
+            body: notifBody,
+            fro_donor_log_id: String(logId),
+            sent_at: new Date().toISOString(),
+          });
+        } catch (err) { console.error('Failed to create notification_log entry:', err.message); }
+      }
+    }
+
+    return res.json({ message: 'Lead sent back to the FRO', log_id: logId });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteLead = async (req, res) => {
   try {
     const { logId } = req.params;
@@ -511,6 +675,15 @@ export const deleteLead = async (req, res) => {
     }
 
     const assignmentId = log.fro_assignments?.id;
+
+    // Release any suspense-claim receipt linked to this lead back to the pool
+    // (also required to satisfy the receipts->fro_donor_logs FK before deleting).
+    try {
+      const receipt = await findReceiptByLogId(logId);
+      if (receipt) {
+        await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id);
+      }
+    } catch (err) { console.warn('Failed to release linked receipt on delete:', err.message); }
 
     const { error: delError } = await db
       .from('fro_donor_logs')
