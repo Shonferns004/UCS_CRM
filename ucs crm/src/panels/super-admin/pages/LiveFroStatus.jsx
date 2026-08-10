@@ -22,8 +22,6 @@ export default function LiveFroStatus() {
 
   useEffect(() => {
     loadStatuses()
-    const interval = setInterval(loadStatuses, 30000)
-    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {

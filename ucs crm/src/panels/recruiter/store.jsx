@@ -1,6 +1,7 @@
 import { createContext, useContext, useCallback, useState, useMemo, useEffect } from 'react'
 import { useUcs } from '../../store'
 import { api } from '../../api/auth'
+import { useRealtime } from '../../hooks/useRealtime'
 
 const RecContext = createContext(null)
 export const useRec = () => useContext(RecContext)
@@ -91,9 +92,14 @@ export function RecProvider({ children }) {
   useEffect(() => {
     if (!token) return
     fetchLeads(true)
-    const interval = setInterval(() => fetchLeads(true), 15000)
-    return () => clearInterval(interval)
   }, [token, fetchLeads])
+
+  useRealtime('leads', {
+    event: '*',
+    onInsert: () => fetchLeads(true),
+    onUpdate: () => fetchLeads(true),
+    onDelete: () => fetchLeads(true),
+  })
 
   const addLead = useCallback(async (data) => {
     const temp = { ...data, id: -Date.now(), created_at: new Date().toISOString() }
