@@ -23,6 +23,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   void dispose() {
     RealtimeService.instance.removeListener(_onRealtimeChange);
     _refreshTimer?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -93,6 +96,22 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     return list;
   }
 
+  List<dynamic> get _filteredWorkers {
+    if (_searchQuery.isEmpty) return _sortedWorkers;
+    return _sortedWorkers.where((w) {
+      final name = (w['name']?.toString() ?? '').toLowerCase();
+      final dept = (w['department']?.toString() ?? '').toLowerCase();
+      return name.contains(_searchQuery) || dept.contains(_searchQuery);
+    }).toList();
+  }
+
+  bool get _canGoNext {
+    final now = DateTime.now();
+    if (_selectedDate.year != now.year) return _selectedDate.year < now.year;
+    if (_selectedDate.month != now.month) return _selectedDate.month < now.month;
+    return _selectedDate.day < now.day;
+  }
+
   int get _presentCount {
     return _workers.where((w) {
       final r = _recordForWorker(w['id']?.toString() ?? '');
@@ -105,6 +124,13 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     return _workers.where((w) {
       final r = _recordForWorker(w['id']?.toString() ?? '');
       return r['status']?.toString() == 'late';
+    }).length;
+  }
+
+  int get _halfDayCount {
+    return _workers.where((w) {
+      final r = _recordForWorker(w['id']?.toString() ?? '');
+      return r['status']?.toString() == 'half-day';
     }).length;
   }
 
@@ -124,15 +150,16 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   }
 
   void _shiftDay(int delta) {
+    if (delta > 0 && !_canGoNext) return;
     setState(() => _selectedDate = _selectedDate.add(Duration(days: delta)));
   }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate,
+      initialDate: _selectedDate.isAfter(DateTime.now()) ? DateTime.now() : _selectedDate,
       firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
+      lastDate: DateTime.now(),
     );
     if (picked != null) setState(() => _selectedDate = picked);
   }
@@ -143,64 +170,20 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     final scheme = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
+    final isToday = _dateKey == _dateKeyOf(DateTime.now());
+
     return Scaffold(
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
-              child: Row(
-                children: [
-                  Text('Attendance', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.primary)),
-                  const Spacer(),
-                  IconButton(icon: const Icon(LucideIcons.plus), onPressed: _workers.isEmpty ? null : _openAddSheet, tooltip: 'Add attendance'),
-                  IconButton(icon: const Icon(LucideIcons.refreshCw), onPressed: () => _load(), tooltip: 'Refresh'),
-                ],
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: Responsive.pad(context, 6)),
-                decoration: BoxDecoration(
-                  color: colors.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(icon: const Icon(LucideIcons.chevronLeft), onPressed: () => _shiftDay(-1)),
-                    Expanded(
-                      child: InkWell(
-                        onTap: _pickDate,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          child: Column(
-                            children: [
-                              Text(
-                                DateFormat('EEEE, d MMMM yyyy').format(_selectedDate),
-                                style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                                textAlign: TextAlign.center,
-                              ),
-                              if (!_loading && _workers.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Present $_presentCount · Late $_lateCount · Leave $_leaveCount · Absent $_absentCount',
-                                  style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    IconButton(icon: const Icon(LucideIcons.chevronRight), onPressed: () => _shiftDay(1)),
-                  ],
-                ),
-              ),
-            ),
+            _buildHeader(tt, scheme),
+            const SizedBox(height: 4),
+            if (!_loading && _workers.isNotEmpty) _buildStats(scheme, tt),
+            const SizedBox(height: 12),
+            _buildDateBar(scheme, tt, colors, isToday),
+            const SizedBox(height: 12),
+            _buildSearch(scheme, tt, colors),
             const SizedBox(height: 8),
             Expanded(
               child: _loading
@@ -213,6 +196,220 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
                         ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  String _dateKeyOf(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Widget _buildHeader(TextTheme tt, ColorScheme scheme) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 12), Responsive.pad(context, 8), 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Attendance', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                const SizedBox(height: 2),
+                Text(
+                  'Daily attendance for all workers',
+                  style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: scheme.secondary.withValues(alpha: 0.1),
+              foregroundColor: scheme.secondary,
+            ),
+            icon: const Icon(LucideIcons.plus),
+            onPressed: _workers.isEmpty ? null : _openAddSheet,
+            tooltip: 'Add attendance',
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: scheme.secondary.withValues(alpha: 0.1),
+              foregroundColor: scheme.secondary,
+            ),
+            icon: const Icon(LucideIcons.refreshCw),
+            onPressed: () => _load(),
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statCard(ColorScheme scheme, TextTheme tt, {
+    required String label,
+    required int value,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 10)),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.18)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: Responsive.pad(context, 28),
+              height: Responsive.pad(context, 28),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), shape: BoxShape.circle),
+              child: Icon(icon, size: Responsive.sp(context, 15), color: color),
+            ),
+            const SizedBox(height: 6),
+            Text('$value', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: color, height: 1.1)),
+            Text(label, style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontSize: Responsive.sp(context, 10))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStats(ColorScheme scheme, TextTheme tt) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+      child: Row(
+        children: [
+          _statCard(scheme, tt,
+              label: 'Present', value: _presentCount + _lateCount + _halfDayCount,
+              color: const Color(0xFF16a34a), icon: LucideIcons.checkCircle2),
+          const SizedBox(width: 8),
+          _statCard(scheme, tt,
+              label: 'Late', value: _lateCount, color: const Color(0xFFd97706), icon: LucideIcons.alertTriangle),
+          const SizedBox(width: 8),
+          _statCard(scheme, tt,
+              label: 'Leave', value: _leaveCount, color: const Color(0xFF2563eb), icon: LucideIcons.calendarDays),
+          const SizedBox(width: 8),
+          _statCard(scheme, tt,
+              label: 'Absent', value: _absentCount, color: const Color(0xFFdc2626), icon: LucideIcons.minusCircle),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateBar(ColorScheme scheme, TextTheme tt, AppColors colors, bool isToday) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 4)),
+        decoration: BoxDecoration(
+          color: scheme.primary,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: scheme.primary.withValues(alpha: 0.25),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              icon: const Icon(LucideIcons.chevronLeft, color: Colors.white),
+              onPressed: () => _shiftDay(-1),
+              tooltip: 'Previous day',
+            ),
+            Expanded(
+              child: InkWell(
+                onTap: _pickDate,
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            isToday ? 'Today' : DateFormat('EEEE').format(_selectedDate),
+                            style: tt.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          if (!isToday) ...[
+                            const SizedBox(width: 6),
+                            Icon(LucideIcons.chevronDown, size: 14, color: Colors.white70),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        DateFormat('d MMMM yyyy').format(_selectedDate),
+                        style: tt.bodySmall?.copyWith(color: Colors.white70, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(LucideIcons.chevronRight, color: Colors.white),
+              onPressed: _canGoNext ? () => _shiftDay(1) : null,
+              tooltip: _canGoNext ? 'Next day' : 'Cannot view future days',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearch(ColorScheme scheme, TextTheme tt, AppColors colors) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+        decoration: InputDecoration(
+          hintText: 'Search by name or department',
+          hintStyle: tt.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          prefixIcon: const Icon(LucideIcons.search, size: 20),
+          suffixIcon: _searchQuery.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(LucideIcons.x, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                ),
+          isDense: true,
+          filled: true,
+          fillColor: scheme.surface,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: scheme.secondary, width: 1.4),
+          ),
         ),
       ),
     );
@@ -234,20 +431,35 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
   }
 
   Widget _buildList(TextTheme tt, ColorScheme scheme) {
-    if (_workers.isEmpty) {
-      return _empty(tt, scheme, LucideIcons.users, 'No workers found');
+    final workers = _filteredWorkers;
+    if (workers.isEmpty) {
+      return _empty(tt, scheme, LucideIcons.users,
+          _searchQuery.isEmpty ? 'No workers found' : 'No workers match your search');
     }
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
-      itemCount: _sortedWorkers.length,
-      itemBuilder: (context, i) => _workerCard(_sortedWorkers[i], tt, scheme),
+      itemCount: workers.length,
+      itemBuilder: (context, i) => _workerCard(workers[i], tt, scheme),
     );
   }
 
   Widget _workerCard(dynamic worker, TextTheme tt, ColorScheme scheme) {
     final id = worker['id']?.toString() ?? '';
     final record = _recordForWorker(id);
-    final status = record['status']?.toString() ?? 'absent';
+
+    String? punchIn;
+    String? punchOut;
+    String? hours;
+    if (record.isNotEmpty) {
+      punchIn = _formatTime(record['punch_in_time']);
+      punchOut = _formatTime(record['punch_out_time']);
+      hours = record['hours_worked']?.toString();
+    }
+
+    var status = record['status']?.toString() ?? 'absent';
+    if (status == 'absent' || status.isEmpty) {
+      if (punchIn != null && punchOut != null) status = 'present';
+    }
 
     Color statusColor;
     IconData statusIcon;
@@ -263,6 +475,11 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         statusIcon = LucideIcons.alertTriangle;
         statusLabel = 'Late';
         break;
+      case 'half-day':
+        statusColor = const Color(0xFF7c3aed);
+        statusIcon = LucideIcons.clock;
+        statusLabel = 'Half Day';
+        break;
       case 'leave':
         statusColor = const Color(0xFF2563eb);
         statusIcon = LucideIcons.calendarDays;
@@ -274,14 +491,8 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
         statusLabel = 'Absent';
     }
 
-    String? punchIn;
-    String? punchOut;
-    String? hours;
-    if (record.isNotEmpty) {
-      punchIn = _formatTime(record['punch_in_time']);
-      punchOut = _formatTime(record['punch_out_time']);
-      hours = record['hours_worked']?.toString();
-    }
+    final name = worker['name']?.toString() ?? 'Unknown';
+    final dept = worker['department']?.toString() ?? '';
 
     return GestureDetector(
       onTap: () {
@@ -294,50 +505,94 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
       },
       child: Container(
         margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
-        padding: EdgeInsets.all(Responsive.pad(context, 14)),
+        padding: EdgeInsets.all(Responsive.pad(context, 12)),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: Responsive.pad(context, 20),
-              backgroundColor: statusColor.withValues(alpha: 0.12),
-              child: Icon(statusIcon, color: statusColor, size: Responsive.sp(context, 20)),
+            Container(
+              width: Responsive.pad(context, 44),
+              height: Responsive.pad(context, 44),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(statusIcon, color: statusColor, size: Responsive.sp(context, 22)),
             ),
             SizedBox(width: Responsive.pad(context, 12)),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(worker['name']?.toString() ?? 'Unknown', style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w600)),
-                  if ((worker['department']?.toString() ?? '').isNotEmpty)
-                    Text(worker['department'].toString(), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                  Text(name, style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (dept.isNotEmpty)
+                    Text(dept, style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                   if (punchIn != null || punchOut != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      [if (punchIn != null) 'In: $punchIn', if (punchOut != null) 'Out: $punchOut', if (hours != null) hours]
-                          .join('  ·  '),
-                      style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 4,
+                      children: [
+                        if (punchIn != null)
+                          _punchChip(scheme, tt, LucideIcons.logIn, 'In', punchIn, statusColor),
+                        if (punchOut != null)
+                          _punchChip(scheme, tt, LucideIcons.logOut, 'Out', punchOut, statusColor),
+                        if (hours != null)
+                          _punchChip(scheme, tt, LucideIcons.timer, '', hours, statusColor),
+                      ],
                     ),
                   ],
                 ],
               ),
             ),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 6)),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 5)),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(height: 6),
+                Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 16), color: scheme.outlineVariant),
+              ],
             ),
-            SizedBox(width: Responsive.pad(context, 4)),
-            Icon(LucideIcons.chevronRight, size: Responsive.sp(context, 16), color: scheme.outlineVariant),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _punchChip(ColorScheme scheme, TextTheme tt, IconData icon, String prefix, String value, Color color) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 8), vertical: 3),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: Responsive.sp(context, 11), color: color),
+          const SizedBox(width: 4),
+          Text(
+            prefix.isEmpty ? value : '$prefix $value',
+            style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }
@@ -582,6 +837,7 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
             items: const [
               DropdownMenuItem(value: 'present', child: Text('Present')),
               DropdownMenuItem(value: 'late', child: Text('Late')),
+              DropdownMenuItem(value: 'half-day', child: Text('Half Day')),
               DropdownMenuItem(value: 'absent', child: Text('Absent')),
               DropdownMenuItem(value: 'leave', child: Text('Leave')),
             ],
