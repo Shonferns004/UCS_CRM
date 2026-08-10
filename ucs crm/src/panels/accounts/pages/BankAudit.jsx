@@ -67,7 +67,16 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       <div style={{display:'flex',gap:8,padding:'10px 14px',flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:4}}>
           {selDate?<span style={{fontSize:12}}>Month</span>:<span style={{fontSize:12,fontWeight:600,color:'var(--sage)'}}>All Dates</span>}
-          <input type="month" value={selDate} onChange={e=>{const v=e.target.value;setSelDate(v);doLoad(v,statusTab)}} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:140}}/>
+          <DatePicker
+            selected={selDate?new Date(selDate+'-01T00:00:00'):null}
+            onChange={date=>{const ym=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0'):'';setSelDate(ym);doLoad(ym,statusTab)}}
+            dateFormat="MMM yyyy"
+            showMonthYearPicker
+            maxDate={new Date()}
+            placeholderText="Pick month..."
+            calendarClassName="bank-audit-cal"
+            customInput={<input style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:130,cursor:'pointer'}}/>}
+          />
           {selDate&&<Btn on={()=>{setSelDate('');doLoad('',statusTab)}} ch="Clear" bg="transparent" fg="#6b7280" style={{fontSize:11,padding:'2px 6px'}}/>}
         </div>
         <select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
