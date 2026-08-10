@@ -385,9 +385,10 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
             ),
           ],
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Container(
               width: Responsive.pad(context, 62),
               padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 12)),
@@ -467,6 +468,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
               ),
           ],
         ),
+      ),
       ),
     );
   }

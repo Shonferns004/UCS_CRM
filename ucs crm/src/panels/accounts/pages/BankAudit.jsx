@@ -6,9 +6,12 @@ import DonorPicker from '../components/DonorPicker';
 import { TimePicker } from '../../fro/components/TimePicker';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import RightPanel from '../components/RightPanel';
+import Pagination from '../components/Pagination';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
+const NGO_LABELS = { bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' };
 
 function currentMonthIST(){
   const d=new Date(Date.now()+5.5*60*60*1000);
@@ -48,7 +51,14 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
+  const PAGE_SIZE=20;
+  const[pg,setPg]=useState(1);
+  const visible=srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered;
+  const pageCount=Math.max(1,Math.ceil(visible.length/PAGE_SIZE));
+  const pageItems=visible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,srcFilter,ngoFilter]);
+  useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   return <div>
     {error&&<div style={{display:'flex',alignItems:'center',gap:6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:13,color:'#991b1b'}}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>{error}
@@ -68,60 +78,52 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           {sources.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <Btn on={()=>doLoad(selDate,statusTab)} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>} ch="Refresh"/>
-        <Btn on={()=>{setForm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});setShowAdd(true)}} ch="Add Entry" bg="var(--sage)" style={{marginLeft:'auto'}}/>
+        <Btn on={()=>onAutoMatch()} dis={am} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>} ch={am?'Matching...':'Auto-Match'} bg="#2563eb"/>
+        <Btn on={()=>{setForm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct'});setShowAdd(true)}} ch="Add Entry" bg="var(--sage)" style={{marginLeft:'auto'}}/>
         <Btn on={()=>{setSn('');setShowSrc(true)}} ch="Sources" bg="transparent" fg="#374151" style={{border:'1px solid #d1d5db'}}/>
       </div>
     </div>
-    <div style={{borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb'}}>
-      <div style={{display:'grid',gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr 70px',gap:8,padding:'8px 12px',background:'#f9fafb',borderBottom:'1px solid #e5e7eb',fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',color:'#6b7280'}}>
-        <div>Entry</div><div style={{textAlign:'right'}}>Amount</div><div>Payment ID</div><div>Check ID</div><div>Name</div><div style={{textAlign:'center'}}>Action</div>
-      </div>
-      {loading ? Array.from({length:5}).map((_,i)=>
-        <div key={i} style={{display:'grid',gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr 70px',gap:8,padding:'9px 12px',borderBottom:'1px solid #f3f4f6',alignItems:'center'}}>
-          <div><div className="sk" style={{width:'70%',height:12,borderRadius:3}}/><div className="sk" style={{width:'40%',height:10,borderRadius:3,marginTop:4}}/></div>
-          <div style={{textAlign:'right'}}><div className="sk" style={{width:50,height:12,borderRadius:3,marginLeft:'auto'}}/></div>
-          <div><div className="sk" style={{width:60,height:12,borderRadius:3}}/></div>
-          <div><div className="sk" style={{width:50,height:12,borderRadius:3}}/></div>
-          <div><div className="sk" style={{width:50,height:12,borderRadius:3}}/></div>
-          <div style={{textAlign:'center'}}><div className="sk" style={{width:50,height:22,borderRadius:4,margin:'0 auto'}}/></div>
-        </div>
-      ) : entries.length===0 ? (
-        <div style={{textAlign:'center',padding:30,color:'#9ca3af',fontSize:13}}>No entries yet</div>
-      ) : (srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered).map((e,idx)=>
-        <div key={e.id||idx} style={{display:'grid',gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr 70px',gap:8,padding:'9px 12px',cursor:'pointer',borderBottom:'1px solid #f3f4f6',alignItems:'center',fontSize:12,background:e.kind==='suspense'?'#fffaf5':(idx%2===0?'#fff':'#fafafa')}}>
-          <div>
-            <div style={{fontWeight:500,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}</div>
-            <div style={{fontSize:10,color:'#9ca3af',marginTop:1}}>
-              {e.kind==='suspense'
-                ? <><span style={{fontSize:8,padding:'1px 5px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
-                    {e.receipt_no&&<span style={{marginLeft:4}}>#{e.receipt_no}</span>}</>
-                : <><span className="pill pill-gray" style={{fontSize:8,padding:'1px 4px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
-                    {e.remarks&&<span style={{marginLeft:4}}>{e.remarks}</span>}</>}
+    <div className="entry-scroll">
+      <div className="entry-grid">
+        {loading ? Array.from({length:5}).map((_,i)=>
+          <div key={i} className="entry-card">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div className="sk" style={{width:'45%',height:12,borderRadius:3}}/><div className="sk" style={{width:60,height:14,borderRadius:3}}/></div>
+            <div className="sk" style={{width:'40%',height:10,borderRadius:3,marginTop:6}}/>
+            <div className="sk" style={{width:64,height:20,borderRadius:6,marginTop:12}}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10}}><div className="sk" style={{width:'80%',height:10,borderRadius:3}}/><div className="sk" style={{width:'70%',height:10,borderRadius:3}}/></div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10,borderTop:'1px solid #f3f4f6',paddingTop:10}}><div className="sk" style={{width:70,height:10,borderRadius:3}}/><div className="sk" style={{width:80,height:20,borderRadius:4}}/></div>
+          </div>
+        ) : visible.length===0 ? (
+          <div className="entry-card-empty">No entries yet</div>
+        ) : pageItems.map((e,idx)=>
+        <div key={e.id||idx} className="entry-card" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',background:e.kind==='suspense'?'#fffaf5':undefined,cursor:'pointer'}} onClick={()=>onOpen(e)}>
+          <div style={{minWidth:96}}>
+            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}</div>
+            <div style={{marginTop:2,minHeight:12,display:'flex',alignItems:'center',gap:4}}>
+              {e.receipt_no
+                ? <><span style={{fontFamily:'monospace',fontSize:10,color:e.kind==='suspense'?'#B5603A':'var(--sage)'}}>#{e.receipt_no}</span>
+                    {e.kind!=='suspense'&&<span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>}
+                  </>
+                : <span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>}
             </div>
           </div>
-          <div style={{fontWeight:600,color:e.kind==='suspense'?'#B5603A':'var(--sage)',textAlign:'right'}}>{curr(e.amount)}</div>
-          <div style={{fontSize:11,color:'#6b7280',fontFamily:'monospace'}}>{e.payment_id||'\u2014'}</div>
-          <div style={{fontSize:11,color:'#6b7280'}}>{e.check_id||'\u2014'}</div>
-          <div style={{fontSize:11,color:'#6b7280'}}>{e.payer_name||'\u2014'}</div>
-          <div style={{display:'flex',gap:2,justifyContent:'center'}}>
-            {e.kind==='suspense'
-              ? <span style={{fontSize:9,color:'#d8b4a0',whiteSpace:'nowrap'}}>link via claims</span>
-              : <>{statusTab==='unverified'&&<>
-                  <button onClick={()=>openEdit(e)} title="Edit" style={{border:'none',background:'#e5e7eb',color:'#374151',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  </button>
-                  <button onClick={()=>handleDelete(e.id)} title="Delete" style={{border:'none',background:'#fef2f2',color:'#dc2626',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                  </button>
-                </>}
-                <button onClick={async()=>{if(confirm('Send to NGO Admin?'))try{await apiPut('/accounts/bank-audit/entries/'+e.id+'/assign-ngo',{});doLoad(selDate,statusTab)}catch(err){alert(err.message)}}} title="Send to NGO" style={{border:'none',background:'#fff7ed',color:'#B5603A',borderRadius:4,width:22,height:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                </button>
-              </>}
+          <div style={{fontSize:16,fontWeight:700,color:e.kind==='suspense'?'#B5603A':'var(--sage)',whiteSpace:'nowrap'}}>{curr(e.amount)}</div>
+          <div style={{minWidth:96}}>
+            <div style={{fontSize:9,textTransform:'uppercase',letterSpacing:'.4px',color:'#9ca3af'}}>{e.payment_id ? 'Payment ID' : 'Check ID'}</div>
+            <div style={{fontFamily:'monospace',fontSize:11,color:'#6b7280',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:130}}>{e.payment_id || e.check_id || '\u2014'}</div>
           </div>
+          <div style={{flex:1,minWidth:100}}>
+            <div style={{fontSize:9,textTransform:'uppercase',letterSpacing:'.4px',color:'#9ca3af'}}>Name</div>
+            <div style={{fontSize:11,color:'#374151',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{e.payer_name||'\u2014'}</div>
+          </div>
+          {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:8,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap'}}>MATCHED{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
+          {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:8,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c4c9d0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><polyline points="9 18 15 12 9 6" /></svg>
         </div>
       )}
+      </div>
     </div>
+    <Pagination page={pg} setPage={setPg} totalItems={visible.length} pageSize={PAGE_SIZE} />
   </div>;
 }
 
@@ -130,9 +132,10 @@ export default function BankAudit({embedded,onSummary}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[sf,setSf]=useState('');const[nf,setNf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
-  const[fm,setFm]=useState({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});
+  const[fm,setFm]=useState({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct'});
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
+  const[dt,setDt]=useState(null);const[cm,setCm]=useState(false);const[am,setAm]=useState(false);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
 
@@ -160,12 +163,15 @@ export default function BankAudit({embedded,onSummary}){
   const fe=nf?e.filter(e=>{const src=(e.bank_audit_sources?.name||'').toLowerCase();const rem=(e.remarks||'').toLowerCase();const prj=(e.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))}):e;
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
-  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
-  const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:''});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct'});setSa(false);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct'});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{await apiPut('/accounts/bank-audit/entries/'+se.id,fm);setSe(null);setFm({src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct'});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const delEntry=async()=>{if(!dci)return;try{await apiDelete('/accounts/bank-audit/entries/'+dci);setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
-  const openE=(entry)=>{setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||''});setSe(entry)};
+  const openE=(entry)=>{setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct'});setSe(entry)};
+  const confirmMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/confirm-match');setDt(null);setTo({msg:'Match confirmed and credited',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
+  const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setDt(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
+  const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
   return <div>
@@ -205,7 +211,8 @@ export default function BankAudit({embedded,onSummary}){
       form={fm} setForm={setFm} editEntry={se} setEditEntry={setSe}
       saving={sv} handleAdd={addEntry} handleEdit={editEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc} openEdit={openE}
-      sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX}
+      sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={setDt}
+      onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
     />
 
     {/* Add/Edit Modal */}
@@ -246,6 +253,12 @@ export default function BankAudit({embedded,onSummary}){
               <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
             </label>
           </div>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4,marginTop:12}}>
+            <span>NGO</span>
+            <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+              {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+            </select>
+          </label>
         </div>
 
         <div style={{marginBottom:16}}>
@@ -335,6 +348,57 @@ export default function BankAudit({embedded,onSummary}){
         </div>
       </div>
     </div></div>}
+
+    {/* Entry Detail Drawer */}
+    {dt&&<RightPanel open={!!dt} onClose={()=>setDt(null)} title={dt.kind==='suspense'?'Suspense Receipt':'Entry Details'} subtitle={dt.transaction_date||''} accent={dt.kind==='suspense'?'#B5603A':'var(--sage)'}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+        <div style={{fontSize:24,fontWeight:700,color:dt.kind==='suspense'?'#B5603A':'var(--sage)'}}>{curr(dt.amount)}</div>
+        {dt.kind==='suspense'
+          ? <span style={{fontSize:8,padding:'2px 6px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
+          : <span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{dt.bank_audit_sources?.name||getSrc(dt.source_id)}</span>}
+      </div>
+      <div className="card">
+        <div className="card-pad" style={{padding:0}}>
+          <div className="info-grid">
+            <div><div className="label">Transaction Date</div><div className="value">{dt.transaction_date||'\u2014'}</div></div>
+            {dt.receipt_no&&<div><div className="label">Receipt No</div><div className="value-mono">#{dt.receipt_no}</div></div>}
+            <div><div className="label">Payment ID</div><div className="value-mono">{dt.payment_id||'\u2014'}</div></div>
+            <div><div className="label">Check ID</div><div className="value-mono">{dt.check_id||'\u2014'}</div></div>
+            <div><div className="label">Payer Name</div><div className="value">{dt.payer_name||'\u2014'}</div></div>
+            <div><div className="label">NGO</div><div className="value">{NGO_LABELS[dt.project_id]||dt.project_id||'\u2014'}</div></div>
+            <div style={{gridColumn:'1 / -1'}}><div className="label">Remarks</div><div className="value" style={{whiteSpace:'pre-wrap'}}>{dt.remarks||'\u2014'}</div></div>
+          </div>
+        </div>
+      </div>
+      {dt.match_status==='matched'&&dt.matched_lead_log_id&&<div className="card" style={{marginTop:12,border:'1px solid #86efac',background:'#f0fdf4'}}>
+        <div className="card-pad" style={{padding:0}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>SUGGESTED MATCH</div>
+            <span style={{fontSize:10,fontWeight:700,color:'#166534',background:'#dcfce7',padding:'2px 8px',borderRadius:6}}>Score {dt.match_score}</span>
+          </div>
+          <div className="info-grid">
+            <div><div className="label">Donor</div><div className="value">{dt.match_donor||'\u2014'}</div></div>
+            <div><div className="label">FRO</div><div className="value">{dt.match_fro||'\u2014'}</div></div>
+          </div>
+        </div>
+      </div>}
+      <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
+        {dt.kind==='suspense'
+          ? <div style={{textAlign:'center',fontSize:11,color:'#d8b4a0'}}>Read-only — claim from your Suspense panel</div>
+          : st==='unverified'
+            ? <>
+              {dt.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:10}}>
+                <button className="btn btn-sm" style={{flex:1,background:'var(--sage)',color:'#fff',border:'none'}} disabled={cm} onClick={()=>confirmMatch(dt)}>Confirm Match</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#f3f4f6',color:'#6b7280',border:'none'}} disabled={cm} onClick={()=>clearMatch(dt)}>Clear</button>
+              </div>}
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>{const e=dt;setDt(null);openEdit(e)}}>{'\u270E'} Edit</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt.id);setDt(null)}}>{'\u2715'} Delete</button>
+              </div>
+            </>
+            : null}
+      </div>
+    </RightPanel>}
 
     <Toast message={to.msg} type={to.type} visible={to.vis} onClose={()=>setTo(p=>({...p,vis:false}))}/>
   </div>;
