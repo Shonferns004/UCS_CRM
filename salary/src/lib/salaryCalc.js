@@ -427,7 +427,6 @@ function processSheet(wsName, wb, dbPresent) {
 
     const fmtN = (n) => Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)))
     const halfPts = (dbEntry && typeof dbEntry === 'object' && dbEntry.half ? dbEntry.half : 0) * 0.5
-    const abs = (dbEntry && typeof dbEntry === 'object' ? dbEntry.absent || 0 : 0)
     const leave = (dbEntry && typeof dbEntry === 'object' ? dbEntry.leave || 0 : 0)
     const clubbed = (dbEntry && typeof dbEntry === 'object' ? dbEntry.clubbed || 0 : 0)
     const extraSun = (dbEntry && typeof dbEntry === 'object' ? dbEntry.extra || 0 : 0)
@@ -440,13 +439,15 @@ function processSheet(wsName, wb, dbPresent) {
       return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     }
     const sunNet = clubbed + extraSun + sunUnpaid - workedBack
+    const deductedCount = Math.max(0, avail - totalPresentDays - halfPts + workedBack - joiningDeduction - lateDeduction)
+    const weekdayAbsents = Math.max(0, deductedCount - leave - clubbed - extraSun - sunUnpaid)
     let explain = null
     let explainNote = null
     let explainTitle = ''
     if (presentFromDb !== undefined) {
       const items = [{ op: '', text: fmtN(avail) + ' avail' }]
       const sub = (val, label) => { if (val > 0) items.push({ op: '-', text: fmtN(val) + ' ' + label }) }
-      sub(abs, 'absent')
+      sub(weekdayAbsents, 'absent')
       sub(leave, 'leave')
       if (sunNet > 0) sub(sunNet, 'sun')
       else if (sunNet < 0) items.push({ op: '+', text: fmtN(-sunNet) + ' sun-back' })
@@ -457,7 +458,7 @@ function processSheet(wsName, wb, dbPresent) {
       if (sunReasons.length) {
         explainNote = 'Deducted Sunday(s): ' + sunReasons.map(r => `Sun ${fmtDate(r.date)} - ${r.reason}`).join('; ')
       }
-      explainTitle = totalPresentDays + ' paid days = ' + avail + ' available - ' + abs + ' absent - ' + leave + ' leave - ' + clubbed + ' clubbed Sun - ' + extraSun + ' extra Sun - ' + sunUnpaid + ' unpaid Sun + ' + workedBack + ' worked-back - ' + fmtN(halfPts) + ' half-day - ' + fmtN(joiningDeduction) + ' joining - ' + fmtN(lateDeduction) + ' late'
+      explainTitle = totalPresentDays + ' paid days = ' + avail + ' available - ' + fmtN(weekdayAbsents) + ' absent - ' + leave + ' leave - ' + clubbed + ' clubbed Sun - ' + extraSun + ' extra Sun - ' + sunUnpaid + ' unpaid Sun + ' + workedBack + ' worked-back - ' + fmtN(halfPts) + ' half-day - ' + fmtN(joiningDeduction) + ' joining - ' + fmtN(lateDeduction) + ' late'
       if (explainNote) explainTitle += '\n' + explainNote
     }
 

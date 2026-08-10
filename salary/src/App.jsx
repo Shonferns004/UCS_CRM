@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import * as XLSX_NS from 'xlsx'
+import * as XLSX_NS from 'xlsx-js-style'
 import { computeWorkbook, buildCsv, money, normalizeName } from './lib/salaryCalc'
 import Login from './Login'
 
@@ -219,6 +219,56 @@ export default function App() {
     URL.revokeObjectURL(a.href)
   }, [rows])
 
+  const exportAkiExcel = useCallback(() => {
+    if (!rows) return
+    const data = rows.filter(r => r.eligibleMonthly).map(r => ({
+      name: r.name,
+      aki: r.akiPayout || 0,
+      monthly: r.monthly10 || 0,
+      total: (r.akiPayout || 0) + (r.monthly10 || 0),
+    }))
+    if (!data.length) return
+
+    const fill = c => ({ patternType: 'solid', fgColor: { rgb: c } })
+    const font = (c, b) => ({ color: { rgb: c }, bold: !!b })
+    const center = { horizontal: 'center' }
+    const fGrey = fill('F3F4F6')
+
+    const aoa = [
+      [
+        { v: 'Formula:', s: { font: font('1F2937', true) } },
+        { v: 'Total AKI ÷ 2', s: { font: font('FFFFFF', true), fill: fill('10B981') } },
+        { v: '+', s: { font: font('1F2937', true), alignment: center } },
+        { v: '10% Incentive', s: { font: font('FFFFFF', true), fill: fill('2563EB') } },
+        { v: '=', s: { font: font('1F2937', true), alignment: center } },
+        { v: 'Total Incentive', s: { font: font('FFFFFF', true), fill: fill('8B5CF6') } },
+      ],
+      [
+        { v: 'Name', s: { font: font('FFFFFF', true), fill: fill('1F2937') } },
+        { v: 'Total AKI (Paid)', s: { font: font('FFFFFF', true), fill: fill('10B981') } },
+        { v: '10% Incentive', s: { font: font('FFFFFF', true), fill: fill('2563EB') } },
+        { v: 'Total Incentive', s: { font: font('FFFFFF', true), fill: fill('8B5CF6') } },
+      ],
+      ...data.map(r => [
+        { v: r.name, s: { font: font('1F2937', true) } },
+        { v: r.aki, s: { font: font('047857', true) } },
+        { v: r.monthly, s: { font: font('1D4ED8', true) } },
+        { v: r.total, s: { font: font('7C3AED', true) } },
+      ]),
+      [
+        { v: 'Total (' + data.length + ')', s: { font: font('1F2937', true), fill: fGrey } },
+        { v: data.reduce((a, r) => a + r.aki, 0), s: { font: font('047857', true), fill: fGrey } },
+        { v: data.reduce((a, r) => a + r.monthly, 0), s: { font: font('1D4ED8', true), fill: fGrey } },
+        { v: data.reduce((a, r) => a + r.total, 0), s: { font: font('7C3AED', true), fill: fGrey } },
+      ],
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    ws['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 16 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Incentives')
+    XLSX.writeFile(wb, 'eligible-incentives.xlsx')
+  }, [rows])
+
   const closeModal = useCallback(() => {
     setModalRow(null)
     setAttendance(null)
@@ -359,6 +409,12 @@ export default function App() {
     ...(podium.length > 2 ? [podium[2]] : []),
   ]
 
+  const eligible = rows
+    ? rows.filter(r => r.eligibleMonthly).sort((a, b) => (b.incentiveTotal || 0) - (a.incentiveTotal || 0))
+    : []
+  const sumEligibleIncentive = eligible.reduce((a, r) => a + (r.incentiveTotal || 0), 0)
+  const sumEligibleAki = eligible.reduce((a, r) => a + (r.akiPayout || 0), 0)
+
   const sumSalary = filtered.reduce((a, r) => a + r.calcSalary, 0)
   const sumMonthly = filtered.reduce((a, r) => a + r.monthly10, 0)
   const sumAki = filtered.reduce((a, r) => a + r.totalAki, 0)
@@ -474,6 +530,40 @@ export default function App() {
                 )
               })}
             </div>
+          </section>
+
+          <section className="card">
+            <div className="panel-head">
+              <h2 className="panel-title">Eligible Incentives</h2>
+              <button className="btn-ghost btn-sm" onClick={exportAkiExcel} disabled={busy || !eligible.length}>
+                <span className="material-symbols-outlined">download</span> Export AKI (Excel)
+              </button>
+            </div>
+            <div className="inc-formula">
+              <span className="inc-formula-label">Formula:</span>
+              <span className="inc-f-aki">Total AKI ÷ 2</span>
+              <span className="inc-formula-op">+</span>
+              <span className="inc-f-monthly">10% Incentive</span>
+              <span className="inc-formula-op">=</span>
+              <span className="inc-f-total">Total Incentive</span>
+            </div>
+            {eligible.length === 0 && <div className="note">No employee met the monthly target this month.</div>}
+            {eligible.length > 0 && (
+              <>
+                <div className="inc-list">
+                  {eligible.map((r, i) => (
+                    <div className="inc-row" key={i}>
+                      <span className="inc-name">{r.name}</span>
+                      <span className="inc-amount">{money(r.incentiveTotal)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="inc-total">
+                  <span>Total Incentive ({eligible.length}) &middot; AKI paid {money(sumEligibleAki)}</span>
+                  <span>{money(sumEligibleIncentive)}</span>
+                </div>
+              </>
+            )}
           </section>
 
           <section className="card table-card">
