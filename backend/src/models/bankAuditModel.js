@@ -69,7 +69,7 @@ export const deleteSource = async (id) => {
 export const getEntries = async (filters = {}) => {
   let query = db
     .from('bank_audit_entries')
-    .select('*, bank_audit_sources(name)')
+    .select('*, bank_audit_sources(name), donor_profiles!donor_id(name, mobile_number, email, pan_number, address_1, address_2, city, pin_code)')
     .order('transaction_date', { ascending: false });
 
   if (filters.date_from) query = query.gte('transaction_date', filters.date_from);
