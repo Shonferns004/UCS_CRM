@@ -4,9 +4,8 @@ import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
 import DonorPicker from '../components/DonorPicker';
 import { ModernDateInput } from '../components/ModernDateInput';
+import { ModernMonthDateInput } from '../components/ModernMonthDateInput';
 import { ModernTimeInput } from '../components/ModernTimeInput';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
 
@@ -49,12 +48,12 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
         </div>
         <div><div style={{fontSize:20,fontWeight:700,color:C[i%C.length],lineHeight:1.2}}>{curr(summary[s.name]||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>{s.name}</div></div>
       </div>)}
-      {suspense!=null&&<div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
+      {suspense!=null&&<div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',minWidth:260}}>
         <div style={{width:40,height:40,borderRadius:10,background:'#B5603A18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5603A" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
-        <div><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense Receipts · {suspense.count||0} open</div>
-          {setSuspenseNgo&&<div style={{display:'flex',gap:4,marginTop:8}}>
+        <div style={{flex:1,minWidth:150}}><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense Receipts · {suspense.count||0} open</div>
+          {setSuspenseNgo&&<div style={{display:'flex',gap:4,marginTop:8,flexWrap:'wrap'}}>
             {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['maan','MANN']].map(([v,l])=>
               <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#B5603A':'#FDE7DB',color:suspenseNgo===v?'#fff':'#B5603A',transition:'background .12s'}}>{l}</button>
             )}
@@ -81,30 +80,17 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
       <div style={{display:'flex',gap:8,padding:'10px 14px',flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-          <span style={{fontSize:12,color:'#6b7280'}}>Month</span>
-          <DatePicker
-            selected={selDate?new Date(selDate+'-01T00:00:00'):null}
-            onChange={date=>{const ym=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0'):'';setSelDate(ym);setSelDay('');doLoad(ym,statusTab)}}
-            dateFormat="MMM yyyy"
-            showMonthYearPicker
-            maxDate={new Date()}
-            placeholderText="Pick month..."
-            calendarClassName="bank-audit-cal"
-            customInput={<input style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:120,cursor:'pointer'}}/>}
-          />
-          <span style={{fontSize:12,color:'#6b7280'}}>Date</span>
-          <DatePicker
-            selected={selDay?new Date(selDay+'T00:00:00'):null}
-            onChange={date=>{const d=date?date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'):'';setSelDay(d);setSelDate('');doLoad('',statusTab,d)}}
-            dateFormat="dd MMM"
-            maxDate={new Date()}
-            placeholderText="Pick date..."
-            showMonthDropdown
-            showYearDropdown
-            dropdownMode="select"
-            calendarClassName="bank-audit-cal"
-            portalId="root"
-            customInput={<input style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:130,cursor:'pointer'}}/>}
+          <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
+          <ModernMonthDateInput
+            value={selDay || selDate}
+            max={new Date()}
+            placeholder="Pick month or date..."
+            style={{width:160}}
+            onChange={v=>{
+              if(!v){setSelDate('');setSelDay('');doLoad('',statusTab);return}
+              if(v.length===10){setSelDay(v);setSelDate('');doLoad('',statusTab,v)}
+              else{setSelDate(v);setSelDay('');doLoad(v,statusTab)}
+            }}
           />
           {(selDate||selDay)&&<Btn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch="All Dates" bg="transparent" fg="#6b7280" style={{fontSize:11,padding:'2px 6px'}}/>}
         </div>
@@ -202,7 +188,6 @@ export default function BankAudit({embedded,onSummary}){
 
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
   const fe=e.filter(en=>{
-    if(en.kind==='suspense'&&snf&&en.project_id!==snf)return false;
     if(!nf)return true;
     const src=(en.bank_audit_sources?.name||'').toLowerCase();const rem=(en.remarks||'').toLowerCase();const prj=(en.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k));
   });
@@ -229,24 +214,6 @@ export default function BankAudit({embedded,onSummary}){
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
   return <div>
-    <style>{`
-      .bank-audit-cal{font-family:inherit!important;font-size:13px!important;border:1px solid #e5e7eb!important;border-radius:10px!important;box-shadow:0 4px 20px rgba(0,0,0,.08)!important}
-      .bank-audit-cal .react-datepicker__header{background:#f0fdf4!important;border-bottom:1px solid #dcfce7!important;border-radius:10px 10px 0 0!important;padding-top:10px!important}
-      .bank-audit-cal .react-datepicker__current-month{font-weight:600!important;color:#166534!important;font-size:14px!important}
-      .bank-audit-cal .react-datepicker__day-name{color:#6b7280!important;font-weight:500!important;font-size:11px!important;width:32px!important}
-      .bank-audit-cal .react-datepicker__day{width:32px!important;height:32px!important;line-height:32px!important;border-radius:8px!important;margin:1px!important;color:#374151!important}
-      .bank-audit-cal .react-datepicker__day:hover{background:#dcfce7!important;border-radius:8px!important}
-      .bank-audit-cal .react-datepicker__day--selected,.bank-audit-cal .react-datepicker__day--keyboard-selected{background:#166534!important;color:#fff!important;border-radius:8px!important}
-      .bank-audit-cal .react-datepicker__day--today{font-weight:700!important;color:#166534!important;background:#f0fdf4!important}
-      .bank-audit-cal .react-datepicker__navigation{top:10px!important}
-      .bank-audit-cal .react-datepicker__year-select,.bank-audit-cal .react-datepicker__month-select{padding:2px 6px!important;font-size:13px!important;border:1px solid #d1d5db!important;border-radius:4px!important;background:#fff!important;color:#166534!important;font-weight:600!important;cursor:pointer!important;outline:none!important}
-      .bank-audit-cal .react-datepicker__close-icon::after{background:#9ca3af!important;font-size:14px!important;height:16px!important;width:16px!important}
-      .bank-audit-cal .react-datepicker__triangle{display:none!important}
-      .bank-audit-cal .react-datepicker__time-list-item{font-size:13px!important;padding:6px 12px!important}
-      .bank-audit-cal .react-datepicker__time-list-item--selected{background:#166534!important;color:#fff}
-      .bank-audit-cal .react-datepicker__time-list-item:hover{background:#dcfce7!important}
-      .react-datepicker-popper{z-index:3000!important}
-    `}</style>
     {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense} suspenseNgo={snf} setSuspenseNgo={setSnf}/></div>}
 
     {/* Pending / History sub-tabs */}
