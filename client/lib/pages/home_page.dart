@@ -7,7 +7,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
-import '../services/geofence_service.dart';
 import '../services/remote_config_service.dart';
 import '../widgets/skeleton_loader.dart';
 import '../main.dart';
@@ -29,7 +28,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
-  final GeofenceService _geofence = GeofenceService();
   Timer? _clockTimer;
   Timer? _refreshTimer;
   DateTime _now = DateTime.now();
@@ -71,7 +69,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _fetchStatus();
     });
-    _geofence.addListener(_onGeofenceChange);
     _fetchStatus();
   }
 
@@ -95,7 +92,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _geofence.removeListener(_onGeofenceChange);
     _clockTimer?.cancel();
     _refreshTimer?.cancel();
     _scrollController.dispose();
@@ -171,7 +167,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 : null;
             if (_isPunchedIn && !_isPunchedOut) {
               _updateWorked();
-              _geofence.start();
             }
             if (_isPunchedOut && _punchInTime != null && _punchOutTime != null) {
               final diff = _punchOutTime!.difference(_punchInTime!);
@@ -321,7 +316,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         _updateWorked();
       });
       _cacheTodayState(now.toIso8601String(), null);
-      _geofence.start();
       if (mounted) {
         HapticFeedback.vibrate();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -378,7 +372,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         _updateWorked();
       });
       _cacheTodayState(_punchInTime?.toIso8601String(), now.toIso8601String());
-      _geofence.stop();
       if (mounted) {
         HapticFeedback.vibrate();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -398,25 +391,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
           ),
         );
       }
-    }
-  }
-
-  void _onGeofenceChange() {
-    if (!mounted) return;
-    if (_geofence.autoPunchedOut) {
-      _geofence.resetAutoPunchedOut();
-      _fetchStatus();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Auto punch-out: you were outside the work area for over 4 hours.'),
-            backgroundColor: Color(0xFFd97706),
-            duration: Duration(seconds: 5),
-          ),
-        );
-      }
-    } else {
-      setState(() {});
     }
   }
 
@@ -744,34 +718,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ],
                       ),
                     ),
-                    if (_geofence.isOutside) ...[
-                      SizedBox(height: Responsive.pad(context, 12)),
-                      Container(
-                        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 10)),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFf59e0b).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFf59e0b).withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(LucideIcons.triangleAlert, size: Responsive.sp(context, 18), color: Color(0xFFd97706)),
-                            SizedBox(width: Responsive.pad(context, 8)),
-                            Text(
-                              _geofence.remainingHours != null
-                                  ? 'Outside work area · ${_geofence.remainingHours!.toStringAsFixed(1)}h until auto punch-out'
-                                  : 'Outside work area',
-                              style: GoogleFonts.manrope(
-                                fontSize: Responsive.sp(context, 13), fontWeight: FontWeight.w600,
-                                color: const Color(0xFF92400e),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                      SizedBox(height: Responsive.pad(context, 40)),
+                    SizedBox(height: Responsive.pad(context, 40)),
                     if (_isPunchedOut)
                       Column(
                         children: [

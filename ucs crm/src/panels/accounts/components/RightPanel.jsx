@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-export default function RightPanel({ open, onClose, title, subtitle, width = 460, topOffset = 56, accent = 'var(--sage)', children }) {
+export default function RightPanel({ open, onClose, title, subtitle, width = 460, topOffset = 72, accent = 'var(--sage)', children }) {
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -15,7 +15,7 @@ export default function RightPanel({ open, onClose, title, subtitle, width = 460
   if (!open) return null;
 
   return (
-    <div ref={panelRef} style={{ position: 'fixed', top: topOffset, right: 0, width, maxWidth: '100vw', height: `calc(100vh - ${topOffset}px)`, background: 'var(--card-bg)', borderTopLeftRadius: 16, borderBottomLeftRadius: 16, boxShadow: '-14px 0 40px rgba(15,23,42,.18)', display: 'flex', flexDirection: 'column', zIndex: 1000, overflow: 'hidden', animation: 'rp-slide .28s cubic-bezier(.22,1,.36,1) both' }}>
+    <div ref={panelRef} style={{ position: 'fixed', top: topOffset, right: 0, width, maxWidth: '100vw', height: `calc(100vh - ${topOffset}px)`, background: 'var(--card-bg)', borderTopLeftRadius: 0, borderBottomLeftRadius: 0, boxShadow: '-14px 0 40px rgba(15,23,42,.18)', display: 'flex', flexDirection: 'column', zIndex: 1000, overflow: 'hidden', animation: 'rp-slide .28s cubic-bezier(.22,1,.36,1) both' }}>
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px 14px 20px', borderBottom: '1px solid var(--line)', background: '#fff', flexShrink: 0 }}>
         <div style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 4, borderRadius: 4, background: accent }} />
         <div style={{ minWidth: 0 }}>
