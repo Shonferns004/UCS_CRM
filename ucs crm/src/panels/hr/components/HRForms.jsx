@@ -335,7 +335,7 @@ export default function HRForms() {
         <div className="card">
           <div className="card-head">
             <h3>HR Forms</h3>
-            <span className="sub">Employee onboarding forms</span>
+            <span className="sub">Volunteer onboarding forms</span>
           </div>
           <div className="card-pad">
             <div style={{ marginBottom: 20 }}>
@@ -460,7 +460,7 @@ export default function HRForms() {
               )}
               {!loading && filtered.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 0', color: 'var(--ink-soft)' }}>
-                  No employees found
+                  No volunteers found
                 </div>
               )}
             </div>
@@ -475,7 +475,7 @@ export default function HRForms() {
             <button className="btn" onClick={handleBack} style={{ fontSize: 13 }}>
               ← Back
             </button>
-            <h3 style={{ margin: 0 }}>Employee Form Preview</h3>
+            <h3 style={{ margin: 0 }}>Volunteer Form Preview</h3>
             <button className="btn" onClick={save} disabled={saving} style={{ fontSize: 13, marginLeft: 'auto', background: 'var(--sage)', color: '#fff' }}>
               {saving ? 'Saving...' : 'Save Changes'}
             </button>

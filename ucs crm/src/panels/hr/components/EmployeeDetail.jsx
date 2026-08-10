@@ -229,7 +229,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const setBool = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.checked }));
 
   if (loading) return <SkeletonDetail onBack={onBack} />;
-  if (!data) return <div className="empty">Employee not found.</div>;
+  if (!data) return <div className="empty">Volunteer not found.</div>;
 
   const color = avatarColor(data.name);
 
@@ -514,8 +514,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
         <button className="btn back-btn" onClick={onBack} style={{ marginBottom:0 }}><ArrowLeft width={16}/> Back to </button>
         {!editing ? (
           <div style={{ display:'flex', gap:4 }}>
-            <button className="btn btn-icon" onClick={startEdit} title="Edit Employee"><Pencil width={16} /></button>
-            <button className="btn btn-icon" onClick={handleDelete} title="Delete Employee" style={{ color:'var(--danger)' }}><Trash width={16} /></button>
+            <button className="btn btn-icon" onClick={startEdit} title="Edit Volunteer"><Pencil width={16} /></button>
+            <button className="btn btn-icon" onClick={handleDelete} title="Delete Volunteer" style={{ color:'var(--danger)' }}><Trash width={16} /></button>
           </div>
         ) : (
           <div style={{ display:'flex', gap:8 }}>
