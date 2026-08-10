@@ -287,6 +287,7 @@ export default function BankAudit({embedded,onSummary}){
                 className="field-input"
                 wrapperStyle={{width:'100%'}}
                 calendarClassName="bank-audit-cal"
+                withPortal
                 customInput={<input style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none',boxSizing:'border-box'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>}
               />
             </label>
