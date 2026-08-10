@@ -444,7 +444,7 @@ export default function BankAudit({embedded,onSummary}){
         {dt.kind==='suspense'
           ? <>
               <div style={{display:'flex',gap:10}}>
-                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openEdit(dt)}>{'\u270E'} Edit</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openE(dt)}>{'\u270E'} Edit</button>
                 <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt);setDt(null)}}>{'\u2715'} Delete</button>
               </div>
             </>
@@ -454,7 +454,7 @@ export default function BankAudit({embedded,onSummary}){
                 <button className="btn btn-sm" style={{flex:1,background:'#f3f4f6',color:'#6b7280',border:'none'}} disabled={cm} onClick={()=>clearMatch(dt)}>Clear</button>
               </div>}
               <div style={{display:'flex',gap:10}}>
-                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openEdit(dt)}>{'\u270E'} Edit</button>
+                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openE(dt)}>{'\u270E'} Edit</button>
                 <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt);setDt(null)}}>{'\u2715'} Delete</button>
               </div>
             </>}
