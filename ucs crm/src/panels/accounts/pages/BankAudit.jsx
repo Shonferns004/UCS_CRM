@@ -18,6 +18,13 @@ function currentMonthIST(){
   const d=new Date(Date.now()+5.5*60*60*1000);
   return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0');
 }
+const fmtTime = t => {
+  if (!t) return '';
+  const [h, m] = String(t).split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return t;
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
+};
 function monthBounds(ym){
   const [y,m]=ym.split('-').map(Number);
   const last=new Date(Date.UTC(y,m,0)).getUTCDate();
@@ -108,7 +115,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : pageItems.map((e,idx)=>
         <div key={e.id||idx} className="entry-card" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',background:e.kind==='suspense'?'#fffaf5':undefined,cursor:'pointer'}} onClick={()=>onOpen(e)}>
           <div style={{minWidth:96}}>
-            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}{e.payment_time?<span style={{fontSize:10,color:'#9ca3af',fontWeight:500,marginLeft:6}}>{e.payment_time}</span>:null}</div>
+            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}{e.payment_time?<span style={{fontSize:10,color:'#9ca3af',fontWeight:500,marginLeft:6}}>{fmtTime(e.payment_time)}</span>:null}</div>
             <div style={{marginTop:2,minHeight:12,display:'flex',alignItems:'center',gap:4}}>
               {e.receipt_no
                 ? <><span style={{fontFamily:'monospace',fontSize:10,color:e.kind==='suspense'?'#B5603A':'var(--sage)'}}>#{e.receipt_no}</span>
