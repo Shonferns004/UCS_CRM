@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getDashboard, getAccountsLeads, getRecruiterLeads, getWorkers, getAttendance, getHolidays, getUsers, getNgoAdminTargets, setNgoAdminTarget, getLeaves, getAllTickets, getEvents, getSuperAdminAlerts } from '../api/endpoints'
 import { api } from '../api/auth'
+import { useRealtime } from '../../../hooks/useRealtime'
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar, LineChart, Line, CartesianGrid, Legend } from 'recharts'
 import { fmt, STATUS_META, StatBox } from '../components/froShared'
 import { FroMiniCard } from '../components/FroMiniCard'
@@ -427,8 +428,6 @@ function PanelSummaryModal({ panel, onClose, dashboardData }) {
 
   useEffect(() => {
     fetchData()
-    timer.current = setInterval(fetchData, 30000)
-    return () => clearInterval(timer.current)
   }, [fetchData])
 
   const labels = {
@@ -1216,8 +1215,6 @@ export default function Dashboard() {
   useEffect(() => {
     setLoading(true)
     fetchDashboard().finally(() => setLoading(false))
-    const t = setInterval(() => fetchDashboard(), 30000)
-    return () => clearInterval(t)
   }, [fetchDashboard])
 
   /* Attendance heatmap data — independent 60s poll */
@@ -1235,8 +1232,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchAttendanceHeatmap()
-    const t = setInterval(fetchAttendanceHeatmap, 60000)
-    return () => clearInterval(t)
   }, [fetchAttendanceHeatmap])
 
   /* FRO live data on dashboard — independent 30s poll */
@@ -1246,8 +1241,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchFroLiveInline()
-    const t = setInterval(fetchFroLiveInline, 30000)
-    return () => clearInterval(t)
   }, [fetchFroLiveInline])
 
   /* Top Performers — independent period fetch */
@@ -1294,8 +1287,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchActionCenter()
-    const t = setInterval(fetchActionCenter, 30000)
-    return () => clearInterval(t)
   }, [fetchActionCenter])
 
   /* Risk & Alerts — independent 60s poll */
@@ -1307,9 +1298,45 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchAlerts()
-    const t = setInterval(fetchAlerts, 60000)
-    return () => clearInterval(t)
   }, [fetchAlerts])
+
+  /* Realtime refresh — debounced to coalesce bursts */
+  const dashTimers = useRef({})
+  const debounce = useCallback((key, fn, ms = 1200) => {
+    if (dashTimers.current[key]) clearTimeout(dashTimers.current[key])
+    dashTimers.current[key] = setTimeout(() => { delete dashTimers.current[key]; fn() }, ms)
+  }, [])
+  useEffect(() => () => { Object.values(dashTimers.current).forEach(clearTimeout) }, [])
+
+  const refreshAggregates = useCallback(() => {
+    debounce('agg', () => {
+      fetchDashboard()
+      fetchData()
+      fetchActionCenter()
+      fetchAlerts()
+    })
+  }, [debounce, fetchDashboard, fetchData, fetchActionCenter, fetchAlerts])
+
+  const refreshHeatmap = useCallback(() => {
+    debounce('heat', fetchAttendanceHeatmap)
+  }, [debounce, fetchAttendanceHeatmap])
+
+  const refreshFroInline = useCallback(() => {
+    debounce('fro', () => {
+      fetchFroLiveInline()
+      fetchDashboard()
+      fetchData()
+    })
+  }, [debounce, fetchFroLiveInline, fetchDashboard, fetchData])
+
+  useRealtime('leads', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
+  useRealtime('workers', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
+  useRealtime('attendance', { event: '*', onInsert: refreshHeatmap, onUpdate: refreshHeatmap, onDelete: refreshHeatmap })
+  useRealtime('holidays', { event: '*', onInsert: refreshHeatmap, onUpdate: refreshHeatmap, onDelete: refreshHeatmap })
+  useRealtime('events', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
+  useRealtime('leaves', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
+  useRealtime('attendance_corrections', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
+  useRealtime('fro_live_status', { event: '*', onInsert: refreshFroInline, onUpdate: refreshFroInline, onDelete: refreshFroInline })
 
   if (err) return <div className="sa-err-card">Error: {err}</div>
   if (!data) return (

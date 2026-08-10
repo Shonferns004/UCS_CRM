@@ -57,7 +57,6 @@ function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
   const notifRef = useRef(null)
-  const pollRef = useRef(null)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('recruiter_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
   useEffect(() => {
@@ -92,8 +91,6 @@ function AppShell() {
   useEffect(() => {
     loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadNotifications(), 30000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('notification_log', {

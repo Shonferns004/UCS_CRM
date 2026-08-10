@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { getRejectedLeads, getDonorDetail, addDonorLog, uploadPaymentScreenshot } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { api } from '../../../api/auth';
@@ -11,7 +11,6 @@ export default function RejectedLeads() {
   const [loading, setLoading] = useState(true);
   const [modalDonor, setModalDonor] = useState(null);
   const [modalNotifId, setModalNotifId] = useState(null);
-  const intervalRef = useRef(null);
 
   const load = (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -23,8 +22,6 @@ export default function RejectedLeads() {
 
   useEffect(() => {
     load(true);
-    intervalRef.current = setInterval(() => load(false), 30000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
   useRealtime('rejected_lead_tickets', {
