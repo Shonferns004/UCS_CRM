@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
+import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
   batchCreateAssignments,
@@ -688,10 +689,10 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const { data: receipts, error } = await db
       .from('receipts')
-      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, created_at')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, created_at')
       .is('donor_id', null)
       .is('log_id', null)
-      .eq('agent_name', 'Suspense')
+      .or('agent_name.is.null,agent_name.eq.Suspense')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
@@ -725,6 +726,7 @@ export const getSuspenseReceipts = async (req, res) => {
       donor_mobile: r.donor_mobile,
       amount: parseFloat(r.amount || 0),
       receipt_date: r.receipt_date,
+      receipt_time: r.receipt_time,
       project_id: r.project_id,
       claim_count: claimCountByReceipt[r.id] || 0,
       my_claim_status: myClaimStatusByReceipt[r.id] || null,
@@ -795,6 +797,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           });
         }
       } catch (e) { console.error('Claim notification error:', e.message); }
+      findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
       return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
     }
 
@@ -852,6 +855,8 @@ export const claimSuspenseReceipt = async (req, res) => {
         });
       }
     } catch (e) { console.error('Claim notification error:', e.message); }
+
+    findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
 
     return res.status(201).json({ message: 'Claim submitted; it is now pending in Lead Verification', log_id: log.id });
   } catch (error) {

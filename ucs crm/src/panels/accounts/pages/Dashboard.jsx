@@ -242,7 +242,7 @@ export default function Dashboard({ embedded, onStats }) {
                  l.accounts_status === 'rejected' ? <span className="pill pill-red" style={{ fontSize: 9 }} title={l.rejection_reason || ''}>Rejected</span> :
                  <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.accounts_status || '\u2014'}</span>}
                  <span className="pill pill-gray" style={{ fontSize: 10 }}>{({ bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
-                {l.claimed_receipt && <span className="pill" style={{ fontSize: 9, background: '#FDE7DB', color: '#B5603A' }}>Claimed</span>}
+                {l.claimed_receipt && <span className="pill" style={{ fontSize: 9, background: '#FDE7DB', color: '#B5603A' }}>Claimant · {l.agent_name || 'Unknown'}</span>}
                 <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.agent_name || 'No agent'}</span>
                 <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c4c9d0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>

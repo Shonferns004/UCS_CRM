@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
@@ -16,7 +16,7 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' };
-const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:''};
+const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',_lead_amount:null};
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
@@ -79,6 +79,66 @@ function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18p
 
 function Btn({s,on,ch,dis,ic,fg='#fff',bg='var(--sage)'}){return <button className="btn btn-sm" onClick={on} disabled={dis} style={{background:bg,color:fg,border:'none',display:'inline-flex',alignItems:'center',gap:4,fontSize:12,opacity:dis?.5:1}}>{ic}{ch}</button>}
 
+// ─── Lead (Log) Picker ────────────────────────────────────
+function LeadPicker({ value, locked, onPick, onClear }){
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState('');
+  const [leads,setLeads]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState('');
+  const boxRef=useRef(null);
+
+  const search=useCallback((term)=>{
+    setLoading(true);setErr('');
+    apiGet('/accounts/bank-audit/leads'+(term?'?q='+encodeURIComponent(term):''))
+      .then(setLeads)
+      .catch(e=>{setErr(e.message||'Failed to load leads');setLeads([])})
+      .finally(()=>setLoading(false));
+  },[]);
+
+  useEffect(()=>{
+    if(!open||locked)return;
+    const t=setTimeout(()=>search(q),250);
+    return ()=>clearTimeout(t);
+  },[open,locked,q,search]);
+
+  useEffect(()=>{
+    const onDoc=(ev)=>{if(boxRef.current&&!boxRef.current.contains(ev.target))setOpen(false)};
+    document.addEventListener('mousedown',onDoc);
+    return ()=>document.removeEventListener('mousedown',onDoc);
+  },[]);
+
+  if(value){
+    return <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px',borderRadius:8,border:'1.5px solid #d1d5db',background:'#f3f4f6',fontSize:12,color:'#374151',minWidth:0}}>
+      <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{locked?`Linked to Lead #${value}`:`Lead #${value}`}</span>
+      {locked?<span style={{color:'#9ca3af',flexShrink:0}}>· locked</span>:<button type="button" onClick={onClear} style={{marginLeft:'auto',flexShrink:0,border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11}}>Clear</button>}
+    </div>;
+  }
+
+  return <div ref={boxRef} style={{position:'relative'}}>
+    <input className="field-input" placeholder="Search pending lead (donor / mobile / FRO)..." value={q}
+      onChange={e=>{setQ(e.target.value);setOpen(true)}}
+      onFocus={()=>setOpen(true)}
+      style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box'}}/>
+    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:260,overflowY:'auto'}}>
+      {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>Searching...</div>
+        :err?<div style={{padding:14,fontSize:12,color:'#dc2626'}}>{err}</div>
+        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No unclaimed pending leads found</div>
+        :leads.map(l=><button key={l.log_id} type="button" onClick={()=>{onPick(l);setOpen(false);setQ('')}}
+          style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
+          onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
+            <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.donor_name||'Unknown'}</span>
+            <span style={{fontWeight:700,color:'var(--sage)',whiteSpace:'nowrap'}}>{curr(l.amount||0)}</span>
+          </div>
+          <div style={{color:'#6b7280',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            {l.donor_mobile||'\u2014'} · {l.agent_name||'No FRO'} · #{l.log_id}
+          </div>
+        </button>)}
+    </div>}
+  </div>;
+}
+
 // ─── Audit Stat Cards ──────────────────────────────────────
 export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null}){
   return <div className="stats-grid">
@@ -93,7 +153,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
         <div style={{width:40,height:40,borderRadius:10,background:'#B5603A18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5603A" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
-        <div style={{flex:1,minWidth:150}}><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense Receipts · {suspense.count||0} open</div>
+        <div style={{flex:1,minWidth:150}}><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense · {suspense.count||0} open</div>
           {setSuspenseNgo&&<div style={{display:'flex',gap:4,marginTop:8,flexWrap:'wrap'}}>
             {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['maan','MANN']].map(([v,l])=>
               <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#B5603A':'#FDE7DB',color:suspenseNgo===v?'#fff':'#B5603A',transition:'background .12s'}}>{l}</button>
@@ -163,7 +223,8 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : pageItems.map((e,idx)=>
         <div key={e.id||idx} className="entry-card" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',background:e.kind==='suspense'?'#fffaf5':undefined,cursor:'pointer'}} onClick={()=>onOpen(e)}>
           <div style={{minWidth:96}}>
-            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}{e.payment_time?<span style={{fontSize:10,color:'#9ca3af',fontWeight:500,marginLeft:6}}>{fmtTime(e.payment_time)}</span>:null}</div>
+            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}</div>
+            {e.payment_time && <div style={{fontSize:10,color:'#9ca3af',fontWeight:500}}>{fmtTime(e.payment_time)}</div>}
             <div style={{marginTop:2,minHeight:12,display:'flex',alignItems:'center',gap:4}}>
               {e.receipt_no
                 ? <><span style={{fontFamily:'monospace',fontSize:10,color:e.kind==='suspense'?'#B5603A':'var(--sage)'}}>#{e.receipt_no}</span>
@@ -205,8 +266,11 @@ export default function BankAudit({embedded,onSummary}){
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[dt,setDt]=useState(null);const[cm,setCm]=useState(false);const[am,setAm]=useState(false);const[fd,setFd]=useState(false);
   const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);
+  const[wr,setWr]=useState([]);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
+
+  useEffect(()=>{if((sa||se)&&wr.length===0){apiGet('/workers').then(setWr).catch(()=>{})}},[sa,se,wr.length]);
 
   async function load(dt,stv,day){
     const s=stv||srRef.current;setLd(true);setEr('');
@@ -225,23 +289,22 @@ export default function BankAudit({embedded,onSummary}){
   useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
   useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
 
+  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
+  const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};
+
   const suspense=useMemo(()=>{
-    const rows=e.filter(x=>x.kind==='suspense'&&(!snf||x.project_id===snf));
+    const rows=e.filter(x=>x.kind==='suspense'&&(!snf||matchesNgo(x,snf)));
     return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
   },[e,snf]);
   useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo:snf,setSuspenseNgo:setSnf})},[sr,su,ld,embedded,suspense,snf]);
 
-  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
-  const fe=e.filter(en=>{
-    if(!nf)return true;
-    const src=(en.bank_audit_sources?.name||'').toLowerCase();const rem=(en.remarks||'').toLowerCase();const prj=(en.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k));
-  });
+  const fe=e.filter(en=>!nf||matchesNgo(en,nf));
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
-  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{
     if(se.kind==='suspense'){
-      await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.payer_name||null,donor_mobile:se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct'});
+      await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.payer_name||null,donor_mobile:fm.donor_mobile||se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct',agent_name:fm.agent_name,log_id:fm.log_id||null});
     }else{
       await apiPut('/accounts/bank-audit/entries/'+se.id,fm);
     }
@@ -252,7 +315,9 @@ export default function BankAudit({embedded,onSummary}){
     setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
-  const openE=(entry)=>{if(entry.kind==='suspense'){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',project_id:entry.project_id||'bsct'});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||''});setSe(entry)};
+  const openE=(entry)=>{if(entry.kind==='suspense'){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:entry.agent_name||'',log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:entry.agent_name||'',log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry)};
+  const pickLead=(l)=>{setFm(p=>({...p,log_id:l.log_id,donor_id:l.donor_id||'',payer_name:l.donor_name||p.payer_name,donor_mobile:l.donor_mobile||p.donor_mobile,donor_email:l.donor_email||p.donor_email,donor_pan:l.donor_pan||p.donor_pan,donor_address_1:l.donor_address_1||p.donor_address_1,donor_address_2:l.donor_address_2||p.donor_address_2,donor_city:l.donor_city||p.donor_city,donor_pin_code:l.donor_pin_code||p.donor_pin_code,project_id:l.donor_project||p.project_id,agent_name:l.agent_name||p.agent_name,_lead_amount:Number(l.amount||0)}));setFd(true)};
+  const clearLead=()=>setFm(p=>({...p,log_id:'',donor_id:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',_lead_amount:null}));
   const confirmMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/confirm-match');setDt(null);setTo({msg:'Match confirmed and credited',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setDt(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
@@ -343,6 +408,28 @@ export default function BankAudit({embedded,onSummary}){
               <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
             </label>
           </div>
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Agent & Lead Link</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+              <select className="field-input" value={fm.agent_name||''} onChange={e=>setFm(p=>({...p,agent_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',outline:'none'}}>
+                <option value="">None</option>
+                {wr.map(w=><option key={w.id} value={w.name}>{w.name}{w.login_id?` (${w.login_id})`:''}</option>)}
+              </select>
+            </label>
+            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+              <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+              <LeadPicker value={fm.log_id} locked={!!(se&&se.kind!=='suspense'&&se.log_id)} onPick={pickLead} onClear={clearLead}/>
+            </label>
+          </div>
+          {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
+            <div style={{marginTop:10,padding:'8px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
+              <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
+            </div>}
         </div>
 
         <div style={{marginBottom:16}}>
@@ -450,7 +537,7 @@ export default function BankAudit({embedded,onSummary}){
     </div></div>}
 
     {/* Entry Detail Drawer */}
-    {dt&&<RightPanel open={!!dt} onClose={()=>setDt(null)} title={dt.kind==='suspense'?'Suspense Receipt':'Entry Details'} subtitle={dt.transaction_date||''} accent={dt.kind==='suspense'?'#B5603A':'var(--sage)'}>
+    {dt&&<RightPanel open={!!dt} onClose={()=>setDt(null)} topOffset={72} title={dt.kind==='suspense'?'Suspense Receipt':'Entry Details'} subtitle={dt.transaction_date||''} accent={dt.kind==='suspense'?'#B5603A':'var(--sage)'}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
         <div style={{fontSize:24,fontWeight:700,color:dt.kind==='suspense'?'#B5603A':'var(--sage)'}}>{curr(dt.amount)}</div>
         {dt.kind==='suspense'
