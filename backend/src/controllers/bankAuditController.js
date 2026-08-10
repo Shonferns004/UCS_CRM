@@ -136,6 +136,7 @@ export const addEntry = async (req, res) => {
       project_id: ngo,
       donor_name: payer_name || 'Unknown',
       agent_name: 'Suspense',
+      donor_mobile: req.body.donor_mobile || null,
       amount,
       payment_id: payment_id || null,
       receipt_date: transaction_date,
@@ -154,6 +155,13 @@ export const addEntry = async (req, res) => {
       payer_name: payer_name || null,
       payment_time: payment_time || null,
       project_id: ngo,
+      donor_mobile: req.body.donor_mobile || null,
+      donor_email: req.body.donor_email || null,
+      donor_pan: req.body.donor_pan || null,
+      donor_address_1: req.body.donor_address_1 || null,
+      donor_address_2: req.body.donor_address_2 || null,
+      donor_city: req.body.donor_city || null,
+      donor_pin_code: req.body.donor_pin_code || null,
       created_by: req.user.id,
       receipt_no: receiptNo,
       receipt_id: receipt.id,
@@ -180,6 +188,9 @@ export const editEntry = async (req, res) => {
     if (payer_name !== undefined) updates.payer_name = payer_name;
     if (payment_time !== undefined) updates.payment_time = payment_time;
     if (project_id !== undefined) updates.project_id = project_id;
+    for (const f of ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code']) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f] || null;
+    }
     const entry = await BankAudit.updateEntry(id, updates);
     return res.json(entry);
   } catch (error) {
