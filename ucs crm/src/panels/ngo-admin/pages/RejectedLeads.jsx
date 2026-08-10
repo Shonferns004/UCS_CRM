@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { apiGet, apiPut } from '../api/auth';
 import { toast } from '../../../components/Toast';
+import { useRealtime } from '../../../hooks/useRealtime';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
 export default function RejectedLeads() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const intervalRef = useRef(null);
   const [selectedNgoId, setSelectedNgoId] = useState('all');
   const [accessibleNgos, setAccessibleNgos] = useState([]);
 
@@ -26,8 +26,12 @@ export default function RejectedLeads() {
 
   useEffect(() => {
     load(true);
-    intervalRef.current = setInterval(() => load(false), 30000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    return useRealtime('rejected_lead_tickets', {
+      event: '*',
+      onInsert: () => load(false),
+      onUpdate: () => load(false),
+      onDelete: () => load(false),
+    });
   }, [selectedNgoId]);
 
   const ack = async (id) => {
