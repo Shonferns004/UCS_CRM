@@ -202,6 +202,110 @@ export const getDonors = async (req, res) => {
   }
 };
 
+export const getDonorCreditLogs = async (req, res) => {
+  try {
+    const { donorId } = req.params;
+    const numId = parseInt(donorId, 10);
+    let donor;
+    if (!isNaN(numId)) {
+      const { data } = await db.from('donor_profiles').select('id').eq('id', numId).maybeSingle();
+      donor = data;
+    }
+    if (!donor) {
+      const { data } = await db.from('donor_profiles').select('id').eq('mobile_number', donorId).maybeSingle();
+      donor = data;
+    }
+    if (!donor) return res.json([]);
+
+    const { data, error } = await db
+      .from('fro_donor_logs')
+      .select(`
+        id, amount_collected, action, disposition_detail, accounts_status,
+        created_at, fro_worker_id, assignment_id,
+        workers!fro_donor_logs_fro_worker_id_fkey(id, name),
+        fro_assignments(ngo_id, station)
+      `)
+      .eq('donor_id', donor.id)
+      .gt('amount_collected', 0)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    return res.json((data || []).map(l => ({
+      id: l.id,
+      amount: Number(l.amount_collected) || 0,
+      collected_at: l.created_at,
+      collector_name: l.workers?.name || 'Unknown',
+      fro_worker_id: l.fro_worker_id,
+      accounts_status: l.accounts_status,
+      action: l.action,
+      disposition_detail: l.disposition_detail,
+      assignment_id: l.assignment_id,
+      ngo_id: l.fro_assignments?.ngo_id || null,
+      station: l.fro_assignments?.station || null,
+    })));
+  } catch (error) {
+    console.error('getDonorCreditLogs error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const transferDonorCredit = async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { target_fro_worker_id } = req.body || {};
+    if (!target_fro_worker_id) {
+      return res.status(400).json({ message: 'target_fro_worker_id is required' });
+    }
+
+    const targetId = parseInt(target_fro_worker_id, 10);
+    if (isNaN(targetId)) {
+      return res.status(400).json({ message: 'Invalid target FRO' });
+    }
+
+    let target;
+    try {
+      target = await getWorkerById(targetId);
+    } catch (e) {
+      return res.status(400).json({ message: 'Target FRO worker not found' });
+    }
+
+    const numLogId = parseInt(logId, 10);
+    if (isNaN(numLogId)) {
+      return res.status(400).json({ message: 'Invalid log id' });
+    }
+
+    const { data: log, error: logErr } = await db
+      .from('fro_donor_logs')
+      .select('id, donor_id, fro_worker_id, amount_collected')
+      .eq('id', numLogId)
+      .maybeSingle();
+    if (logErr) throw logErr;
+    if (!log) return res.status(404).json({ message: 'Credit log not found' });
+    if (!log.amount_collected || Number(log.amount_collected) <= 0) {
+      return res.status(400).json({ message: 'This log has no collectible credit' });
+    }
+    if (log.fro_worker_id === targetId) {
+      return res.status(409).json({ message: 'Credit already belongs to this FRO' });
+    }
+
+    const { error: updErr } = await db
+      .from('fro_donor_logs')
+      .update({ fro_worker_id: targetId })
+      .eq('id', numLogId);
+    if (updErr) throw updErr;
+
+    return res.json({
+      message: `Credit of ₹${Number(log.amount_collected).toLocaleString('en-IN')} moved to ${target.name || 'the selected FRO'}`,
+      log_id: numLogId,
+      amount_moved: Number(log.amount_collected),
+      target_fro_worker_id: targetId,
+    });
+  } catch (error) {
+    console.error('transferDonorCredit error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorDetail = async (req, res) => {
   try {
     const { mobile } = req.params;

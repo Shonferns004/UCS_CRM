@@ -213,6 +213,61 @@ export const removeEntry = async (req, res) => {
   }
 };
 
+export const editSuspenseReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { donor_name, donor_mobile, amount, receipt_date, payment_id, project_id } = req.body;
+    const numId = parseInt(id, 10);
+    if (isNaN(numId)) return res.status(400).json({ message: 'Invalid suspense receipt id' });
+
+    const updates = {};
+    if (donor_name !== undefined) updates.donor_name = donor_name;
+    if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile;
+    if (amount !== undefined) updates.amount = amount;
+    if (receipt_date !== undefined) updates.receipt_date = receipt_date;
+    if (payment_id !== undefined) updates.payment_id = payment_id;
+    if (project_id !== undefined) updates.project_id = project_id;
+
+    const { data, error } = await db
+      .from('receipts')
+      .update(updates)
+      .eq('id', numId)
+      .is('donor_id', null)
+      .eq('agent_name', 'Suspense')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, payment_id, project_id, created_at')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ message: 'Suspense receipt not found' });
+
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const removeSuspenseReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const numId = parseInt(id, 10);
+    if (isNaN(numId)) return res.status(400).json({ message: 'Invalid suspense receipt id' });
+
+    const { data: existing } = await db
+      .from('receipts')
+      .select('id')
+      .eq('id', numId)
+      .is('donor_id', null)
+      .eq('agent_name', 'Suspense')
+      .maybeSingle();
+    if (!existing) return res.status(404).json({ message: 'Suspense receipt not found' });
+
+    const { error } = await db.from('receipts').delete().eq('id', numId);
+    if (error) throw error;
+    return res.json({ message: 'Suspense receipt deleted' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getSummary = async (req, res) => {
   try {
     const { date_from, date_to, status } = req.query;
