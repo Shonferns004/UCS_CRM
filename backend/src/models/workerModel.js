@@ -53,8 +53,16 @@ export const getWorkerById = async (id) => {
     .from('workers')
     .select('*')
     .eq('id', id)
-    .single();
-  if (error) throw error;
+    .order('is_active', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error && error.code !== 'PGRST116') throw error;
+  if (!data) {
+    const missing = new Error('JSON object requested, multiple (or no) rows returned');
+    missing.code = 'PGRST116';
+    throw missing;
+  }
   return data;
 };
 
@@ -84,6 +92,18 @@ export const getWorkerByLoginId = async (login_id) => {
     .single();
   if (error && error.code !== 'PGRST116') throw error;
   return data;
+};
+
+// Resolve the worker backing a token. Prefer the exact login_id row (the one
+// the user logged in with) so FRO dashboards use the correct worker even if
+// the workers table has duplicate id rows; fall back to id lookup.
+export const getWorkerBySession = async (user) => {
+  if (user && user.login_id) {
+    const byLogin = await getWorkerByLoginId(user.login_id);
+    if (byLogin) return byLogin;
+  }
+  if (user && user.id != null) return getWorkerById(user.id);
+  return null;
 };
 
 export const updateWorker = async (id, updates) => {

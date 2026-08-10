@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { getWorkerById } from '../models/workerModel.js';
+import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
   batchCreateAssignments,
@@ -342,7 +342,7 @@ export const getDashboard = async (req, res) => {
 
     const stats = await getDashboardStats(workerId);
     stats.total = totalDonors;
-    const worker = await getWorkerById(workerId);
+    const worker = await getWorkerBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Worker not found' });
     const salary = await getActiveSalaryByWorker(workerId);
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
@@ -1841,7 +1841,7 @@ export const scheduleContact = async (req, res) => {
 export const getMyTarget = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const worker = await getWorkerById(workerId);
+    const worker = await getWorkerBySession(req.user);
     if (!worker) return res.status(404).json({ message: 'Worker not found' });
     const salary = await getActiveSalaryByWorker(workerId);
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
