@@ -4,8 +4,9 @@ import {
   listSources, addSource, editSource, removeSource,
   listEntries, addEntry, editEntry, removeEntry, getSummary,
   suggestEntries, markEntryVerified,
-  assignEntryToNgo, listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched,
+  listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched,
   listFroSuspense, resolveSuspenseEntry,
+  runAutoMatch, confirmMatch, clearMatch,
 } from '../controllers/bankAuditController.js';
 
 const router = Router();
@@ -23,7 +24,10 @@ router.delete('/entries/:id', authenticateRole('accounts', 'super_admin'), remov
 
 router.get('/entries/suggest', authenticateRole('accounts', 'super_admin'), suggestEntries);
 router.put('/entries/:id/verify', authenticateRole('accounts', 'super_admin'), markEntryVerified);
-router.put('/entries/:id/assign-ngo', authenticateRole('accounts', 'super_admin'), assignEntryToNgo);
+
+router.post('/auto-match', authenticateRole('accounts', 'super_admin'), runAutoMatch);
+router.post('/entries/:id/confirm-match', authenticateRole('accounts', 'super_admin'), confirmMatch);
+router.post('/entries/:id/clear-match', authenticateRole('accounts', 'super_admin'), clearMatch);
 
 router.get('/summary', authenticateRole('accounts', 'super_admin'), getSummary);
 
