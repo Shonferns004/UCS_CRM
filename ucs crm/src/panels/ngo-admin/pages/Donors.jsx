@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { apiGet, apiPost } from '../api/auth';
+import { apiGet, apiPost, apiPut } from '../api/auth';
 import { toast } from '../../../components/Toast';
 
 function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
@@ -55,6 +55,99 @@ function AssignModal({ donors, froWorkers, onClose, onAssigned }) {
 
 const PER_PAGE = 50;
 
+function TransferCreditModal({ donor, froWorkers, onClose, onTransferred }) {
+  const [logs, setLogs] = useState([]);
+  const [selectedLog, setSelectedLog] = useState('');
+  const [targetFro, setTargetFro] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [transferring, setTransferring] = useState(false);
+  const [error, setError] = useState('');
+
+  const currency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+  useEffect(() => {
+    apiGet(`/ngo-admin/donors/${donor.id}/credit`).then(setLogs).catch((err) => { console.error('Error:', err.message); setError(err.message); }).finally(() => setLoading(false));
+  }, [donor.id]);
+
+  const handleTransfer = async () => {
+    if (!selectedLog) { setError('Select a lead to transfer'); return; }
+    if (!targetFro) { setError('Select the target FRO'); return; }
+    setTransferring(true); setError('');
+    try {
+      const res = await apiPut(`/ngo-admin/credit-logs/${selectedLog}/transfer`, { target_fro_worker_id: targetFro });
+      toast(res.message || 'Credit transferred', 'success');
+      onTransferred(); onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-head">
+          <h3>Transfer Collected Credit — {donor.name || 'Donor'}</h3>
+          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
+            <span>Mobile: {donor.mobile_number || '—'}</span>
+            <span>·</span>
+            <span>Station: {donor.station || '—'}</span>
+            <span>·</span>
+            <span>Total donated: <b>{currency(donor.amount)}</b></span>
+          </div>
+
+          {error && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 10 }}>{error}</div>}
+
+          <div className="field">
+            <label>Select which lead's credit to move</label>
+            {loading ? (
+              <div className="loading" style={{ padding: '12px 0' }}>Loading credit logs...</div>
+            ) : logs.length === 0 ? (
+              <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collectible credit found for this donor.</div>
+            ) : (
+              <div style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'auto', maxHeight: 220 }}>
+                {logs.map(l => (
+                  <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', fontSize: 12, cursor: 'pointer' }}>
+                    <input type="radio" name="credit-log" value={l.id} checked={selectedLog === String(l.id)} onChange={() => setSelectedLog(String(l.id))} />
+                    <span style={{ fontWeight: 700 }}>{currency(l.amount)}</span>
+                    <span style={{ color: 'var(--ink-soft)' }}>{fmtDate(l.collected_at)}</span>
+                    <span style={{ marginLeft: 'auto', color: 'var(--ink-soft)' }}>Collector: <b style={{ color: 'var(--ink)' }}>{l.collector_name}</b></span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="field">
+            <label>Transfer credit to FRO</label>
+            <select value={targetFro} onChange={e => setTargetFro(e.target.value)}>
+              <option value="">-- Choose FRO --</option>
+              {froWorkers.map(w => (
+                <option key={w.id} value={w.id}>{w.name} ({w.login_id})</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-soft)', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 10px' }}>
+            ⓘ The donor stays with its current FRO/station. Only the selected lead's credit moves to the chosen FRO.
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-outline" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleTransfer} disabled={transferring || loading || !selectedLog || !targetFro}>
+            {transferring ? 'Transferring...' : 'Transfer Credit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Donors({ onSelect }) {
   const [donors, setDonors] = useState([]);
   const [froWorkers, setFroWorkers] = useState([]);
@@ -62,6 +155,7 @@ export default function Donors({ onSelect }) {
   const [stationFilter, setStationFilter] = useState('');
   const [selected, setSelected] = useState(new Set());
   const [showAssign, setShowAssign] = useState(false);
+  const [transferDonor, setTransferDonor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [selectedNgoId, setSelectedNgoId] = useState('all');
@@ -177,6 +271,7 @@ export default function Donors({ onSelect }) {
                   <th>Donations</th>
                   <th>Last</th>
                   <th>Category</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -192,10 +287,13 @@ export default function Donors({ onSelect }) {
                     <td>{d.donation_count || 1}</td>
                     <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.last_donation_date ? new Date(d.last_donation_date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'}</td>
                     <td><span className="pill pill-blue">{d.data_category || d.category || 'General'}</span></td>
+                    <td>
+                      <button className="btn btn-sm btn-outline" onClick={() => setTransferDonor(d)} title="Move a lead's collected credit to another FRO">Transfer Credit</button>
+                    </td>
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={10} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
+                  <tr><td colSpan={11} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
                 )}
               </tbody>
             </table>
@@ -223,6 +321,14 @@ export default function Donors({ onSelect }) {
           froWorkers={froWorkers}
           onClose={() => setShowAssign(false)}
           onAssigned={() => { setShowAssign(false); setSelected(new Set()); load(); }}
+        />
+      )}
+      {transferDonor && (
+        <TransferCreditModal
+          donor={transferDonor}
+          froWorkers={froWorkers}
+          onClose={() => setTransferDonor(null)}
+          onTransferred={() => load()}
         />
       )}
     </div>
