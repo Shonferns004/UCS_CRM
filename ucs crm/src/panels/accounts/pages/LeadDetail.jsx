@@ -71,6 +71,8 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [goBackOpen, setGoBackOpen] = useState(false);
+  const [goBackReason, setGoBackReason] = useState('');
   const [sendingWA, setSendingWA] = useState(false);
   const [waPhone, setWaPhone] = useState('');
   const [waResult, setWaResult] = useState(null);
@@ -167,6 +169,17 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const handleReject = async () => {
     if (!lead||!rejectReason.trim()) return; setRejectOpen(false); setSubmitting(true);
     try { await apiPost(`/accounts/leads/${lead.log_id}/reject`,{reason:rejectReason}); setRejectReason(''); load(); }
+    catch(err) { alert(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleGoBack = async () => {
+    if (!lead) return; setGoBackOpen(false); setSubmitting(true);
+    try {
+      await apiPost(`/accounts/leads/${lead.log_id}/go-back`,{reason:goBackReason||null});
+      setGoBackReason('');
+      onBack ? onBack() : load();
+    }
     catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
@@ -357,13 +370,15 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 </button>
               )}
               <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
+              <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
               <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
             </div>
           )}
-          {isVerified && receipt && (
+          {isVerified && (
             <div style={{display:'flex',gap:12,width:'100%'}}>
-              <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>
-              <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>
+              {receipt && <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>}
+              {receipt && <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>}
+              <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
             </div>
           )}
         </div>
@@ -372,13 +387,15 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
           {isPending && (
             <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
               <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
+              <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
               <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
             </div>
           )}
-          {isVerified && receipt && (
+          {isVerified && (
             <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
-              <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>
-              <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>
+              {receipt && <button className="wa-btn" onClick={()=>setShowReceipt(true)}>{'\u2709'} Send WhatsApp</button>}
+              {receipt && <button className="verify-btn" style={{flex:1}} onClick={()=>setShowReceipt(true)}>View Receipt</button>}
+              <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
             </div>
           )}
         </div>
@@ -409,6 +426,29 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
                 <button className="btn btn-sm" onClick={()=>{setRejectOpen(false);setRejectReason('');}}>Cancel</button>
                 <button className="reject-btn" onClick={handleReject} disabled={!rejectReason.trim()} style={{background:'#dc2626',color:'#fff',border:'none'}}>Reject</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {goBackOpen && (
+        <div className="modal-overlay" onClick={()=>setGoBackOpen(false)}>
+          <div className="modal" style={{maxWidth:440,width:'90%'}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><h3>Go Back to FRO</h3></div>
+            <div className="modal-body" style={{padding:20}}>
+              <p style={{margin:'0 0 8px',fontSize:14}}>{isVerified
+                ? 'Send this lead back to the FRO as if it never came?'
+                : 'Send this lead back to the FRO?'}</p>
+              <p style={{margin:0,fontSize:13,color:'var(--ink-soft)',lineHeight:1.5}}>
+                {isVerified
+                  ? 'It will be removed from collected totals, the receipt will be released/deleted, and the FRO will need to rework the lead. If the receipt was already sent to the donor it will no longer be valid.'
+                  : 'The lead_done disposition will be cleared and the FRO will need to redo it. If it was a suspense claim, the money returns to the suspense pool.'}
+              </p>
+              <label className="field" style={{display:'block',margin:'16px 0'}}><span style={{fontSize:11,color:'var(--ink-soft)',textTransform:'uppercase',marginBottom:4,display:'block'}}>Reason (optional)</span><textarea className="field-input" value={goBackReason} onChange={e=>setGoBackReason(e.target.value)} placeholder="Why is it being sent back?" rows={3} style={{resize:'vertical'}} /></label>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                <button className="btn btn-sm" onClick={()=>{setGoBackOpen(false);setGoBackReason('');}}>Cancel</button>
+                <button onClick={handleGoBack} disabled={submitting} style={{padding:'10px 22px',fontSize:13,fontWeight:600,background:'#d97706',color:'#fff',border:'none',borderRadius:10,cursor:'pointer'}}>{submitting?'Sending back...':'Send Back'}</button>
               </div>
             </div>
           </div>

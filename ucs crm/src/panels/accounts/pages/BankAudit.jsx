@@ -123,7 +123,7 @@ function LeadPicker({ value, locked, onPick, onClear }){
     {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:260,overflowY:'auto'}}>
       {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>Searching...</div>
         :err?<div style={{padding:14,fontSize:12,color:'#dc2626'}}>{err}</div>
-        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No unclaimed pending leads found</div>
+        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No pending leads found</div>
         :leads.map(l=><button key={l.log_id} type="button" onClick={()=>{onPick(l);setOpen(false);setQ('')}}
           style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
           onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>

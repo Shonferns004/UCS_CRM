@@ -56,10 +56,12 @@ function currentMonthIST() {
   return istNow.getUTCFullYear() + '-' + String(istNow.getUTCMonth() + 1).padStart(2, '0');
 }
 
-// Fetch a pending, unclaimed lead log (fro_donor_logs) together with its donor
-// profile + FRO worker so a bank audit entry can be linked to it. Throws if the
-// log is already processed or claimed by another receipt. When `currentLogId`
-// matches, the pending/unclaimed checks are skipped (idempotent edit).
+// Fetch a pending lead log (fro_donor_logs) together with its donor profile +
+// FRO worker so a bank audit entry can be linked to it. Throws if the log is
+// already processed. If the log is already linked to a receipt (e.g. a suspense
+// claim), the existing receipt id is exposed on `existing_receipt_id` so the
+// save path can reuse it instead of creating a duplicate. When `currentLogId`
+// matches, the pending/processed checks are skipped (idempotent edit).
 const getClaimableLog = async (logId, currentLogId = null) => {
   if (!logId) return null;
   const { data: log, error } = await db
@@ -77,16 +79,16 @@ const getClaimableLog = async (logId, currentLogId = null) => {
   if (error) throw error;
   if (!log) throw new Error('Selected lead not found');
 
-  if (String(logId) !== String(currentLogId)) {
-    if (log.accounts_status !== 'pending') {
-      throw new Error(`Selected lead is already ${log.accounts_status || 'processed'}`);
-    }
-    const { data: existingReceipt } = await db
-      .from('receipts')
-      .select('id')
-      .eq('log_id', logId)
-      .maybeSingle();
-    if (existingReceipt) throw new Error('Selected lead is already linked to a receipt');
+  const { data: existingReceipt } = await db
+    .from('receipts')
+    .select('id')
+    .eq('log_id', logId)
+    .maybeSingle();
+  if (error) throw error;
+  log.existing_receipt_id = existingReceipt?.id || null;
+
+  if (String(logId) !== String(currentLogId) && log.accounts_status !== 'pending') {
+    throw new Error(`Selected lead is already ${log.accounts_status || 'processed'}`);
   }
   return log;
 };
@@ -118,6 +120,7 @@ const resolveLogLink = async ({ log_id, actorId }) => {
       donor_mobile: donor.mobile_number || null,
       project_id: donor.project_supported || null,
     },
+    existing_receipt_id: log.existing_receipt_id || null,
     entry: {
       donor_id: donor.id,
       donor_mobile: donor.mobile_number || null,
@@ -220,27 +223,48 @@ export const addEntry = async (req, res) => {
     }
 
     const ngo = project_id || 'bsct';
-    const receiptNo = await BankAudit.getNextReceiptNo(ngo);
 
     // When a lead log is picked, its donor + FRO become authoritative; the
-    // receipt is linked (log_id + donor_id) and the lead is verified.
+    // receipt is linked (log_id + donor_id) and the lead is verified. If the
+    // lead is already claimed (linked to a suspense receipt), reuse that
+    // receipt instead of creating a duplicate for the same money.
     const link = await resolveLogLink({ log_id, actorId: req.user.id });
 
-    const { data: receipt, error: rErr } = await db.from('receipts').insert({
-      receipt_no: receiptNo,
-      project_id: link?.receipt.project_id || ngo,
-      donor_name: link?.receipt.donor_name || payer_name || 'Unknown',
-      agent_name: link?.receipt.agent_name || agent_name || null,
-      donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
-      donor_id: link?.receipt.donor_id || null,
-      log_id: link?.receipt.log_id || null,
-      amount,
-      payment_id: payment_id || null,
-      receipt_date: transaction_date,
-      purpose: 'Bank Audit Entry',
-      generated_by: req.user.id,
-    }).select().single();
-    if (rErr) throw rErr;
+    let receiptId = link?.existing_receipt_id || null;
+    let receiptNo = null;
+    if (receiptId) {
+      const receiptFields = {
+        amount,
+        project_id: link?.receipt.project_id || ngo,
+        donor_name: link?.receipt.donor_name || payer_name || 'Unknown',
+        agent_name: link?.receipt.agent_name || agent_name || null,
+        donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
+        donor_id: link?.receipt.donor_id || null,
+        payment_id: payment_id || null,
+        receipt_date: transaction_date,
+      };
+      const { data: updatedReceipt, error: rErr } = await db.from('receipts').update(receiptFields).eq('id', receiptId).select('id, receipt_no').single();
+      if (rErr) throw rErr;
+      receiptNo = updatedReceipt.receipt_no;
+    } else {
+      receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
+      const { data: receipt, error: rErr } = await db.from('receipts').insert({
+        receipt_no: receiptNo,
+        project_id: link?.receipt.project_id || ngo,
+        donor_name: link?.receipt.donor_name || payer_name || 'Unknown',
+        agent_name: link?.receipt.agent_name || agent_name || null,
+        donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
+        donor_id: link?.receipt.donor_id || null,
+        log_id: link?.receipt.log_id || null,
+        amount,
+        payment_id: payment_id || null,
+        receipt_date: transaction_date,
+        purpose: 'Bank Audit Entry',
+        generated_by: req.user.id,
+      }).select().single();
+      if (rErr) throw rErr;
+      receiptId = receipt.id;
+    }
 
     const entry = await BankAudit.createEntry({
       source_id,
@@ -262,7 +286,7 @@ export const addEntry = async (req, res) => {
       donor_id: link?.receipt.donor_id || null,
       created_by: req.user.id,
       receipt_no: receiptNo,
-      receipt_id: receipt.id,
+      receipt_id: receiptId,
     });
 
     findAutoMatches().catch((err) => console.error('Auto-match after addEntry failed:', err.message));
@@ -300,6 +324,12 @@ export const editEntry = async (req, res) => {
 
     // Idempotent: allow re-saving the same log that is already on this receipt.
     const link = await resolveLogLink({ log_id, actorId: req.user.id, currentLogId: currentReceipt?.log_id || null });
+
+    // The picked lead belongs to a different receipt (a suspense claim) — never
+    // point this entry's receipt at a second lead / duplicate the link.
+    if (link?.existing_receipt_id && link.existing_receipt_id !== existing.receipt_id) {
+      return res.status(409).json({ message: 'Selected lead is already linked to a receipt' });
+    }
 
     if (existing.receipt_id) {
       const receiptUpdate = {};
@@ -359,6 +389,12 @@ export const editSuspenseReceipt = async (req, res) => {
 
     // Resolve a picked lead log (idempotent — suspense receipts have no log yet).
     const link = await resolveLogLink({ log_id, actorId: req.user.id });
+
+    // If the picked lead is already linked to a receipt (a suspense claim), it
+    // represents different money — never attach it to another suspense receipt.
+    if (link?.existing_receipt_id && link.existing_receipt_id !== numId) {
+      return res.status(409).json({ message: 'Selected lead is already linked to a receipt' });
+    }
 
     const updates = {};
     if (link) {
@@ -653,17 +689,12 @@ export const clearMatch = async (req, res) => {
 
 // Search pending lead logs (accounts_status='pending', lead_done dispositions)
 // with donor + FRO details for the "Log" picker in the New/Edit Entry modal.
-// Logs already linked to a receipt are excluded so they can't be double-claimed.
+// Claimed leads (linked to a suspense receipt) are included — the save path
+// reuses the existing receipt instead of double-claiming.
 export const searchPendingLeads = async (req, res) => {
   try {
     const { q } = req.query;
     const term = (q || '').trim().toLowerCase();
-
-    const { data: claimedRows } = await db
-      .from('receipts')
-      .select('log_id')
-      .not('log_id', 'is', null);
-    const claimedIds = [...new Set((claimedRows || []).map(r => r.log_id).filter(Boolean))];
 
     let query = db
       .from('fro_donor_logs')
@@ -680,8 +711,6 @@ export const searchPendingLeads = async (req, res) => {
       .eq('accounts_status', 'pending')
       .order('created_at', { ascending: false })
       .limit(30);
-
-    if (claimedIds.length > 0) query = query.not('id', 'in', `(${claimedIds.join(',')})`);
 
     if (term && term.length >= 2) {
       const escaped = term.replace(/%/g, '\\%').replace(/_/g, '\\_');
