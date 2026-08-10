@@ -1,15 +1,16 @@
 import db from '../config/db.js';
 
 // Suspense receipts: unlinked (donor_id null) and unclaimed (log_id null)
-// receipts carrying the 'Suspense' marker in agent_name. They appear as rows in
-// the bank audit list until matched (donor_id set) or claimed (log_id set).
+// receipts with no agent or carrying the legacy 'Suspense' marker in agent_name.
+// They appear as rows in the bank audit list until matched (donor_id set),
+// claimed (log_id set), or assigned an agent.
 export const getUnlinkedReceipts = async () => {
   const { data, error } = await db
     .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, created_at')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, created_at')
     .is('donor_id', null)
     .is('log_id', null)
-    .eq('agent_name', 'Suspense')
+    .or('agent_name.is.null,agent_name.eq.Suspense')
     .order('receipt_date', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -70,7 +71,7 @@ export const deleteSource = async (id) => {
 export const getEntries = async (filters = {}) => {
   let query = db
     .from('bank_audit_entries')
-    .select('*, bank_audit_sources(name)')
+    .select('*, bank_audit_sources(name), receipts!receipt_id(id, receipt_no, log_id, donor_id, agent_name, donor_name, donor_mobile, fro_donor_logs!receipts_log_id_fkey(id, amount_collected))')
     .order('transaction_date', { ascending: false })
     .order('payment_time', { ascending: false });
 

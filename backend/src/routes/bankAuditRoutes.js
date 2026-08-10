@@ -8,6 +8,7 @@ import {
   listFroSuspense, resolveSuspenseEntry,
   runAutoMatch, confirmMatch, clearMatch,
   editSuspenseReceipt, removeSuspenseReceipt,
+  searchPendingLeads,
 } from '../controllers/bankAuditController.js';
 
 const router = Router();
@@ -27,6 +28,7 @@ router.put('/suspense/:id', authenticateRole('accounts', 'super_admin'), editSus
 router.delete('/suspense/:id', authenticateRole('accounts', 'super_admin'), removeSuspenseReceipt);
 
 router.get('/entries/suggest', authenticateRole('accounts', 'super_admin'), suggestEntries);
+router.get('/leads', authenticateRole('accounts', 'super_admin'), searchPendingLeads);
 router.put('/entries/:id/verify', authenticateRole('accounts', 'super_admin'), markEntryVerified);
 
 router.post('/auto-match', authenticateRole('accounts', 'super_admin'), runAutoMatch);
