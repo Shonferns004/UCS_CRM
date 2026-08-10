@@ -1,5 +1,7 @@
 import * as BankAudit from '../models/bankAuditModel.js';
 import db from '../config/db.js';
+import { findAutoMatches } from '../services/autoMatchService.js';
+import { confirmMatchCredit } from '../services/creditService.js';
 
 export const listSources = async (req, res) => {
   try {
@@ -59,6 +61,29 @@ export const listEntries = async (req, res) => {
     const { date_from, date_to, source_id, status } = req.query;
     const entries = await BankAudit.getEntries({ date_from, date_to, source_id, status });
 
+    // Enrich entries that have a suggested match with the lead's donor + FRO so
+    // the UI can show who the entry matched against.
+    const logIds = [...new Set((entries || []).map((e) => e.matched_lead_log_id).filter(Boolean))];
+    if (logIds.length > 0) {
+      const { data: logs } = await db
+        .from('fro_donor_logs')
+        .select('id, fro_assignments!inner(donor_profiles!inner(name), workers!inner(name))')
+        .in('id', logIds);
+      const matchMap = {};
+      for (const l of logs || []) {
+        matchMap[l.id] = {
+          donor_name: l.fro_assignments?.donor_profiles?.name || 'Unknown',
+          fro_name: l.fro_assignments?.workers?.name || 'Unknown',
+        };
+      }
+      for (const e of entries || []) {
+        if (e.matched_lead_log_id && matchMap[e.matched_lead_log_id]) {
+          e.match_donor = matchMap[e.matched_lead_log_id].donor_name;
+          e.match_fro = matchMap[e.matched_lead_log_id].fro_name;
+        }
+      }
+    }
+
     // Merge unresolved suspense receipts (donor_id null, agent 'Suspense') into
     // the list, scoped to the requested month (or the current month when no
     // filter is set). Once matched (donor_id set) they leave the suspense set.
@@ -98,10 +123,26 @@ export const listEntries = async (req, res) => {
 
 export const addEntry = async (req, res) => {
   try {
-    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time } = req.body;
+    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id } = req.body;
     if (!source_id || !amount || !transaction_date) {
       return res.status(400).json({ message: 'Source, amount, and transaction date are required' });
     }
+
+    const ngo = project_id || 'bsct';
+    const receiptNo = await BankAudit.getNextReceiptNo(ngo);
+
+    const { data: receipt, error: rErr } = await db.from('receipts').insert({
+      receipt_no: receiptNo,
+      project_id: ngo,
+      donor_name: payer_name || 'Unknown',
+      amount,
+      payment_id: payment_id || null,
+      receipt_date: transaction_date,
+      purpose: 'Bank Audit Entry',
+      generated_by: req.user.id,
+    }).select().single();
+    if (rErr) throw rErr;
+
     const entry = await BankAudit.createEntry({
       source_id,
       amount,
@@ -111,8 +152,13 @@ export const addEntry = async (req, res) => {
       remarks: remarks || null,
       payer_name: payer_name || null,
       payment_time: payment_time || null,
+      project_id: ngo,
       created_by: req.user.id,
+      receipt_no: receiptNo,
+      receipt_id: receipt.id,
     });
+
+    findAutoMatches().catch((err) => console.error('Auto-match after addEntry failed:', err.message));
     return res.status(201).json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -122,7 +168,7 @@ export const addEntry = async (req, res) => {
 export const editEntry = async (req, res) => {
   try {
     const { id } = req.params;
-    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time } = req.body;
+    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id } = req.body;
     const updates = {};
     if (source_id !== undefined) updates.source_id = source_id;
     if (amount !== undefined) updates.amount = amount;
@@ -132,6 +178,7 @@ export const editEntry = async (req, res) => {
     if (remarks !== undefined) updates.remarks = remarks;
     if (payer_name !== undefined) updates.payer_name = payer_name;
     if (payment_time !== undefined) updates.payment_time = payment_time;
+    if (project_id !== undefined) updates.project_id = project_id;
     const entry = await BankAudit.updateEntry(id, updates);
     return res.json(entry);
   } catch (error) {
@@ -142,6 +189,11 @@ export const editEntry = async (req, res) => {
 export const removeEntry = async (req, res) => {
   try {
     const { id } = req.params;
+    const { data: entry } = await db.from('bank_audit_entries').select('receipt_id').eq('id', id).maybeSingle();
+    if (entry?.receipt_id) {
+      const { error } = await db.from('receipts').delete().eq('id', entry.receipt_id);
+      if (error) throw error;
+    }
     await BankAudit.deleteEntry(id);
     return res.json({ message: 'Entry deleted' });
   } catch (error) {
@@ -174,33 +226,6 @@ export const markEntryVerified = async (req, res) => {
   try {
     const { id } = req.params;
     const entry = await BankAudit.verifyEntry(id);
-    return res.json(entry);
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
-
-export const assignEntryToNgo = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { notes } = req.body;
-    const entry = await BankAudit.assignToNgoAdmin(id, notes);
-    // Notify NGO admins - try both admin and hoadmin roles (transition period)
-    const { data: ngoAdmins } = await db
-      .from('users')
-      .select('id')
-      .in('role', ['admin', 'hoadmin']);
-    for (const u of (ngoAdmins || [])) {
-      try {
-        await db.from('notification_log').insert({
-          worker_id: u.id,
-          type: 'suspense_assigned',
-          title: 'Suspense Entry',
-          body: `A suspense entry of ${entry.bank_audit_sources?.name || 'Unknown'} for \u20B9${entry.amount} has been sent for inquiry. Payment ID: ${entry.payment_id || 'N/A'}`,
-          sent_at: new Date().toISOString(),
-        });
-      } catch {}
-    }
     return res.json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -353,6 +378,48 @@ export const searchFroDispositions = async (req, res) => {
     const { q } = req.query;
     const entries = await BankAudit.searchFroDispositions(req.user.id, q || '');
     return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const runAutoMatch = async (req, res) => {
+  try {
+    const result = await findAutoMatches();
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const confirmMatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await confirmMatchCredit(id, req.user.id);
+    if (result.error) return res.status(result.error).json({ message: result.message });
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const clearMatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await db
+      .from('bank_audit_entries')
+      .update({
+        match_status: 'cleared',
+        matched_lead_log_id: null,
+        match_score: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('*, bank_audit_sources(name)')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ message: 'Entry not found' });
+    return res.json(data);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -14,6 +14,20 @@ export const getUnlinkedReceipts = async () => {
   return data || [];
 };
 
+export const getNextReceiptNo = async (projectId) => {
+  const ngo = projectId || 'bsct';
+  const { data } = await db.from('receipts').select('receipt_no').eq('project_id', ngo);
+  let maxNum = 0;
+  for (const r of data || []) {
+    const nums = String(r.receipt_no).match(/\d+/g);
+    if (nums && nums.length > 0) {
+      const n = parseInt(nums[nums.length - 1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  return String(maxNum + 1);
+};
+
 export const getSources = async () => {
   const { data, error } = await db
     .from('bank_audit_sources')
@@ -143,17 +157,6 @@ export const verifyEntry = async (id) => {
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({ status: 'verified', updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*, bank_audit_sources(name)')
-    .single();
-  if (error) throw error;
-  return data;
-};
-
-export const assignToNgoAdmin = async (id, notes) => {
-  const { data, error } = await db
-    .from('bank_audit_entries')
-    .update({ assigned_to_ngo_admin: true, ngo_admin_notes: notes || null, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select('*, bank_audit_sources(name)')
     .single();

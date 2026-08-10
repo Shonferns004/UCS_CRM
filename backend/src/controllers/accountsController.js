@@ -1,7 +1,7 @@
 import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
-import { getEntryByPaymentId, verifyEntry } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, verifyEntry, getNextReceiptNo } from '../models/bankAuditModel.js';
 import XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -30,7 +30,8 @@ export const getLeadList = async (req, res) => {
           ngos!left(id, name),
           donor_profiles!inner(id, name, mobile_number, city, pan_number, address_1, email, project_supported, donation_count, total_amount, birth_date),
           workers!inner(id, name, login_id)
-        )
+        ),
+        receipts!receipts_log_id_fkey(id, receipt_no, donor_id)
       `)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
@@ -75,6 +76,7 @@ export const getLeadList = async (req, res) => {
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
+      claimed_receipt: Array.isArray(r.receipts) ? (r.receipts[0] || null) : (r.receipts || null),
     }));
 
     return res.json(result);
@@ -166,7 +168,7 @@ export const verifyLead = async (req, res) => {
     if (!existing) {
       const donorName = donorProfile?.name || 'Unknown';
       const project = donorProfile?.project_supported || 'bsct';
-      const receiptNo = await getNextReceiptNo();
+      const receiptNo = await getNextReceiptNo(project);
 
       receipt = await createReceipt({
         log_id: parseInt(logId),
@@ -183,6 +185,18 @@ export const verifyLead = async (req, res) => {
         donor_id: donorId,
         receipt_date: transaction_datetime || log.transaction_datetime || log.verified_at || new Date().toISOString(),
       });
+    } else {
+      // Receipt already exists (e.g. created for a bank audit entry or a suspense
+      // claim). Link it to the verified donor and mark its bank audit entry done.
+      try {
+        await db.from('receipts').update({ donor_id: donorId }).eq('id', existing.id);
+        await db.from('bank_audit_entries').update({
+          donor_id: donorId,
+          status: 'verified',
+          matched_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq('receipt_id', existing.id);
+      } catch (err) { console.error('Failed to link existing receipt to donor:', err.message); }
     }
 
     // Notify FRO that their lead was verified (FCM + notification_log)
@@ -630,19 +644,6 @@ export const patchLeadField = async (req, res) => {
 
 // ─── Receipts ──────────────────────────────────────────────
 
-async function getNextReceiptNo() {
-  const { data } = await db.from('receipts').select('receipt_no');
-  let maxNum = 0;
-  for (const r of data || []) {
-    const match = String(r.receipt_no).match(/(\d+)/);
-    if (match) {
-      const n = parseInt(match[1], 10);
-      if (n > maxNum) maxNum = n;
-    }
-  }
-  return String(maxNum + 1);
-}
-
 export const generateReceipt = async (req, res) => {
   try {
     const { logId } = req.params;
@@ -675,7 +676,7 @@ export const generateReceipt = async (req, res) => {
     const project = donorProfile?.project_supported || 'bsct';
     const donorName = donorProfile?.name || 'Unknown';
 
-    const receiptNo = await getNextReceiptNo();
+    const receiptNo = await getNextReceiptNo(project);
 
     const donorId = log.fro_assignments?.donor_id;
     const receipt = await createReceipt({
@@ -776,6 +777,7 @@ export const getPendingReceipts = async (req, res) => {
     const { data: receipts, error: recError } = await db
       .from('receipts')
       .select('*')
+      .not('donor_id', 'is', null)
       .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
       .order('created_at', { ascending: false });
 
@@ -787,7 +789,7 @@ export const getPendingReceipts = async (req, res) => {
     const { data: logs, error: logErr } = await db
       .from('fro_donor_logs')
       .select(`
-        id, amount_collected, verified_at, upi_transaction_id, transaction_datetime, payment_from, payment_mode,
+        id, amount_collected, accounts_status, verified_at, upi_transaction_id, transaction_datetime, payment_from, payment_mode,
         fro_assignments!inner(
           donor_id, ngo_id,
           ngos!left(id, name),
@@ -801,7 +803,13 @@ export const getPendingReceipts = async (req, res) => {
     const logMap = {};
     for (const l of logs || []) logMap[l.id] = l;
 
-    const result = receipts.map(r => {
+    const eligible = receipts.filter(r => {
+      if (!r.log_id) return true;
+      const log = logMap[r.log_id];
+      return log && log.accounts_status === 'verified';
+    });
+
+    const result = eligible.map(r => {
       const log = logMap[r.log_id];
       const donor = log?.fro_assignments?.donor_profiles;
       return {
