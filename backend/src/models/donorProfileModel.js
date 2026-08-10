@@ -10,6 +10,59 @@ export const getDonorByMobile = async (mobile) => {
   return data && data.length > 0 ? data[0] : null;
 };
 
+// Upsert a donor profile keyed by mobile (falling back to name). Only provided
+// non-empty fields are written, so partially filled entry forms never wipe
+// existing donor data. Returns { donor, created }.
+export const upsertDonorProfile = async (profile = {}) => {
+  const name = profile.name && String(profile.name).trim();
+  const mobile = profile.mobile_number && String(profile.mobile_number).trim();
+  if (!mobile && !name) return { donor: null, created: false };
+
+  let donor = null;
+  if (mobile) donor = await getDonorByMobile(mobile);
+  if (!donor && name) {
+    const { data, error } = await db
+      .from('donor_profiles')
+      .select('*')
+      .eq('name', name)
+      .limit(1);
+    if (error) throw error;
+    donor = (data && data.length > 0) ? data[0] : null;
+  }
+
+  if (donor) {
+    const fields = ['name', 'mobile_number', 'email', 'pan_number', 'address_1', 'address_2', 'city', 'pin_code'];
+    const updates = {};
+    for (const key of fields) {
+      const v = profile[key];
+      if (v !== undefined && v !== null && String(v).trim() !== '') updates[key] = v;
+    }
+    if (Object.keys(updates).length > 0) {
+      const { data, error } = await db
+        .from('donor_profiles')
+        .update(updates)
+        .eq('id', donor.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return { donor: data, created: false };
+    }
+    return { donor, created: false };
+  }
+
+  const created = await insertDonorProfile({
+    name: name || null,
+    mobile_number: mobile || null,
+    email: profile.email || null,
+    pan_number: profile.pan_number || null,
+    address_1: profile.address_1 || null,
+    address_2: profile.address_2 || null,
+    city: profile.city || null,
+    pin_code: profile.pin_code || null,
+  });
+  return { donor: created, created: true };
+};
+
 const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
 
 const DONOR_INSERT_COLS = [
