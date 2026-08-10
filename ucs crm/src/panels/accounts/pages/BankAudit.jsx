@@ -225,17 +225,16 @@ export default function BankAudit({embedded,onSummary}){
   useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
   useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
 
+  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
+  const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};
+
   const suspense=useMemo(()=>{
-    const rows=e.filter(x=>x.kind==='suspense'&&(!snf||x.project_id===snf));
+    const rows=e.filter(x=>x.kind==='suspense'&&(!snf||matchesNgo(x,snf)));
     return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
   },[e,snf]);
   useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo:snf,setSuspenseNgo:setSnf})},[sr,su,ld,embedded,suspense,snf]);
 
-  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
-  const fe=e.filter(en=>{
-    if(!nf)return true;
-    const src=(en.bank_audit_sources?.name||'').toLowerCase();const rem=(en.remarks||'').toLowerCase();const prj=(en.project_id||'').toLowerCase();const kw=ngoKw[nf]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k));
-  });
+  const fe=e.filter(en=>!nf||matchesNgo(en,nf));
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
   const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
