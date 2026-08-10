@@ -59,12 +59,12 @@ export default function Offboarding({ worker, onBack }) {
         </h3>
         <p style={{ color:'var(--ink-soft)', fontSize:13, marginBottom:20 }}>
           {action === 'deleted'
-            ? 'The employee has been permanently removed from the system.'
+            ? 'The volunteer has been permanently removed from the system.'
             : action === 'remained'
-            ? 'The employee has been restored to the active employee list.'
-            : 'The employee will not appear in the active employee list but can be found via search.'}
+            ? 'The volunteer has been restored to the active volunteer list.'
+            : 'The volunteer will not appear in the active volunteer list but can be found via search.'}
         </p>
-        <button className="btn btn-primary" onClick={onBack}>Back to Employees</button>
+        <button className="btn btn-primary" onClick={onBack}>Back to Volunteers</button>
       </div>
     );
   }
@@ -102,7 +102,7 @@ export default function Offboarding({ worker, onBack }) {
                   <div style={{ fontWeight:600, fontSize:14, marginBottom:2 }}>Delete Permanently</div>
                   <div style={{ fontSize:12, color:'var(--ink-soft)', lineHeight:1.5 }}>
                     Permanently remove {worker.name} from the system. Their attendance, leave, and
-                    document records will remain in the database, but the employee will no longer
+                    document records will remain in the database, but the volunteer will no longer
                     appear anywhere.
                   </div>
                 </div>
@@ -121,8 +121,8 @@ export default function Offboarding({ worker, onBack }) {
                   <div>
                     <div style={{ fontWeight:600, fontSize:14, marginBottom:2 }}>Remain</div>
                     <div style={{ fontSize:12, color:'var(--ink-soft)', lineHeight:1.5 }}>
-                      Restore {worker.name} to the active employee list. They will appear
-                      in the employee list and can be managed normally.
+                      Restore {worker.name} to the active volunteer list. They will appear
+                      in the volunteer list and can be managed normally.
                     </div>
                   </div>
                   <button className="btn btn-sm" style={{ background:'#2e7d32', color:'#fff', borderColor:'#2e7d32', marginLeft:'auto', flexShrink:0 }}
@@ -139,8 +139,8 @@ export default function Offboarding({ worker, onBack }) {
                   <div>
                     <div style={{ fontWeight:600, fontSize:14, marginBottom:2 }}>Mark as Absconded</div>
                     <div style={{ fontSize:12, color:'var(--ink-soft)', lineHeight:1.5 }}>
-                      Mark {worker.name} as absconded. The employee will not show in the active
-                      employee list but can be found via search or filter. The details page will
+                      Mark {worker.name} as absconded. The volunteer will not show in the active
+                      volunteer list but can be found via search or filter. The details page will
                       display "Absconded" status.
                     </div>
                   </div>

@@ -247,10 +247,14 @@ export default function RecruiterOverview() {
     return [...recruiters];
   }, [recruiters]);
 
-  const leaderboard = useMemo(() =>
-    [...filteredRecruiters].sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount),
-    [filteredRecruiters]
-  );
+  const leaderboard = useMemo(() => {
+    const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
+    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel']);
+    return [...filteredRecruiters]
+      .filter(r => !HIDDEN.has(r.name))
+      .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
+      .sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount);
+  }, [filteredRecruiters]);
 
   const sortedByLeads = useMemo(() =>
     [...filteredRecruiters].sort((a, b) => b.leadsCount - a.leadsCount),

@@ -475,7 +475,7 @@ export default function HRForms() {
         <div className="card">
           <div className="card-head">
             <h3>HR Forms</h3>
-            <span className="sub">Employee onboarding forms</span>
+            <span className="sub">Volunteer onboarding forms</span>
           </div>
           <div className="card-pad">
             <div className="hrf-stats">
@@ -584,7 +584,7 @@ export default function HRForms() {
               )}
               {!loading && filtered.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px 0', color: 'var(--ink-soft)' }}>
-                  No employees found
+                  No volunteers found
                 </div>
               )}
             </div>

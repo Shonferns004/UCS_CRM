@@ -11,42 +11,42 @@ const HR_MESSAGES = [
   {
     key: 'm1',
     label: 'Day 1 – Normal Warning',
-    heading: 'A. Employee Absent Without Prior Information',
+    heading: 'A. Volunteer Absent Without Prior Information',
     subject: 'Subject: Absence without Prior Information',
-    body: 'Dear [Employee Name],\n\nYou were absent from work today without informing your Reporting Manager or the HR Department. Kindly share the reason for your absence immediately and confirm your availability to resume work. Timely communication is mandatory as per work policy. Please respond to this message at the earliest.\n\nRegards,\nHR Department'
+    body: 'Dear [Volunteer Name],\n\nYou were absent from work today without informing your Reporting Manager or the HR Department. Kindly share the reason for your absence immediately and confirm your availability to resume work. Timely communication is mandatory as per work policy. Please respond to this message at the earliest.\n\nRegards,\nHR Department'
   },
   {
     key: 'm2',
     label: 'Day 2 – Final Warning',
     subject: 'Subject: Final Warning for Continuous Unauthorized Absence',
-    body: 'Dear [Employee Name],\n\nThis is your second consecutive day of absence without prior approval or valid communication. Despite our previous communication, we have not received a satisfactory response from your side. You are instructed to report to work immediately or provide a valid explanation along with supporting documents (if applicable) within 24 hours. Failure to do so may lead to disciplinary action, including termination of your work & position.\n\nRegards,\nHR Department'
+    body: 'Dear [Volunteer Name],\n\nThis is your second consecutive day of absence without prior approval or valid communication. Despite our previous communication, we have not received a satisfactory response from your side. You are instructed to report to work immediately or provide a valid explanation along with supporting documents (if applicable) within 24 hours. Failure to do so may lead to disciplinary action, including termination of your work & position.\n\nRegards,\nHR Department'
   },
   {
     key: 'm3',
     label: 'Day 3 – Termination Message',
     subject: 'Subject: Termination Due to Unauthorized Absence',
-    body: 'Dear [Employee Name],\n\nAs you have remained absent for three consecutive working days without prior approval and have failed to provide a valid explanation despite repeated communications, the management has decided to terminate your work & position with immediate effect. You are requested to complete the exit formalities and return all company property (if any). We wish you the very best for your future.\n\nRegards,\nHR Department'
+    body: 'Dear [Volunteer Name],\n\nAs you have remained absent for three consecutive working days without prior approval and have failed to provide a valid explanation despite repeated communications, the management has decided to terminate your work & position with immediate effect. You are requested to complete the exit formalities and return all company property (if any). We wish you the very best for your future.\n\nRegards,\nHR Department'
   },
   {
     key: 'm4',
     label: 'Day 1 – Acknowledgement Message',
-    heading: 'B. Employee Informed HR Before Taking Leave',
-    body: 'Dear [Employee Name],\n\nThank you for informing the HR Department regarding your absence. We understand your situation and hope everything is fine. Your leave request has been noted. Please keep us updated regarding your condition and inform us about your expected date of joining. Take care, and we wish you a speedy recovery (if applicable change this line as per the situation).\n\nRegards,\nHR Department'
+    heading: 'B. Volunteer Informed HR Before Taking Leave',
+    body: 'Dear [Volunteer Name],\n\nThank you for informing the HR Department regarding your absence. We understand your situation and hope everything is fine. Your leave request has been noted. Please keep us updated regarding your condition and inform us about your expected date of joining. Take care, and we wish you a speedy recovery (if applicable change this line as per the situation).\n\nRegards,\nHR Department'
   },
   {
     key: 'm5',
     label: 'Day 2 – Request for Supporting Documents',
-    body: 'Dear [Employee Name],\n\nWe hope you are doing well. As your leave has continued, kindly share the relevant supporting document (such as a medical certificate or any emergency proof) and confirm your expected date of rejoining. This will help us process your leave as per policy. Thank you for your cooperation.\n\nRegards,\nHR Department'
+    body: 'Dear [Volunteer Name],\n\nWe hope you are doing well. As your leave has continued, kindly share the relevant supporting document (such as a medical certificate or any emergency proof) and confirm your expected date of rejoining. This will help us process your leave as per policy. Thank you for your cooperation.\n\nRegards,\nHR Department'
   },
   {
     key: 'm6',
     label: 'Day 3 – Follow-up Message',
-    body: 'Dear [Employee Name],\n\nThis is a reminder regarding your continued absence. Kindly update us on your current situation and confirm your joining date. If you have not yet submitted the required supporting documents, please do so immediately. Failure to respond may result in your leave being treated as unauthorized, and further action may be taken as per policy.\n\nRegards,\nHR Department'
+    body: 'Dear [Volunteer Name],\n\nThis is a reminder regarding your continued absence. Kindly update us on your current situation and confirm your joining date. If you have not yet submitted the required supporting documents, please do so immediately. Failure to respond may result in your leave being treated as unauthorized, and further action may be taken as per policy.\n\nRegards,\nHR Department'
   },
   {
     key: 'm7',
     label: 'Reminder Notice – No Leave Application Form',
-    body: 'Dear Employee,\n\nYou have remained absent from work without informing the HR Department, and no Leave Application Form has been submitted. This is a violation of the attendance policy. You are instructed to immediately raise a leave request through the mobile app and inform your reporting manager or the HR Department with the reason for your absence. Please treat this as an official message. Repeated unauthorized absence or failure to follow the leave procedure may lead to disciplinary action as per the organization\'s HR policy.\n\nHR Department'
+    body: 'Dear Volunteer,\n\nYou have remained absent from work without informing the HR Department, and no Leave Application Form has been submitted. This is a violation of the attendance policy. You are instructed to immediately raise a leave request through the mobile app and inform your reporting manager or the HR Department with the reason for your absence. Please treat this as an official message. Repeated unauthorized absence or failure to follow the leave procedure may lead to disciplinary action as per the organization\'s HR policy.\n\nHR Department'
   }
 ];
 
@@ -79,15 +79,15 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
 <p style="margin:0 0 6px 0">We are delighted to welcome you to <strong>${ngo.name}</strong>. This letter confirms your joining as a <strong>${r}</strong> in the <strong>${d}</strong> department.</p>
 <p style="margin:0 0 6px 0">Your date of joining is <strong>${dateText}</strong>. You will be on a probation period of <strong>one (1) month</strong> from the date of joining, during which your performance will be closely monitored and evaluated.</p>
 <p style="margin:0 0 6px 0">During your probation, you are required to perform all duties and responsibilities assigned to you by your Team Leader or Reporting Manager. Your training will consist of two stages: an initial basic training period of <strong>3 (three) days</strong> from the date of joining, followed by a comprehensive training period of <strong>24 (twenty-four) days</strong>. Please note that <strong>no leave will be permitted</strong> during the training period.</p>
-<p style="margin:0 0 6px 0"><u><strong>Office Timings:</strong></u> All employees are required to maintain office hours from <strong>10:00 a.m. to 7:00 p.m.</strong>, Monday through Saturday.</p>
+<p style="margin:0 0 6px 0"><u><strong>Office Timings:</strong></u> All volunteers are required to maintain office hours from <strong>10:00 a.m. to 7:00 p.m.</strong>, Monday through Saturday.</p>
 <p style="margin:0 0 6px 0"><u><strong>Office Guidelines:</strong></u></p>
 <ul style="margin:0 0 6px 0;padding-left:22px">
 <li style="margin-bottom:4px">Dress Code (Monday to Friday): Formals</li>
 <li style="margin-bottom:4px">Dress Code (Saturday): Casuals</li>
 <li style="margin-bottom:4px">Personal mobile phones are not permitted during working hours, except during lunch breaks.</li>
 </ul>
-<p style="margin:0 0 6px 0">All employees are expected to adhere to the highest standards of professionalism, integrity, and confidentiality. Any breach of the company's code of conduct or confidentiality policies may result in disciplinary action, including termination of employment.</p>
-<p style="margin:0 0 6px 0">Please note that during the probation period, you will not be eligible for any other monetary benefits beyond the stipulated stipend. If an employee absconds or voluntarily leaves during the training period, they will not be eligible for any training salary or compensation.</p>
+<p style="margin:0 0 6px 0">All volunteers are expected to adhere to the highest standards of professionalism, integrity, and confidentiality. Any breach of the company's code of conduct or confidentiality policies may result in disciplinary action, including termination of employment.</p>
+<p style="margin:0 0 6px 0">Please note that during the probation period, you will not be eligible for any other monetary benefits beyond the stipulated stipend. If a volunteer absconds or voluntarily leaves during the training period, they will not be eligible for any training salary or compensation.</p>
 <p style="margin:0 0 6px 0">We look forward to a long and mutually rewarding association with you. Welcome aboard!</p>
 </div>
 <div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p></div>
@@ -118,7 +118,7 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">${subj}</div>
 <div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
-<p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer / Employee. I hereby declare and confirm the following:</p>
+<p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer. I hereby declare and confirm the following:</p>
 <ol style="margin:0 0 10px 0;padding-left:26px;text-align:left">
 <li style="margin-bottom:8px">I understand that my performance, discipline, attendance, behaviour, and compliance with the organization's policies will be reviewed regularly by the Management.</li>
 <li style="margin-bottom:8px">I understand and agree that if my performance is found to be unsatisfactory, my attendance is irregular, I fail to achieve assigned responsibilities, or I violate the organization's rules and policies, the Management shall have the sole discretion to revise my remuneration.</li>
@@ -130,8 +130,8 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <p style="margin:0 0 10px 0">I have read, understood, and accepted all the above terms and conditions.</p>
 <div style="margin:22px 0;height:1px;background:#d1d5db"></div>
 <table style="width:100%;border-collapse:collapse">
-<tr><td style="padding:4px 0"><strong>Employee/Volunteer Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td></tr>
-<tr><td style="padding:4px 0"><strong>Signature of Employee/Volunteer:</strong> _______________________</td><td style="padding:4px 0"><strong>Date:</strong> ____ / ____ / _____</td></tr>
+<tr><td style="padding:4px 0"><strong>Volunteer Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td></tr>
+<tr><td style="padding:4px 0"><strong>Signature of Volunteer:</strong> _______________________</td><td style="padding:4px 0"><strong>Date:</strong> ____ / ____ / _____</td></tr>
 </table>
 <div style="margin:20px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Verification</div>
@@ -196,9 +196,9 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
 <tr><td style="padding:4px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
 <tr><td style="padding:4px 0"><strong>Date of Submission:</strong> ${dateText}</td></tr>
 </table>
-<div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Employee Details</div>
+<div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Volunteer Details</div>
 <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
-<tr><td style="padding:4px 0;width:50%"><strong>Employee Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Department:</strong> ${d}</td></tr>
+<tr><td style="padding:4px 0;width:50%"><strong>Volunteer Name:</strong> ${w.name}</td><td style="padding:4px 0"><strong>Department:</strong> ${d}</td></tr>
 <tr><td style="padding:4px 0"><strong>Designation:</strong> ${r}</td><td style="padding:4px 0"><strong>Date of Joining:</strong> ${joiningDate}</td></tr>
 </table>
 <div style="font-weight:700;color:#134987;margin:14px 0 6px 0">Original Documents Submitted</div>
@@ -213,10 +213,10 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
 ${rowsHtml}
 </table>
 <div style="margin:14px 0 0 0;text-align:justify">
-<p style="margin:0 0 8px 0"><strong>Employee Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
+<p style="margin:0 0 8px 0"><strong>Volunteer Declaration:</strong> I, <strong>${w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>${ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
 </div>
 <table style="width:100%;border-collapse:collapse;margin-top:8px">
-<tr><td style="padding:4px 0"><strong>Employee Signature:</strong> _______________________</td></tr>
+<tr><td style="padding:4px 0"><strong>Volunteer Signature:</strong> _______________________</td></tr>
 </table>
 <div style="margin:18px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">HR Acknowledgement</div>
@@ -226,7 +226,7 @@ ${rowsHtml}
 <div style="margin:14px 0 0 0;border:1px solid #134987;border-radius:6px;padding:14px 18px">
 <div style="font-weight:700;color:#134987;text-transform:uppercase;margin-bottom:8px">Document Return Acknowledgement <span style="font-weight:400;text-transform:none">(To be filled at the time of return)</span></div>
 <div>I confirm that I have received all my original documents listed above in good condition.</div>
-<div style="margin-top:6px"><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+<div style="margin-top:6px"><strong>Volunteer Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
 <div style="margin-top:6px"><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
 </div>
 </div>
@@ -284,10 +284,10 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
           <tr><td style={{ padding: '4px 0' }}><strong>Date of Submission:</strong> {dateText}</td></tr>
         </tbody>
       </table>
-      <div style={{ fontWeight: 700, color: '#134987', margin: '14px 0 6px 0' }}>Employee Details</div>
+      <div style={{ fontWeight: 700, color: '#134987', margin: '14px 0 6px 0' }}>Volunteer Details</div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
         <tbody>
-          <tr><td style={{ padding: '4px 0', width: '50%' }}><strong>Employee Name:</strong> {w.name}</td><td style={{ padding: '4px 0' }}><strong>Department:</strong> {d}</td></tr>
+          <tr><td style={{ padding: '4px 0', width: '50%' }}><strong>Volunteer Name:</strong> {w.name}</td><td style={{ padding: '4px 0' }}><strong>Department:</strong> {d}</td></tr>
           <tr><td style={{ padding: '4px 0' }}><strong>Designation:</strong> {r}</td><td style={{ padding: '4px 0' }}><strong>Date of Joining:</strong> {joiningDate}</td></tr>
         </tbody>
       </table>
@@ -346,11 +346,11 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
         </div>
       )}
       <div style={{ margin: '14px 0 0 0', textAlign: 'justify' }}>
-        <p style={{ margin: '0 0 8px 0' }}><strong>Employee Declaration:</strong> I, <strong>{w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>{ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
+        <p style={{ margin: '0 0 8px 0' }}><strong>Volunteer Declaration:</strong> I, <strong>{w.name}</strong>, acknowledge that I have voluntarily submitted the above-mentioned original document(s) to <strong>{ngo.name}</strong> (Organization Name) for verification and employment purposes. I understand that these documents will be kept securely by the organization only for verification or administrative purposes and will be returned to me as per the organization's policy or upon separation from the organization, subject to clearance of all dues and formalities. I confirm that the details mentioned above are correct.</p>
       </div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
         <tbody>
-          <tr><td style={{ padding: '4px 0' }}><strong>Employee Signature:</strong> _______________________</td></tr>
+          <tr><td style={{ padding: '4px 0' }}><strong>Volunteer Signature:</strong> _______________________</td></tr>
         </tbody>
       </table>
       <div style={{ margin: '18px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
@@ -361,7 +361,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
       <div style={{ margin: '14px 0 0 0', border: '1px solid #134987', borderRadius: 6, padding: '14px 18px' }}>
         <div style={{ fontWeight: 700, color: '#134987', textTransform: 'uppercase', marginBottom: 8 }}>Document Return Acknowledgement <span style={{ fontWeight: 400, textTransform: 'none' }}>(To be filled at the time of return)</span></div>
         <div>I confirm that I have received all my original documents listed above in good condition.</div>
-        <div style={{ marginTop: 6 }}><strong>Employee Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
+        <div style={{ marginTop: 6 }}><strong>Volunteer Signature:</strong> ________________ &nbsp;&nbsp; <strong>Date:</strong> _____ / _____ / ______</div>
         <div style={{ marginTop: 6 }}><strong>Returned By (HR):</strong> ___________________ &nbsp;&nbsp; <strong>HR Signature:</strong> ____________________</div>
       </div>
       </div>
@@ -591,7 +591,7 @@ export default function Letters() {
     const worker = workers.find(x => x.name === name);
     const number = cleanPhone(worker?.phone) || '918879136938';
     let text = 'hey';
-    if (sel) text = [sel.heading, sel.label, sel.subject, sel.body].filter(Boolean).join('\n\n').replace(/\[Employee Name\]/g, name || '[Employee Name]');
+    if (sel) text = [sel.heading, sel.label, sel.subject, sel.body].filter(Boolean).join('\n\n').replace(/\[Volunteer Name\]/g, name || '[Volunteer Name]');
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -638,7 +638,7 @@ export default function Letters() {
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Letter type
             <Dropdown value={type} onChange={e=>setType(e.target.value)} options={TYPES} />
           </label>
-          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Employee Message
+          <label className="field" style={{ flex: '0 0 170px', minWidth: 0 }}>Volunteer Message
             <Dropdown value={sopSel} onChange={e=>setSopSel(e.target.value)} placeholder="Select..." options={[{ value: '', label: 'Select...' }, ...HR_MESSAGES.map(m => ({ value: m.key, label: m.label }))]} />
           </label>
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Last Working Date
@@ -684,7 +684,7 @@ export default function Letters() {
               {m.heading && <div style={{ fontSize: 15, fontWeight: 700, color: '#082F5A', marginBottom: 12 }}>{m.heading}</div>}
               <div style={{ fontWeight: 700, color: '#082F5A', marginBottom: 4 }}>{m.label}</div>
               {m.subject && <div style={{ fontStyle: 'italic', marginBottom: 4 }}>{m.subject}</div>}
-              <div style={{ whiteSpace: 'pre-wrap' }}>{m.body.replace(/\[Employee Name\]/g, name || '[Employee Name]')}</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{m.body.replace(/\[Volunteer Name\]/g, name || '[Volunteer Name]')}</div>
             </div>
           );
         })()}
