@@ -221,7 +221,7 @@ class UfsAttendApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
-      title: 'UFS Attend',
+      title: 'UCS Attend',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -316,6 +316,9 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _checkAuth() async {
     try {
       final token = await ApiService.getToken().timeout(const Duration(seconds: 2));
+      if (token != null) {
+        await ApiService.isNgoAdmin();
+      }
       if (token != null && firebaseInitialized) {
         await NotificationService().init();
       }
@@ -426,7 +429,7 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
   int _tabChangeVersion = 0;
   Map<String, dynamic>? _announcement;
-  bool _isAdmin = false;
+  bool _isAdmin = ApiService.isCachedNgoAdmin();
 
   @override
   void initState() {
@@ -533,7 +536,7 @@ class _MainShellState extends State<MainShell> {
               onDismiss: _dismissAnnouncement,
             ),
           Expanded(
-            child: IndexedStack(
+            child: _LazyIndexedStack(
               index: _currentIndex,
               children: children,
             ),
@@ -559,6 +562,44 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LazyIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+  const _LazyIndexedStack({required this.index, required this.children});
+
+  @override
+  State<_LazyIndexedStack> createState() => _LazyIndexedStackState();
+}
+
+class _LazyIndexedStackState extends State<_LazyIndexedStack> {
+  final Set<int> _built = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _built.add(widget.index);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LazyIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.index < widget.children.length) {
+      _built.add(widget.index);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IndexedStack(
+      index: widget.index,
+      children: [
+        for (var i = 0; i < widget.children.length; i++)
+          _built.contains(i) ? widget.children[i] : const SizedBox.shrink(),
+      ],
     );
   }
 }
@@ -697,7 +738,7 @@ class ForceUpdatePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'A new version (${cfg.minimumVersion}) of UFS Attend is available. Please update to continue.',
+                  'A new version (${cfg.minimumVersion}) of UCS Attend is available. Please update to continue.',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.manrope(
                     fontSize: 14, fontWeight: FontWeight.w400, color: const Color(0xFF474d57),

@@ -5,7 +5,7 @@ const flutterAppData = {
   "roles": [
     "*"
   ],
-  "description": "Mobile application (UFS Attend) for workers covering attendance, leaves, advances, loans, profile, notifications, onboarding, and salary.",
+  "description": "Mobile application (UCS Attend) for workers covering attendance, leaves, advances, loans, profile, notifications, onboarding, and salary.",
   "keyFeatures": [
     "QR code + GPS geo-verified attendance punching",
     "4 leave types: full day, half day, vacational, emergency",

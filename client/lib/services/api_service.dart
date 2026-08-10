@@ -175,13 +175,19 @@ class ApiService {
     return null;
   }
 
+  static bool? _cachedIsAdmin;
+
   static Future<bool> isNgoAdmin() async {
     final worker = await getWorkerData();
     if (worker == null) return false;
     final role = worker['role']?.toString().toLowerCase();
     final dept = worker['department']?.toString().toLowerCase();
-    return role == 'admin' || dept == 'ngo admin';
+    final admin = role == 'admin' || dept == 'ngo admin';
+    _cachedIsAdmin = admin;
+    return admin;
   }
+
+  static bool isCachedNgoAdmin() => _cachedIsAdmin ?? false;
 
   static Future<void> clearAuth() async {
     final prefs = await SharedPreferences.getInstance();
@@ -433,6 +439,19 @@ class ApiService {
     final body = jsonDecode(res.body);
     if (res.statusCode != 200) {
       throw Exception(body is Map ? (body['message'] ?? 'Failed to update attendance') : 'Failed to update attendance');
+    }
+    return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
+  }
+
+  // ---- Admin: delete attendance record ----
+  static Future<Map<String, dynamic>> deleteAttendance(String id) async {
+    final res = await _delete(
+      Uri.parse('$baseUrl/attendance/$id'),
+      headers: await _headers(),
+    );
+    final body = jsonDecode(res.body);
+    if (res.statusCode != 200) {
+      throw Exception(body is Map ? (body['message'] ?? 'Failed to delete attendance') : 'Failed to delete attendance');
     }
     return (body is Map ? (body['attendance'] ?? body) : body) as Map<String, dynamic>;
   }

@@ -4,7 +4,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/realtime_service.dart';
-import '../main.dart';
 import '../utils/responsive.dart';
 import '../widgets/skeleton_loader.dart';
 
@@ -57,7 +56,8 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
       );
       if (mounted) {
         setState(() {
-          _records = records;
+          _records = List<dynamic>.from(records)
+            ..sort((a, b) => (b['date']?.toString() ?? '').compareTo(a['date']?.toString() ?? ''));
           _loading = false;
         });
       }
@@ -182,7 +182,6 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<AppColors>()!;
     final scheme = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
@@ -191,68 +190,10 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(LucideIcons.arrowLeft),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(widget.worker['name']?.toString() ?? 'Worker', style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                        if ((widget.worker['department']?.toString() ?? '').isNotEmpty)
-                          Text(widget.worker['department'].toString(), style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(LucideIcons.plus),
-                    onPressed: _records.isEmpty ? null : _openAddSheet,
-                    tooltip: 'Add record',
-                  ),
-                  IconButton(
-                    icon: const Icon(LucideIcons.refreshCw),
-                    onPressed: () => _load(),
-                    tooltip: 'Refresh',
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: colors.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    IconButton(icon: const Icon(LucideIcons.chevronLeft), onPressed: _prevMonth),
-                    Expanded(
-                      child: InkWell(
-                        onTap: _pickMonthYear,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth)),
-                            style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                    ),
-                    IconButton(icon: const Icon(LucideIcons.chevronRight), onPressed: _nextMonth),
-                  ],
-                ),
-              ),
-            ),
-            if (!_loading && _records.isNotEmpty) _summaryChips(tt, scheme),
-            const SizedBox(height: 8),
+            _buildHeader(scheme, tt),
+            const SizedBox(height: 12),
+            _buildMonthBar(scheme, tt),
+            const SizedBox(height: 12),
             Expanded(
               child: _loading
                   ? const _RecordsSkeleton()
@@ -263,7 +204,7 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
                           child: _records.isEmpty
                               ? _empty(tt, scheme, 'No records for this month')
                               : ListView.builder(
-                                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), Responsive.pad(context, 8), Responsive.pad(context, 16), Responsive.pad(context, 40)),
+                                  padding: EdgeInsets.fromLTRB(Responsive.pad(context, 16), 0, Responsive.pad(context, 16), Responsive.pad(context, 40)),
                                   itemCount: _records.length,
                                   itemBuilder: (context, i) => _recordCard(_records[i], tt, scheme),
                                 ),
@@ -275,47 +216,104 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     );
   }
 
-  Widget _summaryChips(TextTheme tt, ColorScheme scheme) {
-    final present = _records.where((r) => r['status']?.toString() == 'present').length;
-    final late = _records.where((r) => r['status']?.toString() == 'late').length;
-    final leave = _records.where((r) => r['status']?.toString() == 'leave').length;
-    final absent = _records.where((r) => r['status']?.toString() == 'absent').length;
-    final totalHours = _records.fold<int>(0, (sum, r) {
-      final pi = DateTime.tryParse(r['punch_in_time']?.toString() ?? '');
-      final po = DateTime.tryParse(r['punch_out_time']?.toString() ?? '');
-      if (pi == null || po == null) return sum;
-      return sum + (po.difference(pi).inMinutes);
-    });
+  Widget _buildHeader(ColorScheme scheme, TextTheme tt) {
+    final name = widget.worker['name']?.toString() ?? 'Worker';
+    final dept = widget.worker['department']?.toString() ?? '';
 
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16), vertical: Responsive.pad(context, 8)),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _chip(tt, scheme, 'Present', present, const Color(0xFF16a34a)),
-            _chip(tt, scheme, 'Late', late, const Color(0xFFd97706)),
-            _chip(tt, scheme, 'Leave', leave, const Color(0xFF2563eb)),
-            _chip(tt, scheme, 'Absent', absent, const Color(0xFFdc2626)),
-            _chip(tt, scheme, 'Hours', (totalHours / 60).toStringAsFixed(1), const Color(0xFF64748b)),
-          ],
-        ),
+      padding: EdgeInsets.fromLTRB(Responsive.pad(context, 4), Responsive.pad(context, 8), Responsive.pad(context, 8), 0),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(LucideIcons.arrowLeft),
+            color: scheme.onSurface,
+            onPressed: () => Navigator.pop(context),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Attendance Details', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurface)),
+                const SizedBox(height: 2),
+                Text(
+                  dept.isNotEmpty ? '$name · $dept' : name,
+                  style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: scheme.secondary.withValues(alpha: 0.1),
+              foregroundColor: scheme.secondary,
+            ),
+            icon: const Icon(LucideIcons.plus),
+            onPressed: _records.isEmpty ? null : _openAddSheet,
+            tooltip: 'Add record',
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: scheme.secondary.withValues(alpha: 0.1),
+              foregroundColor: scheme.secondary,
+            ),
+            icon: const Icon(LucideIcons.refreshCw),
+            onPressed: () => _load(),
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
     );
   }
 
-  Widget _chip(TextTheme tt, ColorScheme scheme, String label, dynamic value, Color color) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 12), vertical: Responsive.pad(context, 6)),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
+  Widget _buildMonthBar(ColorScheme scheme, TextTheme tt) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 16)),
       child: Row(
         children: [
-          Text('$label: ', style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
-          Text('$value', style: tt.labelSmall?.copyWith(color: color, fontWeight: FontWeight.w700)),
+          Expanded(
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 6), vertical: Responsive.pad(context, 4)),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+              ),
+              child: Row(
+                children: [
+                  IconButton(icon: const Icon(LucideIcons.chevronLeft), onPressed: _prevMonth),
+                  Expanded(
+                    child: InkWell(
+                      onTap: _pickMonthYear,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Column(
+                          children: [
+                            Text(
+                              DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth)),
+                              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${_records.length} record${_records.length == 1 ? '' : 's'}',
+                              style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(icon: const Icon(LucideIcons.chevronRight), onPressed: _nextMonth),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -352,6 +350,10 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         statusColor = const Color(0xFFd97706);
         statusLabel = 'Late';
         break;
+      case 'half-day':
+        statusColor = const Color(0xFF7c3aed);
+        statusLabel = 'Half Day';
+        break;
       case 'leave':
         statusColor = const Color(0xFF2563eb);
         statusLabel = 'Leave';
@@ -365,72 +367,139 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
     final punchOut = _formatTime(record['punch_out_time']);
     final hours = _hoursWorked(record['punch_in_time'], record['punch_out_time']);
     final hasId = record['id'] != null;
+    final lateMinutes = (record['late_minutes'] ?? 0) > 0 ? record['late_minutes'] : null;
 
-    return Container(
-      margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
-      padding: EdgeInsets.all(Responsive.pad(context, 14)),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      dt != null ? DateFormat('EEE, dd MMM yyyy').format(dt) : dateStr,
-                      style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+    return GestureDetector(
+      onLongPress: hasId ? () => _confirmDelete(record) : null,
+      child: Container(
+        margin: EdgeInsets.only(bottom: Responsive.pad(context, 10)),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: Responsive.pad(context, 62),
+              padding: EdgeInsets.symmetric(vertical: Responsive.pad(context, 12)),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.1),
+                borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+              ),
+              child: dt == null
+                  ? Center(child: Icon(LucideIcons.calendarX, color: statusColor, size: Responsive.sp(context, 20)))
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(DateFormat('d').format(dt), style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: statusColor, height: 1.1)),
+                        Text(DateFormat('EEE').format(dt).toUpperCase(), style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700, letterSpacing: 0.4)),
+                        const SizedBox(height: 2),
+                        Text(DateFormat('MMM').format(dt), style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+                      ],
                     ),
-                    const Spacer(),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
+            ),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.all(Responsive.pad(context, 12)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 4)),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w800)),
+                        ),
+                        if (hours != null) ...[
+                          const Spacer(),
+                          Icon(LucideIcons.timer, size: Responsive.sp(context, 13), color: scheme.onSurfaceVariant),
+                          const SizedBox(width: 4),
+                          Text(hours, style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontWeight: FontWeight.w700)),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        _timePill(scheme, tt, LucideIcons.logIn, 'In', punchIn, const Color(0xFF16a34a)),
+                        const SizedBox(width: 10),
+                        _timePill(scheme, tt, LucideIcons.logOut, 'Out', punchOut, const Color(0xFFd97706)),
+                      ],
+                    ),
+                    if (lateMinutes != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(LucideIcons.alertTriangle, size: Responsive.sp(context, 13), color: const Color(0xFFd97706)),
+                          const SizedBox(width: 5),
+                          Text('Late by $lateMinutes min', style: tt.labelSmall?.copyWith(color: const Color(0xFFd97706), fontWeight: FontWeight.w700)),
+                        ],
                       ),
-                      child: Text(statusLabel, style: tt.labelSmall?.copyWith(color: statusColor, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(LucideIcons.logIn, size: Responsive.sp(context, 14), color: scheme.onSurfaceVariant),
-                    SizedBox(width: Responsive.pad(context, 6)),
-                    Text(punchIn ?? '--', style: tt.bodySmall),
-                    SizedBox(width: Responsive.pad(context, 16)),
-                    Icon(LucideIcons.logOut, size: Responsive.sp(context, 14), color: scheme.onSurfaceVariant),
-                    SizedBox(width: Responsive.pad(context, 6)),
-                    Text(punchOut ?? '--', style: tt.bodySmall),
-                    if (hours != null) ...[
-                      const Spacer(),
-                      Text(hours, style: tt.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                     ],
                   ],
                 ),
-                if ((record['late_minutes'] ?? 0) > 0)
-                  Padding(
-                    padding: EdgeInsets.only(top: Responsive.pad(context, 4)),
-                    child: Text(
-                      'Late ${record['late_minutes']} min',
-                      style: tt.bodySmall?.copyWith(color: const Color(0xFFd97706)),
-                    ),
+              ),
+            ),
+            if (hasId)
+              Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: EdgeInsets.only(top: Responsive.pad(context, 6)),
+                  child: IconButton(
+                    icon: Icon(LucideIcons.pencil, size: Responsive.sp(context, 17)),
+                    onPressed: () => _openEditSheet(record),
+                    tooltip: 'Edit',
                   ),
-              ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _timePill(ColorScheme scheme, TextTheme tt, IconData icon, String label, String? value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: Responsive.pad(context, 10), vertical: Responsive.pad(context, 7)),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: Responsive.sp(context, 14), color: color),
+            SizedBox(width: Responsive.pad(context, 6)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: tt.labelSmall?.copyWith(color: scheme.onSurfaceVariant, fontSize: Responsive.sp(context, 10))),
+                  Text(
+                    value ?? '--',
+                    style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: value == null ? scheme.onSurfaceVariant : scheme.onSurface),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
-          ),
-          if (hasId)
-            IconButton(
-              icon: Icon(LucideIcons.pencil, size: Responsive.sp(context, 18)),
-              onPressed: () => _openEditSheet(record),
-              tooltip: 'Edit',
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -482,6 +551,43 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
       ),
     );
     if (changed == true) _load();
+  }
+
+  Future<void> _confirmDelete(dynamic record) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Attendance'),
+        content: Text('Delete attendance for ${record['date']?.toString() ?? 'this day'}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFdc2626)),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ApiService.deleteAttendance(record['id'].toString());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Attendance deleted')),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
   }
 
   Widget _empty(TextTheme tt, ColorScheme scheme, String message) {
@@ -550,8 +656,8 @@ class _EditAttendanceSheet extends StatefulWidget {
 }
 
 class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
-  late TimeOfDay _inTime;
-  late TimeOfDay _outTime;
+  TimeOfDay? _inTime;
+  TimeOfDay? _outTime;
   late String _status;
   bool _saving = false;
   String? _error;
@@ -563,15 +669,15 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
     super.initState();
     final pi = DateTime.tryParse(widget.record['punch_in_time']?.toString() ?? '')?.toLocal();
     final po = DateTime.tryParse(widget.record['punch_out_time']?.toString() ?? '')?.toLocal();
-    _inTime = pi != null ? TimeOfDay.fromDateTime(pi) : const TimeOfDay(hour: 9, minute: 0);
-    _outTime = po != null ? TimeOfDay.fromDateTime(po) : const TimeOfDay(hour: 18, minute: 0);
+    _inTime = pi != null ? TimeOfDay.fromDateTime(pi) : null;
+    _outTime = po != null ? TimeOfDay.fromDateTime(po) : null;
     _status = widget.record['status']?.toString() ?? 'present';
   }
 
   Future<void> _pickTime({required bool isIn}) async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: isIn ? _inTime : _outTime,
+      initialTime: isIn ? (_inTime ?? const TimeOfDay(hour: 9, minute: 0)) : (_outTime ?? const TimeOfDay(hour: 18, minute: 0)),
     );
     if (picked != null) {
       setState(() => isIn ? _inTime = picked : _outTime = picked);
@@ -591,8 +697,8 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
     setState(() { _saving = true; _error = null; });
     try {
       final payload = {
-        'punch_in_time': _combine(_inTime).toIso8601String(),
-        'punch_out_time': _combine(_outTime).toIso8601String(),
+        'punch_in_time': _inTime != null ? _combine(_inTime!).toIso8601String() : null,
+        'punch_out_time': _outTime != null ? _combine(_outTime!).toIso8601String() : null,
         'status': _status,
       };
       await widget.onSave(payload);
@@ -635,11 +741,11 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
           Row(
             children: [
               Expanded(
-                child: _timeField('Punch In', _inTime, () => _pickTime(isIn: true)),
+                child: _timeField('Punch In', _inTime, () => _pickTime(isIn: true), onClear: () => setState(() => _inTime = null)),
               ),
               SizedBox(width: Responsive.pad(context, 16)),
               Expanded(
-                child: _timeField('Punch Out', _outTime, () => _pickTime(isIn: false)),
+                child: _timeField('Punch Out', _outTime, () => _pickTime(isIn: false), onClear: () => setState(() => _outTime = null)),
               ),
             ],
           ),
@@ -654,6 +760,7 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
             items: const [
               DropdownMenuItem(value: 'present', child: Text('Present')),
               DropdownMenuItem(value: 'late', child: Text('Late')),
+              DropdownMenuItem(value: 'half-day', child: Text('Half Day')),
               DropdownMenuItem(value: 'absent', child: Text('Absent')),
               DropdownMenuItem(value: 'leave', child: Text('Leave')),
             ],
@@ -680,7 +787,7 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
     );
   }
 
-  Widget _timeField(String label, TimeOfDay time, VoidCallback onTap) {
+  Widget _timeField(String label, TimeOfDay? time, VoidCallback onTap, {VoidCallback? onClear}) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
@@ -694,10 +801,33 @@ class _EditAttendanceSheetState extends State<_EditAttendanceSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(label, style: TextStyle(fontSize: Responsive.sp(context, 12), color: scheme.onSurfaceVariant)),
+                ),
+                if (time != null && onClear != null)
+                  InkWell(
+                    onTap: onClear,
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(LucideIcons.x, size: Responsive.sp(context, 14), color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+              ],
+            ),
             SizedBox(height: Responsive.pad(context, 4)),
-            Text(DateFormat('h:mm a').format(DateTime(2000, 1, 1, time.hour, time.minute)),
-              style: TextStyle(fontSize: Responsive.sp(context, 16), fontWeight: FontWeight.w700)),
+            Text(
+              time != null
+                  ? DateFormat('h:mm a').format(DateTime(2000, 1, 1, time.hour, time.minute))
+                  : 'Not set',
+              style: TextStyle(
+                fontSize: Responsive.sp(context, 16),
+                fontWeight: FontWeight.w700,
+                color: time != null ? null : scheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),
@@ -836,6 +966,7 @@ class _AddAttendanceSheetState extends State<_AddAttendanceSheet> {
             items: const [
               DropdownMenuItem(value: 'present', child: Text('Present')),
               DropdownMenuItem(value: 'late', child: Text('Late')),
+              DropdownMenuItem(value: 'half-day', child: Text('Half Day')),
               DropdownMenuItem(value: 'absent', child: Text('Absent')),
               DropdownMenuItem(value: 'leave', child: Text('Leave')),
             ],
