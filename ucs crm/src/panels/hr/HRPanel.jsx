@@ -28,11 +28,11 @@ import ToastContainer from '../../components/Toast'
 
 const NAV = [
   { id:'overview',   path:'/hr/overview',   label:'Overview',    icon:Grid,    eyebrow:'Dashboard',   sub:'Your team at a glance' },
-  { id:'employees',  path:'/hr/employees',   label:'Employees',   icon:Users,   eyebrow:'People',      sub:'Add and manage employees' },
+  { id:'employees',  path:'/hr/employees',   label:'Volunteers',  icon:Users,   eyebrow:'People',      sub:'Add and manage volunteers' },
   { id:'attendance', path:'/hr/attendance',  label:'Attendance',  icon:Clock,   eyebrow:'Daily',       sub:'Mark who is in today' },
   { id:'leaves',     path:'/hr/leaves',      label:'Leaves',      icon:Plane,   eyebrow:'Time off',    sub:'Requests and approvals' },
   { id:'letters',    path:'/hr/letters',     label:'Letters',     icon:FileTxt, eyebrow:'Documents',   sub:'Generate HR letters' },
-  { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Employee onboarding forms' },
+  { id:'hr-forms',   path:'/hr/hr-forms',    label:'HR Forms',    icon:FileTxt, eyebrow:'Forms',       sub:'Volunteer onboarding forms' },
   { id:'recruiters', path:'/hr/recruiters',  label:'Recruiters',  icon:Users,   eyebrow:'Pipeline',    sub:'Track leads and hires' },
   { id:'holidays',   path:'/hr/holidays',    label:'Holidays',    icon:Cal,     eyebrow:'Calendar',    sub:'Plan the holiday chart' },
   { id:'qr',         path:'/hr/qr',          label:'QR Codes',    icon:Grid,    eyebrow:'Attendance',  sub:'Generate and manage QR codes' },
@@ -237,7 +237,7 @@ function OffboardPage() {
   }, [id])
 
   if (loading) return <div className="empty">Loading...</div>
-  if (!worker) return <div className="empty">Employee not found.</div>
+  if (!worker) return <div className="empty">Volunteer not found.</div>
   return <Offboarding worker={worker} onBack={() => navigate('/hr/employees')} />
 }
 

@@ -442,7 +442,7 @@ export default function Workers({ onSelect, onOffboard }) {
   return (
     <>
       <div className="card" style={{ marginBottom:20 }}>
-        <div className="card-head"><h3>Add an employee</h3></div>
+        <div className="card-head"><h3>Add a volunteer</h3></div>
         <div className="card-pad">
           <div className="form-row">
             <label className="field">Full name
@@ -479,7 +479,7 @@ export default function Workers({ onSelect, onOffboard }) {
             </div>
           )}
           <div style={{ display:'flex', gap:8, marginTop:8, alignItems:'center' }}>
-            <button className="btn btn-primary" onClick={submit}><Plus width={16}/> Add employee</button>
+            <button className="btn btn-primary" onClick={submit}><Plus width={16}/> Add volunteer</button>
           </div>
           {err && <div style={{ color:'var(--danger)', fontSize:13, marginTop:8 }}>{err}</div>}
           {created && (
@@ -493,7 +493,7 @@ export default function Workers({ onSelect, onOffboard }) {
       </div>
 
       <div className="card" ref={tableRef}>
-        <div className="card-head"><h3>Employees</h3>
+        <div className="card-head"><h3>Volunteers</h3>
           <div className="search-input-wrap">
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
@@ -569,12 +569,12 @@ export default function Workers({ onSelect, onOffboard }) {
                         </span>
                       </td>
                       <td style={{ textAlign:'right' }}>
-                        <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard employee" style={{ color:'#dc2626' }}><Trash width={16}/></button>
+                        <button className="btn btn-icon" onClick={(e)=>handleOffboard(e, w)} aria-label="Offboard volunteer" style={{ color:'#dc2626' }}><Trash width={16}/></button>
                       </td>
                     </tr>
                   );
                 })}
-                {!filtered.length && <tr><td colSpan={5}><div className="empty">No employees found.</div></td></tr>}
+                {!filtered.length && <tr><td colSpan={5}><div className="empty">No volunteers found.</div></td></tr>}
               </>
             )}
           </tbody>

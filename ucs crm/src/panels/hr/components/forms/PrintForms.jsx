@@ -23,7 +23,7 @@ export default function PrintForms({ data, onClose }) {
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
-      <head><title>Employee Forms - Being Sevak Charitable Trust</title>
+      <head><title>Volunteer Forms - Being Sevak Charitable Trust</title>
       <base href="${origin}/">
       <style>
         @page { size: A4; margin: 0; }

@@ -23,7 +23,7 @@ const NAV = [
   { id: 'dashboard', path: '/sa/dashboard', label: 'Dashboard', icon: GridFour },
   { id: 'data-management', path: '/sa/data-management', label: 'Data Management', icon: Database },
   { id: 'organization', path: '/sa/organization', label: 'Organization', icon: Buildings },
-  { id: 'employees', path: '/sa/employees', label: 'Employees', icon: Users },
+  { id: 'employees', path: '/sa/employees', label: 'Volunteers', icon: Users },
   { id: 'leaves', path: '/sa/leaves', label: 'Leaves', icon: Airplane },
   { id: 'tickets', path: '/sa/tickets', label: 'Tickets', icon: Ticket },
   { id: 'ngo-admin', path: '/sa/ngo-admin', label: 'NGO Admin', icon: BuildingOffice },
