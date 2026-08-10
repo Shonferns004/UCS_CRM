@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom'
-import { LayoutDashboard, CalendarClock, Users, Gift, HeartCrack, Ticket, MessageCircle } from 'lucide-react'
+import { LayoutDashboard, CalendarClock, Users, Gift, HeartCrack, Ticket, MessageCircle, Inbox } from 'lucide-react'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
 import { getScheduled, getCallbacks } from './api/donors'
@@ -24,6 +24,7 @@ import Scheduled from './pages/Scheduled'
 import IncentiveInfo from './pages/IncentiveInfo'
 import History from './pages/History'
 import FroTickets from './pages/Tickets'
+import FroSuspense from './pages/Suspense'
 
 const NAV_BASE = [
   { id: 'dashboard', path: '/fro/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -31,6 +32,7 @@ const NAV_BASE = [
   { id: 'my-leads', path: '/fro/my-leads', label: 'My Leads', Icon: Users },
   { id: 'donors', path: '/fro/donors', label: 'Donors', Icon: Gift },
   { id: 'rejected', path: '/fro/rejected-leads', label: 'Rejected Leads', Icon: HeartCrack },
+  { id: 'suspense', path: '/fro/suspense', label: 'Suspense', Icon: Inbox },
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
 ]
 
@@ -238,7 +240,6 @@ export default function FROPanel() {
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('fro_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs));
   const notifRef = useRef(null);
-  const pollRef = useRef(null);
   const poppedIds = useRef(new Set());
   const snoozedUntil = useRef({});
   const [autoPopTick, setAutoPopTick] = useState(0);
@@ -321,8 +322,6 @@ export default function FROPanel() {
   useEffect(() => {
     loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadNotifications(), 30000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('notification_log', {
@@ -331,72 +330,74 @@ export default function FROPanel() {
     enabled: !!user?.id,
   });
 
-  useEffect(() => {
-    const fetchWaUnread = async () => {
-      try {
-        const token = localStorage.getItem('ucs_token')
-        if (!token) return
-        const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+  const refreshWaUnread = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('ucs_token')
+      if (!token) return
+      const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
 
-        // Try auto-login first if no agents stored
-        const storedAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
-        if (storedAgents.length === 0 && user?.id) {
-          try {
-            const loginRes = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-            if (loginRes.ok) {
-              const loginData = await loginRes.json()
-              const sessionList = loginData.agents || loginData.sessions || []
-              if (sessionList.length) {
-                const agents = sessionList.map(s => ({
-                  agentUserId: s.agentId,
-                  accountName: s.account?.name,
-                  project: s.project,
-                  whatsappUserId: s.account?.id,
-                  token: s.token,
-                }))
-                localStorage.setItem('wa_agents', JSON.stringify(agents))
-              }
+      // Try auto-login first if no agents stored
+      const storedAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+      if (storedAgents.length === 0 && user?.id) {
+        try {
+          const loginRes = await fetch(`${apiBase}/fro/whatsapp/auto-login`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (loginRes.ok) {
+            const loginData = await loginRes.json()
+            const sessionList = loginData.agents || loginData.sessions || []
+            if (sessionList.length) {
+              const agents = sessionList.map(s => ({
+                agentUserId: s.agentId,
+                accountName: s.account?.name,
+                project: s.project,
+                whatsappUserId: s.account?.id,
+                token: s.token,
+              }))
+              localStorage.setItem('wa_agents', JSON.stringify(agents))
             }
-          } catch { /* silent */ }
-        }
+          }
+        } catch { /* silent */ }
+      }
 
-        // Fetch unread counts for each agent
-        const agents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
-        const counts = { total: 0 }
-        for (const agent of agents) {
-          try {
-            const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
-              headers: { Authorization: `Bearer ${agent.token}` },
-            })
-            if (res.ok) {
-              const data = await res.json()
-              const key = `whatsapp-${agent.project}`
-              counts[key] = data?.count || 0
-              counts.total += data?.count || 0
-            }
-          } catch { /* skip */ }
-        }
-        // Fallback: try the FRO token for a single count
-        if (agents.length === 0) {
-          try {
-            const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-            if (res.ok) {
-              const data = await res.json()
-              counts.total = data?.count || 0
-            }
-          } catch { /* skip */ }
-        }
-        setWaUnreadCounts(counts)
-      } catch (e) { console.error('Error:', e.message); }
-    }
-    fetchWaUnread()
-    const interval = setInterval(fetchWaUnread, 15000)
-    return () => clearInterval(interval)
+      // Fetch unread counts for each agent
+      const agents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+      const counts = { total: 0 }
+      for (const agent of agents) {
+        try {
+          const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
+            headers: { Authorization: `Bearer ${agent.token}` },
+          })
+          if (res.ok) {
+            const data = await res.json()
+            const key = `whatsapp-${agent.project}`
+            counts[key] = data?.count || 0
+            counts.total += data?.count || 0
+          }
+        } catch { /* skip */ }
+      }
+      // Fallback: try the FRO token for a single count
+      if (agents.length === 0) {
+        try {
+          const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (res.ok) {
+            const data = await res.json()
+            counts.total = data?.count || 0
+          }
+        } catch { /* skip */ }
+      }
+      setWaUnreadCounts(counts)
+    } catch (e) { console.error('Error:', e.message); }
   }, [user?.id])
+  useEffect(() => { refreshWaUnread() }, [refreshWaUnread])
+
+  useRealtime('messages', {
+    event: '*',
+    onInsert: refreshWaUnread,
+    onUpdate: refreshWaUnread,
+  })
 
   useEffect(() => {
     const handler = (e) => {
@@ -427,7 +428,17 @@ export default function FROPanel() {
     }).catch((err) => { console.error('Error:', err.message); });
   };
   useEffect(() => { loadReminders(); }, [refetch]);
-  useEffect(() => { const interval = setInterval(() => loadReminders(), 30000); return () => clearInterval(interval); }, []);
+
+  useRealtime('fro_donor_logs', {
+    event: '*',
+    onInsert: loadReminders,
+    onUpdate: loadReminders,
+  })
+  useRealtime('fro_assignments', {
+    event: '*',
+    onInsert: loadReminders,
+    onUpdate: loadReminders,
+  })
 
   const dedupedRows = rows.filter((r, i, a) => i === a.findIndex(x => x.id === r.id));
   const dueItems = dedupedRows.filter(r => r.scheduled_at && new Date(r.scheduled_at) <= new Date());
@@ -765,6 +776,7 @@ export default function FROPanel() {
             <Route path="scheduled" element={<Scheduled />} />
             <Route path="my-leads" element={<MyDonors />} />
             <Route path="rejected-leads" element={<RejectedLeads />} />
+            <Route path="suspense" element={<FroSuspense />} />
             <Route path="donors" element={<Donors />} />
             <Route path="history" element={<History />} />
             <Route path="incentive-info" element={<IncentiveInfo />} />

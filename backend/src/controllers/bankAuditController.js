@@ -135,6 +135,7 @@ export const addEntry = async (req, res) => {
       receipt_no: receiptNo,
       project_id: ngo,
       donor_name: payer_name || 'Unknown',
+      agent_name: 'Suspense',
       donor_mobile: req.body.donor_mobile || null,
       amount,
       payment_id: payment_id || null,
