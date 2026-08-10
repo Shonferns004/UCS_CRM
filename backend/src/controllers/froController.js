@@ -691,6 +691,7 @@ export const getSuspenseReceipts = async (req, res) => {
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, created_at')
       .is('donor_id', null)
       .is('log_id', null)
+      .eq('agent_name', 'Suspense')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)

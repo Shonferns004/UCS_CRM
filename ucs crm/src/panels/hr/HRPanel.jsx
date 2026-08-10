@@ -77,7 +77,6 @@ function HRPageShell({ children }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuRef = useRef(null)
   const notifRef = useRef(null)
-  const pollRef = useRef(null)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('hr_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
 
@@ -103,8 +102,6 @@ function HRPageShell({ children }) {
   useEffect(() => {
     loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadNotifications(), 30000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('notification_log', {
@@ -115,10 +112,15 @@ function HRPageShell({ children }) {
 
   useEffect(() => { if (themes[themeName]) applyTheme(themes[themeName], '.panel-hr'); localStorage.setItem('hr_theme', themeName) }, [themeName])
 
-  useEffect(() => {
-    const poll = async () => { try { const r = await fetchTicketCount(); setTicketCount(r?.count ?? 0) } catch (e) { console.error('Error:', e.message); } }
-    poll(); const id = setInterval(poll, 30000); return () => clearInterval(id)
+  const reloadTicketCount = useCallback(() => {
+    fetchTicketCount().then(r => setTicketCount(r?.count ?? 0)).catch((e) => { console.error('Error:', e.message); })
   }, [])
+  useEffect(() => { reloadTicketCount() }, [reloadTicketCount])
+  useRealtime('attendance_corrections', {
+    event: '*',
+    onInsert: reloadTicketCount,
+    onUpdate: reloadTicketCount,
+  })
 
   useEffect(() => {
     const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false) }
