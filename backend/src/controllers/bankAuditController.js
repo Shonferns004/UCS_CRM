@@ -1,34 +1,7 @@
 import * as BankAudit from '../models/bankAuditModel.js';
-import { upsertDonorProfile } from '../models/donorProfileModel.js';
 import db from '../config/db.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-
-const DONOR_FIELDS = ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code'];
-
-const buildDonorProfile = (body) => {
-  const filled = DONOR_FIELDS.some((f) => body[f] && String(body[f]).trim());
-  if (!filled) return null;
-  return {
-    name: body.payer_name || null,
-    mobile_number: body.donor_mobile || null,
-    email: body.donor_email || null,
-    pan_number: body.donor_pan || null,
-    address_1: body.donor_address_1 || null,
-    address_2: body.donor_address_2 || null,
-    city: body.donor_city || null,
-    pin_code: body.donor_pin_code || null,
-  };
-};
-
-// Upsert a donor profile from entry form fields and return the linked donor id
-// (null when no donor details were filled in).
-const linkDonorFromEntry = async (body) => {
-  const profile = buildDonorProfile(body);
-  if (!profile) return null;
-  const { donor } = await upsertDonorProfile(profile);
-  return donor?.id || null;
-};
 
 export const listSources = async (req, res) => {
   try {
@@ -157,14 +130,12 @@ export const addEntry = async (req, res) => {
 
     const ngo = project_id || 'bsct';
     const receiptNo = await BankAudit.getNextReceiptNo(ngo);
-    const donorId = await linkDonorFromEntry(req.body);
 
     const { data: receipt, error: rErr } = await db.from('receipts').insert({
       receipt_no: receiptNo,
       project_id: ngo,
       donor_name: payer_name || 'Unknown',
-      donor_mobile: donorId ? (req.body.donor_mobile || null) : null,
-      donor_id: donorId,
+      donor_mobile: req.body.donor_mobile || null,
       amount,
       payment_id: payment_id || null,
       receipt_date: transaction_date,
@@ -183,7 +154,13 @@ export const addEntry = async (req, res) => {
       payer_name: payer_name || null,
       payment_time: payment_time || null,
       project_id: ngo,
-      donor_id: donorId,
+      donor_mobile: req.body.donor_mobile || null,
+      donor_email: req.body.donor_email || null,
+      donor_pan: req.body.donor_pan || null,
+      donor_address_1: req.body.donor_address_1 || null,
+      donor_address_2: req.body.donor_address_2 || null,
+      donor_city: req.body.donor_city || null,
+      donor_pin_code: req.body.donor_pin_code || null,
       created_by: req.user.id,
       receipt_no: receiptNo,
       receipt_id: receipt.id,
@@ -210,25 +187,9 @@ export const editEntry = async (req, res) => {
     if (payer_name !== undefined) updates.payer_name = payer_name;
     if (payment_time !== undefined) updates.payment_time = payment_time;
     if (project_id !== undefined) updates.project_id = project_id;
-
-    const donorFilled = DONOR_FIELDS.some((f) => req.body[f] !== undefined && req.body[f] !== null && String(req.body[f]).trim() !== '');
-    if (donorFilled) {
-      const donorId = await linkDonorFromEntry(req.body);
-      updates.donor_id = donorId;
-      const { data: existing } = await db.from('bank_audit_entries').select('receipt_id').eq('id', id).maybeSingle();
-      if (existing?.receipt_id) {
-        const receiptUpdate = { donor_id: donorId };
-        if (req.body.donor_mobile !== undefined) receiptUpdate.donor_mobile = req.body.donor_mobile || null;
-        if (payer_name !== undefined) receiptUpdate.donor_name = payer_name || 'Unknown';
-        await db.from('receipts').update(receiptUpdate).eq('id', existing.receipt_id);
-      }
-    } else if (payer_name !== undefined) {
-      const { data: existing } = await db.from('bank_audit_entries').select('receipt_id').eq('id', id).maybeSingle();
-      if (existing?.receipt_id) {
-        await db.from('receipts').update({ donor_name: payer_name || 'Unknown' }).eq('id', existing.receipt_id);
-      }
+    for (const f of ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code']) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f] || null;
     }
-
     const entry = await BankAudit.updateEntry(id, updates);
     return res.json(entry);
   } catch (error) {
