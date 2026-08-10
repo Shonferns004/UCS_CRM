@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useHR } from '../store';
 import { Pill, Dropdown, DatePicker } from './ui';
 import { Users, Clock, Check, X, Cal, Heart, Plus } from '../icons';
@@ -83,6 +83,22 @@ export default function Recruiters() {
     scheduledTomorrow: leads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
 
   };
+
+  const leaderboard = useMemo(() => {
+    const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
+    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel']);
+    return recruiters
+      .map(r => {
+        const rLeads = leads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);
+        const total = rLeads.length;
+        const scheduled = rLeads.filter(l => l.status === 'scheduled').length;
+        const joined = rLeads.filter(l => l.status === 'joined').length;
+        return { ...r, leadsCount: total, scheduled, joined };
+      })
+      .filter(r => !HIDDEN.has(r.name))
+      .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
+      .sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount);
+  }, [recruiters, leads]);
 
   const openForm = (lead) => {
     if (lead) {
@@ -179,27 +195,34 @@ export default function Recruiters() {
         </div>
         <div className="card-pad">
           {recruitersLoading ? (
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }} aria-hidden="true">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }} aria-hidden="true">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="recruiter-card">
-                  <div className="sk" style={{ width: 90, height: 14, marginBottom: 8, borderRadius: 4 }} />
-                  <div className="sk" style={{ width: 130, height: 11, borderRadius: 4 }} />
-                </div>
+                <div key={i} className="sk" style={{ height: 110, borderRadius: 12 }} />
               ))}
             </div>
-          ) : recruiters.length === 0 ? (
+          ) : leaderboard.length === 0 ? (
             <div className="empty">No recruiters found.</div>
           ) : (
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {recruiters.map(r => (
-                <div key={r.id} className="recruiter-card" onClick={() => setRecruiterFilter(String(r.id))}>
-                  <div className="recruiter-card-name">{r.name}</div>
-                  <div className="recruiter-card-stats">
-                    <span><strong>{r.leadsCount || 0}</strong> leads</span>
-                    <span><strong>{r.scheduled || 0}</strong> scheduled</span>
+            <div className="ro-leaderboard-grid">
+              {leaderboard.slice(0, 5).map((r, i) => {
+                const medals = ['🥇', '🥈', '🥉'];
+                const medal = medals[i] || '';
+                const isTop = i === 0;
+                const rate = r.leadsCount > 0 ? Math.round(r.joined / r.leadsCount * 100) : 0;
+                return (
+                  <div key={r.id} className={`ro-lb-card ${isTop ? 'ro-lb-top' : ''}`} onClick={() => setRecruiterFilter(String(r.id))} style={{ cursor: 'pointer' }}>
+                    {isTop && <div className="ro-lb-trophy">🏆</div>}
+                    <div className="ro-lb-medal">{medal || `#${i + 1}`}</div>
+                    <div className="ro-lb-name">{r.name}</div>
+                    <div className="ro-lb-stats">
+                      <span>{r.leadsCount} Leads</span>
+                      <span>{r.scheduled} Scheduled</span>
+                      <span>{r.joined} Joined</span>
+                      <span>{rate}% Success</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {recruiterFilter && (
                 <button className="btn btn-sm" onClick={() => setRecruiterFilter('')} style={{ alignSelf: 'center' }}>
                   Clear filter
