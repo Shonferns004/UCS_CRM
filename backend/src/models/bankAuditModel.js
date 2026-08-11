@@ -145,6 +145,52 @@ export const suggestEntries = async (searchTerm) => {
   return data || [];
 };
 
+// Bank audit entries an Accounts user can still manually link to a lead:
+// unverified and not already matched (auto-suggested, confirmed, or claimed
+// via a suspense receipt).
+export const getAvailableEntries = async (limit = 200) => {
+  const { data, error } = await db
+    .from('bank_audit_entries')
+    .select('id, payment_id, amount, payer_name, transaction_date, project_id, bank_audit_sources(name), receipts!receipt_id(log_id)')
+    .eq('status', 'unverified')
+    .is('match_status', null)
+    .order('transaction_date', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || [])
+    .filter((r) => !r.receipts?.log_id)
+    .map((r) => ({
+      id: r.id,
+      payment_id: r.payment_id,
+      amount: r.amount,
+      payer_name: r.payer_name,
+      transaction_date: r.transaction_date,
+      project_id: r.project_id,
+      source: r.bank_audit_sources?.name || '',
+    }));
+};
+
+// Manually link an entry to a lead (matched, source 'manual') without crediting
+// anything yet. Accounts later confirms via the bank audit page or the lead's
+// verify action. Idempotent when re-saved against the same lead.
+export const manualMatchEntry = async (id, logId, actorId) => {
+  const { data, error } = await db
+    .from('bank_audit_entries')
+    .update({
+      matched_lead_log_id: logId,
+      match_status: 'matched',
+      match_source: 'manual',
+      matched_by: actorId,
+      matched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, bank_audit_sources(name)')
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {
   let query = db
     .from('bank_audit_entries')

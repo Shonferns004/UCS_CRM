@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
+import { confirmMatchCredit } from '../services/creditService.js';
 import { getEntryByPaymentId, verifyEntry, getNextReceiptNo } from '../models/bankAuditModel.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -129,6 +130,80 @@ export const verifyLead = async (req, res) => {
     const donorProfile = log.fro_assignments?.donor_profiles;
     if (!assignmentId || !donorProfile) {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
+    }
+
+    // ── Manual bank-audit link path ─────────────────────────────────────────
+    // Accounts can pick an unmatched bank audit entry next to the UPI id. That
+    // entry is linked + credited through the same pipeline as a confirmed
+    // auto-match. If no entry is picked, fall back to an already manually
+    // linked entry (from the lead-detail "Save" action) so Verify reuses it.
+    const { bank_audit_entry_id } = req.body;
+    let linkedEntryId = bank_audit_entry_id || null;
+    if (!linkedEntryId) {
+      try {
+        const { data: autoLinked } = await db
+          .from('bank_audit_entries')
+          .select('id')
+          .eq('matched_lead_log_id', logId)
+          .eq('match_status', 'matched')
+          .eq('match_source', 'manual')
+          .maybeSingle();
+        if (autoLinked?.id) linkedEntryId = autoLinked.id;
+      } catch (err) { console.error('Failed to find manually linked entry:', err.message); }
+    }
+
+    if (linkedEntryId) {
+      const { data: linkedEntry, error: leErr } = await db
+        .from('bank_audit_entries')
+        .select('id, status, match_status, matched_lead_log_id')
+        .eq('id', linkedEntryId)
+        .maybeSingle();
+      if (leErr) throw leErr;
+      if (!linkedEntry) return res.status(400).json({ message: 'Selected bank audit entry not found' });
+      if (linkedEntry.status === 'verified') return res.status(400).json({ message: 'Selected bank audit entry is already verified' });
+      if (linkedEntry.match_status && linkedEntry.matched_lead_log_id != null && String(linkedEntry.matched_lead_log_id) !== String(logId)) {
+        return res.status(409).json({ message: 'Selected bank audit entry is already matched to another lead' });
+      }
+
+      const donorId = log.fro_assignments?.donor_id;
+      if (donorId) {
+        const donorUpdate = { updated_at: new Date().toISOString() };
+        if (donor_name !== undefined) donorUpdate.name = donor_name || null;
+        if (donor_mobile !== undefined) donorUpdate.mobile_number = donor_mobile || null;
+        if (donor_city !== undefined) donorUpdate.city = donor_city || null;
+        if (donor_email !== undefined) donorUpdate.email = donor_email || null;
+        if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
+        if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
+        try { await db.from('donor_profiles').update(donorUpdate).eq('id', donorId); }
+        catch (err) { console.error('Failed to update donor profile:', err); }
+      }
+
+      // Log edits (kept pending; the credit step sets it verified).
+      const logPatch = {};
+      if (pan_number !== undefined) logPatch.pan_number = pan_number || null;
+      if (notes !== undefined) logPatch.notes = notes || null;
+      if (upi_transaction_id !== undefined) logPatch.upi_transaction_id = upi_transaction_id || null;
+      if (transaction_datetime !== undefined) logPatch.transaction_datetime = transaction_datetime || null;
+      if (payment_from !== undefined) logPatch.payment_from = payment_from || null;
+      if (payment_mode !== undefined) logPatch.payment_mode = payment_mode || null;
+      if (Object.keys(logPatch).length > 0) {
+        await db.from('fro_donor_logs').update(logPatch).eq('id', logId);
+      }
+
+      if (!linkedEntry.match_status) {
+        await db.from('bank_audit_entries').update({
+          matched_lead_log_id: logId,
+          match_status: 'matched',
+          match_source: 'manual',
+          matched_by: req.user.id,
+          matched_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq('id', linkedEntry.id);
+      }
+
+      const credit = await confirmMatchCredit(linkedEntry.id, req.user.id);
+      if (credit?.error) return res.status(credit.error).json({ message: credit.message });
+      return res.status(200).json({ ...credit, message: 'Lead verified and bank audit entry credited' });
     }
 
     const logUpdate = {
