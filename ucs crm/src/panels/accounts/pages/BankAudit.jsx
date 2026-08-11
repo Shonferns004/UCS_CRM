@@ -49,7 +49,7 @@ function entryToDonor(e) {
     'State': '',
     'Pincode': e.donor_pin_code || '',
     'Mode of Payment (MOP)': 'Bank',
-    'Donor Bank Name': '',
+    'Donor Bank Name': e.bank_name || '',
     'Account Of': NGO_LABELS[e.project_id] || e.project_id || '',
     'Project': e.project_id || 'bsct',
   };
