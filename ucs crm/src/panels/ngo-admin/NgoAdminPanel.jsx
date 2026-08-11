@@ -124,7 +124,6 @@ export default function NgoAdminPanel() {
   const [showNotifList, setShowNotifList] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const notifRef = useRef(null);
-  const pollRef = useRef(null);
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('ngoadmin_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs));
 
@@ -174,8 +173,6 @@ export default function NgoAdminPanel() {
     loadRejectedCount();
     loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => { loadRejectedCount(); loadNotifications(); }, 30000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('rejected_lead_tickets', {

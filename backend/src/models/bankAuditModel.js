@@ -1,13 +1,14 @@
 import db from '../config/db.js';
 
-// Suspense receipts: receipts with no linked donor and no assigned agent
-// (agent_name holds the literal placeholder 'Suspense'). They appear as rows in
-// the bank audit list until matched (donor_id set).
+// Suspense receipts: unlinked (donor_id null) and unclaimed (log_id null)
+// receipts carrying the 'Suspense' marker in agent_name. They appear as rows in
+// the bank audit list until matched (donor_id set) or claimed (log_id set).
 export const getUnlinkedReceipts = async () => {
   const { data, error } = await db
     .from('receipts')
     .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, created_at')
     .is('donor_id', null)
+    .is('log_id', null)
     .eq('agent_name', 'Suspense')
     .order('receipt_date', { ascending: false });
   if (error) throw error;
@@ -70,7 +71,8 @@ export const getEntries = async (filters = {}) => {
   let query = db
     .from('bank_audit_entries')
     .select('*, bank_audit_sources(name)')
-    .order('transaction_date', { ascending: false });
+    .order('transaction_date', { ascending: false })
+    .order('payment_time', { ascending: false });
 
   if (filters.date_from) query = query.gte('transaction_date', filters.date_from);
   if (filters.date_to) query = query.lte('transaction_date', filters.date_to);

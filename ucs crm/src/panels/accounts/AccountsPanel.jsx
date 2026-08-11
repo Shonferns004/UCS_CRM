@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
@@ -103,7 +103,6 @@ export default function AccountsPanel() {
   const [waUnreadCount, setWaUnreadCount] = useState(0)
   const menuRef = useRef(null)
   const notifRef = useRef(null)
-  const pollRef = useRef(null)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('accounts_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
   const location = useLocation()
@@ -130,8 +129,6 @@ export default function AccountsPanel() {
   useEffect(() => {
     loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadNotifications(), 30000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('notification_log', {
@@ -140,24 +137,26 @@ export default function AccountsPanel() {
     enabled: !!user?.id,
   });
 
-  useEffect(() => {
-    const fetchWaUnread = async () => {
-      try {
-        const token = localStorage.getItem('ucs_token')
-        if (!token) return
-        const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/whatsapp/conversations/unread-count', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setWaUnreadCount(data?.count || 0)
-        }
-      } catch (e) { console.error('Error:', e.message); }
-    }
-    fetchWaUnread()
-    const interval = setInterval(fetchWaUnread, 15000)
-    return () => clearInterval(interval)
-  }, [user?.id])
+  const refreshWaUnread = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('ucs_token')
+      if (!token) return
+      const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/whatsapp/conversations/unread-count', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setWaUnreadCount(data?.count || 0)
+      }
+    } catch (e) { console.error('Error:', e.message); }
+  }, [])
+  useEffect(() => { refreshWaUnread() }, [refreshWaUnread, user?.id])
+
+  useRealtime('messages', {
+    event: '*',
+    onInsert: refreshWaUnread,
+    onUpdate: refreshWaUnread,
+  })
 
   useEffect(() => {
     if (themes[themeName]) {
