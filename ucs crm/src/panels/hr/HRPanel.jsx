@@ -76,7 +76,6 @@ function HRPageShell({ children }) {
   const [allNotifs, setAllNotifs] = useState([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuRef = useRef(null)
-  const notifRef = useRef(null)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('hr_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
 
@@ -132,7 +131,6 @@ function HRPageShell({ children }) {
   const userName = user?.name || 'HR User'
   const userRole = user?.role || 'HR'
   const userInitials = userName.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()
-  const notifCount = allNotifs.length;
   const drawerSections = [
     { label: 'Notifications', type: 'notifications', items: allNotifs },
   ];
@@ -159,19 +157,6 @@ function HRPageShell({ children }) {
               <Bell size={19} />
               {ticketCount > 0 && <span className="badge badge-pending2" style={{position:'absolute',top:-6,right:-6,fontSize:10,padding:'1px 5px',lineHeight:'16px',minWidth:18,textAlign:'center'}}>{ticketCount > 99 ? '99+' : ticketCount}</span>}
             </NavLink>
-            <div ref={notifRef} style={{ position:'relative' }}>
-              <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={notifCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={notifCount > 0 ? 'bell-ring' : ''}>
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                </svg>
-                {notifCount > 0 && (
-                  <span style={{ position:'absolute', top:0, right:0, background:'#dc2626', color:'#fff', borderRadius:'50%', minWidth:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1, padding:'0 3px' }}>
-                    {notifCount > 9 ? '9+' : notifCount}
-                  </span>
-                )}
-              </div>
-            </div>
             <div className="topbar-user" ref={menuRef} onClick={() => setShowMenu(!showMenu)}>
             <div className="avatar" style={{ background:'var(--sage-soft)', color:'var(--sage)', width:36, height:36, cursor:'pointer' }}>{userInitials}</div>
             {showMenu && (
