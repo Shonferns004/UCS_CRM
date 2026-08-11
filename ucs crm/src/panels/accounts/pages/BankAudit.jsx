@@ -37,7 +37,7 @@ function getNgoSettings(project) {
 }
 function entryToDonor(e) {
   return {
-    'Donor Name': e.payer_name || e.donor_name || 'Unknown',
+    'Donor Name': e.donor_name || e.payer_name || 'Unknown',
     'Receipt No.': e.receipt_no || 'N/A',
     'Receipt Date': e.transaction_date || e.receipt_date || '',
     'Amount': e.amount,
@@ -218,7 +218,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,saving,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
   const PAGE_SIZE=20;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -386,7 +386,7 @@ export default function BankAudit({embedded,onSummary}){
   const fe=e.filter(en=>!nf||matchesNgo(en,nf));
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
 
-  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
+  const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date){setFer('Source, amount, and date are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null,donor_id:fm.donor_id||null});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{
     if(se.kind==='suspense'){
       await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.donor_name||fm.payer_name||null,donor_mobile:fm.donor_mobile||se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct',agent_name:fm.agent_name,log_id:fm.log_id||null});
@@ -411,6 +411,92 @@ export default function BankAudit({embedded,onSummary}){
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 
+  const renderEntryFields=(isEdit,seEntry)=>(
+    <>
+      <DonorPicker onPick={d=>setFm(p=>({...p,donor_id:d.id||p.donor_id,payer_name:d.name||p.payer_name,donor_name:d.name||p.donor_name,donor_mobile:d.mobile_number||p.donor_mobile,donor_email:d.email||p.donor_email,donor_pan:d.pan_number||p.donor_pan,donor_address_1:d.address_1||p.donor_address_1,donor_address_2:d.address_2||p.donor_address_2,donor_city:d.city||p.donor_city,donor_pin_code:d.pin_code||p.donor_pin_code}))} prefill={isEdit?(fm.donor_mobile||fm.donor_name||''):''}/>
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Transaction Details</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Source <span style={{color:'#dc2626'}}>*</span></span>
+            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&seEntry.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:isEdit&&seEntry&&seEntry.kind==='suspense'?'#f3f4f6':'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+              <option value="">Select source...</option>
+              {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
+            <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+          </label>
+        </div>
+        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4,marginTop:12}}>
+          <span>NGO</span>
+          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+            {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Date & Time</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
+            <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Payment Time</span>
+            <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
+          </label>
+        </div>
+      </div>
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Agent & Lead Link</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&seEntry.kind!=='suspense'&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
+          </label>
+        </div>
+        {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
+          <div style={{marginTop:10,padding:'8px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+            <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
+            <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
+          </div>}
+      </div>
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Additional Info</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Payer Name</span>
+            <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Payment ID</span>
+            <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Check ID</span>
+            <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+            <span>Remarks</span>
+            <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+          </label>
+        </div>
+      </div>
+    </>
+  );
+
+  const openDetail=(entry)=>{openE(entry);setDt(entry)};
+
   return <div>
     {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense} suspenseNgo={snf} setSuspenseNgo={setSnf}/></div>}
 
@@ -431,13 +517,13 @@ export default function BankAudit({embedded,onSummary}){
       form={fm} setForm={setFm} editEntry={se} setEditEntry={setSe}
       saving={sv} handleAdd={addEntry} handleEdit={editEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc} openEdit={openE}
-      sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={setDt}
+      sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={openDetail}
       onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
       onViewReceipt={setRp}
     />
 
-    {/* Add/Edit Modal */}
-    {(sa||se)&&(()=>{const isEdit=!!se;return <div className="modal-overlay" onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden'}}>
+    {/* Add Entry Modal */}
+    {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden'}}>
       <div style={{padding:'16px 20px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f9fafb'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:36,height:36,borderRadius:10,background:isEdit?'#2563eb18':'var(--sage-light, #e8f0e4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -457,92 +543,14 @@ export default function BankAudit({embedded,onSummary}){
           </div>{fer}
         </div>}
 
-        <DonorPicker onPick={d=>setFm(p=>({...p,payer_name:d.name||p.payer_name,donor_name:d.name||p.donor_name,donor_mobile:d.mobile_number||p.donor_mobile,donor_email:d.email||p.donor_email,donor_pan:d.pan_number||p.donor_pan,donor_address_1:d.address_1||p.donor_address_1,donor_address_2:d.address_2||p.donor_address_2,donor_city:d.city||p.donor_city,donor_pin_code:d.pin_code||p.donor_pin_code}))} prefill={isEdit?(fm.donor_mobile||fm.donor_name||''):''}/>
-
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Transaction Details</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Source <span style={{color:'#dc2626'}}>*</span></span>
-              <select className="field-input" value={fm.src_id} disabled={isEdit&&se.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:isEdit&&se.kind==='suspense'?'#f3f4f6':'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
-                <option value="">Select source...</option>
-                {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </label>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
-              <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
-            </label>
-          </div>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4,marginTop:12}}>
-            <span>NGO</span>
-            <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
-              {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
-            </select>
-          </label>
-        </div>
-
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Date & Time</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
-              <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
-            </label>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Payment Time</span>
-              <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
-            </label>
-          </div>
-        </div>
-
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Agent & Lead Link</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-              <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
-            </label>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-              <LeadPicker value={fm.log_id} locked={!!(se&&se.kind!=='suspense'&&se.log_id)} onPick={pickLead} onClear={clearLead}/>
-            </label>
-          </div>
-          {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
-            <div style={{marginTop:10,padding:'8px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
-              <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
-              <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
-            </div>}
-        </div>
-
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Additional Info</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Payer Name</span>
-              <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
-            </label>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Payment ID</span>
-              <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
-            </label>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Check ID</span>
-              <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
-            </label>
-            <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
-              <span>Remarks</span>
-              <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
-            </label>
-          </div>
-        </div>
+        {renderEntryFields(false,null)}
 
 
       </div>
       <div style={{padding:'14px 20px',borderTop:'1px solid #f3f4f6',display:'flex',gap:10,justifyContent:'flex-end',background:'#fafafa',borderRadius:'0 0 14px 14px'}}>
-        <button className="btn btn-sm" onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{padding:'8px 18px',borderRadius:8,fontSize:12,fontWeight:600}}>Cancel</button>
-        <button className="btn btn-sm" onClick={isEdit?editEntry:addEntry} disabled={sv} style={{padding:'8px 20px',borderRadius:8,fontSize:12,fontWeight:600,background:isEdit?'#2563eb':'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,transition:'all .15s'}}>
-          {sv?(isEdit?'Saving...':'Adding...'):isEdit?'Save Changes':'Add Entry'}
+        <button className="btn btn-sm" onClick={()=>{setSa(false);setFer('')}} style={{padding:'8px 18px',borderRadius:8,fontSize:12,fontWeight:600}}>Cancel</button>
+        <button className="btn btn-sm" onClick={addEntry} disabled={sv} style={{padding:'8px 20px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,transition:'all .15s'}}>
+          {sv?'Adding...':'Add Entry'}
         </button>
       </div>
     </div></div>})()}
@@ -578,63 +586,52 @@ export default function BankAudit({embedded,onSummary}){
       </div>
     </div></div>}
 
-    {/* Entry Detail Drawer */}
-    {dt&&<RightPanel open={!!dt} onClose={()=>setDt(null)} topOffset={72} title={dt.kind==='suspense'?'Suspense Receipt':'Entry Details'} subtitle={dt.transaction_date||''} accent={dt.kind==='suspense'?'#B5603A':'var(--sage)'}>
+    {/* Entry Editor (Sidebar) */}
+    {se&&<RightPanel open={!!se} onClose={()=>setSe(null)} topOffset={72} title={se.kind==='suspense'?'Suspense Receipt':'Entry Editor'} subtitle={se.transaction_date||''} accent={se.kind==='suspense'?'#B5603A':'var(--sage)'}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-        <div style={{fontSize:24,fontWeight:700,color:dt.kind==='suspense'?'#B5603A':'var(--sage)'}}>{curr(dt.amount)}</div>
-        {dt.kind==='suspense'
-          ? <span style={{fontSize:8,padding:'2px 6px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
-          : <span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{dt.bank_audit_sources?.name||getSrc(dt.source_id)}</span>}
-      </div>
-      <div className="card">
-        <div className="card-pad" style={{padding:0}}>
-          <div className="info-grid">
-            <div><div className="label">Transaction Date</div><div className="value">{dt.transaction_date||'\u2014'}</div></div>
-            {dt.receipt_no&&<div><div className="label">Receipt No</div><div className="value-mono">#{dt.receipt_no}</div></div>}
-            <div><div className="label">Payment ID</div><div className="value-mono">{dt.payment_id||'\u2014'}</div></div>
-            <div><div className="label">Check ID</div><div className="value-mono">{dt.check_id||'\u2014'}</div></div>
-            <div><div className="label">Payer Name</div><div className="value">{dt.payer_name||'\u2014'}</div></div>
-            <div><div className="label">NGO</div><div className="value">{NGO_LABELS[dt.project_id]||dt.project_id||'\u2014'}</div></div>
-            <div style={{gridColumn:'1 / -1'}}><div className="label">Remarks</div><div className="value" style={{whiteSpace:'pre-wrap'}}>{dt.remarks||'\u2014'}</div></div>
-          </div>
+        <div style={{fontSize:24,fontWeight:700,color:se.kind==='suspense'?'#B5603A':'var(--sage)'}}>{curr(se.amount)}</div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {se.kind==='suspense'
+            ? <span style={{fontSize:8,padding:'2px 6px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
+            : <span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{se.bank_audit_sources?.name||getSrc(se.source_id)}</span>}
+          {(se.receipt_id||se.receipt_no)&&<span className="pill pill-green" style={{fontSize:8,padding:'2px 6px'}}>RECEIPT ISSUED</span>}
         </div>
       </div>
-      {dt.match_status==='matched'&&dt.matched_lead_log_id&&<div className="card" style={{marginTop:12,border:'1px solid #86efac',background:'#f0fdf4'}}>
-        <div className="card-pad" style={{padding:0}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-            <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{dt.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}</div>
-            {dt.match_source!=='manual'&&<span style={{fontSize:10,fontWeight:700,color:'#166534',background:'#dcfce7',padding:'2px 8px',borderRadius:6}}>Score {dt.match_score}</span>}
-          </div>
-          <div className="info-grid">
-            <div><div className="label">Donor</div><div className="value">{dt.match_donor||'\u2014'}</div></div>
-            <div><div className="label">FRO</div><div className="value">{dt.match_fro||'\u2014'}</div></div>
-          </div>
+
+      <div style={{position:'sticky',top:0,zIndex:6,margin:'0 -18px 16px',padding:'0 18px 12px',background:'rgba(255,255,255,.97)',borderBottom:'1px solid #f3f4f6'}}>
+        <button className="btn btn-sm" style={{width:'100%',padding:'10px 14px',borderRadius:10,fontSize:13,fontWeight:700,background:'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:8,opacity:sv?.6:1,transition:'all .15s'}} disabled={sv} onClick={editEntry}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg>
+          {sv?'Saving...':'Save Changes'}
+        </button>
+      </div>
+
+      {st==='unverified'&&se.kind!=='suspense'&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}</div>
+          <div style={{fontSize:12,color:'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.match_donor||''}{se.match_fro?` · ${se.match_fro}`:''}</div>
+        </div>
+        <div style={{display:'flex',gap:8,flexShrink:0}}>
+          <button className="btn btn-sm" style={{background:'var(--sage)',color:'#fff',border:'none'}} disabled={cm} onClick={()=>confirmMatch(se)}>Confirm</button>
+          <button className="btn btn-sm" style={{background:'#f3f4f6',color:'#6b7280',border:'none'}} disabled={cm} onClick={()=>clearMatch(se)}>Clear</button>
         </div>
       </div>}
+
+      {fer&&<div style={{marginBottom:14,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:8}}>
+        <div style={{width:20,height:20,borderRadius:'50%',background:'#dc262618',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        </div>{fer}
+      </div>}
+
+      {renderEntryFields(true,se)}
+
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
-        {(dt.receipt_id||dt.receipt_no)&&<div style={{display:'flex',gap:10,marginBottom:10}}>
-          <button className="btn btn-sm" style={{flex:1,background:'#1d6f42',color:'#fff',border:'none'}} onClick={()=>{setRp(dt);setDt(null)}}>
+        <div style={{display:'flex',gap:10}}>
+          {(se.receipt_id||se.receipt_no)&&<button className="btn btn-sm" style={{flex:1,background:'#1d6f42',color:'#fff',border:'none'}} onClick={()=>{setRp(se);setSe(null)}}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:-2,marginRight:4}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
             View Receipt
-          </button>
-        </div>}
-        {dt.kind==='suspense'
-          ? <>
-              <div style={{display:'flex',gap:10}}>
-                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openE(dt)}>{'\u270E'} Edit</button>
-                <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt);setDt(null)}}>{'\u2715'} Delete</button>
-              </div>
-            </>
-          : <>
-              {st==='unverified'&&dt.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:10}}>
-                <button className="btn btn-sm" style={{flex:1,background:'var(--sage)',color:'#fff',border:'none'}} disabled={cm} onClick={()=>confirmMatch(dt)}>Confirm Match</button>
-                <button className="btn btn-sm" style={{flex:1,background:'#f3f4f6',color:'#6b7280',border:'none'}} disabled={cm} onClick={()=>clearMatch(dt)}>Clear</button>
-              </div>}
-              <div style={{display:'flex',gap:10}}>
-                <button className="btn btn-sm" style={{flex:1,background:'#e5e7eb',color:'#374151',border:'none'}} onClick={()=>openE(dt)}>{'\u270E'} Edit</button>
-                <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'none'}} onClick={()=>{setDci(dt);setDt(null)}}>{'\u2715'} Delete</button>
-              </div>
-            </>}
+          </button>}
+          <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca'}} onClick={()=>{setDci(se);setSe(null)}}>{'\u2715'} Delete</button>
+        </div>
       </div>
     </RightPanel>}
 
