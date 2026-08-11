@@ -5,6 +5,7 @@ import {
   getAllWorkers,
   getWorkerById,
   getWorkerByLoginId,
+  getNextEmployeeIdNumber,
   getWorkerCount,
   updateWorker,
   deleteWorker,
@@ -37,6 +38,14 @@ const generateLoginId = async (name) => {
 
 const generateRandomPassword = () => {
   return '123456';
+};
+
+const formatEmployeeId = (n) => `UFS-${String(n).padStart(4, '0')}`;
+
+// Returns a function that hands out the next sequential employee_id.
+const makeEmployeeIdGenerator = async () => {
+  let next = await getNextEmployeeIdNumber();
+  return () => formatEmployeeId(next++);
 };
 
 function validateAllocations(allocations, salary) {
@@ -75,11 +84,13 @@ export const addWorker = async (req, res) => {
     const login_id = await generateLoginId(name);
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(tempPassword, salt);
+    const nextEmployeeId = await makeEmployeeIdGenerator();
 
     const workerData = {
       name,
       email,
       login_id,
+      employee_id: req.body.employee_id || nextEmployeeId(),
       password: hashedPassword,
       gender: gender || null,
       dob: dob || null,
@@ -105,6 +116,7 @@ export const addWorker = async (req, res) => {
         name: worker.name,
         email: worker.email,
         login_id: worker.login_id,
+        employee_id: worker.employee_id,
         gender: worker.gender,
         dob: worker.dob,
         department: worker.department,
@@ -125,6 +137,7 @@ export const bulkAddWorkers = async (req, res) => {
     const tempPassword = generateRandomPassword();
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(tempPassword, salt);
+    const nextEmployeeId = await makeEmployeeIdGenerator();
     const prepared = [];
     for (let i = 0; i < workers.length; i++) {
       const w = workers[i];
@@ -133,6 +146,7 @@ export const bulkAddWorkers = async (req, res) => {
         name: w.name,
         email: w.email,
         login_id,
+        employee_id: w.employee_id || nextEmployeeId(),
         password: hashedPassword,
         gender: w.gender || null,
         dob: w.dob || null,
@@ -157,6 +171,7 @@ export const bulkAddWorkers = async (req, res) => {
         name: w.name,
         email: w.email,
         login_id: w.login_id,
+        employee_id: w.employee_id,
         gender: w.gender,
         dob: w.dob,
         generated_password: tempPassword,
@@ -183,6 +198,7 @@ export const getWorkers = async (req, res) => {
         name: w.name,
         email: w.email,
         login_id: w.login_id,
+        employee_id: w.employee_id,
         gender: w.gender,
         dob: w.dob,
         phone: w.phone,
@@ -265,6 +281,7 @@ export const getWorker = async (req, res) => {
       name: p.name,
       email: p.email,
       login_id: p.login_id,
+      employee_id: p.employee_id,
       gender: p.gender,
       dob: p.dob,
       phone: p.phone,
