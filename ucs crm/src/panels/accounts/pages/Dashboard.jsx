@@ -4,8 +4,11 @@ import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
+import * as XLSX from 'xlsx';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
+const NGO_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
+const LEAD_EXPORT_HEADERS = ['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
 
 const SkeletonNum = () => (
   <span className="sk-num" style={{ display:'inline-block',width:48,height:24,borderRadius:6,background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}} />
@@ -130,8 +133,30 @@ export default function Dashboard({ embedded, onStats }) {
   useEffect(() => { setLeadPage(1); }, [searchQuery, ngoFilter, statusFilter]);
   useEffect(() => { if (leadPage > pageCount) setLeadPage(pageCount); }, [pageCount, leadPage]);
 
-  const sendToReceipts = () => {
-    const verified = leads.filter(l => l.accounts_status === 'verified');
+  const exportExcel = () => {
+    const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
+    const project = l => NGO_LABELS[l.donor_project] || l.donor_project || 'NA';
+    const remark = l => l.accounts_status === 'rejected'
+      ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
+      : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
+    const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => [
+      project(l), na(l.transaction_date), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
+      'NA', 'NA', 'NA', 'NA', na(l.donor_address),
+      na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
+      'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
+      'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
+      'Bank', na(l.donor_bank_name), na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
+      l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_date),
+      'NA', project(l), 'Corpus', remark(l), project(l),
+    ])];
+    if (filtered.length === 0) { alert('No leads to export'); return }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Lead Verification');
+    XLSX.writeFile(wb, `lead-verification_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const sendToReceipts = () => {    const verified = leads.filter(l => l.accounts_status === 'verified');
     if (verified.length === 0) return;
 
     const rows = verified.map(l => ({
@@ -217,6 +242,10 @@ export default function Dashboard({ embedded, onStats }) {
               {'\u2715'} Delete All ({stats.pending.length})
             </button>
           )}
+          <button className="btn btn-sm" style={{ background:'#16a34a', color:'#fff', whiteSpace:'nowrap', marginLeft:8, display:'inline-flex', alignItems:'center', gap:6 }} onClick={exportExcel}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export ({filtered.length})
+          </button>
         </div>
         <div className="entry-scroll">
           <div className="entry-grid">
