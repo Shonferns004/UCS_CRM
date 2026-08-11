@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Inbox, Search, ChevronRight, Phone, ReceiptText } from 'lucide-react';
 import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -25,15 +25,18 @@ export default function FroSuspense() {
   const [query, setQuery] = useState('');
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReceipt, setClaimReceipt] = useState(null);
-  const [claimNotes, setClaimNotes] = useState('');
-  const [claimError, setClaimError] = useState('');
-  const [claimSuccess, setClaimSuccess] = useState(false);
-  const [claiming, setClaiming] = useState(false);
   const [claimDonor, setClaimDonor] = useState(null);
   const [claimSearch, setClaimSearch] = useState('');
   const [claimResults, setClaimResults] = useState([]);
   const [claimSearching, setClaimSearching] = useState(false);
   const claimTimer = useRef(null);
+  const [claimUpi, setClaimUpi] = useState('');
+  const [claimDate, setClaimDate] = useState('');
+  const [claimTime, setClaimTime] = useState('');
+  const [claimNotes, setClaimNotes] = useState('');
+  const [claimError, setClaimError] = useState('');
+  const [claimSuccess, setClaimSuccess] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
   const load = async () => {
     try {
@@ -71,12 +74,15 @@ export default function FroSuspense() {
 
   const openClaimModal = (r) => {
     setClaimReceipt(r);
-    setClaimNotes('');
-    setClaimError('');
-    setClaimSuccess(false);
     setClaimDonor(null);
     setClaimSearch('');
     setClaimResults([]);
+    setClaimUpi('');
+    setClaimDate('');
+    setClaimTime('');
+    setClaimNotes('');
+    setClaimError('');
+    setClaimSuccess(false);
     setShowClaimModal(true);
   };
 
@@ -103,7 +109,14 @@ export default function FroSuspense() {
     setClaiming(true);
     setClaimError('');
     try {
-      await claimSuspenseReceipt(claimReceipt.id, { donor_id: claimDonor.donor_id, notes: claimNotes.trim() || undefined });
+      let txDatetime = null;
+      if (claimDate) txDatetime = claimTime ? `${claimDate}T${claimTime}` : claimDate;
+      await claimSuspenseReceipt(claimReceipt.id, {
+        donor_id: claimDonor.donor_id,
+        upi_transaction_id: (claimUpi || '').trim() || undefined,
+        transaction_datetime: txDatetime || undefined,
+        notes: claimNotes.trim() || undefined,
+      });
       setClaimSuccess(true);
       const data = await getSuspenseReceipts();
       setMonth(data?.month || '');
@@ -303,6 +316,19 @@ export default function FroSuspense() {
                     )}
                   </>
                 )}
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', marginTop: 8, marginBottom: 6 }}>OPTIONAL DETAILS</div>
+                <input
+                  value={claimUpi}
+                  onChange={e => setClaimUpi(e.target.value)}
+                  placeholder="UPI transaction ID"
+                  style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input type="date" value={claimDate} onChange={e => setClaimDate(e.target.value)}
+                    style={{ flex: 1, padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                  <input type="time" value={claimTime} onChange={e => setClaimTime(e.target.value)}
+                    style={{ flex: 1, padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                </div>
                 <textarea value={claimNotes} onChange={e => setClaimNotes(e.target.value)} rows={2}
                   placeholder="Optional note for accounts (how you know this donor)..."
                   style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', marginTop: 8 }} />

@@ -158,7 +158,7 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Account Of</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Account Of']}</td>
+            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Account Of'] || 'Corpus'}</td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Total Contribution Received (Numbers)</td>
