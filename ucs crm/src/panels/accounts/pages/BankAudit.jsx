@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { RefreshCw, Zap, Download, Plus, ListFilter, X, Loader2 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
@@ -75,11 +76,11 @@ function monthBounds(ym){
 }
 
 function Sk({h=14,w='100%'}){return <div style={{height:h,width:typeof w==='number'?w:w,borderRadius:6,background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}}/>}
-function SkStat(){return <div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}><div className="sk" style={{width:40,height:40,borderRadius:10,flexShrink:0}}/><div><Sk h={20} w={100}/><div style={{height:4}}/><Sk h={12} w={60}/></div></div>}
+function SkStat(){return <div className="stat-card"><div className="sk" style={{width:40,height:40,borderRadius:10,flexShrink:0}}/><div className="stat-info"><Sk h={20} w={100}/><div style={{height:4}}/><Sk h={12} w={60}/></div></div>}
 
 function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18px',fontSize:13,fontWeight:a?700:500,border:'none',background:a?'#fff':'transparent',cursor:'pointer',color:a?'var(--sage)':'#6b7280',borderBottom:a?'2px solid var(--sage)':'2px solid transparent',marginBottom:-2,display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',transition:'all .15s'}}>{ic}{ch}</button>}
 
-function Btn({s,on,ch,dis,ic,fg='#fff',bg='var(--sage)'}){return <button className="btn btn-sm" onClick={on} disabled={dis} style={{background:bg,color:fg,border:'none',display:'inline-flex',alignItems:'center',gap:4,fontSize:12,opacity:dis?.5:1}}>{ic}{ch}</button>}
+function IconBtn({on,ch,dis,title,bg='#fff',fg='var(--sage)',style}){return <button className="btn btn-sm fb-btn" onClick={on} disabled={dis} title={title} aria-label={title} style={{background:bg,color:fg,border:'none',opacity:dis?.5:1,...style}}>{ch}</button>}
 
 // ─── Lead (Log) Picker ────────────────────────────────────
 function LeadPicker({ value, locked, onPick, onClear }){
@@ -196,18 +197,23 @@ function AgentPicker({ value, workers, onChange }){
 export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null}){
   return <div className="stats-grid">
     {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
-      {sources.filter(s=>s.is_active!==false).map((s,i)=><div key={s.id} style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12}}>
-        <div style={{width:40,height:40,borderRadius:10,background:C[i%C.length]+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C[i%C.length]} strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+      {sources.filter(s=>s.is_active!==false).map((s,i)=><div className="stat-card" key={s.id}>
+        <div className="stat-icon" style={{background:C[i%C.length]+'18',color:C[i%C.length]}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
         </div>
-        <div><div style={{fontSize:20,fontWeight:700,color:C[i%C.length],lineHeight:1.2}}>{curr(summary[s.name]||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>{s.name}</div></div>
+        <div className="stat-info">
+          <div className="stat-num" style={{color:C[i%C.length]}}>{curr(summary[s.name]||0)}</div>
+          <div className="stat-lbl">{s.name}</div>
+        </div>
       </div>)}
-      {suspense!=null&&<div style={{background:'#fff',borderRadius:10,padding:'14px 16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',minWidth:260}}>
-        <div style={{width:40,height:40,borderRadius:10,background:'#B5603A18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5603A" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      {suspense!=null&&<div className="stat-card">
+        <div className="stat-icon" style={{background:'#B5603A18',color:'#B5603A'}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
-        <div style={{flex:1,minWidth:150}}><div style={{fontSize:20,fontWeight:700,color:'#B5603A',lineHeight:1.2}}>{curr(suspense.amount||0)}</div><div style={{fontSize:12,color:'#6b7280',marginTop:1}}>Suspense · {suspense.count||0} open</div>
-          {setSuspenseNgo&&<div style={{display:'flex',gap:4,marginTop:8,flexWrap:'wrap'}}>
+        <div className="stat-info">
+          <div className="stat-num" style={{color:'#B5603A'}}>{curr(suspense.amount||0)}</div>
+          <div className="stat-lbl">Suspense · {suspense.count||0} open</div>
+          {setSuspenseNgo&&<div className="stat-actions">
             {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['maan','MANN']].map(([v,l])=>
               <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#B5603A':'#FDE7DB',color:suspenseNgo===v?'#fff':'#B5603A',transition:'background .12s'}}>{l}</button>
             )}
@@ -219,10 +225,12 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onViewReceipt,onAutoMatch,am,selectedEntryId,onSelectEntry}){
-  const PAGE_SIZE=20;
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onViewReceipt,onAutoMatch,am,selectedEntryId,onSelectEntry,leadFilterKey}){
+  const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
+  const listRef=useRef(null);
+  useEffect(()=>{if(listRef.current)listRef.current.scrollTop=0},[leadFilterKey]);
   const kw=sq.trim().toLowerCase();
   const searched=kw?filtered.filter(e=>
     [e.payer_name,e.donor_mobile,e.payment_id,e.check_id,e.receipt_no,e.amount,e.agent_name,e.transaction_date,e.bank_audit_sources?.name,getSrcName(e.source_id)]
@@ -264,7 +272,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>{error}
     </div>}
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
-      <div style={{display:'flex',gap:8,padding:'10px 14px',flexWrap:'wrap',alignItems:'center'}}>
+      <div className="filter-bar">
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
           <ModernMonthDateInput
@@ -278,63 +286,62 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
               else{setSelDate(v);setSelDay('');doLoad(v,statusTab)}
             }}
           />
-          {(selDate||selDay)&&<Btn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch="All Dates" bg="transparent" fg="#6b7280" style={{fontSize:11,padding:'2px 6px'}}/>}
+          {(selDate||selDay)&&<IconBtn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch={<X size={14} strokeWidth={2.5}/>} title="Clear date filter" bg="transparent" fg="#6b7280" style={{border:'1px solid #d1d5db'}}/>}
         </div>
-        <select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
+        {!hideNgoFilter&&<select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
           <option value="">All NGOs</option><option value="bsct">Being Sevak</option><option value="maan">Mann Care</option><option value="aflf">Ashray</option>
-        </select>
+        </select>}
         <select value={srcFilter} onChange={e=>setSrcFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
           <option value="">All Sources</option>
           {sources.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <input placeholder="Search name / txn ID / amount..." value={sq} onChange={e=>setSq(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:190}}/>
-        <Btn on={()=>doLoad(selDate,statusTab)} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>} ch="Refresh"/>
-        <Btn on={()=>onAutoMatch()} dis={am} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>} ch={am?'Matching...':'Auto-Match'} bg="#2563eb"/>
-        <Btn on={exportExcel} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>} ch="Export" bg="#16a34a"/>
-        <Btn on={()=>{setForm({...EMPTY_FM});setShowAdd(true)}} ch="Add Entry" bg="var(--sage)" style={{marginLeft:'auto'}}/>
-        <Btn on={()=>{setSn('');setShowSrc(true)}} ch="Sources" bg="transparent" fg="#374151" style={{border:'1px solid #d1d5db'}}/>
+        <input placeholder="Search name / txn ID / amount..." value={sq} onChange={e=>setSq(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:190,minWidth:0}}/>
+        <IconBtn on={()=>doLoad(selDate,statusTab)} ch={<RefreshCw size={14} strokeWidth={2.5}/>} title="Refresh"/>
+        <IconBtn on={()=>onAutoMatch()} dis={am} ch={am?<Loader2 size={14} strokeWidth={2.5} style={{animation:'fb-spin 1s linear infinite'}}/>:<Zap size={14} strokeWidth={2.5}/>} title="Auto-match entries" bg="#2563eb" fg="#fff"/>
+        <IconBtn on={exportExcel} ch={<Download size={14} strokeWidth={2.5}/>} title="Export Excel" bg="#16a34a" fg="#fff"/>
+        <IconBtn on={()=>{setForm({...EMPTY_FM});setShowAdd(true)}} ch={<Plus size={15} strokeWidth={2.5}/>} title="Add entry" bg="var(--sage)" fg="#fff" style={{marginLeft:'auto'}}/>
+        <IconBtn on={()=>{setSn('');setShowSrc(true)}} ch={<ListFilter size={14} strokeWidth={2.5}/>} title="Manage sources" bg="transparent" fg="#374151" style={{border:'1px solid #d1d5db'}}/>
       </div>
     </div>
-    <div className="entry-scroll">
+    <div className="entry-scroll" ref={listRef}>
       <div className="entry-grid">
         {loading ? Array.from({length:5}).map((_,i)=>
           <div key={i} className="entry-card">
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div className="sk" style={{width:'45%',height:12,borderRadius:3}}/><div className="sk" style={{width:60,height:14,borderRadius:3}}/></div>
-            <div className="sk" style={{width:'40%',height:10,borderRadius:3,marginTop:6}}/>
-            <div className="sk" style={{width:64,height:20,borderRadius:6,marginTop:12}}/>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10}}><div className="sk" style={{width:'80%',height:10,borderRadius:3}}/><div className="sk" style={{width:'70%',height:10,borderRadius:3}}/></div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:10,borderTop:'1px solid #f3f4f6',paddingTop:10}}><div className="sk" style={{width:70,height:10,borderRadius:3}}/><div className="sk" style={{width:80,height:20,borderRadius:4}}/></div>
+            <div className="ec-main">
+              <div className="ec-primary">
+                <div className="sk" style={{width:'45%',height:13,borderRadius:4}}/>
+                <div className="sk" style={{width:'60%',height:10,borderRadius:4,marginTop:6}}/>
+              </div>
+              <div className="sk" style={{width:64,height:18,borderRadius:5}}/>
+            </div>
+            <div className="ec-meta">
+              <div className="sk" style={{width:60,height:16,borderRadius:8}}/>
+              <div className="sk" style={{width:90,height:10,borderRadius:4}}/>
+            </div>
           </div>
         ) : visible.length===0 ? (
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
-        <div key={e.id||idx} className="entry-card" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',background:e.kind==='suspense'?'#fffaf5':undefined,cursor:'pointer',boxShadow:selectedEntryId===e.id?'0 0 0 2px var(--sage)':undefined}} onClick={()=>{if(onSelectEntry){if(e.kind!=='suspense'&&!e.match_status)onSelectEntry(e);return}onOpen(e)}} onDoubleClick={()=>{if(onSelectEntry)onOpen(e)}}>
-          <div style={{minWidth:96}}>
-            <div style={{fontWeight:600,color:'#111827',fontSize:12}}>{e.transaction_date||'\u2014'}</div>
-            {e.payment_time && <div style={{fontSize:10,color:'#9ca3af',fontWeight:500}}>{fmtTime(e.payment_time)}</div>}
-            <div style={{marginTop:2,minHeight:12,display:'flex',alignItems:'center',gap:4}}>
-              {e.receipt_no
-                ? <><span style={{fontFamily:'monospace',fontSize:10,color:e.kind==='suspense'?'#B5603A':'var(--sage)'}}>#{e.receipt_no}</span>
-                    {e.kind!=='suspense'&&<span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>}
-                  </>
-                : <span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>}
+        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+(selectedEntryId===e.id?' is-selected':'')}
+          onClick={()=>{if(onSelectEntry){if(e.kind!=='suspense'&&!e.match_status)onSelectEntry(e);return}onOpen(e)}}
+          onDoubleClick={()=>{if(onSelectEntry)onOpen(e)}}>
+          <div className="ec-main">
+            <div className="ec-primary">
+              <div className="ec-title">{e.payer_name||'\u2014'}</div>
+              <div className="ec-sub">{e.transaction_date||'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}{e.receipt_no?' \u00B7 #'+e.receipt_no:''}</div>
             </div>
+            <div className="ec-amount">{curr(e.amount)}</div>
+            <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
           </div>
-          <div style={{fontSize:16,fontWeight:700,color:e.kind==='suspense'?'#B5603A':'var(--sage)',whiteSpace:'nowrap'}}>{curr(e.amount)}</div>
-          <div style={{minWidth:96}}>
-            <div style={{fontSize:9,textTransform:'uppercase',letterSpacing:'.4px',color:'#9ca3af'}}>{e.payment_id ? 'Payment ID' : 'Check ID'}</div>
-            <div style={{fontFamily:'monospace',fontSize:11,color:'#6b7280',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:130}}>{e.payment_id || e.check_id || '\u2014'}</div>
+          <div className="ec-meta">
+            {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
+            {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
+            <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
+            <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
+            <button title="View Receipt" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onViewReceipt(e)}}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </button>
           </div>
-          <div style={{flex:1,minWidth:100}}>
-            <div style={{fontSize:9,textTransform:'uppercase',letterSpacing:'.4px',color:'#9ca3af'}}>Name</div>
-            <div style={{fontSize:11,color:'#374151',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{e.payer_name||'\u2014'}</div>
-          </div>
-          {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:8,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
-          {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:8,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
-          <button title="View Receipt" onClick={e=>{e.stopPropagation();onViewReceipt(e)}} style={{width:28,height:28,borderRadius:8,border:'1px solid #d1d5db',background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#1d6f42',flexShrink:0,transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#f0fdf4';e.currentTarget.style.borderColor='#86efac'}} onMouseOut={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor='#d1d5db'}}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          </button>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c4c9d0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><polyline points="9 18 15 12 9 6" /></svg>
         </div>
       )}
       </div>
@@ -344,7 +351,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 }
 
 // ─── Main ──────────────────────────────────────────────────
-export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,leadFilter}){
+export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,leadFilter,globalNgo}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
@@ -384,14 +391,18 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
   const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};
 
+  const useGlobalNgo = globalNgo !== undefined;
+  const ngoFilter = useGlobalNgo ? globalNgo : nf;
+  const suspenseNgo = useGlobalNgo ? globalNgo : snf;
+
   const suspense=useMemo(()=>{
-    const rows=e.filter(x=>x.kind==='suspense'&&(!snf||matchesNgo(x,snf)));
+    const rows=e.filter(x=>x.kind==='suspense'&&(!suspenseNgo||matchesNgo(x,suspenseNgo)));
     return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
-  },[e,snf]);
-  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo:snf,setSuspenseNgo:setSnf})},[sr,su,ld,embedded,suspense,snf]);
+  },[e,suspenseNgo]);
+  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf})},[sr,su,ld,embedded,suspense,suspenseNgo,useGlobalNgo]);
 
   const fe=e.filter(en=>{
-    if(nf&&!matchesNgo(en,nf))return false;
+    if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
     if(leadFilter&&leadFilter.amount!=null&&leadFilter.amount!==''&&Number(en.amount)!==Number(leadFilter.amount))return false;
     if(leadFilter&&leadFilter.ngo&&!matchesNgo(en,leadFilter.ngo))return false;
     return true;
@@ -429,7 +440,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       <div style={{marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Transaction Details</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
             <span>Source <span style={{color:'#dc2626'}}>*</span></span>
             <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&seEntry.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:isEdit&&seEntry&&seEntry.kind==='suspense'?'#f3f4f6':'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
@@ -452,7 +463,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       <div style={{marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Date & Time</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
             <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
             <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
@@ -466,7 +477,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       <div style={{marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Agent & Lead Link</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
+        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
             <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
             <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
@@ -485,7 +496,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       <div style={{marginBottom:16}}>
         <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Additional Info</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
             <span>Payer Name</span>
             <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
@@ -532,7 +543,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       loading={ld} entries={e} sources={sr} summary={su} error={er}
       statusTab={st} setStatusTab={setSt}
       selDate={sd} setSelDate={setSd} selDay={dd} setSelDay={setDd} doLoad={load}
-      ngoFilter={nf} setNgoFilter={setNf} srcFilter={sf} setSrcFilter={setSf}
+      ngoFilter={ngoFilter} setNgoFilter={setNf} hideNgoFilter={useGlobalNgo} srcFilter={sf} setSrcFilter={setSf}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
       form={fm} setForm={setFm}
       handleAdd={addEntry} handleDelete={setDci}
@@ -540,6 +551,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={openDetail}
       onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
       onViewReceipt={setRp} selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry}
+      leadFilterKey={leadFilter ? `${leadFilter.amount}|${leadFilter.ngo || ''}` : ''}
     />
 
     {/* Add Entry Modal */}
@@ -627,7 +639,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {st==='unverified'&&se.kind!=='suspense'&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
           <div style={{fontSize:12,color:'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.match_donor||''}{se.match_fro?` · ${se.match_fro}`:''}</div>
         </div>
         <div style={{display:'flex',gap:8,flexShrink:0}}>

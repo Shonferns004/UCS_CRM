@@ -170,10 +170,20 @@ export const getAvailableEntries = async (limit = 200) => {
     }));
 };
 
+// Allocates the next human-readable match number (MTCH-000001, ...) from the
+// bank_audit_match_no_seq sequence created by migration 062.
+export const nextMatchNo = async () => {
+  const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+  return 'MTCH-' + String(rows[0].n).padStart(6, '0');
+};
+
 // Manually link an entry to a lead (matched, source 'manual') without crediting
 // anything yet. Accounts later confirms via the bank audit page or the lead's
-// verify action. Idempotent when re-saved against the same lead.
+// verify action. Idempotent when re-saved against the same lead; an existing
+// match number is kept so a re-match never renumbers the entry.
 export const manualMatchEntry = async (id, logId, actorId) => {
+  const { rows } = await db._pool.query('SELECT match_no FROM bank_audit_entries WHERE id = $1', [id]);
+  const matchNo = rows[0]?.match_no || (await nextMatchNo());
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -181,11 +191,12 @@ export const manualMatchEntry = async (id, logId, actorId) => {
       match_status: 'matched',
       match_source: 'manual',
       matched_by: actorId,
+      match_no: matchNo,
       matched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, bank_audit_sources(name)')
+    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, bank_audit_sources(name)')
     .single();
   if (error) throw error;
   return data;
