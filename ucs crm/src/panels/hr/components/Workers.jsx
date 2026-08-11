@@ -107,6 +107,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
 export default function Workers({ onSelect, onOffboard }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs } = useHR();
   const [workers, setWorkers] = useState([]);
+  const [empIdMap, setEmpIdMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
@@ -129,6 +130,13 @@ export default function Workers({ onSelect, onOffboard }) {
     return fetchWorkers('all').then(list => {
       setWorkers(list || []);
       setLoading(false);
+      api('/db/query', { method: 'POST', body: JSON.stringify({ sql: 'SELECT id, employee_id FROM workers' }), _prefix: 'ucs' })
+        .then(res => {
+          const map = {};
+          (res.rows || []).forEach(r => { if (r.employee_id) map[r.id] = r.employee_id; });
+          setEmpIdMap(map);
+        })
+        .catch(() => {});
       return list || [];
     }).catch((err) => { console.error('API error:', err.message); setLoading(false); return []; });
   }, [fetchWorkers]);
@@ -515,7 +523,7 @@ export default function Workers({ onSelect, onOffboard }) {
           </div>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
@@ -529,6 +537,7 @@ export default function Workers({ onSelect, onOffboard }) {
                       </div>
                     </div>
                   </td>
+                  <td><div className="sk" style={{ width:70, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
@@ -543,6 +552,7 @@ export default function Workers({ onSelect, onOffboard }) {
                   const currentMonth = new Date().toISOString().slice(0, 7);
                   const salaryFromMonth = sw?.current_salary_from?.slice(0, 7);
                   const isCurrent = salaryFromMonth && salaryFromMonth <= currentMonth;
+                  const empId = w.employee_id || empIdMap[w.id];
                   return (
                     <tr key={w.id} className="clickable-row" onClick={() => { if (onSelect) onSelect(w); }}
                       style={{ cursor:'pointer' }}>
@@ -552,6 +562,7 @@ export default function Workers({ onSelect, onOffboard }) {
                           {isComplete(workerDetails[w.id] || w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
                         </div>
                       </td>
+                      <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
                       <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
                       <td>
                         {sw?.current_salary ? (
