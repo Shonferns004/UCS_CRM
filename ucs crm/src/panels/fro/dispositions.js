@@ -14,8 +14,6 @@ export const NOT_CONNECTED = [
 ];
 
 export const CONNECTED = [
-  { id: 'lead_done', label: 'Lead Done' },
-  { id: 'done', label: 'Done' },
   { id: 'scheduled', label: 'Follow Up' },
   { id: 'callback', label: 'Callback' },
   { id: 'office_visit_scheduled', label: 'Office Visit Scheduled' },

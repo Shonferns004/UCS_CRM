@@ -742,10 +742,12 @@ export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
     const receiptId = parseInt(req.params.receiptId, 10);
-    const { donor_name, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
+    const { donor_id, donor_name, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
     if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
-    const donorName = (donor_name || '').trim();
-    if (!donorName) return res.status(400).json({ message: 'Enter the donor name to claim this receipt' });
+    let donorId = donor_id ? parseInt(donor_id, 10) : null;
+    const explicitDonor = donorId !== null;
+    let donorName = (donor_name || '').trim();
+    if (!donorId && !donorName) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
 
     const projectSet = await myProjectSet(workerId);
 
@@ -766,26 +768,52 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
     }
 
-    // Resolve the donor by name (create a profile if none matches) so the claimed
-    // receipt and its pending lead can be linked for verification.
-    let donorId = null;
-    const { data: existingDonor } = await db
-      .from('donor_profiles')
-      .select('id')
-      .ilike('name', donorName)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (existingDonor) {
-      donorId = existingDonor.id;
-    } else {
-      const { data: createdDonor, error: donorErr } = await db
+    // Resolve the donor: prefer an explicit donor_id (selected from the FRO's
+    // own donor search); otherwise resolve by name (create a profile if none
+    // matches) so the claimed receipt and its pending lead can be linked.
+    if (donorId) {
+      const { data: found, error: dErr } = await db
         .from('donor_profiles')
-        .insert({ name: donorName, project_supported: receipt.project_id })
-        .select()
+        .select('id, name')
+        .eq('id', donorId)
         .single();
-      if (donorErr) throw donorErr;
-      donorId = createdDonor.id;
+      if (dErr || !found) return res.status(404).json({ message: 'Donor not found' });
+      donorName = found.name;
+    } else {
+      const { data: existingDonor } = await db
+        .from('donor_profiles')
+        .select('id')
+        .ilike('name', donorName)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingDonor) {
+        donorId = existingDonor.id;
+      } else {
+        const { data: createdDonor, error: donorErr } = await db
+          .from('donor_profiles')
+          .insert({ name: donorName, project_supported: receipt.project_id })
+          .select()
+          .single();
+        if (donorErr) throw donorErr;
+        donorId = createdDonor.id;
+      }
+    }
+
+    // Only allow claiming for a donor allotted to this FRO's station scope
+    // (enforced for donors selected from the FRO's own donor search).
+    if (explicitDonor) {
+      const { scope: myScope, stationNames } = await getMyStationScope(workerId);
+      if (stationNames.length > 0) {
+        const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+        const { data: donorAssignments } = await db
+          .from('fro_assignments')
+          .select('id, station, ngo_id')
+          .eq('donor_id', donorId)
+          .not('status', 'eq', 'reassigned');
+        const hasScoped = (donorAssignments || []).some(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
+        if (!hasScoped) return res.status(403).json({ message: 'You can only claim receipts for your allotted donors' });
+      }
     }
 
     const txDateTime = transaction_datetime

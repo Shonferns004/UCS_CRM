@@ -41,7 +41,7 @@ function buildDonor(receipt) {
     'Receipt No.': receipt.receipt_no || '', 'Receipt Date': receipt.receipt_date || '',
     'Donor Name': receipt.donor_name || '', 'Address 1': receipt.address || '',
     'PAN No.': receipt.pan_number || '', 'Email ID': '', 'Amount': receipt.amount || 0,
-    'Mode of Payment (MOP)': receipt.mode || '', 'Payment ID No.': '', 'Donor Bank Name': '',
+    'Mode of Payment (MOP)': receipt.mode || '', 'Payment ID No.': '', 'Donor Bank Name': receipt.bank_name || '',
     'Account Of': 'Corpus', 'City': '', 'State': '', 'Pincode': '',
   };
 }
