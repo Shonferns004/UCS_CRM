@@ -88,6 +88,7 @@ const ngoAdminDist = path.resolve(__dirname, '../../ngo-admin-panel/dist');
 const accountsDist = path.resolve(__dirname, '../../accounts-panel/dist');
 const whatsappDist = path.resolve(__dirname, '../../whatsapp-crm/dist');
 const databaseDist = path.resolve(__dirname, '../../database/dist');
+const recruitDist = path.resolve(__dirname, '../../recruit-quizz/dist');
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 let gitCommit = 'unknown';
@@ -625,6 +626,13 @@ if (fs.existsSync(accountsDist)) {
   app.use('/accounts/assets', express.static(path.join(accountsDist, 'assets')));
   app.get('/accounts*', (req, res) => {
     res.sendFile(path.join(accountsDist, 'index.html'));
+  });
+}
+
+if (fs.existsSync(recruitDist)) {
+  app.use('/recruit-quizz/assets', express.static(path.join(recruitDist, 'assets')));
+  app.get('/recruit-quizz*', (req, res) => {
+    res.sendFile(path.join(recruitDist, 'index.html'));
   });
 }
 

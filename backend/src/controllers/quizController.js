@@ -39,6 +39,8 @@ export const generateQuiz = async (req, res) => {
     const role = String(req.body?.role || '').trim();
     if (!role) return res.status(400).json({ message: 'Role is required' });
 
+    const language = String(req.body?.language || 'English').trim().slice(0, 40) || 'English';
+
     const prompt = `You are an interview coach. Generate a short skill quiz for a candidate applying for the role of "${normalizeRole(role)}" at a non-profit organisation.
 
 Return ONLY valid JSON, an array of exactly 10 question objects:
@@ -46,6 +48,7 @@ Return ONLY valid JSON, an array of exactly 10 question objects:
 - The last 3 must have "type": "short", each with only "question" and "answer": "".
 
 Rules:
+- Write ALL questions, options and answers in the language: "${language}".
 - Questions must be simple, practical and relevant to the "${role}" role.
 - Keep options short and unambiguous.
 - Do not include any text outside the JSON array.`;
@@ -101,7 +104,7 @@ export const submitQuiz = async (req, res) => {
 
     const firstName = String(candidate.name || '').trim();
     const surname = String(candidate.surname || '').trim();
-    if (!firstName || !surname) {
+    if (!firstName) {
       return res.status(400).json({ message: 'Candidate name is required' });
     }
 
