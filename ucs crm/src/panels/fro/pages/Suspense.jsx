@@ -103,7 +103,7 @@ export default function FroSuspense() {
     setClaiming(true);
     setClaimError('');
     try {
-      await claimSuspenseReceipt(claimReceipt.id, { donor_id: claimDonor.id, notes: claimNotes.trim() || undefined });
+      await claimSuspenseReceipt(claimReceipt.id, { donor_id: claimDonor.donor_id, notes: claimNotes.trim() || undefined });
       setClaimSuccess(true);
       const data = await getSuspenseReceipts();
       setMonth(data?.month || '');
@@ -270,8 +270,8 @@ export default function FroSuspense() {
                 {claimDonor ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg)', border: '1px solid var(--sage)', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimDonor.name}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{claimDonor.mobile_number || '—'}{claimDonor.city ? ` · ${claimDonor.city}` : ''}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimDonor.donor_name}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{claimDonor.donor_mobile || '—'}{claimDonor.donor_city ? ` · ${claimDonor.donor_city}` : ''}</div>
                     </div>
                     <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]) }}
                       style={{ border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
@@ -288,10 +288,10 @@ export default function FroSuspense() {
                     {!claimSearching && claimResults.length > 0 && (
                       <div style={{ marginTop: 6, border: '1px solid var(--line)', borderRadius: 8, maxHeight: 150, overflowY: 'auto' }}>
                         {claimResults.map(d => (
-                          <div key={d.id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
+                          <div key={d.donor_id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
                             style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)', fontSize: 11.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{d.name}</span>
-                            <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{d.mobile_number || ''}{d.city ? ` · ${d.city}` : ''}</span>
+                            <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{d.donor_name}</span>
+                            <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{d.donor_mobile || ''}{d.donor_city ? ` · ${d.donor_city}` : ''}</span>
                           </div>
                         ))}
                       </div>
