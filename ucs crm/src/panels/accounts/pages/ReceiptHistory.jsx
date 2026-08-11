@@ -91,21 +91,10 @@ function buildDonor(r, lead) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
-const StatCard = ({ icon, label, value, sub, color, className = '' }) => (
-  <div className={`stat-card ${className}`}>
-    <div className="stat-icon" style={{ background: color + '18', color }}>{icon}</div>
-    <div className="stat-info">
-      <div className="stat-num">{value}</div>
-      <div className="stat-lbl">{label}</div>
-      {sub && <div className="stat-sub">{sub}</div>}
-    </div>
-  </div>
-);
-
 export default function ReceiptHistory() {
   const [receipts, setReceipts] = useState([]);
   const [total, setTotal] = useState(0);
-  const [serverStats, setServerStats] = useState({ count: 0, total_amount: 0, donors: 0 });
+  const [statsByProject, setStatsByProject] = useState([]);
   const [projectList, setProjectList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
@@ -145,7 +134,7 @@ export default function ReceiptHistory() {
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
         setTotal(Number(res?.total) || 0);
-        setServerStats(res?.stats || { count: 0, total_amount: 0, donors: 0 });
+        setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : []);
         setProjectList(Array.isArray(res?.projects) ? res.projects.filter(Boolean) : []);
       })
       .catch((err) => { console.error('API error:', err.message); })
@@ -437,11 +426,29 @@ export default function ReceiptHistory() {
               </div>
             ))}
           </>
-        ) : (<>
-        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>} label="Total Receipts" value={serverStats.count} color="#5B6B4E" />
-        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Total Donors" value={serverStats.donors} color="#8b5cf6" />
-        <StatCard className="receipt-history-stat-card" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} label="Total Amount" value={currency(serverStats.total_amount)} color="#16a34a" />
-        </>)}
+        ) : (
+          statsByProject.map(group => (
+            <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-card" style={{ padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#5B6B4E' }}>{group.count}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Receipts</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#8b5cf6' }}>{group.donors}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Donors</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>{currency(group.total_amount)}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Amount</div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="card">
