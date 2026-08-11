@@ -901,12 +901,15 @@ export const getReceiptList = async (req, res) => {
     const project = (req.query.project || '').trim();
     const link = req.query.link === 'unlinked' ? 'unlinked' : (req.query.link === 'linked' ? 'linked' : '');
 
-    // Cheap global aggregates + project options (unfiltered).
+    // Cheap per-NGO aggregates + project options (unfiltered).
     const statsRes = await db._pool.query(
-      `SELECT count(*)::int AS count,
+      `SELECT project_id,
+              count(*)::int AS count,
               COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
               count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
-       FROM receipts`
+       FROM receipts
+       GROUP BY project_id
+       ORDER BY count(*) DESC`
     );
     const projectsRes = await db._pool.query(
       `SELECT project_id, count(*)::int AS n FROM receipts GROUP BY project_id ORDER BY n DESC`
@@ -942,7 +945,7 @@ export const getReceiptList = async (req, res) => {
     return res.json({
       data: rowsRes.rows,
       total: totalRes.rows[0].n,
-      stats: statsRes.rows[0],
+      statsByProject: statsRes.rows,
       projects: projectsRes.rows.map(p => p.project_id),
     });
   } catch (error) {
