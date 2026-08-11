@@ -440,6 +440,7 @@ export const editEntry = async (req, res) => {
       if (amount !== undefined) receiptUpdate.amount = amount;
       if (link) {
         Object.assign(receiptUpdate, link.receipt);
+        if (!receiptUpdate.project_id) receiptUpdate.project_id = project_id || 'bsct';
         if (payment_time !== undefined) receiptUpdate.receipt_time = payment_time || null;
       } else if (pickedDonor) {
         Object.assign(receiptUpdate, donorProfileReceipt(pickedDonor));
@@ -519,7 +520,8 @@ export const editSuspenseReceipt = async (req, res) => {
     if (link) {
       Object.assign(updates, link.receipt);
       if (donor_name !== undefined) updates.donor_name = donor_name || null;
-      if (project_id !== undefined) updates.project_id = project_id || null;
+      if (project_id !== undefined) updates.project_id = project_id || link.receipt.project_id || 'bsct';
+      else if (!updates.project_id) updates.project_id = 'bsct';
     } else {
       if (donor_name !== undefined) updates.donor_name = donor_name;
       if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile;
