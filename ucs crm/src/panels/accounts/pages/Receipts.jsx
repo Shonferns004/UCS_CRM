@@ -155,6 +155,7 @@ function ExcelUpload({ onDataLoaded }) {
           entry._duplicate = rn ? seen.has(rn) : false
           if (rn && !entry._duplicate) seen.add(rn)
           if (!entry['Project']) entry['Project'] = 'bsct'
+          if (!entry['Account Of']) entry['Account Of'] = 'Corpus'
           return entry
         })
         if (donors.length === 0) { setError('No valid rows found'); setLoading(false); return }
