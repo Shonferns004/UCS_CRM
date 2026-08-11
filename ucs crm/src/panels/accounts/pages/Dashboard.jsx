@@ -5,6 +5,7 @@ import LeadDetail from './LeadDetail';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
 import * as XLSX from 'xlsx';
+import { receivedMeta } from '../services/receivedSource';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const NGO_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
@@ -140,16 +141,21 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
     const remark = l => l.accounts_status === 'rejected'
       ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
       : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
-    const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => [
-      project(l), na(l.transaction_date), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
-      'NA', 'NA', 'NA', 'NA', na(l.donor_address),
-      na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
-      'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
-      'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
-      'Bank', na(l.donor_bank_name), na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
-      l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_date),
-      'NA', project(l), 'Corpus', remark(l), project(l),
-    ])];
+    const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => {
+      const meta = receivedMeta(l.received_source);
+      const mop = meta ? meta.mop : 'Bank';
+      const recvBank = meta ? meta.receivedBank : na(l.donor_bank_name);
+      return [
+        'NA', na(l.transaction_date), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
+        'NA', 'NA', 'NA', 'NA', na(l.donor_address),
+        na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
+        'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
+        'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
+        mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
+        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_date),
+        'NA', project(l), 'Corpus', remark(l), 'NA',
+      ];
+    })];
     if (filtered.length === 0) { alert('No leads to export'); return }
     const ws = XLSX.utils.aoa_to_sheet(rows);
     const wb = XLSX.utils.book_new();
