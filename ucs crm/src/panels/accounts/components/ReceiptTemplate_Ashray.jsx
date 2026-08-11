@@ -267,7 +267,7 @@ export default function ReceiptTemplate_Ashray({ donor, index, signature, projec
               borderBottom: `2px solid ${secondary}`,
             }}
           >
-            {donor['Account Of'] || 'NA'}
+            {donor['Account Of'] || 'Corpus'}
           </div>
         </div>
 

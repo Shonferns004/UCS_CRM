@@ -50,7 +50,7 @@ function entryToDonor(e) {
     'Pincode': e.donor_pin_code || '',
     'Mode of Payment (MOP)': 'Bank',
     'Donor Bank Name': e.bank_name || '',
-    'Account Of': NGO_LABELS[e.project_id] || e.project_id || '',
+    'Account Of': 'Corpus',
     'Project': e.project_id || 'bsct',
   };
 }

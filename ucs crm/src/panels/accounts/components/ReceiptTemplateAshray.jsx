@@ -90,7 +90,7 @@ export default function ReceiptTemplateAshray({ donor, project }) {
         </div>
         <div style={{ display:'flex', alignItems:'flex-end', marginBottom:'18px', flexWrap:'wrap' }}>
           <span style={{ fontWeight:700, color:dark, marginRight:'8px', marginBottom:'5px' }}>Account Of:</span>
-          <div style={{ flex:1, minHeight:'28px', padding:'4px 8px', color:'#222', fontWeight:600, borderBottom:`2px solid ${secondary}` }}>{donor['Account Of'] || 'NA'}</div>
+          <div style={{ flex:1, minHeight:'28px', padding:'4px 8px', color:'#222', fontWeight:600, borderBottom:`2px solid ${secondary}` }}>{donor['Account Of'] || 'Corpus'}</div>
         </div>
         <div style={{ display:'flex', gap:'20px', marginTop:'25px' }}>
           <div style={{ flex:1 }}>
