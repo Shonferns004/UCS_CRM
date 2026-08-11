@@ -844,7 +844,8 @@ export const claimSuspenseReceipt = async (req, res) => {
       if (Object.keys(leadUpdates).length > 0) {
         await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
       }
-      await db.from('receipts').update({ log_id: existingPendingLead.id, upi_transaction_id: upi_transaction_id || null }).eq('id', receiptId);
+      const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
+      if (updErr) throw updErr;
       try {
         const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
         for (const u of (accounts || [])) {
@@ -919,7 +920,8 @@ export const claimSuspenseReceipt = async (req, res) => {
       .single();
     if (logErr) throw logErr;
 
-    await db.from('receipts').update({ log_id: log.id, upi_transaction_id: upi_transaction_id || null }).eq('id', receiptId);
+    const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
+    if (updErr) throw updErr;
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
