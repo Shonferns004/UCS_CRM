@@ -833,13 +833,14 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
     }
 
-    // Attach to the donor's open assignment (or open a fresh one for this FRO) so
-    // the created lead shows up in Lead Verification (fro_donor_logs needs an
-    // assignment for the inner join there).
+    // Attach to the donor's open assignment owned by THIS claiming FRO (or open a
+    // fresh one for them) so the created lead shows up in Lead Verification and
+    // credits the claimant — never another worker's assignment.
     const { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id')
       .eq('donor_id', donorId)
+      .eq('fro_worker_id', workerId)
       .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
       .maybeSingle();
 
