@@ -74,7 +74,7 @@ const getClaimableLog = async (logId, currentLogId = null) => {
       id, amount_collected, accounts_status, fro_worker_id, payment_mode,
       fro_assignments!inner(
         id, donor_id, fro_worker_id,
-        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop),
+        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name),
         workers!inner(id, name, login_id)
       )
     `)
@@ -123,8 +123,9 @@ const resolveLogLink = async ({ log_id, actorId }) => {
       donor_name: donor.name || null,
       donor_mobile: donor.mobile_number || null,
       pan_number: donor.pan_number || null,
-      address: donor.address_1 || null,
+      address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
       email: donor.email || null,
+      bank_name: donor.donors_bank_name || null,
       mode: log.payment_mode || donor.mop || 'Bank',
       project_id: donor.project_supported || null,
     },
@@ -291,6 +292,7 @@ export const addEntry = async (req, res) => {
         address: link?.receipt.address || req.body.donor_address_1 || null,
         email: link?.receipt.email || req.body.donor_email || null,
         mode: link?.receipt.mode || null,
+        bank_name: link?.receipt.bank_name || null,
         donor_id: link?.receipt.donor_id || null,
         payment_id: payment_id || null,
         receipt_date: transaction_date,
@@ -311,6 +313,7 @@ export const addEntry = async (req, res) => {
         address: link?.receipt.address || req.body.donor_address_1 || null,
         email: link?.receipt.email || req.body.donor_email || null,
         mode: link?.receipt.mode || null,
+        bank_name: link?.receipt.bank_name || null,
         donor_id: link?.receipt.donor_id || null,
         log_id: link?.receipt.log_id || null,
         amount,
