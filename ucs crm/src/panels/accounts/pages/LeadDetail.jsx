@@ -322,10 +322,11 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         <div className="card" style={{borderLeft:'3px solid #B5603A',marginBottom:16,background:'#FFF7ED'}}>
           <div className="card-pad" style={{padding:'10px 16px'}}>
             <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#B5603A',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Claimant:</span>
+              <span style={{fontSize:11,fontWeight:700,color:'#B5603A',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Claimed by:</span>
               <p style={{margin:0,fontSize:13,color:'#7c2d12',whiteSpace:'pre-wrap'}}>
-                {l.agent_name || 'An FRO'} claimed this receipt from Suspense
+                {l.claimant_name || l.agent_name || 'An FRO'} claimed this lead from Suspense
                 {l.claimed_receipt.receipt_no ? ` · Receipt #${l.claimed_receipt.receipt_no}` : ''}
+                {l.claimant_login ? ` (${l.claimant_login})` : ''}
                 {l.created_at ? ` · ${new Date(l.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}` : ''}.
                 Accounts verifies the bank audit entry to credit the claimant.
               </p>
