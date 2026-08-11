@@ -96,7 +96,6 @@ export default function EventHeadPanel() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuRef = useRef(null)
   const notifRef = useRef(null)
-  const pollRef = useRef(null)
   let _initSeenNotifs = []; try { _initSeenNotifs = JSON.parse(localStorage.getItem('eh_seen_notifs') || '[]'); } catch { /* corrupted */ }
   const seenNotifIds = useRef(new Set(_initSeenNotifs))
   let _initClearedNotifs = []; try { _initClearedNotifs = JSON.parse(localStorage.getItem('eh_cleared_notifs') || '[]'); } catch { /* corrupted */ }
@@ -124,8 +123,6 @@ export default function EventHeadPanel() {
   useEffect(() => {
     loadNotifications();
     requestNotifPermission();
-    pollRef.current = setInterval(() => loadNotifications(), 30000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [user?.id]);
 
   useRealtime('notification_log', {

@@ -385,6 +385,12 @@ export const rejectLead = async (req, res) => {
 
     if (updateAsgnError) throw updateAsgnError;
 
+    // Return any suspense receipt attached to the rejected lead back to the
+    // suspense pool (unclaimed) so another FRO can claim it.
+    try {
+      await db.from('receipts').update({ log_id: null }).eq('log_id', parseInt(logId, 10));
+    } catch (err) { console.error('Failed to clear receipt log_id on rejection:', err.message); }
+
     if (log.fro_assignments?.donor_id) {
       await db.from('donor_profiles').update({ updated_at: new Date().toISOString() }).eq('id', log.fro_assignments.donor_id);
     }
@@ -752,7 +758,7 @@ export const getReceiptList = async (req, res) => {
     params.push(limit, (page - 1) * limit);
     const rowsRes = await db._pool.query(
       `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
-              receipt_date, mode, payment_id, bank_name, address, pan_number, email,
+              receipt_date, receipt_time, mode, payment_id, bank_name, address, pan_number, email,
               donor_id, agent_name, sent, sent_at, created_at
        FROM receipts ${whereSql}
        ORDER BY created_at DESC
@@ -1051,6 +1057,29 @@ function normalizeReceiptDate(val) {
   return null;
 }
 
+function normalizeReceiptTime(val) {
+  if (!val && val !== 0) return null;
+  if (typeof val === 'number') {
+    const frac = val - Math.floor(val);
+    if (frac > 0) {
+      const totalMin = Math.round(frac * 24 * 60) % (24 * 60);
+      return String(Math.floor(totalMin / 60)).padStart(2, '0') + ':' + String(totalMin % 60).padStart(2, '0');
+    }
+    return null;
+  }
+  const s = String(val).trim();
+  if (!s) return null;
+  const m = s.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM|am|pm)?/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = (m[3] || '').toUpperCase();
+  if (ap === 'PM' && h < 12) h += 12;
+  if (ap === 'AM' && h === 12) h = 0;
+  if (h > 23) return null;
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+
 export const getImportNgoOptions = async (req, res) => {
   try {
     const { data, error } = await db
@@ -1106,11 +1135,12 @@ export const importReceipts = async (req, res) => {
           mode: row.mode || row['Mode of Payment (MOP)'] || row['MOP'] || null,
           purpose: row.purpose || row['Purpose'] || 'General Donation',
           receipt_date: normalizeReceiptDate(row.receipt_date || row['Receipt Date'] || row['Transaction Date'] || row.transaction_date),
+          receipt_time: normalizeReceiptTime(row.receipt_time || row['Receipt Time'] || row['Time'] || row.time),
           generated_by: row.generated_by || req.user.id,
           email: row.email || row['Mail Id'] || row['Email ID'] || null,
           payment_id: row.payment_id || row['Payment Id No.'] || null,
           bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
-          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || null,
+          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || 'Suspense',
           sent: true,
           sent_at: new Date().toISOString(),
         },
@@ -1222,12 +1252,20 @@ export const importReceipts = async (req, res) => {
           const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
 
           // A repeat upload must not create a duplicate receipt, but it can
-          // enrich an existing receipt with the FSE/agent name from the newer sheet.
-          const agentUpdates = parsed
-            .filter(({ parsed: row }) => row.receipt_no && row.agent_name && existingReceiptIds.has(row.receipt_no))
-            .map(({ parsed: row }) => ({ id: existingReceiptIds.get(row.receipt_no), agent_name: row.agent_name }));
-          await mapLimit(agentUpdates.map(({ id, agent_name }) =>
-            from('receipts').update({ agent_name }).eq('id', id)
+          // enrich an existing receipt with the FSE/agent name and, when present
+          // in the newer sheet, the receipt date and time.
+          const enrichUpdates = parsed
+            .filter(({ parsed: row }) => row.receipt_no && existingReceiptIds.has(row.receipt_no))
+            .map(({ parsed: row }) => {
+              const patch = {};
+              if (row.agent_name) patch.agent_name = row.agent_name;
+              if (row.receipt_time) patch.receipt_time = row.receipt_time;
+              if (row.receipt_date) patch.receipt_date = row.receipt_date;
+              return { id: existingReceiptIds.get(row.receipt_no), patch };
+            })
+            .filter(({ patch }) => Object.keys(patch).length > 0);
+          await mapLimit(enrichUpdates.map(({ id, patch }) =>
+            from('receipts').update(patch).eq('id', id)
           ), MAX_QUERY_CONCURRENCY, async (q) => {
             const { error } = await q;
             if (error) throw new Error(error.message);

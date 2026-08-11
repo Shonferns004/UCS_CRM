@@ -26,6 +26,8 @@ import {
   getAssignments,
   setTarget,
   getTargets,
+  getDonorCreditLogs,
+  transferDonorCredit,
   getDashboard,
   getDailyTarget,
   getFroWiseCollection,
@@ -81,6 +83,8 @@ router.get('/dashboard/daily-target', getDailyTarget);
 router.get('/dashboard/station-stats', getStationStats);
 router.get('/ngos', getAccessibleNgos);
 router.get('/donors', getDonors);
+router.get('/donors/:donorId/credit', getDonorCreditLogs);
+router.put('/credit-logs/:logId/transfer', transferDonorCredit);
 router.get('/donors/:mobile', getDonorDetail);
 router.get('/donors-by-station', getDonorsByStation);
 router.get('/fro-workers', getFroWorkers);

@@ -65,25 +65,32 @@ export default function Dashboard({ embedded, onStats }) {
   const mountedRef = useRef(true);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    Promise.all([
-      apiGet('/accounts/leads'),
-      statusFilter ? apiGet(`/accounts/leads?status=${statusFilter}`) : apiGet('/accounts/leads'),
-    ])
-      .then(([all, filtered]) => {
-        if (mountedRef.current) { setAllLeads(all); setLeads(filtered); }
+  const load = useCallback((silent) => {
+    if (!silent) setLoading(true);
+    apiGet('/accounts/leads')
+      .then((all) => {
+        if (mountedRef.current) {
+          setAllLeads(all);
+          setLeads(statusFilter ? all.filter(l => l.accounts_status === statusFilter) : all);
+        }
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => { if (mountedRef.current) setLoading(false); });
   }, [statusFilter]);
 
-  useEffect(load, [load]);
+  useEffect(() => { load(); }, [load]);
+
+  const rtTimerRef = useRef(null);
+  const rtLoad = useCallback(() => {
+    if (rtTimerRef.current) clearTimeout(rtTimerRef.current);
+    rtTimerRef.current = setTimeout(() => load(true), 250);
+  }, [load]);
+  useEffect(() => () => { if (rtTimerRef.current) clearTimeout(rtTimerRef.current); }, []);
 
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
-    onInsert: () => load(),
-    onUpdate: () => load(),
+    onInsert: rtLoad,
+    onUpdate: rtLoad,
   });
 
   const stats = useMemo(() => {
@@ -98,8 +105,8 @@ export default function Dashboard({ embedded, onStats }) {
     const verifiedToday = verified.filter(l => l.verified_at && new Date(l.verified_at).toDateString() === today);
     const verifiedTodayAmount = verifiedToday.reduce((s, l) => s + Number(l.amount || 0), 0);
 
-    return { pending, verified, rejected, pendingAmount, verifiedAmount, totalAmount, verifiedToday, verifiedTodayAmount, totalLeads: leads.length };
-  }, [leads]);
+    return { pending, verified, rejected, pendingAmount, verifiedAmount, totalAmount, verifiedToday, verifiedTodayAmount, totalLeads: allLeads.length };
+  }, [allLeads]);
 
   const osRef = useRef(onStats);
   osRef.current = onStats;

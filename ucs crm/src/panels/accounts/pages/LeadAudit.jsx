@@ -16,7 +16,7 @@ export default function LeadAudit() {
     <div>
       <div style={{ display: 'grid', gap: 16, marginBottom: 16 }}>
         <LeadStatCards stats={leadStats.stats} loading={leadStats.loading} />
-        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspense={audit.suspense} />
+        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspense={audit.suspense} suspenseNgo={audit.suspenseNgo} setSuspenseNgo={audit.setSuspenseNgo} />
       </div>
       <div className="two-col" style={{ alignItems: 'flex-start' }}>
         <div>
