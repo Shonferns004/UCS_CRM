@@ -23,10 +23,11 @@ export const confirmMatchCredit = async (entryId, actorId) => {
   const { data: log, error: lErr } = await db
     .from('fro_donor_logs')
     .select(`
-      id, amount_collected, action, disposition_detail, accounts_status, fro_worker_id,
+      id, amount_collected, action, disposition_detail, accounts_status, fro_worker_id, payment_mode,
       fro_assignments!inner(
         id, fro_worker_id, donor_id,
-        donor_profiles!inner(id, name, mobile_number, project_supported)
+        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop),
+        workers!left(id, name)
       )
     `)
     .eq('id', logId)
@@ -45,6 +46,10 @@ export const confirmMatchCredit = async (entryId, actorId) => {
   const date = entry.transaction_date || new Date().toISOString().slice(0, 10);
 
   const result = await db.transaction(async ({ from }) => {
+    const workerName = assignment?.workers?.name || null;
+    const entryPayer = String(entry.payer_name || '').trim() || null;
+    const entryAgent = String(entry.agent_name || '').trim() || null;
+
     await from('bank_audit_entries').update({
       status: 'verified',
       donor_id: donorId,
@@ -52,6 +57,15 @@ export const confirmMatchCredit = async (entryId, actorId) => {
       matched_by: actorId,
       matched_at: now,
       updated_at: now,
+      payer_name: entryPayer || donor.name || null,
+      donor_mobile: entry.donor_mobile || donor.mobile_number || null,
+      donor_email: entry.donor_email || donor.email || null,
+      donor_pan: entry.donor_pan || donor.pan_number || null,
+      donor_address_1: entry.donor_address_1 || donor.address_1 || null,
+      donor_address_2: entry.donor_address_2 || donor.address_2 || null,
+      donor_city: entry.donor_city || donor.city || null,
+      donor_pin_code: entry.donor_pin_code || donor.pin_code || null,
+      agent_name: entryAgent || workerName || null,
     }).eq('id', entry.id);
 
     await from('fro_donor_logs').update({
@@ -77,12 +91,21 @@ export const confirmMatchCredit = async (entryId, actorId) => {
     }).eq('id', donorId);
 
     let receipt = null;
+    const mode = log.payment_mode || donor.mop || (entry.payment_id ? 'UPI' : 'Bank');
     if (entry.receipt_id) {
       const { data: updated } = await from('receipts').update({
         donor_id: donorId,
         log_id: log.id,
         project_id: donor.project_supported || entry.project_id || 'bsct',
         donor_name: donor.name || entry.payer_name || null,
+        donor_mobile: donor.mobile_number || null,
+        pan_number: donor.pan_number || entry.donor_pan || null,
+        address: donor.address_1 || entry.donor_address_1 || null,
+        email: donor.email || entry.donor_email || null,
+        agent_name: workerName || entry.agent_name || null,
+        mode: mode || null,
+        payment_id: entry.payment_id || null,
+        receipt_time: entry.payment_time || null,
       }).eq('id', entry.receipt_id).select().single();
       receipt = updated;
     } else {
@@ -93,9 +116,15 @@ export const confirmMatchCredit = async (entryId, actorId) => {
         project_id: donor.project_supported || entry.project_id || 'bsct',
         donor_name: donor.name || entry.payer_name || 'Unknown',
         donor_mobile: donor.mobile_number || null,
+        pan_number: donor.pan_number || entry.donor_pan || null,
+        address: donor.address_1 || entry.donor_address_1 || null,
+        email: donor.email || entry.donor_email || null,
+        agent_name: workerName || entry.agent_name || null,
+        mode: mode || null,
         amount,
         payment_id: entry.payment_id || null,
         receipt_date: date,
+        receipt_time: entry.payment_time || null,
         purpose: 'Bank Audit Match',
         generated_by: actorId,
         donor_id: donorId,

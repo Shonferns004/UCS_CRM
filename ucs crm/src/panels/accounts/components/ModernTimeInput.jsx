@@ -14,7 +14,28 @@ const fmt12 = (hh, mm) => {
   return `${h12}:${pad(mm)} ${ap}`;
 };
 
-function SpinnerColumn({ label, value, display, onUp, onDown }) {
+function parseInput(str) {
+  if (!str) return '';
+  const s = str.trim();
+  let m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (m) {
+    const h = Number(m[1]);
+    if (h > 23 || Number(m[2]) > 59) return null;
+    return `${pad(h)}:${pad(Number(m[2]))}`;
+  }
+  m = s.match(/^(\d{1,2}):(\d{1,2})\s*(am|pm)$/i);
+  if (m) {
+    let h = Number(m[1]);
+    const ap = m[3].toLowerCase();
+    if (h < 1 || h > 12 || Number(m[2]) > 59) return null;
+    if (ap === 'pm' && h !== 12) h += 12;
+    if (ap === 'am' && h === 12) h = 0;
+    return `${pad(h)}:${pad(Number(m[2]))}`;
+  }
+  return null;
+}
+
+function SpinnerColumn({ label, display, onUp, onDown }) {
   const arrowStyle = {
     width: 44, height: 28, border: '1px solid #e5e7eb', borderRadius: 7, background: '#f9fafb',
     cursor: 'pointer', fontSize: 13, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
@@ -33,9 +54,27 @@ function SpinnerColumn({ label, value, display, onUp, onDown }) {
   );
 }
 
+function ClockIcon({ onClick }) {
+  return (
+    <button onClick={onClick} aria-label="Pick time"
+      style={{
+        width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer', padding: 0,
+      }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    </button>
+  );
+}
+
 export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...', style }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
+  const [text, setText] = useState(value || '');
+  const [modalText, setModalText] = useState(value || '');
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
 
   const hm = toHm(value);
@@ -45,18 +84,27 @@ export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...
   const h12 = h % 12 || 12;
   const isPM = h >= 12;
 
+  useEffect(() => {
+    if (!focused) setText(value || '');
+  }, [value, focused]);
+
+  useEffect(() => {
+    if (open) setModalText(value || '');
+  }, [open, value]);
+
   const set = useCallback((hh, mm) => {
-    onChange(`${pad(((hh % 24) + 24) % 24)}:${pad(((mm % 60) + 60) % 60)}`);
+    const next = `${pad(((hh % 24) + 24) % 24)}:${pad(((mm % 60) + 60) % 60)}`;
+    onChange(next);
+    setText(next);
   }, [onChange]);
 
   const updatePos = useCallback(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
     const calH = 340;
-    const below = window.innerHeight - r.bottom;
-    const top = below > calH ? r.bottom + 6 : Math.max(6, r.top - calH - 6);
-    setPos({ top, left: Math.min(Math.max(6, r.left), window.innerWidth - 300) });
+    const calW = 280;
+    setPos({
+      top: Math.max(8, (window.innerHeight - calH) / 2),
+      left: Math.max(8, (window.innerWidth - calW) / 2),
+    });
   }, []);
 
   const openPicker = () => {
@@ -83,6 +131,16 @@ export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...
     };
   }, [open]);
 
+  const commitText = () => {
+    const parsed = parseInput(text);
+    if (parsed !== null) {
+      onChange(parsed);
+      setText(parsed);
+    } else {
+      setText(value || '');
+    }
+  };
+
   const toggleAmpm = () => {
     const hh = isPM ? (h - 12 + 24) % 24 : (h + 12) % 24;
     set(hh, m);
@@ -90,29 +148,62 @@ export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...
 
   return (
     <>
-      <input
-        ref={inputRef}
-        type="text"
-        readOnly
-        value={value ? fmt12(h, m) : ''}
-        placeholder={placeholder}
-        onClick={() => (open ? setOpen(false) : openPicker())}
-        style={{
-          width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
-          fontSize: 13, background: '#fff', cursor: 'pointer', outline: 'none', boxSizing: 'border-box',
-          color: value ? '#111827' : '#9ca3af', ...style,
-        }}
-      />
+      <div style={{ position: 'relative', width: '100%', boxSizing: 'border-box', ...style }}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={text}
+          placeholder={placeholder}
+          onMouseDown={(e) => {
+            if (e.target.closest('[data-mti-open]')) return;
+            if (!open) openPicker();
+          }}
+          onFocus={() => { setFocused(true); setText(value || ''); }}
+          onBlur={() => { setFocused(false); commitText(); }}
+          onChange={e => { setText(e.target.value); if (open) setOpen(false); }}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+          style={{
+            width: '100%', padding: '9px 34px 9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
+            fontSize: 13, background: '#fff', outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+            color: value ? '#111827' : '#9ca3af',
+          }}
+        />
+        <div data-mti-open style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)' }}>
+          <ClockIcon onClick={() => (open ? setOpen(false) : openPicker())} />
+        </div>
+      </div>
       {open && pos && createPortal(
         <div data-mtp onClick={(e) => e.stopPropagation()} style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 3000, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, boxShadow: '0 14px 44px rgba(0,0,0,.18)', padding: 14, width: 280 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>Select time</span>
             <span style={{ fontSize: 13, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{fmt12(h, m)}</span>
           </div>
+          <input
+            type="text"
+            value={modalText}
+            placeholder="Type time (e.g. 14:30 or 2:30 PM)"
+            onChange={e => {
+              const v = e.target.value;
+              setModalText(v);
+              const parsed = parseInput(v);
+              if (parsed !== null) onChange(parsed);
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const parsed = parseInput(modalText);
+                if (parsed !== null) setOpen(false);
+                else setModalText(value || '');
+              }
+            }}
+            style={{
+              width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
+              fontSize: 13, background: '#fff', outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+              color: '#111827', marginBottom: 12, textAlign: 'center',
+            }}
+          />
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 26 }}>
             <SpinnerColumn
               label="Hour"
-              value={h12}
               display={h12}
               onUp={() => set(h + 1, m)}
               onDown={() => set(h - 1, m)}
@@ -120,7 +211,6 @@ export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...
             <span style={{ fontSize: 22, fontWeight: 700, color: '#d1d5db', marginTop: 18 }}>:</span>
             <SpinnerColumn
               label="Minutes"
-              value={pad(m)}
               display={pad(m)}
               onUp={() => set(h, m + 1)}
               onDown={() => set(h, m - 1)}
@@ -139,7 +229,7 @@ export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 12 }}>
             {value && (
-              <button onClick={() => { onChange(''); setOpen(false); }}
+              <button onClick={() => { onChange(''); setText(''); setOpen(false); }}
                 style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, border: '1px solid #d1d5db', borderRadius: 7, background: '#fff', color: '#6b7280', cursor: 'pointer' }}>
                 Clear
               </button>
