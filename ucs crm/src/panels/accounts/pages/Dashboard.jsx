@@ -4,8 +4,12 @@ import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
+import * as XLSX from 'xlsx';
+import { receivedMeta } from '../services/receivedSource';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
+const NGO_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
+const LEAD_EXPORT_HEADERS = ['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
 
 const SkeletonNum = () => (
   <span className="sk-num" style={{ display:'inline-block',width:48,height:24,borderRadius:6,background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}} />
@@ -47,7 +51,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +67,7 @@ export default function Dashboard({ embedded, onStats }) {
   const [leadPage, setLeadPage] = useState(1);
 
   const mountedRef = useRef(true);
+  const clickRef = useRef(null);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const load = useCallback((silent) => {
@@ -85,7 +90,7 @@ export default function Dashboard({ embedded, onStats }) {
     if (rtTimerRef.current) clearTimeout(rtTimerRef.current);
     rtTimerRef.current = setTimeout(() => load(true), 250);
   }, [load]);
-  useEffect(() => () => { if (rtTimerRef.current) clearTimeout(rtTimerRef.current); }, []);
+  useEffect(() => () => { if (rtTimerRef.current) clearTimeout(rtTimerRef.current); if (clickRef.current) clearTimeout(clickRef.current); }, []);
 
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
@@ -130,8 +135,35 @@ export default function Dashboard({ embedded, onStats }) {
   useEffect(() => { setLeadPage(1); }, [searchQuery, ngoFilter, statusFilter]);
   useEffect(() => { if (leadPage > pageCount) setLeadPage(pageCount); }, [pageCount, leadPage]);
 
-  const sendToReceipts = () => {
-    const verified = leads.filter(l => l.accounts_status === 'verified');
+  const exportExcel = () => {
+    const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
+    const project = l => NGO_LABELS[l.donor_project] || l.donor_project || 'NA';
+    const remark = l => l.accounts_status === 'rejected'
+      ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
+      : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
+    const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => {
+      const meta = receivedMeta(l.received_source);
+      const mop = meta ? meta.mop : 'Bank';
+      const recvBank = meta ? meta.receivedBank : na(l.donor_bank_name);
+      return [
+        'NA', na(l.transaction_date), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
+        'NA', 'NA', 'NA', 'NA', na(l.donor_address),
+        na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
+        'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
+        'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
+        mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
+        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_date),
+        'NA', project(l), 'Corpus', remark(l), 'NA',
+      ];
+    })];
+    if (filtered.length === 0) { alert('No leads to export'); return }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Lead Verification');
+    XLSX.writeFile(wb, `lead-verification_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const sendToReceipts = () => {    const verified = leads.filter(l => l.accounts_status === 'verified');
     if (verified.length === 0) return;
 
     const rows = verified.map(l => ({
@@ -141,7 +173,7 @@ export default function Dashboard({ embedded, onStats }) {
       'Email ID': l.donor_email || '',
       'Mode of Payment (MOP)': l.payment_mode || '',
       'Payment ID No.': l.upi_transaction_id || '',
-      'Donor Bank Name': '',
+      'Donor Bank Name': l.donor_bank_name || '',
       'Amount': String(l.amount || 0),
       'Receipt No.': l.receipt_no || '',
       'Receipt Date': l.verified_at || l.transaction_date || '',
@@ -217,6 +249,10 @@ export default function Dashboard({ embedded, onStats }) {
               {'\u2715'} Delete All ({stats.pending.length})
             </button>
           )}
+          <button className="btn btn-sm" style={{ background:'#16a34a', color:'#fff', whiteSpace:'nowrap', marginLeft:8, display:'inline-flex', alignItems:'center', gap:6 }} onClick={exportExcel}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export ({filtered.length})
+          </button>
         </div>
         <div className="entry-scroll">
           <div className="entry-grid">
@@ -228,7 +264,18 @@ export default function Dashboard({ embedded, onStats }) {
               </div>
             ) : (
               pageItems.map(l => (
-              <div key={l.log_id} className="entry-card" onClick={() => setViewingId(l.log_id)} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', opacity: l.accounts_status !== 'pending' ? 0.65 : 1, cursor: 'pointer' }}>
+              <div key={l.log_id} className="entry-card"
+                onClick={() => {
+                  if (!onSelectLead) { setViewingId(l.log_id); return; }
+                  if (clickRef.current) clearTimeout(clickRef.current);
+                  clickRef.current = setTimeout(() => { clickRef.current = null; setViewingId(l.log_id); }, 240);
+                }}
+                onDoubleClick={() => {
+                  if (!onSelectLead) return;
+                  if (clickRef.current) { clearTimeout(clickRef.current); clickRef.current = null; }
+                  if (l.accounts_status === 'pending') onSelectLead(l);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', opacity: l.accounts_status !== 'pending' ? 0.65 : 1, cursor: 'pointer', boxShadow: selectedLogId === l.log_id ? '0 0 0 2px var(--sage)' : undefined, ...(selectedLogId === l.log_id ? { background: 'var(--bg)' } : {}) }}>
                 <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#5B6B4E18', color: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
                   {(l.donor_name || '?').trim().charAt(0).toUpperCase()}
                 </div>
@@ -242,6 +289,7 @@ export default function Dashboard({ embedded, onStats }) {
                  l.accounts_status === 'rejected' ? <span className="pill pill-red" style={{ fontSize: 9 }} title={l.rejection_reason || ''}>Rejected</span> :
                  <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.accounts_status || '\u2014'}</span>}
                  <span className="pill pill-gray" style={{ fontSize: 10 }}>{({ bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
+                {selectedLogId === l.log_id && <span className="pill" style={{ fontSize: 9, background: '#5B6B4E', color: '#fff' }}>Selected</span>}
                 {l.claimed_receipt && <span className="pill" style={{ fontSize: 9, background: '#FDE7DB', color: '#B5603A' }}>Claimant · {l.agent_name || 'Unknown'}</span>}
                 <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.agent_name || 'No agent'}</span>
                 <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>

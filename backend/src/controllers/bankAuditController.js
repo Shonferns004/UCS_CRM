@@ -60,6 +60,42 @@ function currentMonthIST() {
 // flag receipts that still sit in the suspense pool.
 const realAgentName = (name) => (name && name.trim() && name !== 'Suspense') ? name.trim() : null;
 
+// Map a donor profile to the donor fields stored on a receipt.
+const donorProfileReceipt = (d) => ({
+  donor_id: d.id,
+  donor_name: d.name || null,
+  donor_mobile: d.mobile_number || null,
+  pan_number: d.pan_number || null,
+  address: [d.address_1, d.address_2].filter(Boolean).join(', ') || null,
+  email: d.email || null,
+  mode: d.mop || null,
+  bank_name: d.donors_bank_name || null,
+});
+
+// Map a donor profile to the donor fields stored on a bank_audit_entries row.
+const donorProfileEntry = (d) => ({
+  donor_id: d.id,
+  donor_mobile: d.mobile_number || null,
+  donor_email: d.email || null,
+  donor_pan: d.pan_number || null,
+  donor_address_1: d.address_1 || null,
+  donor_address_2: d.address_2 || null,
+  donor_city: d.city || null,
+  donor_pin_code: d.pin_code || null,
+});
+
+// Load a donor profile from the donor directory (used when a donor is picked
+// via the Search Donor box instead of a lead).
+const fetchDonorProfile = async (id) => {
+  if (!id) return null;
+  const { data } = await db
+    .from('donor_profiles')
+    .select('id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name')
+    .eq('id', id)
+    .maybeSingle();
+  return data || null;
+};
+
 // Fetch a pending lead log (fro_donor_logs) together with its donor profile +
 // FRO worker so a bank audit entry can be linked to it. Throws if the log is
 // already processed. If the log is already linked to a receipt (e.g. a suspense
@@ -74,7 +110,7 @@ const getClaimableLog = async (logId, currentLogId = null) => {
       id, amount_collected, accounts_status, fro_worker_id, payment_mode,
       fro_assignments!inner(
         id, donor_id, fro_worker_id,
-        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop),
+        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name),
         workers!inner(id, name, login_id)
       )
     `)
@@ -100,9 +136,9 @@ const getClaimableLog = async (logId, currentLogId = null) => {
 // Resolve receipt + entry fields when a lead log is linked to a bank audit
 // entry, and verify the lead (clears it from the pending picker + shows in the
 // donor's history). Returns null when no log is linked.
-const resolveLogLink = async ({ log_id, actorId }) => {
+const resolveLogLink = async ({ log_id, actorId, currentLogId }) => {
   if (!log_id) return null;
-  const log = await getClaimableLog(log_id);
+  const log = await getClaimableLog(log_id, currentLogId);
   const assignment = log.fro_assignments;
   const donor = assignment?.donor_profiles || {};
   const worker = assignment?.workers || {};
@@ -123,8 +159,9 @@ const resolveLogLink = async ({ log_id, actorId }) => {
       donor_name: donor.name || null,
       donor_mobile: donor.mobile_number || null,
       pan_number: donor.pan_number || null,
-      address: donor.address_1 || null,
+      address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
       email: donor.email || null,
+      bank_name: donor.donors_bank_name || null,
       mode: log.payment_mode || donor.mop || 'Bank',
       project_id: donor.project_supported || null,
     },
@@ -156,6 +193,7 @@ export const listEntries = async (req, res) => {
         e.agent_name = r.agent_name || null;
         e.log_id = r.log_id || null;
         e.donor_id = r.donor_id || null;
+        e.donor_name = r.donor_name || null;
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
@@ -254,7 +292,7 @@ export const listEntries = async (req, res) => {
 
 export const addEntry = async (req, res) => {
   try {
-    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id } = req.body;
+    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id } = req.body;
     if (!source_id || !amount || !transaction_date) {
       return res.status(400).json({ message: 'Source, amount, and transaction date are required' });
     }
@@ -270,15 +308,35 @@ export const addEntry = async (req, res) => {
     let receiptId = link?.existing_receipt_id || null;
     let receiptNo = null;
 
+    // When no lead is linked but a donor was picked from the donor directory,
+    // the donor profile is the authoritative source for donor details (DB name,
+    // not the text typed into the audit form).
+    const pickedDonor = await fetchDonorProfile(donor_id);
+
+    // Donor-derived fields for the receipt + bank_audit_entries row. A linked
+    // lead wins; a picked donor profile is next; otherwise fall back to the
+    // form values.
+    const donorFields = link?.receipt
+      ? { donor_mobile: link.receipt.donor_mobile, pan_number: link.receipt.pan_number, address: link.receipt.address, email: link.receipt.email, mode: link.receipt.mode, bank_name: link.receipt.bank_name, donor_id: link.receipt.donor_id }
+      : pickedDonor
+      ? donorProfileReceipt(pickedDonor)
+      : { donor_mobile: req.body.donor_mobile || null, pan_number: req.body.donor_pan || null, address: req.body.donor_address_1 || null, email: req.body.donor_email || null, mode: null, bank_name: null, donor_id: null };
+    const entryDonorFields = link?.entry
+      ? { ...link.entry, donor_id: link.receipt.donor_id }
+      : pickedDonor
+      ? donorProfileEntry(pickedDonor)
+      : { donor_mobile: req.body.donor_mobile || null, donor_email: req.body.donor_email || null, donor_pan: req.body.donor_pan || null, donor_address_1: req.body.donor_address_1 || null, donor_address_2: req.body.donor_address_2 || null, donor_city: req.body.donor_city || null, donor_pin_code: req.body.donor_pin_code || null, donor_id: null };
+
     // A bank-audit-created receipt is a suspense donation unless the creator
     // filled in BOTH an agent name and a donor (payer) name. When it stays
     // suspense, tag the receipt agent as 'Suspense' so it appears in the
     // suspense pool for an FRO to claim instead of being treated as a known
     // donation. When a lead is linked, the lead's donor + FRO are authoritative
     // (never suspense).
-    const donorName = link?.receipt.donor_name || payer_name || null;
-    const linkedAgentName = link?.receipt.agent_name || realAgentName(agent_name) || null;
-    const suspenseAgent = (!link && !(realAgentName(agent_name) && donorName)) ? 'Suspense' : linkedAgentName;
+    const donorName = link?.receipt.donor_name || pickedDonor?.name || payer_name || null;
+    const donorKnown = !!(link || pickedDonor);
+    const agentKnown = link?.receipt.agent_name || realAgentName(agent_name);
+    const suspenseAgent = (donorKnown && agentKnown) ? agentKnown : 'Suspense';
 
     if (receiptId) {
       const receiptFields = {
@@ -286,12 +344,7 @@ export const addEntry = async (req, res) => {
         project_id: link?.receipt.project_id || ngo,
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
-        donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
-        pan_number: link?.receipt.pan_number || req.body.donor_pan || null,
-        address: link?.receipt.address || req.body.donor_address_1 || null,
-        email: link?.receipt.email || req.body.donor_email || null,
-        mode: link?.receipt.mode || null,
-        donor_id: link?.receipt.donor_id || null,
+        ...donorFields,
         payment_id: payment_id || null,
         receipt_date: transaction_date,
         receipt_time: payment_time || null,
@@ -306,12 +359,7 @@ export const addEntry = async (req, res) => {
         project_id: link?.receipt.project_id || ngo,
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
-        donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
-        pan_number: link?.receipt.pan_number || req.body.donor_pan || null,
-        address: link?.receipt.address || req.body.donor_address_1 || null,
-        email: link?.receipt.email || req.body.donor_email || null,
-        mode: link?.receipt.mode || null,
-        donor_id: link?.receipt.donor_id || null,
+        ...donorFields,
         log_id: link?.receipt.log_id || null,
         amount,
         payment_id: payment_id || null,
@@ -334,14 +382,7 @@ export const addEntry = async (req, res) => {
       payer_name: payer_name || null,
       payment_time: payment_time || null,
       project_id: link?.receipt.project_id || ngo,
-      donor_mobile: link?.entry.donor_mobile || req.body.donor_mobile || null,
-      donor_email: link?.entry.donor_email || req.body.donor_email || null,
-      donor_pan: link?.entry.donor_pan || req.body.donor_pan || null,
-      donor_address_1: link?.entry.donor_address_1 || req.body.donor_address_1 || null,
-      donor_address_2: link?.entry.donor_address_2 || req.body.donor_address_2 || null,
-      donor_city: link?.entry.donor_city || req.body.donor_city || null,
-      donor_pin_code: link?.entry.donor_pin_code || req.body.donor_pin_code || null,
-      donor_id: link?.receipt.donor_id || null,
+      ...entryDonorFields,
       created_by: req.user.id,
       receipt_no: receiptNo,
       receipt_id: receiptId,
@@ -357,7 +398,7 @@ export const addEntry = async (req, res) => {
 export const editEntry = async (req, res) => {
   try {
     const { id } = req.params;
-    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id } = req.body;
+    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id } = req.body;
     const updates = {};
     if (source_id !== undefined) updates.source_id = source_id;
     if (amount !== undefined) updates.amount = amount;
@@ -366,7 +407,7 @@ export const editEntry = async (req, res) => {
     if (transaction_date !== undefined) updates.transaction_date = transaction_date;
     if (remarks !== undefined) updates.remarks = remarks;
     if (payer_name !== undefined) updates.payer_name = payer_name;
-    if (payment_time !== undefined) updates.payment_time = payment_time;
+    if (payment_time !== undefined) updates.payment_time = payment_time || null;
     if (project_id !== undefined) updates.project_id = project_id;
 
     const { data: existing } = await db
@@ -389,12 +430,25 @@ export const editEntry = async (req, res) => {
       return res.status(409).json({ message: 'Selected lead is already linked to a receipt' });
     }
 
+    // When no lead is linked but a donor was picked from the donor directory,
+    // the donor profile is authoritative for donor details (DB name, not the
+    // text typed into the audit form).
+    const pickedDonor = await fetchDonorProfile(donor_id);
+
     if (existing.receipt_id) {
       const receiptUpdate = {};
       if (amount !== undefined) receiptUpdate.amount = amount;
       if (link) {
         Object.assign(receiptUpdate, link.receipt);
+        if (!receiptUpdate.project_id) receiptUpdate.project_id = project_id || 'bsct';
         if (payment_time !== undefined) receiptUpdate.receipt_time = payment_time || null;
+      } else if (pickedDonor) {
+        Object.assign(receiptUpdate, donorProfileReceipt(pickedDonor));
+        if (agent_name !== undefined) {
+          const effAgent = realAgentName(agent_name);
+          receiptUpdate.agent_name = (effAgent && pickedDonor.name) ? effAgent : 'Suspense';
+        }
+        if (project_id !== undefined) receiptUpdate.project_id = project_id || 'bsct';
       } else {
         const { data: curRec } = await db.from('receipts').select('donor_name').eq('id', existing.receipt_id).maybeSingle();
         const effDonor = payer_name !== undefined ? (payer_name || null) : (curRec?.donor_name || null);
@@ -416,6 +470,8 @@ export const editEntry = async (req, res) => {
       for (const f of ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code']) {
         updates[f] = link.entry[f];
       }
+    } else if (pickedDonor) {
+      Object.assign(updates, donorProfileEntry(pickedDonor));
     } else {
       for (const f of ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code']) {
         if (req.body[f] !== undefined) updates[f] = req.body[f] || null;
@@ -464,7 +520,8 @@ export const editSuspenseReceipt = async (req, res) => {
     if (link) {
       Object.assign(updates, link.receipt);
       if (donor_name !== undefined) updates.donor_name = donor_name || null;
-      if (project_id !== undefined) updates.project_id = project_id || null;
+      if (project_id !== undefined) updates.project_id = project_id || link.receipt.project_id || 'bsct';
+      else if (!updates.project_id) updates.project_id = 'bsct';
     } else {
       if (donor_name !== undefined) updates.donor_name = donor_name;
       if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile;
@@ -546,6 +603,44 @@ export const suggestEntries = async (req, res) => {
     if (!q || q.length < 2) return res.json([]);
     const entries = await BankAudit.suggestEntries(q);
     return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Unverified, unmatched bank audit entries for the lead-detail dropdown so
+// Accounts can manually pair a lead to a bank statement row.
+export const listAvailableEntries = async (req, res) => {
+  try {
+    const entries = await BankAudit.getAvailableEntries();
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Link an entry to a lead as a MANUAL match (no credit yet). The credit happens
+// later through the bank audit Confirm Match or the lead's verify action.
+export const manualMatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { log_id: logId } = req.body || {};
+    if (!logId) return res.status(400).json({ message: 'log_id is required' });
+
+    const { data: entry, error: entryErr } = await db
+      .from('bank_audit_entries')
+      .select('id, status, match_status, matched_lead_log_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (entryErr) throw entryErr;
+    if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
+    if (entry.status === 'verified') return res.status(400).json({ message: 'This bank audit entry is already verified' });
+    if (entry.match_status && String(entry.matched_lead_log_id) !== String(logId)) {
+      return res.status(409).json({ message: 'This bank audit entry is already matched to a lead' });
+    }
+
+    const result = await BankAudit.manualMatchEntry(id, logId, req.user.id);
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

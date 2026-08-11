@@ -51,7 +51,7 @@ export default function ReceiptTemplateManncar({ donor, index }) {
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Payment Mode</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Mode of Payment (MOP)']}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Bank Name</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Donor Bank Name']}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Email Address</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Email ID']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Account Of</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Account Of']}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Account Of</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Account Of'] || 'Corpus'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Numbers)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formatIndianCurrency(amount)}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Words)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{amountInWords(amount)} Only</td></tr>
         </tbody>

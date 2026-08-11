@@ -742,10 +742,12 @@ export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
     const receiptId = parseInt(req.params.receiptId, 10);
-    const { donor_id, notes, screenshot_url } = req.body || {};
+    const { donor_id, donor_name, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
     if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
-    const donorId = donor_id ? parseInt(donor_id, 10) : null;
-    if (!donorId) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
+    let donorId = donor_id ? parseInt(donor_id, 10) : null;
+    const explicitDonor = donorId !== null;
+    let donorName = (donor_name || '').trim();
+    if (!donorId && !donorName) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
 
     const projectSet = await myProjectSet(workerId);
 
@@ -766,6 +768,58 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
     }
 
+    // Resolve the donor: prefer an explicit donor_id (selected from the FRO's
+    // own donor search); otherwise resolve by name (create a profile if none
+    // matches) so the claimed receipt and its pending lead can be linked.
+    if (donorId) {
+      const { data: found, error: dErr } = await db
+        .from('donor_profiles')
+        .select('id, name')
+        .eq('id', donorId)
+        .single();
+      if (dErr || !found) return res.status(404).json({ message: 'Donor not found' });
+      donorName = found.name;
+    } else {
+      const { data: existingDonor } = await db
+        .from('donor_profiles')
+        .select('id')
+        .ilike('name', donorName)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingDonor) {
+        donorId = existingDonor.id;
+      } else {
+        const { data: createdDonor, error: donorErr } = await db
+          .from('donor_profiles')
+          .insert({ name: donorName, project_supported: receipt.project_id })
+          .select()
+          .single();
+        if (donorErr) throw donorErr;
+        donorId = createdDonor.id;
+      }
+    }
+
+    // Only allow claiming for a donor allotted to this FRO's station scope
+    // (enforced for donors selected from the FRO's own donor search).
+    if (explicitDonor) {
+      const { scope: myScope, stationNames } = await getMyStationScope(workerId);
+      if (stationNames.length > 0) {
+        const scopePairs = new Set((myScope || []).filter(s => s.ngo_id && s.station).map(s => `${s.station}|${s.ngo_id}`));
+        const { data: donorAssignments } = await db
+          .from('fro_assignments')
+          .select('id, station, ngo_id')
+          .eq('donor_id', donorId)
+          .not('status', 'eq', 'reassigned');
+        const hasScoped = (donorAssignments || []).some(a => scopePairs.has(`${a.station}|${a.ngo_id}`));
+        if (!hasScoped) return res.status(403).json({ message: 'You can only claim receipts for your allotted donors' });
+      }
+    }
+
+    const txDateTime = transaction_datetime
+      ? new Date(transaction_datetime).toISOString()
+      : (receipt.receipt_date ? new Date(receipt.receipt_date).toISOString() : null);
+
     // Dedupe: if this FRO already has an unresolved pending lead_done for the
     // same donor (e.g. they marked the lead done before, accounts could not
     // match it because the money was sitting in suspense), attach the claimed
@@ -784,7 +838,14 @@ export const claimSuspenseReceipt = async (req, res) => {
       .maybeSingle();
 
     if (existingPendingLead) {
-      await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
+      const leadUpdates = {};
+      if (upi_transaction_id) leadUpdates.upi_transaction_id = upi_transaction_id;
+      if (txDateTime) leadUpdates.transaction_datetime = txDateTime;
+      if (Object.keys(leadUpdates).length > 0) {
+        await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
+      }
+      const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
+      if (updErr) throw updErr;
       try {
         const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
         for (const u of (accounts || [])) {
@@ -801,21 +862,38 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
     }
 
-    // Attach to the donor's open assignment (or open a fresh one for this FRO) so
-    // the created lead shows up in Lead Verification (fro_donor_logs needs an
-    // assignment for the inner join there).
+    // Attach to the donor's open assignment owned by THIS claiming FRO (or open a
+    // fresh one for them) so the created lead shows up in Lead Verification and
+    // credits the claimant — never another worker's assignment.
     const { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id')
       .eq('donor_id', donorId)
+      .eq('fro_worker_id', workerId)
       .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
       .maybeSingle();
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
+      const { data: ngoRow } = await db
+        .from('ngos')
+        .select('id, name')
+        .ilike('name', receipt.project_id)
+        .maybeSingle();
+      const ngoId = ngoRow?.id || null;
+      if (!ngoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
+      const { scope: claimScope } = await getMyStationScope(workerId);
+      const scopeRow = (claimScope || []).find(s => s.ngo_id === ngoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
-        .insert({ donor_id: donorId, fro_worker_id: workerId, status: 'lead_done' })
+        .insert({
+          donor_id: donorId,
+          fro_worker_id: workerId,
+          ngo_id: ngoId,
+          station: scopeRow?.station || null,
+          status: 'lead_done',
+          assigned_at: new Date().toISOString(),
+        })
         .select()
         .single();
       if (asgErr) throw asgErr;
@@ -834,14 +912,16 @@ export const claimSuspenseReceipt = async (req, res) => {
         accounts_status: 'pending',
         payment_screenshot_url: screenshot_url || null,
         remark: notes || null,
-        transaction_datetime: receipt.receipt_date || null,
+        upi_transaction_id: upi_transaction_id || null,
+        transaction_datetime: txDateTime,
         created_by: workerId,
       })
       .select()
       .single();
     if (logErr) throw logErr;
 
-    await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
+    const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
+    if (updErr) throw updErr;
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
@@ -3040,6 +3120,8 @@ export const getDonorDonations = async (req, res) => {
     const { data: logs, error } = await query;
     if (error) throw error;
 
+    const countedLogIds = new Set((logs || []).map(l => l.id));
+
     let receiptQuery = db
       .from('receipts')
       .select('*, fro_donor_logs!receipts_log_id_fkey(transaction_datetime)')
@@ -3067,7 +3149,11 @@ export const getDonorDonations = async (req, res) => {
       receipt_no: l.receipt_no || null,
     }));
 
-    const receiptDonations = (receipts || []).map(r => ({
+    // A receipt linked to a log already counted above (verified lead_done or
+    // donation action) represents the same donation — skip it to avoid doubles.
+    const receiptDonations = (receipts || [])
+      .filter(r => r.log_id == null || !countedLogIds.has(r.log_id))
+      .map(r => ({
       date: r.receipt_date || (Array.isArray(r.fro_donor_logs) ? r.fro_donor_logs[0] : r.fro_donor_logs)?.transaction_datetime || r.created_at,
       amount: r.amount || 0,
       mode: r.mode || null,

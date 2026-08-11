@@ -3,7 +3,7 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 import {
   listSources, addSource, editSource, removeSource,
   listEntries, addEntry, editEntry, removeEntry, getSummary,
-  suggestEntries, markEntryVerified,
+  suggestEntries, markEntryVerified, listAvailableEntries, manualMatch,
   listNgoSuspense, linkSuspenseToDonor, markSuspenseUnmatched,
   listFroSuspense, resolveSuspenseEntry,
   runAutoMatch, confirmMatch, clearMatch,
@@ -28,6 +28,8 @@ router.put('/suspense/:id', authenticateRole('accounts', 'super_admin'), editSus
 router.delete('/suspense/:id', authenticateRole('accounts', 'super_admin'), removeSuspenseReceipt);
 
 router.get('/entries/suggest', authenticateRole('accounts', 'super_admin'), suggestEntries);
+router.get('/entries/available', authenticateRole('accounts', 'super_admin'), listAvailableEntries);
+router.post('/entries/:id/manual-match', authenticateRole('accounts', 'super_admin'), manualMatch);
 router.get('/leads', authenticateRole('accounts', 'super_admin'), searchPendingLeads);
 router.put('/entries/:id/verify', authenticateRole('accounts', 'super_admin'), markEntryVerified);
 
