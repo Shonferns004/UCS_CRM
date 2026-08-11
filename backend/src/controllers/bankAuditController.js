@@ -554,6 +554,44 @@ export const suggestEntries = async (req, res) => {
   }
 };
 
+// Unverified, unmatched bank audit entries for the lead-detail dropdown so
+// Accounts can manually pair a lead to a bank statement row.
+export const listAvailableEntries = async (req, res) => {
+  try {
+    const entries = await BankAudit.getAvailableEntries();
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Link an entry to a lead as a MANUAL match (no credit yet). The credit happens
+// later through the bank audit Confirm Match or the lead's verify action.
+export const manualMatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { log_id: logId } = req.body || {};
+    if (!logId) return res.status(400).json({ message: 'log_id is required' });
+
+    const { data: entry, error: entryErr } = await db
+      .from('bank_audit_entries')
+      .select('id, status, match_status, matched_lead_log_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (entryErr) throw entryErr;
+    if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
+    if (entry.status === 'verified') return res.status(400).json({ message: 'This bank audit entry is already verified' });
+    if (entry.match_status && String(entry.matched_lead_log_id) !== String(logId)) {
+      return res.status(409).json({ message: 'This bank audit entry is already matched to a lead' });
+    }
+
+    const result = await BankAudit.manualMatchEntry(id, logId, req.user.id);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const markEntryVerified = async (req, res) => {
   try {
     const { id } = req.params;
