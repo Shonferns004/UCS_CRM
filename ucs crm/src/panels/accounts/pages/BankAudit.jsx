@@ -9,6 +9,7 @@ import { ModernTimeInput } from '../components/ModernTimeInput';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
 import { downloadSinglePDF } from '../services/pdfGenerator';
+import { receivedMeta } from '../services/receivedSource';
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar';
 import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray';
 import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
@@ -236,16 +237,22 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
   const exportExcel=()=>{
     const HEADERS=['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
-    const rows=[HEADERS,...visible.map(e=>[
-      na(srcOf(e)),na(e.transaction_date),na(e.agent_name),na(e.payer_name),na(e.donor_mobile),
-      'NA','NA','NA','NA',na(e.donor_address_1),na(e.donor_address_2),
-      'NA','NA',na(e.donor_city),na(e.donor_pin_code),na(e.donor_pan),
-      'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
-      'NA','NA','NA',na(e.agent_name),na(e.agent_name),
-      'Bank',na(srcOf(e)),na(e.payment_id),'NA','NA',na(e.bank_name),
-      e.amount??'NA',na(e.receipt_no),'NA',na(e.transaction_date),
-      na(e.payment_time?fmtTime(e.payment_time):''),na(NGO_LABELS[e.project_id]||e.project_id),'Corpus',na(e.remarks),na(srcOf(e)),
-    ])];
+    const rows=[HEADERS,...visible.map(e=>{
+      const src=srcOf(e);
+      const meta=receivedMeta(src);
+      const mop=meta?meta.mop:'Bank';
+      const recvBank=meta?meta.receivedBank:na(src);
+      return [
+        'NA',na(e.transaction_date),na(e.agent_name),na(e.payer_name),na(e.donor_mobile),
+        'NA','NA','NA','NA',na(e.donor_address_1),na(e.donor_address_2),
+        'NA','NA',na(e.donor_city),na(e.donor_pin_code),na(e.donor_pan),
+        'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
+        'NA','NA','NA',na(e.agent_name),na(e.agent_name),
+        mop,recvBank,na(e.payment_id),'NA','NA',na(e.bank_name),
+        e.amount??'NA',na(e.receipt_no),'NA',na(e.transaction_date),
+        na(e.payment_time?fmtTime(e.payment_time):''),na(NGO_LABELS[e.project_id]||e.project_id),'Corpus',na(e.remarks),'NA',
+      ];
+    })];
     if(visible.length===0){alert('No entries to export');return}
     const ws=XLSX.utils.aoa_to_sheet(rows);
     const wb=XLSX.utils.book_new();
