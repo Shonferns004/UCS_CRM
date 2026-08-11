@@ -36,8 +36,8 @@ const fieldInputStyle = {
   background: '#fff', transition: 'border-color .15s', outline: 'none', width: '100%', boxSizing: 'border-box',
 };
 
-export default function DonorPicker({ onPick }) {
-  const [q, setQ] = useState('');
+export default function DonorPicker({ onPick, prefill }) {
+  const [q, setQ] = useState(prefill || '');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
