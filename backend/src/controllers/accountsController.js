@@ -48,6 +48,7 @@ export const getLeadList = async (req, res) => {
 
     const logIds = (data || []).map(r => r.id);
     const receiptMap = {};
+    let entrySourceMap = {};
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
@@ -56,6 +57,17 @@ export const getLeadList = async (req, res) => {
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
           if (rc.log_id != null && !receiptMap[rc.log_id]) receiptMap[rc.log_id] = rc;
+        }
+        const receiptIds = (claimedReceipts || []).map(rc => rc.id).filter(Boolean);
+        if (receiptIds.length) {
+          const { data: linkedEntries } = await db
+            .from('bank_audit_entries')
+            .select('receipt_id, source_id, bank_audit_sources(name)')
+            .in('receipt_id', receiptIds);
+          entrySourceMap = {};
+          for (const en of (linkedEntries || [])) {
+            if (en.receipt_id != null) entrySourceMap[en.receipt_id] = en.bank_audit_sources?.name || null;
+          }
         }
       }
     }
@@ -95,6 +107,7 @@ export const getLeadList = async (req, res) => {
       claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Unknown',
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
+      received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
     }));
 
     return res.json(result);
