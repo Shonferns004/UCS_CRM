@@ -844,7 +844,8 @@ export const claimSuspenseReceipt = async (req, res) => {
       if (Object.keys(leadUpdates).length > 0) {
         await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
       }
-      await db.from('receipts').update({ log_id: existingPendingLead.id, upi_transaction_id: upi_transaction_id || null }).eq('id', receiptId);
+      const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
+      if (updErr) throw updErr;
       try {
         const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
         for (const u of (accounts || [])) {
@@ -874,9 +875,25 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
+      const { data: ngoRow } = await db
+        .from('ngos')
+        .select('id, name')
+        .ilike('name', receipt.project_id)
+        .maybeSingle();
+      const ngoId = ngoRow?.id || null;
+      if (!ngoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
+      const { scope: claimScope } = await getMyStationScope(workerId);
+      const scopeRow = (claimScope || []).find(s => s.ngo_id === ngoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
-        .insert({ donor_id: donorId, fro_worker_id: workerId, status: 'lead_done' })
+        .insert({
+          donor_id: donorId,
+          fro_worker_id: workerId,
+          ngo_id: ngoId,
+          station: scopeRow?.station || null,
+          status: 'lead_done',
+          assigned_at: new Date().toISOString(),
+        })
         .select()
         .single();
       if (asgErr) throw asgErr;
@@ -903,7 +920,8 @@ export const claimSuspenseReceipt = async (req, res) => {
       .single();
     if (logErr) throw logErr;
 
-    await db.from('receipts').update({ log_id: log.id, upi_transaction_id: upi_transaction_id || null }).eq('id', receiptId);
+    const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
+    if (updErr) throw updErr;
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
