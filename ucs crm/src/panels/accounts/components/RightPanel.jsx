@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-export default function RightPanel({ open, onClose, title, subtitle, width = 460, topOffset = 72, accent = 'var(--sage)', children }) {
+export default function RightPanel({ open, onClose, title, subtitle, width = 640, topOffset = 72, accent = 'var(--sage)', children }) {
   const panelRef = useRef(null);
 
   useEffect(() => {

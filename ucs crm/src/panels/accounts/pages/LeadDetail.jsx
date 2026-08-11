@@ -87,6 +87,40 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const suggestRef = useRef(null);
   const suggestTimer = useRef(null);
 
+  const [addrSuggestions, setAddrSuggestions] = useState([]);
+  const [showAddrSuggestions, setShowAddrSuggestions] = useState(false);
+  const addrSuggestRef = useRef(null);
+  const addrSuggestTimer = useRef(null);
+
+  const fetchAddressSuggestions = useCallback(async (typed, leadName, leadMobile) => {
+    try {
+      const params = new URLSearchParams();
+      if (typed && typed.trim().length >= 2) params.set('q', typed.trim());
+      if (leadMobile && leadMobile.trim()) params.set('mobile', leadMobile.trim());
+      if (leadName && leadName.trim()) params.set('name', leadName.trim());
+      if (!params.toString()) { setAddrSuggestions([]); setShowAddrSuggestions(false); return; }
+      const data = await apiGet('/accounts/leads/address-suggest?' + params.toString());
+      setAddrSuggestions(data || []);
+      setShowAddrSuggestions(data?.length > 0);
+    } catch { setAddrSuggestions([]); }
+  }, []);
+
+  const handleAddressChange = (value) => {
+    setField('donor_address', value);
+    if (addrSuggestTimer.current) clearTimeout(addrSuggestTimer.current);
+    addrSuggestTimer.current = setTimeout(() => fetchAddressSuggestions(value, form.donor_name, form.donor_mobile), 300);
+  };
+
+  const selectAddressSuggestion = (item) => {
+    setField('donor_address', item.address);
+    setShowAddrSuggestions(false);
+    setAddrSuggestions([]);
+  };
+
+  const handleAddressFocus = () => {
+    if (addrSuggestions.length === 0) fetchAddressSuggestions(form.donor_address, form.donor_name, form.donor_mobile);
+  };
+
   const fetchSuggestions = useCallback(async (q) => {
     if (!q || q.length < 2) { setSuggestions([]); return; }
     try {
@@ -325,7 +359,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 <div><div className="label">Mobile</div>{isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" />:<div className="value">{form.donor_mobile||'\u2014'}</div>}</div>
                 <div><div className="label">City</div>{isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" />:<div className="value">{form.donor_city||'\u2014'}</div>}</div>
                 <div><div className="label">Email</div>{isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" />:<div className="value">{form.donor_email||'\u2014'}</div>}</div>
-                <div><div className="label">Address</div>{isPending?<input className="field-input" value={form.donor_address} onChange={e=>setField('donor_address',e.target.value)} placeholder="Address" />:<div className="value">{form.donor_address||'\u2014'}</div>}</div>
+                <div><div className="label">Address</div>{isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',boxShadow:'var(--shadow-md)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:2}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'8px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div className="value">{form.donor_address||'\u2014'}</div>}</div>
                 <div><div className="label">PAN</div>{isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" />:<div className="value">{form.donor_pan||'\u2014'}</div>}</div>
                 <div><div className="label">DOB</div><div className="value">{l.donor_dob||'\u2014'}</div></div>
                 <div><div className="label">Project</div><div className="value">{l.donor_project||'\u2014'}</div></div>
