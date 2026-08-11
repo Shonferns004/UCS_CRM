@@ -81,6 +81,11 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
 
+  const [bankEntries, setBankEntries] = useState([]);
+  const [bankEntryId, setBankEntryId] = useState('');
+  const [bankSaved, setBankSaved] = useState(false);
+  const [savingBank, setSavingBank] = useState(false);
+
   const [form, setForm] = useState({ donor_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'', upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -176,6 +181,11 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   useEffect(()=>{load();},[logId]);
   useEffect(()=>{if(lead&&lead.accounts_status==='verified')loadReceipt();},[lead?.accounts_status]);
   useEffect(()=>{
+    if (lead && lead.accounts_status === 'pending') {
+      apiGet('/accounts/bank-audit/entries/available').then(d => setBankEntries(d || [])).catch(() => {});
+    }
+  }, [lead?.accounts_status]);
+  useEffect(()=>{
     if(lead?.donor_mobile){
       const raw=lead.donor_mobile.replace(/\D/g,'');
       const f=raw.length===10?'91'+raw:raw.startsWith('0')?'91'+raw.slice(1):raw;
@@ -193,11 +203,23 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         donor_address:form.donor_address||null,upi_transaction_id:form.upi_transaction_id||null,
         transaction_datetime:combineDatetime(form.transaction_date,form.transaction_time),
         payment_from:form.payment_from||null,payment_mode:form.payment_mode||'UPI',
+        bank_audit_entry_id:bankEntryId||null,
       });
       if (res.receipt) setReceipt(res.receipt);
       load();
     } catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
+  };
+
+  const handleSaveBankMatch = async () => {
+    if (!lead || !bankEntryId) return;
+    setSavingBank(true);
+    try {
+      const res = await apiPost(`/accounts/bank-audit/entries/${bankEntryId}/manual-match`, { log_id: lead.log_id });
+      setBankEntryId(String(res.id));
+      setBankSaved(true);
+    } catch (err) { alert(err.message); }
+    finally { setSavingBank(false); }
   };
 
   const handleReject = async () => {
@@ -346,6 +368,20 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div></div>
                 <div><div className="label">Payment Mode</div>{isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div className="value">{form.payment_mode||'\u2014'}</div>}</div>
                  <div style={{position:'relative'}} ref={suggestRef}><div className="label">UPI Transaction ID</div>{isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} />:<div className="value">{form.upi_transaction_id||'\u2014'}</div>}{isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',boxShadow:'var(--shadow-md)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:2}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'8px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}</div>
+                <div>
+                  <div className="label">Bank Audit Entry</div>
+                  {isPending ? (
+                    <div style={{display:'flex',gap:6}}>
+                      <select className="field-input" style={{flex:1}} value={bankEntryId} onChange={e=>{const v=e.target.value;setBankEntryId(v);setBankSaved(false);const ent=bankEntries.find(b=>String(b.id)===String(v));if(ent&&!form.upi_transaction_id)setField('upi_transaction_id',ent.payment_id||'');}} disabled={bankSaved}>
+                        <option value="">Select entry (optional)</option>
+                        {bankEntries.map(b=><option key={b.id} value={b.id}>{b.payment_id||'No ref'}{Number(b.amount||0)?` \u00B7 \u20B9${Number(b.amount).toLocaleString('en-IN')}`:''}{b.transaction_date?` \u00B7 ${String(b.transaction_date).slice(0,10)}`:''}{b.source?` \u00B7 ${b.source}`:''}</option>)}
+                      </select>
+                      {bankEntryId&&<button onClick={handleSaveBankMatch} disabled={bankSaved||savingBank} title={bankSaved?'Saved to this lead':'Link this entry to the lead'} style={{whiteSpace:'nowrap',padding:'0 14px',fontSize:11,fontWeight:600,borderRadius:8,height:36,cursor:'pointer',border:bankSaved?'1.5px solid #86efac':'1.5px solid #9ca3af',background:bankSaved?'#ecfdf5':'#fff',color:bankSaved?'#059669':'#374151'}}>{savingBank?'Saving...':(bankSaved?'Matched \u2713':'Save')}</button>}
+                    </div>
+                  ) : (
+                    <div className="value">{'\u2014'}</div>
+                  )}
+                </div>
                 <div><div className="label">Date</div>{isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" />:<div className="value">{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</div>}</div>
                 <div><div className="label">Time</div>{isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div className="value">{form.transaction_time||'\u2014'}</div>}</div>
                 <div><div className="label">From</div>{isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" />:<div className="value">{form.payment_from||'\u2014'}</div>}</div>
@@ -442,7 +478,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
             <div className="modal-header"><h3>Confirm Verification</h3></div>
             <div className="modal-body" style={{padding:20}}>
               <p style={{margin:'0 0 6px',fontSize:14}}>Verify this lead and mark amount as collected?</p>
-              <p style={{margin:0,fontSize:13,color:'var(--ink-soft)'}}>A receipt will be auto-generated on verification.</p>
+              <p style={{margin:0,fontSize:13,color:'var(--ink-soft)'}}>{bankEntryId?`The selected bank audit entry will be verified and credited, and its receipt reused.`:'A receipt will be auto-generated on verification.'}</p>
               <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:20}}>
                 <button className="btn btn-sm" onClick={()=>setConfirmOpen(false)}>Cancel</button>
                 <button className="verify-btn" onClick={handleVerify} disabled={submitting}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Confirm & Save'}</button>
