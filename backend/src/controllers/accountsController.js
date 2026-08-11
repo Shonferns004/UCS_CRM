@@ -49,6 +49,7 @@ export const getLeadList = async (req, res) => {
     const logIds = (data || []).map(r => r.id);
     const receiptMap = {};
     let entrySourceMap = {};
+    const leadMatchMap = {};
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
@@ -67,6 +68,19 @@ export const getLeadList = async (req, res) => {
           entrySourceMap = {};
           for (const en of (linkedEntries || [])) {
             if (en.receipt_id != null) entrySourceMap[en.receipt_id] = en.bank_audit_sources?.name || null;
+          }
+        }
+      }
+
+      const { data: matchedEntries, error: matchErr } = await db
+        .from('bank_audit_entries')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score')
+        .in('matched_lead_log_id', logIds)
+        .in('match_status', ['matched', 'confirmed']);
+      if (!matchErr) {
+        for (const me of (matchedEntries || [])) {
+          if (me.matched_lead_log_id != null && !leadMatchMap[me.matched_lead_log_id]) {
+            leadMatchMap[me.matched_lead_log_id] = me;
           }
         }
       }
@@ -108,6 +122,15 @@ export const getLeadList = async (req, res) => {
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
       received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
+      bank_match: leadMatchMap[r.id]
+        ? {
+            entry_id: leadMatchMap[r.id].id,
+            match_status: leadMatchMap[r.id].match_status,
+            match_source: leadMatchMap[r.id].match_source || 'auto',
+            match_no: leadMatchMap[r.id].match_no || null,
+            match_score: leadMatchMap[r.id].match_score || null,
+          }
+        : null,
     }));
 
     return res.json(result);
