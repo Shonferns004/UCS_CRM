@@ -1,7 +1,7 @@
 let apiBase = (() => {
   const override = new URLSearchParams(window.location.search).get('api');
   if (override) return override.replace(/\/+$/, '');
-  return window.location.protocol === 'file:' ? 'http://localhost:5000' : '';
+  return window.location.protocol === 'file:' ? 'https://43-200-198-122.sslip.io' : '';
 })();
 let apiFallbackTried = false;
 
@@ -20,9 +20,9 @@ export async function api(path, opts) {
   try {
     return await attempt(apiBase);
   } catch (e) {
-    if (apiBase !== 'http://localhost:5000' && !apiFallbackTried) {
+    if (apiBase !== "https://43-200-198-122.sslip.io" && !apiFallbackTried) {
       apiFallbackTried = true;
-      apiBase = 'http://localhost:5000';
+      apiBase = "https://43-200-198-122.sslip.io";
       return await attempt(apiBase);
     }
     throw e;
