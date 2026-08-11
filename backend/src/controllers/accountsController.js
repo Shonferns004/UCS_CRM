@@ -21,6 +21,7 @@ export const getLeadList = async (req, res) => {
         payment_screenshot_url, accounts_status, pan_number, notes, remark, created_at, verified_at,
         upi_transaction_id, transaction_datetime, payment_from, payment_mode,
         assignment_id, fro_worker_id,
+        workers!fro_donor_logs_fro_worker_id_fkey(id, name, login_id),
         fro_assignments!inner(
           id,
           donor_id,
@@ -28,7 +29,7 @@ export const getLeadList = async (req, res) => {
           ngo_id,
           status,
           ngos!left(id, name),
-          donor_profiles!inner(id, name, mobile_number, city, pan_number, address_1, email, project_supported, donation_count, total_amount, birth_date),
+          donor_profiles!inner(id, name, mobile_number, city, pan_number, address_1, email, project_supported, donation_count, total_amount, birth_date, donors_bank_name),
           workers!inner(id, name, login_id)
         )
       `)
@@ -77,6 +78,7 @@ export const getLeadList = async (req, res) => {
       donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
       donor_address: r.fro_assignments?.donor_profiles?.address_1 || '',
       donor_email: r.fro_assignments?.donor_profiles?.email || '',
+      donor_bank_name: r.fro_assignments?.donor_profiles?.donors_bank_name || '',
       donor_project: (r.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : r.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : r.fro_assignments?.ngos?.name === 'MANN' ? 'maan' : r.fro_assignments?.donor_profiles?.project_supported) || '',
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
@@ -89,6 +91,8 @@ export const getLeadList = async (req, res) => {
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
       agent_login: r.fro_assignments?.workers?.login_id || '',
+      claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Unknown',
+      claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
     }));
 
@@ -109,7 +113,7 @@ export const verifyLead = async (req, res) => {
 
     const { data: log, error: logError } = await db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, email, pan_number, project_supported))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
       .single();
 
@@ -191,7 +195,9 @@ export const verifyLead = async (req, res) => {
         donor_mobile: donorProfile?.mobile_number || null,
         amount: log.amount_collected || 0,
         pan_number: pan_number || log.pan_number || donorProfile?.pan_number || null,
-        address: donor_address || donorProfile?.address_1 || null,
+        address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
+        email: donorProfile?.email || null,
+        bank_name: donorProfile?.donors_bank_name || null,
         mode: payment_mode || null,
         purpose: 'General Donation',
         generated_by: req.user.id,
@@ -202,7 +208,11 @@ export const verifyLead = async (req, res) => {
       // Receipt already exists (e.g. created for a bank audit entry or a suspense
       // claim). Link it to the verified donor and mark its bank audit entry done.
       try {
-        await db.from('receipts').update({ donor_id: donorId }).eq('id', existing.id);
+        await db.from('receipts').update({
+          donor_id: donorId,
+          bank_name: donorProfile?.donors_bank_name || null,
+          address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
+        }).eq('id', existing.id);
         await db.from('bank_audit_entries').update({
           donor_id: donorId,
           status: 'verified',
@@ -941,7 +951,7 @@ export const generateReceipt = async (req, res) => {
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
-          donor_profiles!inner(id, name, mobile_number, city, address_1, email, pan_number, project_supported),
+          donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name),
           workers!inner(id, name, login_id)
         )
       `)
@@ -967,7 +977,9 @@ export const generateReceipt = async (req, res) => {
       donor_mobile: donorProfile?.mobile_number || null,
       amount: log.amount_collected || 0,
       pan_number: pan_number || log.pan_number || donorProfile?.pan_number || null,
-      address: address || donorProfile?.address_1 || null,
+      address: address || [donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
+      email: donorProfile?.email || null,
+      bank_name: donorProfile?.donors_bank_name || null,
       mode: mode || null,
       purpose: purpose || 'General Donation',
       generated_by: req.user.id,

@@ -1,11 +1,19 @@
 import db from '../config/db.js';
 import { getNextReceiptNo } from '../models/bankAuditModel.js';
+import { findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from './fcmService.js';
 
 // Credit a bank audit entry whose suggested match (matched_lead_log_id) was
 // confirmed by Accounts. Links the entry's generated receipt (or creates one)
 // to the donor + lead, credits donor totals and the FRO's collected, and closes
 // the open assignment. Idempotent: refuses to double-credit.
+//
+// If the matched lead was ALREADY processed (e.g. Accounts verified it through
+// the Lead Verification flow, setting the assignment to donation_collected),
+// the lead's money is already credited — so we just settle the bank entry so it
+// leaves suspense: mark it verified and link it to the existing receipt, only
+// creating a new receipt (and crediting donor totals) when no receipt exists
+// for that money yet.
 export const confirmMatchCredit = async (entryId, actorId) => {
   const { data: entry, error: eErr } = await db
     .from('bank_audit_entries')
@@ -34,12 +42,14 @@ export const confirmMatchCredit = async (entryId, actorId) => {
     .maybeSingle();
   if (lErr) throw lErr;
   if (!log) return { error: 404, message: 'Matched lead not found' };
-  if (log.accounts_status !== 'pending') return { error: 409, message: 'Matched lead is already processed' };
 
   const assignment = log.fro_assignments;
   const donor = assignment?.donor_profiles;
   const donorId = assignment?.donor_id;
   if (!donorId || !donor) return { error: 400, message: 'Matched lead is missing donor info' };
+
+  const logProcessed = log.accounts_status !== 'pending';
+  const existingLogReceipt = logProcessed ? await findReceiptByLogId(log.id) : null;
 
   const amount = Number(entry.amount || 0);
   const now = new Date().toISOString();
@@ -71,27 +81,34 @@ export const confirmMatchCredit = async (entryId, actorId) => {
       bank_name: bankName,
     }).eq('id', entry.id);
 
-    await from('fro_donor_logs').update({
-      accounts_status: 'verified',
-      verified_at: now,
-      verified_by: actorId,
-    }).eq('id', log.id);
+    if (!logProcessed) {
+      await from('fro_donor_logs').update({
+        accounts_status: 'verified',
+        verified_at: now,
+        verified_by: actorId,
+      }).eq('id', log.id);
 
-    await from('fro_assignments').update({
-      status: 'donation_collected',
-      last_contacted_at: now,
-    }).eq('id', assignment.id);
+      await from('fro_assignments').update({
+        status: 'donation_collected',
+        last_contacted_at: now,
+      }).eq('id', assignment.id);
+    }
 
-    const { data: donorRow } = await from('donor_profiles')
-      .select('total_amount, donation_count, last_donation_date')
-      .eq('id', donorId)
-      .single();
-    await from('donor_profiles').update({
-      total_amount: Math.round(((donorRow?.total_amount || 0) + amount) * 100) / 100,
-      donation_count: (donorRow?.donation_count || 0) + 1,
-      last_donation_date: !donorRow?.last_donation_date || date > donorRow.last_donation_date ? date : donorRow.last_donation_date,
-      updated_at: now,
-    }).eq('id', donorId);
+    // Credit donor totals when this money is genuinely new: normal flow, or the
+    // lead was already processed but no receipt exists for the entry yet.
+    const needNewReceipt = !entry.receipt_id && !existingLogReceipt;
+    if (!logProcessed || needNewReceipt) {
+      const { data: donorRow } = await from('donor_profiles')
+        .select('total_amount, donation_count, last_donation_date')
+        .eq('id', donorId)
+        .single();
+      await from('donor_profiles').update({
+        total_amount: Math.round(((donorRow?.total_amount || 0) + amount) * 100) / 100,
+        donation_count: (donorRow?.donation_count || 0) + 1,
+        last_donation_date: !donorRow?.last_donation_date || date > donorRow.last_donation_date ? date : donorRow.last_donation_date,
+        updated_at: now,
+      }).eq('id', donorId);
+    }
 
     let receipt = null;
     const mode = log.payment_mode || donor.mop || (entry.payment_id ? 'UPI' : 'Bank');
@@ -112,10 +129,19 @@ export const confirmMatchCredit = async (entryId, actorId) => {
         bank_name: bankName,
       }).eq('id', entry.receipt_id).select().single();
       receipt = updated;
+    } else if (existingLogReceipt) {
+      // Money already receipted + credited via the earlier lead verification.
+      await from('bank_audit_entries').update({ receipt_id: existingLogReceipt.id }).eq('id', entry.id);
+      const { data: updated } = await from('receipts').update({
+        donor_id: donorId,
+        bank_name: bankName,
+        address: donorAddress || null,
+      }).eq('id', existingLogReceipt.id).select().single();
+      receipt = updated;
     } else {
       const receiptNo = await getNextReceiptNo(donor.project_supported || entry.project_id || 'bsct');
       const { data: created } = await from('receipts').insert({
-        log_id: log.id,
+        log_id: logProcessed ? null : log.id,
         receipt_no: receiptNo,
         project_id: donor.project_supported || entry.project_id || 'bsct',
         donor_name: donor.name || entry.payer_name || 'Unknown',
@@ -141,7 +167,7 @@ export const confirmMatchCredit = async (entryId, actorId) => {
   });
 
   const froWorkerId = log.fro_worker_id || assignment?.fro_worker_id;
-  if (froWorkerId) {
+  if (!logProcessed && froWorkerId) {
     try {
       const notifTitle = 'Lead Verified';
       const notifBody = `Your lead for ${donor.name || 'donor'} (\u20B9${amount.toLocaleString('en-IN')}) was verified. Receipt: ${result.receipt_no || ''}`;
@@ -163,5 +189,5 @@ export const confirmMatchCredit = async (entryId, actorId) => {
     } catch (err) { console.error('Failed to create verified notification:', err.message); }
   }
 
-  return { ...result, message: 'Match confirmed and credited' };
+  return { ...result, message: logProcessed ? 'Match confirmed and entry settled' : 'Match confirmed and credited' };
 };
