@@ -407,7 +407,7 @@ export const editEntry = async (req, res) => {
     if (transaction_date !== undefined) updates.transaction_date = transaction_date;
     if (remarks !== undefined) updates.remarks = remarks;
     if (payer_name !== undefined) updates.payer_name = payer_name;
-    if (payment_time !== undefined) updates.payment_time = payment_time;
+    if (payment_time !== undefined) updates.payment_time = payment_time || null;
     if (project_id !== undefined) updates.project_id = project_id;
 
     const { data: existing } = await db
