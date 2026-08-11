@@ -141,7 +141,7 @@ export default function Dashboard({ embedded, onStats }) {
       'Email ID': l.donor_email || '',
       'Mode of Payment (MOP)': l.payment_mode || '',
       'Payment ID No.': l.upi_transaction_id || '',
-      'Donor Bank Name': '',
+      'Donor Bank Name': l.donor_bank_name || '',
       'Amount': String(l.amount || 0),
       'Receipt No.': l.receipt_no || '',
       'Receipt Date': l.verified_at || l.transaction_date || '',
