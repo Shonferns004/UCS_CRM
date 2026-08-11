@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Send, Trash2, Download } from 'lucide-react';
 import { apiGet, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
@@ -17,15 +18,17 @@ const SkeletonNum = () => (
 
 const SkeletonCard = () => (
   <div className="entry-card">
-    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-      <span className="sk-num" style={{ display:'inline-block', width:36, height:36, borderRadius:'50%', background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-      <div style={{ flex:1 }}>
-        <span className="sk-num" style={{ display:'block', width:'70%', height:14, borderRadius:4, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-        <span className="sk-num" style={{ display:'block', width:'45%', height:10, borderRadius:4, marginTop:6, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+    <div className="ec-main">
+      <div className="ec-primary">
+        <span className="sk-num" style={{ display:'block', width:'60%', height:13, borderRadius:4, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+        <span className="sk-num" style={{ display:'block', width:'40%', height:10, borderRadius:4, marginTop:6, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
       </div>
+      <span className="sk-num" style={{ display:'block', width:56, height:16, borderRadius:5, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
     </div>
-    <span className="sk-num" style={{ display:'block', width:64, height:20, borderRadius:6, marginTop:12, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-    <span className="sk-num" style={{ display:'block', width:'55%', height:10, borderRadius:4, marginTop:10, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+    <div className="ec-meta">
+      <span className="sk-num" style={{ display:'block', width:56, height:16, borderRadius:8, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+      <span className="sk-num" style={{ display:'block', width:80, height:10, borderRadius:4, marginLeft:'auto', background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
+    </div>
   </div>
 );
 
@@ -51,7 +54,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,8 +66,10 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   const [deleting, setDeleting] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
-  const PAGE_SIZE = 20;
+  const PAGE_SIZE = 30;
   const [leadPage, setLeadPage] = useState(1);
+
+  const ngoActive = globalNgo !== undefined ? globalNgo : ngoFilter;
 
   const mountedRef = useRef(true);
   const clickRef = useRef(null);
@@ -119,7 +124,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
 
   const filtered = useMemo(() => {
     let result = leads;
-    if (ngoFilter) result = result.filter(l => l.donor_project === ngoFilter);
+    if (ngoActive) result = result.filter(l => l.donor_project === ngoActive);
     if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase();
     return result.filter(l =>
@@ -127,12 +132,12 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       (l.donor_mobile || '').includes(q) ||
       (l.agent_name || '').toLowerCase().includes(q)
     );
-  }, [leads, searchQuery, ngoFilter]);
+  }, [leads, searchQuery, ngoActive]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((leadPage - 1) * PAGE_SIZE, leadPage * PAGE_SIZE);
 
-  useEffect(() => { setLeadPage(1); }, [searchQuery, ngoFilter, statusFilter]);
+  useEffect(() => { setLeadPage(1); }, [searchQuery, ngoActive, statusFilter]);
   useEffect(() => { if (leadPage > pageCount) setLeadPage(pageCount); }, [pageCount, leadPage]);
 
   const exportExcel = () => {
@@ -233,25 +238,29 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
             <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
             <option value="">All ({allLeads.length})</option>
           </select>
-          <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }}>
-            <option value="">All NGOs</option>
-            <option value="bsct">Being Sevak</option>
-            <option value="maan">Mann Care</option>
-            <option value="aflf">Ashray</option>
-          </select>
+          {globalNgo === undefined && (
+            <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }}>
+              <option value="">All NGOs</option>
+              <option value="bsct">Being Sevak</option>
+              <option value="maan">Mann Care</option>
+              <option value="aflf">Ashray</option>
+            </select>
+          )}
           {statusFilter === 'verified' && leads.length > 0 && (
-            <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={sendToReceipts}>
-              {'\u27A1'} Send to Receipts ({leads.length})
+            <button className="btn btn-sm fb-btn" title={`Send to Receipts (${leads.length})`} style={{ background:'#1d6f42', color:'#fff', border:'none', marginLeft:8 }} onClick={sendToReceipts}>
+              <Send size={14} strokeWidth={2.5} />
+              <span className="fb-count">{leads.length}</span>
             </button>
           )}
           {statusFilter === 'pending' && stats.pending.length > 0 && (
-            <button className="btn btn-sm" style={{ background:'#dc2626', color:'#fff', whiteSpace:'nowrap', marginLeft:8 }} onClick={() => setDeleteAllConfirm(true)}>
-              {'\u2715'} Delete All ({stats.pending.length})
+            <button className="btn btn-sm fb-btn" title={`Delete all pending (${stats.pending.length})`} style={{ background:'#dc2626', color:'#fff', border:'none', marginLeft:8 }} onClick={() => setDeleteAllConfirm(true)}>
+              <Trash2 size={14} strokeWidth={2.5} />
+              <span className="fb-count">{stats.pending.length}</span>
             </button>
           )}
-          <button className="btn btn-sm" style={{ background:'#16a34a', color:'#fff', whiteSpace:'nowrap', marginLeft:8, display:'inline-flex', alignItems:'center', gap:6 }} onClick={exportExcel}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export ({filtered.length})
+          <button className="btn btn-sm fb-btn" title={`Export ${filtered.length} leads`} style={{ background:'#16a34a', color:'#fff', border:'none', marginLeft:8 }} onClick={exportExcel}>
+            <Download size={14} strokeWidth={2.5} />
+            {filtered.length > 0 && <span className="fb-count">{filtered.length}</span>}
           </button>
         </div>
         <div className="entry-scroll">
@@ -264,7 +273,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               </div>
             ) : (
               pageItems.map(l => (
-              <div key={l.log_id} className="entry-card"
+              <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '')}
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); return; }
                   if (clickRef.current) clearTimeout(clickRef.current);
@@ -274,26 +283,28 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                   if (!onSelectLead) return;
                   if (clickRef.current) { clearTimeout(clickRef.current); clickRef.current = null; }
                   if (l.accounts_status === 'pending') onSelectLead(l);
-                }}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', opacity: l.accounts_status !== 'pending' ? 0.65 : 1, cursor: 'pointer', boxShadow: selectedLogId === l.log_id ? '0 0 0 2px var(--sage)' : undefined, ...(selectedLogId === l.log_id ? { background: 'var(--bg)' } : {}) }}>
-                <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#5B6B4E18', color: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                  {(l.donor_name || '?').trim().charAt(0).toUpperCase()}
+                }}>
+                <div className="ec-main">
+                  <div className="ec-primary">
+                    <div className="ec-title">{l.donor_name}</div>
+                    <div className="ec-sub">{l.donor_mobile || '\u2014'}</div>
+                  </div>
+                  <div className="ec-amount">{currency(l.amount)}</div>
+                  <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                 </div>
-                <div style={{ flex: 1, minWidth: 140 }}>
-                  <div style={{ fontWeight: 600, color: '#111827', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.donor_name}</div>
-                  <div style={{ fontSize: 10, color: '#9ca3af' }}>{l.donor_mobile || '\u2014'}</div>
+                <div className="ec-meta">
+                  {l.accounts_status === 'pending' ? <span className="pill pill-yellow">Pending</span> :
+                   l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
+                   l.accounts_status === 'rejected' ? <span className="pill pill-red" title={l.rejection_reason || ''}>Rejected</span> :
+                   <span className="pill pill-gray">{l.accounts_status || '\u2014'}</span>}
+                  <span className="pill pill-gray">{({ bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
+                  {l.claimed_receipt && <span className="pill" style={{ fontSize: 10, background: '#FDE7DB', color: '#B5603A' }}>Claimant</span>}
+                  {l.bank_match && <span className="pill" style={{ fontSize: 10, background: l.bank_match.match_source === 'manual' ? '#fef3c7' : '#dbeafe', color: l.bank_match.match_source === 'manual' ? '#92400e' : '#1d4ed8' }} title={`${l.bank_match.match_source === 'manual' ? 'Manually' : 'Auto'} matched${l.bank_match.match_score ? ` · score ${l.bank_match.match_score}` : ''}`}>
+                    {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
+                  </span>}
+                  <span className="ec-agent">{l.agent_name || 'No agent'}</span>
+                  <span className="ec-date">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                 </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>{currency(l.amount)}</div>
-                {l.accounts_status === 'pending' ? <span className="pill pill-yellow" style={{ fontSize: 9 }}>Pending</span> :
-                 l.accounts_status === 'verified' ? <span className="pill pill-green" style={{ fontSize: 9 }}>Verified</span> :
-                 l.accounts_status === 'rejected' ? <span className="pill pill-red" style={{ fontSize: 9 }} title={l.rejection_reason || ''}>Rejected</span> :
-                 <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.accounts_status || '\u2014'}</span>}
-                 <span className="pill pill-gray" style={{ fontSize: 10 }}>{({ bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
-                {selectedLogId === l.log_id && <span className="pill" style={{ fontSize: 9, background: '#5B6B4E', color: '#fff' }}>Selected</span>}
-                {l.claimed_receipt && <span className="pill" style={{ fontSize: 9, background: '#FDE7DB', color: '#B5603A' }}>Claimant · {l.agent_name || 'Unknown'}</span>}
-                <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.agent_name || 'No agent'}</span>
-                <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c4c9d0" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>
               </div>
             ))
           )}
