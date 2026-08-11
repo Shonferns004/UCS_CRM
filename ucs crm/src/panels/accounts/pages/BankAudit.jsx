@@ -139,6 +139,57 @@ function LeadPicker({ value, locked, onPick, onClear }){
   </div>;
 }
 
+// ─── Agent (FRO) Picker ───────────────────────────────────
+function AgentPicker({ value, workers, onChange }){
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState('');
+  const boxRef=useRef(null);
+
+  const froSet=new Set(workers.filter(w=>String(w.department||'').toLowerCase()==='fro').map(w=>w.name));
+  const base=[...workers].sort((a,b)=>(froSet.has(b.name)?1:0)-(froSet.has(a.name)?1:0));
+  const kw=q.trim().toLowerCase();
+  const list=kw?base.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):base;
+  const fromLead=!!value&&!workers.some(w=>w.name===value);
+
+  useEffect(()=>{
+    const onDoc=(ev)=>{if(boxRef.current&&!boxRef.current.contains(ev.target))setOpen(false)};
+    document.addEventListener('mousedown',onDoc);
+    return ()=>document.removeEventListener('mousedown',onDoc);
+  },[]);
+
+  if(value){
+    return <div style={{display:'flex',alignItems:'center',gap:6,padding:'9px 12px',borderRadius:8,border:'1.5px solid #d1d5db',background:'#f3f4f6',fontSize:13,color:'#374151',minWidth:0}}>
+      <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{value}</span>
+      {fromLead&&<span style={{color:'#9ca3af',flexShrink:0,fontSize:11}}>(lead)</span>}
+      <button type="button" onClick={()=>onChange('')} style={{marginLeft:'auto',flexShrink:0,border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11}}>Clear</button>
+    </div>;
+  }
+
+  return <div ref={boxRef} style={{position:'relative'}}>
+    <input className="field-input" placeholder="Search agent / FRO by name or login..." value={q}
+      onChange={e=>{setQ(e.target.value);setOpen(true)}}
+      onFocus={()=>setOpen(true)}
+      style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box'}}/>
+    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:220,overflowY:'auto'}}>
+      {list.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No FROs found</div>
+        :<>
+          <button type="button" onClick={()=>{onChange('');setOpen(false);setQ('')}}
+            style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12,color:'#6b7280'}}
+            onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>None</button>
+          {list.map(w=><button key={w.id} type="button" onClick={()=>{onChange(w.name);setOpen(false);setQ('')}}
+            style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
+            onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+            <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{w.name}</span>
+            <span style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+              {froSet.has(w.name)&&<span style={{fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'2px 6px',borderRadius:4,background:'#dcfce7',color:'#166534'}}>FRO</span>}
+              {w.login_id&&<span style={{color:'#9ca3af'}}>{w.login_id}</span>}
+            </span>
+          </button>)}
+        </>}
+    </div>}
+  </div>;
+}
+
 // ─── Audit Stat Cards ──────────────────────────────────────
 export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null}){
   return <div className="stats-grid">
@@ -270,7 +321,12 @@ export default function BankAudit({embedded,onSummary}){
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
 
-  useEffect(()=>{if((sa||se)&&wr.length===0){apiGet('/workers').then(setWr).catch(()=>{})}},[sa,se,wr.length]);
+  useEffect(()=>{if((sa||se)&&wr.length===0){Promise.allSettled([apiGet('/workers?status=all'),apiGet('/auth/fro-workers')]).then(([a,b])=>{
+    const bList=(b.status==='fulfilled'&&b.value)?(Array.isArray(b.value)?b.value:(b.value.workers||[])):[];
+    const list=[...(a.status==='fulfilled'&&Array.isArray(a.value)?a.value:[]),...bList];
+    const seen=new Set();const merged=list.filter(w=>{const n=(w.name||'').trim();if(!n||seen.has(n.toLowerCase()))return false;seen.add(n.toLowerCase());return true});
+    setWr(merged);
+  })}},[sa,se,wr.length]);
 
   async function load(dt,stv,day){
     const s=stv||srRef.current;setLd(true);setEr('');
@@ -416,11 +472,7 @@ export default function BankAudit({embedded,onSummary}){
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-              <select className="field-input" value={fm.agent_name||''} onChange={e=>setFm(p=>({...p,agent_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',outline:'none'}}>
-                <option value="">None</option>
-                {fm.agent_name&&!wr.some(w=>w.name===fm.agent_name)&&<option value={fm.agent_name}>{fm.agent_name} (from lead)</option>}
-                {wr.map(w=><option key={w.id} value={w.name}>{w.name}{w.login_id?` (${w.login_id})`:''}</option>)}
-              </select>
+              <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
             </label>
             <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
               <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
