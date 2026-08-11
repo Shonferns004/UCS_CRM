@@ -20,14 +20,17 @@ export const normalizeName = (name) => {
 };
 
 export const nameMatch = (a, b) => {
-  const na = normalizeName(a);
-  const nb = normalizeName(b);
+  const na = normalizeName(String(a || '').replace(/don@/gi, ''));
+  const nb = normalizeName(String(b || '').replace(/don@/gi, ''));
   if (!na || !nb) return false;
   if (na === nb) return true;
-  if (na.includes(nb) || nb.includes(na)) return na.length >= 4 && nb.length >= 4;
+  const fa = na.split(' ')[0];
+  const fb = nb.split(' ')[0];
+  if (fa && fb && fa === fb && fa.length >= 3) return true;
+  if (na.includes(nb) || nb.includes(na)) return na.length >= 3 && nb.length >= 3;
   const dist = levenshtein(na, nb);
   const ratio = 1 - dist / Math.max(na.length, nb.length);
-  return ratio >= 0.8;
+  return ratio >= 0.7;
 };
 
 const levenshtein = (a, b) => {

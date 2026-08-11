@@ -652,6 +652,107 @@ export const goBackLead = async (req, res) => {
   }
 };
 
+export const undoLeadVerification = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    const { data: log, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(id, donor_id, donor_profiles!inner(id, name, mobile_number))')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) {
+      return res.status(404).json({ message: 'Log entry not found' });
+    }
+
+    if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
+      return res.status(400).json({ message: 'Only lead verification entries can be undone' });
+    }
+
+    if (log.accounts_status !== 'verified') {
+      return res.status(400).json({ message: `This lead is ${log.accounts_status || 'processed'} and cannot be undone` });
+    }
+
+    const donorId = log.fro_assignments?.donor_id;
+
+    // Bring the lead back to Lead Verification.
+    const { error: revertError } = await db
+      .from('fro_donor_logs')
+      .update({ accounts_status: 'pending', verified_at: null, verified_by: null })
+      .eq('id', logId);
+    if (revertError) throw revertError;
+
+    // Reverse the donor totals added during verification.
+    if (donorId) {
+      try {
+        const { data: donor } = await db
+          .from('donor_profiles')
+          .select('total_amount, donation_count')
+          .eq('id', donorId)
+          .single();
+        const amount = Number(log.amount_collected || 0);
+        await db.from('donor_profiles').update({
+          total_amount: Math.max(0, (donor?.total_amount || 0) - amount),
+          donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+          updated_at: new Date().toISOString(),
+        }).eq('id', donorId);
+      } catch (err) { console.error('Failed to reverse donor totals on undo:', err.message); }
+    }
+
+    // Unlink the receipt from the donor/lead (kept, not deleted).
+    const receipt = await findReceiptByLogId(logId);
+    if (receipt) {
+      try { await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id); }
+      catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
+    }
+
+    // Send the linked bank audit entry back to Bank Audit (unverified).
+    if (receipt) {
+      const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
+      if (entry) {
+        const { error: eErr } = await db.from('bank_audit_entries').update({
+          status: 'unverified',
+          donor_id: null,
+          donor_mobile: null,
+          donor_email: null,
+          donor_pan: null,
+          donor_address_1: null,
+          donor_address_2: null,
+          donor_city: null,
+          donor_pin_code: null,
+          matched_lead_log_id: null,
+          match_status: null,
+          match_score: null,
+          matched_at: null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', entry.id);
+        if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
+      }
+    }
+
+    // Revert an entry auto-verified from the lead's UPI transaction id.
+    if (log.upi_transaction_id) {
+      try {
+        const autoEntry = await getEntryByPaymentId(log.upi_transaction_id, 'verified');
+        if (autoEntry?.id) {
+          await db.from('bank_audit_entries').update({ status: 'unverified', updated_at: new Date().toISOString() }).eq('id', autoEntry.id);
+        }
+      } catch (err) { console.error('Failed to revert auto-verified entry on undo:', err.message); }
+    }
+
+    // Clear child references.
+    try { await db.from('notification_log').delete().in('fro_donor_log_id', [logId]); }
+    catch (err) { console.warn('notification_log cleanup skipped:', err.message); }
+    try { await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', [logId]); }
+    catch (err) { console.warn('rejected_lead_tickets cleanup skipped:', err.message); }
+
+    return res.json({ message: 'Lead returned to Lead Verification', log_id: logId });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteLead = async (req, res) => {
   try {
     const { logId } = req.params;
@@ -1077,9 +1178,9 @@ export const getPendingReceipts = async (req, res) => {
         'Donor Name': r.donor_name || donor?.name || '',
         'Address 1': r.address || donor?.address_1 || '',
         'PAN No.': r.pan_number || donor?.pan_number || '',
-        'Email ID': donor?.email || '',
-        'Mode of Payment (MOP)': log?.payment_mode || r.mode || '',
-        'Payment ID No.': log?.upi_transaction_id || '',
+        'Email ID': r.email || donor?.email || '',
+        'Mode of Payment (MOP)': log?.payment_mode || r.mode || 'Bank',
+        'Payment ID No.': log?.upi_transaction_id || r.payment_id || '',
         'Donor Bank Name': '',
         'Amount': String(r.amount || 0),
         'Receipt No.': r.receipt_no || '',

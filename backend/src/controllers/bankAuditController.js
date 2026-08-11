@@ -71,10 +71,10 @@ const getClaimableLog = async (logId, currentLogId = null) => {
   const { data: log, error } = await db
     .from('fro_donor_logs')
     .select(`
-      id, amount_collected, accounts_status, fro_worker_id,
+      id, amount_collected, accounts_status, fro_worker_id, payment_mode,
       fro_assignments!inner(
         id, donor_id, fro_worker_id,
-        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported),
+        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop),
         workers!inner(id, name, login_id)
       )
     `)
@@ -122,6 +122,10 @@ const resolveLogLink = async ({ log_id, actorId }) => {
       agent_name: worker?.name || null,
       donor_name: donor.name || null,
       donor_mobile: donor.mobile_number || null,
+      pan_number: donor.pan_number || null,
+      address: donor.address_1 || null,
+      email: donor.email || null,
+      mode: log.payment_mode || donor.mop || 'Bank',
       project_id: donor.project_supported || null,
     },
     existing_receipt_id: log.existing_receipt_id || null,
@@ -159,24 +163,53 @@ export const listEntries = async (req, res) => {
     }
 
     // Enrich entries that have a suggested match with the lead's donor + FRO so
-    // the UI can show who the entry matched against.
+    // the UI can show who the entry matched against. `match_lead` carries the
+    // full donor profile (same shape as the pending-lead picker) so the Edit
+    // form can auto-fill all donor details + the FRO agent on open.
     const logIds = [...new Set((entries || []).map((e) => e.matched_lead_log_id).filter(Boolean))];
     if (logIds.length > 0) {
       const { data: logs } = await db
         .from('fro_donor_logs')
-        .select('id, fro_assignments!inner(donor_profiles!inner(name), workers!inner(name))')
+        .select(`
+          id, amount_collected,
+          fro_assignments!inner(
+            donor_id,
+            donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported),
+            workers!inner(id, name)
+          )
+        `)
         .in('id', logIds);
       const matchMap = {};
       for (const l of logs || []) {
+        const assignment = l.fro_assignments;
+        const donor = assignment?.donor_profiles || {};
+        const worker = assignment?.workers || {};
         matchMap[l.id] = {
-          donor_name: l.fro_assignments?.donor_profiles?.name || 'Unknown',
-          fro_name: l.fro_assignments?.workers?.name || 'Unknown',
+          donor_name: donor.name || 'Unknown',
+          fro_name: worker.name || 'Unknown',
+          match_lead: {
+            log_id: l.id,
+            amount: l.amount_collected,
+            donor_id: assignment?.donor_id || null,
+            donor_name: donor.name || '',
+            donor_mobile: donor.mobile_number || '',
+            donor_email: donor.email || '',
+            donor_pan: donor.pan_number || '',
+            donor_address_1: donor.address_1 || '',
+            donor_address_2: donor.address_2 || '',
+            donor_city: donor.city || '',
+            donor_pin_code: donor.pin_code || '',
+            donor_project: donor.project_supported || '',
+            agent_name: worker.name || '',
+          },
         };
       }
       for (const e of entries || []) {
-        if (e.matched_lead_log_id && matchMap[e.matched_lead_log_id]) {
-          e.match_donor = matchMap[e.matched_lead_log_id].donor_name;
-          e.match_fro = matchMap[e.matched_lead_log_id].fro_name;
+        const mm = e.matched_lead_log_id ? matchMap[e.matched_lead_log_id] : null;
+        if (mm) {
+          e.match_donor = mm.donor_name;
+          e.match_fro = mm.fro_name;
+          e.match_lead = mm.match_lead;
         }
       }
     }
@@ -254,9 +287,14 @@ export const addEntry = async (req, res) => {
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
         donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
+        pan_number: link?.receipt.pan_number || req.body.donor_pan || null,
+        address: link?.receipt.address || req.body.donor_address_1 || null,
+        email: link?.receipt.email || req.body.donor_email || null,
+        mode: link?.receipt.mode || null,
         donor_id: link?.receipt.donor_id || null,
         payment_id: payment_id || null,
         receipt_date: transaction_date,
+        receipt_time: payment_time || null,
       };
       const { data: updatedReceipt, error: rErr } = await db.from('receipts').update(receiptFields).eq('id', receiptId).select('id, receipt_no').single();
       if (rErr) throw rErr;
@@ -269,11 +307,16 @@ export const addEntry = async (req, res) => {
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
         donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
+        pan_number: link?.receipt.pan_number || req.body.donor_pan || null,
+        address: link?.receipt.address || req.body.donor_address_1 || null,
+        email: link?.receipt.email || req.body.donor_email || null,
+        mode: link?.receipt.mode || null,
         donor_id: link?.receipt.donor_id || null,
         log_id: link?.receipt.log_id || null,
         amount,
         payment_id: payment_id || null,
         receipt_date: transaction_date,
+        receipt_time: payment_time || null,
         purpose: 'Bank Audit Entry',
         generated_by: req.user.id,
       }).select().single();
@@ -351,6 +394,7 @@ export const editEntry = async (req, res) => {
       if (amount !== undefined) receiptUpdate.amount = amount;
       if (link) {
         Object.assign(receiptUpdate, link.receipt);
+        if (payment_time !== undefined) receiptUpdate.receipt_time = payment_time || null;
       } else {
         const { data: curRec } = await db.from('receipts').select('donor_name').eq('id', existing.receipt_id).maybeSingle();
         const effDonor = payer_name !== undefined ? (payer_name || null) : (curRec?.donor_name || null);
