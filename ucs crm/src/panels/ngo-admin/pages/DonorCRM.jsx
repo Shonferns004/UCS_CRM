@@ -256,6 +256,103 @@ function TransferModal({ leads, onClose, onTransferred }) {
   )
 }
 
+function TransferCreditModal({ donor, onClose, onTransferred }) {
+  const [logs, setLogs] = useState([])
+  const [selectedLog, setSelectedLog] = useState('')
+  const [targetFro, setTargetFro] = useState('')
+  const [froWorkers, setFroWorkers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [transferring, setTransferring] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    Promise.all([
+      api(`/ngo-admin/donors/${donor.mobile_number}/credit`, { _prefix: 'ucs' }).catch(() => []),
+      api('/ngo-admin/fro-workers', { _prefix: 'ucs' }).catch(() => []),
+    ]).then(([logsData, workers]) => {
+      setLogs(logsData || [])
+      setFroWorkers(workers || [])
+    }).catch((err) => { setError(err.message) }).finally(() => setLoading(false))
+  }, [donor.mobile_number])
+
+  const handleTransfer = async () => {
+    if (!selectedLog) { setError('Select a collection entry to transfer'); return }
+    if (!targetFro) { setError('Select the target FRO'); return }
+    setTransferring(true); setError('')
+    try {
+      const res = await api(`/ngo-admin/credit-logs/${selectedLog}/transfer`, {
+        method: 'PUT',
+        body: JSON.stringify({ target_fro_worker_id: targetFro }),
+        _prefix: 'ucs',
+      })
+      toast(res.message || 'Credit transferred', 'success')
+      onTransferred(); onClose()
+    } catch (err) { setError(err.message) }
+    finally { setTransferring(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-head">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{I.ArrowsLeftRight} Transfer Collected Credit</h3>
+          <button className="modal-close" onClick={onClose}>{I.X}</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
+            <span><strong>{donor.name || 'Donor'}</strong></span>
+            <span>·</span>
+            <span>Mobile: {donor.mobile_number || '—'}</span>
+            <span>·</span>
+            <span>Total: <b>₹{Number(donor.total_amount || donor.amount || 0).toLocaleString('en-IN')}</b></span>
+          </div>
+
+          {error && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 10 }}>{error}</div>}
+
+          <label className="field" style={{ fontSize: 13, fontWeight: 600 }}>
+            Select which collection entry to move
+          </label>
+          {loading ? (
+            <div className="loading" style={{ padding: '12px 0' }}>Loading credit entries...</div>
+          ) : logs.length === 0 ? (
+            <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collected credit found for this donor.</div>
+          ) : (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'auto', maxHeight: 240, marginBottom: 12 }}>
+              {logs.map(l => (
+                <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', fontSize: 12, cursor: 'pointer' }}>
+                  <input type="radio" name="credit-log" value={l.id} checked={selectedLog === String(l.id)} onChange={() => setSelectedLog(String(l.id))} />
+                  <span style={{ fontWeight: 700 }}>₹{Number(l.amount || 0).toLocaleString('en-IN')}</span>
+                  <span style={{ color: 'var(--ink-soft)' }}>{l.collected_at?.slice(0, 10) || '—'}</span>
+                  <span style={{ marginLeft: 'auto', color: 'var(--ink-soft)' }}>
+                    Claimed by: <b style={{ color: 'var(--ink)' }}>{l.collector_name || 'Unknown'}</b>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <label className="field" style={{ fontSize: 13, fontWeight: 600 }}>{I.User} Transfer credit to FRO
+            <select value={targetFro} onChange={e => setTargetFro(e.target.value)}>
+              <option value="">— Choose FRO —</option>
+              {froWorkers.map(w => <option key={w.id} value={w.id}>{w.name} ({w.login_id})</option>)}
+            </select>
+          </label>
+
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-soft)', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: 6, padding: '8px 10px' }}>
+            ⓘ Only the selected entry's collection credit moves to the chosen FRO. The dashboard collection of both FROs updates immediately.
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleTransfer} disabled={transferring || loading || !selectedLog || !targetFro} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {transferring ? 'Transferring...' : <>{I.ArrowsLeftRight} Transfer</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DuplicatePanel({ duplicates, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -347,6 +444,7 @@ export default function DonorCRM() {
   const [showTransferModal, setShowTransferModal] = useState(false)
   const [showDuplicates, setShowDuplicates] = useState(false)
   const [showDonorDetail, setShowDonorDetail] = useState(null)
+  const [showTransferDonor, setShowTransferDonor] = useState(null)
   const [duplicates, setDuplicates] = useState([])
   const [err, setErr] = useState('')
   const [selectedNgoId, setSelectedNgoId] = useState('all')
@@ -502,15 +600,28 @@ export default function DonorCRM() {
         <div className="card" style={{ overflow: 'auto' }}>
           <table className="table">
             <thead>
-              <tr><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.UserCircle} Name</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.DeviceMobile} Mobile</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Buildings} NGO(s)</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Star} Last</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CurrencyCircleDollar} Total</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CalendarCheck} Last Donation</span></th><th></th></tr>
+              <tr><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.UserCircle} Name</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.DeviceMobile} Mobile</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.User} FRO</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Buildings} NGO(s)</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.Star} Last</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CurrencyCircleDollar} Total</span></th><th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{I.CalendarCheck} Last Donation</span></th><th></th></tr>
             </thead>
             <tbody>
               {donors.length === 0 ? (
-                <tr><td colSpan={7} className="empty-state">No verified donors found (only donors with verified payments are shown)</td></tr>
+                <tr><td colSpan={8} className="empty-state">No donors found</td></tr>
               ) : donors.map((d, idx) => (
                 <tr key={d.mobile_number || idx}>
                   <td><strong>{d.name}</strong></td>
                   <td>{d.mobile_number}</td>
+                  <td>
+                    {(d.fro_credits || []).length === 0 ? (
+                      <span style={{ color: 'var(--ink-soft)', fontSize: 12 }}>—</span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {d.fro_credits.map(f => (
+                          <span key={f.fro_id} style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                            {f.fro_name} <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>₹{Number(f.amount || 0).toLocaleString('en-IN')}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {(d.ngo_list || [d.ngo]).map(ngo => (
@@ -521,7 +632,12 @@ export default function DonorCRM() {
                   <td style={{ fontWeight: 600, color: '#7c3aed' }}>₹{Number(d.last_transaction_amount || 0).toLocaleString('en-IN')}</td>
                   <td style={{ fontWeight: 600 }}>₹{Number(d.total_amount || d.amount || 0).toLocaleString('en-IN')}</td>
                   <td style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{d.last_transaction_date || d.last_donation_date?.slice(0, 10) || '—'}</td>
-                  <td><button className="btn btn-sm" onClick={() => setShowDonorDetail(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.User} View</button></td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-sm" onClick={() => setShowDonorDetail(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.User} View</button>
+                      <button className="btn btn-sm" onClick={() => setShowTransferDonor(d)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{I.ArrowsLeftRight} Transfer</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -542,6 +658,7 @@ export default function DonorCRM() {
       {showTransferModal && <TransferModal leads={leads} onClose={() => setShowTransferModal(false)} onTransferred={loadLeads} />}
       {showDuplicates && <DuplicatePanel duplicates={duplicates} onClose={() => setShowDuplicates(false)} />}
       {showDonorDetail && <DonorDetailModal donorId={showDonorDetail} onClose={() => setShowDonorDetail(null)} />}
+      {showTransferDonor && <TransferCreditModal donor={showTransferDonor} onClose={() => setShowTransferDonor(null)} onTransferred={loadDonors} />}
 
       <style>{`
         .page { padding:24px; max-width:1400px; margin:0 auto; }

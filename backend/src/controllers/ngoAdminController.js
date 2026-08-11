@@ -117,34 +117,33 @@ export const getDonors = async (req, res) => {
     const grouped = Object.values(groups);
     grouped.sort((a, b) => new Date(b.last_donation_date || 0) - new Date(a.last_donation_date || 0));
 
-    // Filter: keep only donors who have a verified payment (donation log OR verified lead_done disposition)
+    // FRO credit map: which FRO(s) hold collected credit for each donor profile
     const allGroupedDonorIds = grouped.flatMap(g => g.donor_ids || []);
-    const verifiedDonorIds = new Set();
+    const froCreditMap = {};
     if (allGroupedDonorIds.length > 0) {
-      const { data: filterAssignments } = await db
-        .from('fro_assignments')
-        .select('id, donor_id')
-        .in('donor_id', allGroupedDonorIds);
-      const filterAssignIds = (filterAssignments || []).map(a => a.id);
-      if (filterAssignIds.length > 0) {
-        const { data: verifiedLogs } = await db
-          .from('fro_donor_logs')
-          .select('assignment_id')
-          .in('assignment_id', filterAssignIds)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified),and(disposition_detail.eq.done,action.eq.disposition)');
-        const verifiedAssignIds = new Set((verifiedLogs || []).map(l => l.assignment_id));
-        const assignToDonor = {};
-        for (const a of filterAssignments || []) assignToDonor[a.id] = a.donor_id;
-        for (const aid of verifiedAssignIds) {
-          const did = assignToDonor[aid];
-          if (did) verifiedDonorIds.add(did);
+      const { data: creditLogs } = await db
+        .from('fro_donor_logs')
+        .select('donor_id, fro_worker_id, amount_collected')
+        .in('donor_id', allGroupedDonorIds)
+        .gt('amount_collected', 0);
+      const workerIds = [...new Set((creditLogs || []).map(l => l.fro_worker_id).filter(Boolean))];
+      const workerNames = {};
+      if (workerIds.length > 0) {
+        const { data: workers } = await db.from('workers').select('id, name').in('id', workerIds);
+        for (const w of workers || []) workerNames[w.id] = w.name;
+      }
+      for (const l of creditLogs || []) {
+        if (l.fro_worker_id == null) continue;
+        if (!froCreditMap[l.donor_id]) froCreditMap[l.donor_id] = {};
+        if (!froCreditMap[l.donor_id][l.fro_worker_id]) {
+          froCreditMap[l.donor_id][l.fro_worker_id] = { fro_id: l.fro_worker_id, fro_name: workerNames[l.fro_worker_id] || 'Unknown', amount: 0 };
         }
+        froCreditMap[l.donor_id][l.fro_worker_id].amount += Number(l.amount_collected) || 0;
       }
     }
-    const verifiedGrouped = grouped.filter(g => (g.donor_ids || []).some(did => verifiedDonorIds.has(did)));
 
-    const total = verifiedGrouped.length;
-    const paginatedSlice = verifiedGrouped.slice(offset, offset + limit);
+    const total = grouped.length;
+    const paginatedSlice = grouped.slice(offset, offset + limit);
 
     const allDonorIds = paginatedSlice.flatMap(g => g.donor_ids || []);
     let latestTxMap = {};
@@ -183,6 +182,14 @@ export const getDonors = async (req, res) => {
         const entry = latestTxMap[did];
         if (entry && (!best.date || entry.date > best.date)) best = entry;
       }
+      const froAgg = {};
+      for (const did of (d.donor_ids || [])) {
+        for (const fc of Object.values(froCreditMap[did] || {})) {
+          if (!froAgg[fc.fro_id]) froAgg[fc.fro_id] = { fro_id: fc.fro_id, fro_name: fc.fro_name, amount: 0 };
+          froAgg[fc.fro_id].amount += fc.amount;
+        }
+      }
+      const fro_credits = Object.values(froAgg).sort((a, b) => b.amount - a.amount);
       return {
         ...d,
         amount: d.total_amount_all,
@@ -190,6 +197,8 @@ export const getDonors = async (req, res) => {
         last_transaction_amount: best.amount,
         last_transaction_date: best.date,
         ngo_list: d.ngos,
+        fro_credits,
+        fro_names: fro_credits.map(f => f.fro_name),
       };
     });
 
@@ -206,16 +215,15 @@ export const getDonorCreditLogs = async (req, res) => {
   try {
     const { donorId } = req.params;
     const numId = parseInt(donorId, 10);
-    let donor;
+    let donorIds = [];
     if (!isNaN(numId)) {
-      const { data } = await db.from('donor_profiles').select('id').eq('id', numId).maybeSingle();
-      donor = data;
+      const { data: donor } = await db.from('donor_profiles').select('id').eq('id', numId).maybeSingle();
+      if (donor) donorIds = [donor.id];
+    } else {
+      const { data: donors } = await db.from('donor_profiles').select('id').eq('mobile_number', donorId);
+      donorIds = (donors || []).map(d => d.id);
     }
-    if (!donor) {
-      const { data } = await db.from('donor_profiles').select('id').eq('mobile_number', donorId).maybeSingle();
-      donor = data;
-    }
-    if (!donor) return res.json([]);
+    if (donorIds.length === 0) return res.json([]);
 
     const { data, error } = await db
       .from('fro_donor_logs')
@@ -225,7 +233,7 @@ export const getDonorCreditLogs = async (req, res) => {
         workers!fro_donor_logs_fro_worker_id_fkey(id, name),
         fro_assignments(ngo_id, station)
       `)
-      .eq('donor_id', donor.id)
+      .in('donor_id', donorIds)
       .gt('amount_collected', 0)
       .order('created_at', { ascending: false });
     if (error) throw error;
