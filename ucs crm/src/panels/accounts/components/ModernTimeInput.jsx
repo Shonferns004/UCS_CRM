@@ -8,41 +8,107 @@ function toHm(v) {
   return { h: h % 24, m: m % 60 };
 }
 const pad = n => String(n).padStart(2, '0');
-const CLOCK_C = 100;
-const CLOCK_R = 86;
+const fmt12 = (hh, mm) => {
+  const ap = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 || 12;
+  return `${h12}:${pad(mm)} ${ap}`;
+};
+
+function parseInput(str) {
+  if (!str) return '';
+  const s = str.trim();
+  let m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (m) {
+    const h = Number(m[1]);
+    if (h > 23 || Number(m[2]) > 59) return null;
+    return `${pad(h)}:${pad(Number(m[2]))}`;
+  }
+  m = s.match(/^(\d{1,2}):(\d{1,2})\s*(am|pm)$/i);
+  if (m) {
+    let h = Number(m[1]);
+    const ap = m[3].toLowerCase();
+    if (h < 1 || h > 12 || Number(m[2]) > 59) return null;
+    if (ap === 'pm' && h !== 12) h += 12;
+    if (ap === 'am' && h === 12) h = 0;
+    return `${pad(h)}:${pad(Number(m[2]))}`;
+  }
+  return null;
+}
+
+function SpinnerColumn({ label, display, onUp, onDown }) {
+  const arrowStyle = {
+    width: 44, height: 28, border: '1px solid #e5e7eb', borderRadius: 7, background: '#f9fafb',
+    cursor: 'pointer', fontSize: 13, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</span>
+      <button onClick={onUp} style={arrowStyle}>▲</button>
+      <div style={{
+        width: 70, height: 42, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 22, fontWeight: 700, color: '#111827', border: '1.5px solid #e5e7eb', borderRadius: 9,
+        background: '#fff', fontVariantNumeric: 'tabular-nums',
+      }}>{display}</div>
+      <button onClick={onDown} style={arrowStyle}>▼</button>
+    </div>
+  );
+}
+
+function ClockIcon({ onClick }) {
+  return (
+    <button onClick={onClick} aria-label="Pick time"
+      style={{
+        width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer', padding: 0,
+      }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    </button>
+  );
+}
 
 export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...', style }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
-  const [phase, setPhase] = useState('hour');
+  const [text, setText] = useState(value || '');
+  const [modalText, setModalText] = useState(value || '');
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
-  const svgRef = useRef(null);
 
   const hm = toHm(value);
   const now = new Date();
   const h = hm ? hm.h : now.getHours();
   const m = hm ? hm.m : now.getMinutes();
   const h12 = h % 12 || 12;
-  const ampm = h < 12 ? 'AM' : 'PM';
   const isPM = h >= 12;
 
-  const commit = useCallback((hh, mm) => {
-    onChange(`${pad(hh)}:${pad(mm)}`);
+  useEffect(() => {
+    if (!focused) setText(value || '');
+  }, [value, focused]);
+
+  useEffect(() => {
+    if (open) setModalText(value || '');
+  }, [open, value]);
+
+  const set = useCallback((hh, mm) => {
+    const next = `${pad(((hh % 24) + 24) % 24)}:${pad(((mm % 60) + 60) % 60)}`;
+    onChange(next);
+    setText(next);
   }, [onChange]);
 
   const updatePos = useCallback(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const calH = 400;
-    const below = window.innerHeight - r.bottom;
-    const top = below > calH ? r.bottom + 6 : Math.max(6, r.top - calH - 6);
-    setPos({ top, left: Math.min(Math.max(6, r.left), window.innerWidth - 300) });
+    const calH = 340;
+    const calW = 280;
+    setPos({
+      top: Math.max(8, (window.innerHeight - calH) / 2),
+      left: Math.max(8, (window.innerWidth - calW) / 2),
+    });
   }, []);
 
   const openPicker = () => {
     updatePos();
-    setPhase('hour');
     setOpen(true);
   };
 
@@ -65,104 +131,105 @@ export function ModernTimeInput({ value, onChange, placeholder = 'Pick a time...
     };
   }, [open]);
 
-  const handleClockClick = (e) => {
-    const rect = svgRef.current.getBoundingClientRect();
-    const dx = e.clientX - (rect.left + rect.width / 2);
-    const dy = e.clientY - (rect.top + rect.height / 2);
-    if (Math.hypot(dx, dy) < 22) return;
-    let deg = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
-    if (phase === 'hour') {
-      const hh = Math.round(deg / 30) % 12 || 12;
-      const h24 = isPM ? (hh % 12) + 12 : hh % 12;
-      commit(h24, m);
-      setPhase('minute');
+  const commitText = () => {
+    const parsed = parseInput(text);
+    if (parsed !== null) {
+      onChange(parsed);
+      setText(parsed);
     } else {
-      const mm = Math.round(deg / 6) % 60;
-      commit(h, mm);
+      setText(value || '');
     }
   };
 
-  const ticks = phase === 'hour'
-    ? Array.from({ length: 12 }, (_, i) => ({ deg: i * 30, major: true, label: i === 0 ? 12 : i }))
-    : Array.from({ length: 60 }, (_, i) => ({ deg: i * 6, major: i % 5 === 0, label: i % 5 === 0 ? i : null }));
-
-  const handDeg = phase === 'hour' ? ((h12 % 12) * 30) - 90 : m * 6 - 90;
-  const handLen = phase === 'hour' ? 46 : 62;
-  const handW = phase === 'hour' ? 4 : 2;
-
-  const tick = (t) => {
-    const rad = (t.deg - 90) * Math.PI / 180;
-    const rOut = CLOCK_R - 2;
-    const rIn = t.major ? CLOCK_R - 14 : CLOCK_R - 8;
-    const x1 = CLOCK_C + rIn * Math.cos(rad);
-    const y1 = CLOCK_C + rIn * Math.sin(rad);
-    const x2 = CLOCK_C + rOut * Math.cos(rad);
-    const y2 = CLOCK_C + rOut * Math.sin(rad);
-    const lr = CLOCK_R - 26;
-    const lx = CLOCK_C + lr * Math.cos(rad);
-    const ly = CLOCK_C + lr * Math.sin(rad);
-    return (
-      <g key={t.deg}>
-        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={t.major ? '#5B6B4E' : '#c9d2c2'} strokeWidth={t.major ? 2 : 1} />
-        {t.label != null && (
-          <text x={lx} y={ly + 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#374151" style={{ userSelect: 'none' }}>
-            {t.label}
-          </text>
-        )}
-      </g>
-    );
+  const toggleAmpm = () => {
+    const hh = isPM ? (h - 12 + 24) % 24 : (h + 12) % 24;
+    set(hh, m);
   };
-
-  const handX = CLOCK_C + handLen * Math.cos(handDeg * Math.PI / 180);
-  const handY = CLOCK_C + handLen * Math.sin(handDeg * Math.PI / 180);
 
   return (
     <>
-      <input
-        ref={inputRef}
-        type="text"
-        readOnly
-        value={value ? `${pad(h)}:${pad(m)}` : ''}
-        placeholder={placeholder}
-        onClick={() => (open ? setOpen(false) : openPicker())}
-        style={{
-          width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
-          fontSize: 13, background: '#fff', cursor: 'pointer', outline: 'none', boxSizing: 'border-box',
-          color: value ? '#111827' : '#9ca3af', ...style,
-        }}
-      />
+      <div style={{ position: 'relative', width: '100%', boxSizing: 'border-box', ...style }}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={text}
+          placeholder={placeholder}
+          onMouseDown={(e) => {
+            if (e.target.closest('[data-mti-open]')) return;
+            if (!open) openPicker();
+          }}
+          onFocus={() => { setFocused(true); setText(value || ''); }}
+          onBlur={() => { setFocused(false); commitText(); }}
+          onChange={e => { setText(e.target.value); if (open) setOpen(false); }}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+          style={{
+            width: '100%', padding: '9px 34px 9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
+            fontSize: 13, background: '#fff', outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+            color: value ? '#111827' : '#9ca3af',
+          }}
+        />
+        <div data-mti-open style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)' }}>
+          <ClockIcon onClick={() => (open ? setOpen(false) : openPicker())} />
+        </div>
+      </div>
       {open && pos && createPortal(
-        <div data-mtp onClick={(e) => e.stopPropagation()} style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 3000, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, boxShadow: '0 14px 44px rgba(0,0,0,.18)', padding: 14, width: 240 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 4 }}>
-            <span style={{ fontSize: 26, fontWeight: 700, color: '#111827', fontVariantNumeric: 'tabular-nums' }}>
-              {pad(h)}:{pad(m)}
-            </span>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {['AM', 'PM'].map(p => (
-                <button key={p} onClick={() => { const hh = p === 'PM' ? (h12 % 12) + 12 : h12 % 12; commit(hh, m); }}
-                  style={{ padding: '2px 8px', fontSize: 10, fontWeight: 700, border: 'none', borderRadius: 5, cursor: 'pointer', background: ampm === p ? 'var(--sage)' : '#f3f4f6', color: ampm === p ? '#fff' : '#6b7280' }}>
-                  {p}
-                </button>
-              ))}
-            </span>
+        <div data-mtp onClick={(e) => e.stopPropagation()} style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 3000, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, boxShadow: '0 14px 44px rgba(0,0,0,.18)', padding: 14, width: 280 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>Select time</span>
+            <span style={{ fontSize: 13, color: '#6b7280', fontVariantNumeric: 'tabular-nums' }}>{fmt12(h, m)}</span>
           </div>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 10, justifyContent: 'center' }}>
-            {[['hour', 'Hour'], ['minute', 'Minute']].map(([k, label]) => (
-              <button key={k} onClick={() => setPhase(k)}
-                style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer', background: phase === k ? 'var(--sage)' : '#f3f4f6', color: phase === k ? '#fff' : '#6b7280' }}>
-                {label}
-              </button>
-            ))}
+          <input
+            type="text"
+            value={modalText}
+            placeholder="Type time (e.g. 14:30 or 2:30 PM)"
+            onChange={e => {
+              const v = e.target.value;
+              setModalText(v);
+              const parsed = parseInput(v);
+              if (parsed !== null) onChange(parsed);
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const parsed = parseInput(modalText);
+                if (parsed !== null) setOpen(false);
+                else setModalText(value || '');
+              }
+            }}
+            style={{
+              width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid #e5e7eb',
+              fontSize: 13, background: '#fff', outline: 'none', boxSizing: 'border-box', fontVariantNumeric: 'tabular-nums',
+              color: '#111827', marginBottom: 12, textAlign: 'center',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 26 }}>
+            <SpinnerColumn
+              label="Hour"
+              display={h12}
+              onUp={() => set(h + 1, m)}
+              onDown={() => set(h - 1, m)}
+            />
+            <span style={{ fontSize: 22, fontWeight: 700, color: '#d1d5db', marginTop: 18 }}>:</span>
+            <SpinnerColumn
+              label="Minutes"
+              display={pad(m)}
+              onUp={() => set(h, m + 1)}
+              onDown={() => set(h, m - 1)}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 18 }}>
+              {['AM', 'PM'].map(p => {
+                const active = p === (isPM ? 'PM' : 'AM');
+                return (
+                  <button key={p} onClick={toggleAmpm}
+                    style={{ padding: '8px 12px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 7, cursor: 'pointer', background: active ? 'var(--sage)' : '#f3f4f6', color: active ? '#fff' : '#6b7280' }}>
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <svg ref={svgRef} width="200" height="200" viewBox="0 0 200 200" style={{ display: 'block', margin: '0 auto', cursor: 'pointer' }} onClick={handleClockClick}>
-            <circle cx={CLOCK_C} cy={CLOCK_C} r={CLOCK_R} fill="#f9fafb" stroke="#e5e7eb" strokeWidth="1.5" />
-            {ticks.map(tick)}
-            <line x1={CLOCK_C} y1={CLOCK_C} x2={handX} y2={handY} stroke="#5B6B4E" strokeWidth={handW} strokeLinecap="round" />
-            <circle cx={CLOCK_C} cy={CLOCK_C} r="5" fill="#5B6B4E" />
-          </svg>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 12 }}>
             {value && (
-              <button onClick={() => { onChange(''); setOpen(false); }}
+              <button onClick={() => { onChange(''); setText(''); setOpen(false); }}
                 style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, border: '1px solid #d1d5db', borderRadius: 7, background: '#fff', color: '#6b7280', cursor: 'pointer' }}>
                 Clear
               </button>
