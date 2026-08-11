@@ -874,9 +874,25 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
+      const { data: ngoRow } = await db
+        .from('ngos')
+        .select('id, name')
+        .ilike('name', receipt.project_id)
+        .maybeSingle();
+      const ngoId = ngoRow?.id || null;
+      if (!ngoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
+      const { scope: claimScope } = await getMyStationScope(workerId);
+      const scopeRow = (claimScope || []).find(s => s.ngo_id === ngoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
-        .insert({ donor_id: donorId, fro_worker_id: workerId, status: 'lead_done' })
+        .insert({
+          donor_id: donorId,
+          fro_worker_id: workerId,
+          ngo_id: ngoId,
+          station: scopeRow?.station || null,
+          status: 'lead_done',
+          assigned_at: new Date().toISOString(),
+        })
         .select()
         .single();
       if (asgErr) throw asgErr;
