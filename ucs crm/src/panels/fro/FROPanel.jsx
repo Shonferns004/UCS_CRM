@@ -242,7 +242,6 @@ export default function FROPanel() {
   const notifRef = useRef(null);
   const poppedIds = useRef(new Set());
   const snoozedUntil = useRef({});
-  const [autoPopTick, setAutoPopTick] = useState(0);
 
   const markRead = async (notifId) => {
     try { await api(`/notifications/${notifId}/read`, { method: 'PUT', _prefix: 'ucs' }); }
@@ -444,19 +443,6 @@ export default function FROPanel() {
   const dueItems = dedupedRows.filter(r => r.scheduled_at && new Date(r.scheduled_at) <= new Date());
   const dueCount = dueItems.length;
 
-  useEffect(() => { const i = setInterval(() => setAutoPopTick(t => t + 1), 5000); return () => clearInterval(i); }, []);
-
-  useEffect(() => {
-    if (modalDonor) return;
-    const now = Date.now();
-    const due = dueItems.filter(r => !poppedIds.current.has(r.id) && !(snoozedUntil.current[r.id] > now))
-      .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-    if (due.length > 0) {
-      poppedIds.current.add(due[0].id);
-      setModalDonor(due[0]);
-    }
-  }, [autoPopTick, dueItems, modalDonor]);
-
   const rejectedToShow = rejectedItems.slice(0, MAX_DROPDOWN);
   const verifiedToShow = verifiedItems.slice(0, MAX_DROPDOWN - rejectedToShow.length);
   const dueToShow = dueItems.slice(0, MAX_DROPDOWN - rejectedToShow.length - verifiedToShow.length);
@@ -499,19 +485,6 @@ export default function FROPanel() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <CallTimer />
-            <div ref={notifRef} style={{ position:'relative' }}>
-              <div onClick={() => setDrawerOpen(true)} style={{ cursor:'pointer', position:'relative', padding:6, borderRadius:8, transition:'background .15s' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={rejectedCount + verifiedCount + dueCount > 0 ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={rejectedCount + verifiedCount + dueCount > 0 ? 'bell-ring' : ''}>
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                </svg>
-                {rejectedCount + verifiedCount + dueCount > 0 && (
-                  <span style={{ position:'absolute', top:0, right:0, background:'#dc2626', color:'#fff', borderRadius:'50%', minWidth:16, height:16, fontSize:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, lineHeight:1, padding:'0 3px' }}>
-                    {rejectedCount + verifiedCount + dueCount > 9 ? '9+' : rejectedCount + verifiedCount + dueCount}
-                  </span>
-                )}
-              </div>
-            </div>
             <div style={{ position:'relative' }}>
               <div onClick={async () => { setShowStats(true); setShowTarget(false); setStatsLoading(true); try { const [d, t] = await Promise.all([getMyDashboard().catch((err) => { console.error('Error:', err.message); }), getMyTarget().catch((err) => { console.error('Error:', err.message); })]);             setStatsData({ dash: d, target: t }); } catch (e) { console.error('Error:', e.message); } finally { setStatsLoading(false); } }} style={{ cursor:'pointer', padding:6, borderRadius:8, transition:'background .15s' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="2" strokeLinecap="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>

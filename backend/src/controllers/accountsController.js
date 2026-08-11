@@ -1842,7 +1842,7 @@ export const getReceiptCount = async (req, res) => {
 
 export const getDonorsList = async (req, res) => {
   try {
-    const { search, page = '1', limit = '50' } = req.query;
+    const { search, page = '1', limit = '50', ngo } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100000, Math.max(1, parseInt(limit) || 50));
     const from = (pageNum - 1) * limitNum;
@@ -1855,6 +1855,32 @@ export const getDonorsList = async (req, res) => {
     if (search) {
       const q = search.trim();
       query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
+    }
+
+    if (ngo && ngo.trim()) {
+      const n = ngo.trim();
+      const ids = new Set();
+      const { data: ngoRow } = await db
+        .from('ngos')
+        .select('id')
+        .ilike('name', n)
+        .maybeSingle();
+      if (ngoRow) {
+        const { data: assigned } = await db
+          .from('fro_assignments')
+          .select('donor_id')
+          .eq('ngo_id', ngoRow.id)
+          .not('status', 'eq', 'reassigned');
+        for (const a of assigned || []) if (a.donor_id) ids.add(a.donor_id);
+      }
+      const { data: byProfile } = await db
+        .from('donor_profiles')
+        .select('id')
+        .ilike('ngo', `%${n}%`);
+      for (const d of byProfile || []) ids.add(d.id);
+
+      if (ids.size === 0) return res.json({ data: [], total: 0, page: pageNum, limit: limitNum });
+      query = query.in('id', [...ids]);
     }
 
     const { data, count, error } = await query
