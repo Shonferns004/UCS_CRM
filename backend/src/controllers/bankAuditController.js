@@ -56,6 +56,10 @@ function currentMonthIST() {
   return istNow.getUTCFullYear() + '-' + String(istNow.getUTCMonth() + 1).padStart(2, '0');
 }
 
+// A "real" agent is any non-empty name other than the 'Suspense' marker used to
+// flag receipts that still sit in the suspense pool.
+const realAgentName = (name) => (name && name.trim() && name !== 'Suspense') ? name.trim() : null;
+
 // Fetch a pending lead log (fro_donor_logs) together with its donor profile +
 // FRO worker so a bank audit entry can be linked to it. Throws if the log is
 // already processed. If the log is already linked to a receipt (e.g. a suspense
@@ -232,12 +236,23 @@ export const addEntry = async (req, res) => {
 
     let receiptId = link?.existing_receipt_id || null;
     let receiptNo = null;
+
+    // A bank-audit-created receipt is a suspense donation unless the creator
+    // filled in BOTH an agent name and a donor (payer) name. When it stays
+    // suspense, tag the receipt agent as 'Suspense' so it appears in the
+    // suspense pool for an FRO to claim instead of being treated as a known
+    // donation. When a lead is linked, the lead's donor + FRO are authoritative
+    // (never suspense).
+    const donorName = link?.receipt.donor_name || payer_name || null;
+    const linkedAgentName = link?.receipt.agent_name || realAgentName(agent_name) || null;
+    const suspenseAgent = (!link && !(realAgentName(agent_name) && donorName)) ? 'Suspense' : linkedAgentName;
+
     if (receiptId) {
       const receiptFields = {
         amount,
         project_id: link?.receipt.project_id || ngo,
-        donor_name: link?.receipt.donor_name || payer_name || 'Unknown',
-        agent_name: link?.receipt.agent_name || agent_name || null,
+        donor_name: donorName || 'Unknown',
+        agent_name: suspenseAgent,
         donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
         donor_id: link?.receipt.donor_id || null,
         payment_id: payment_id || null,
@@ -251,8 +266,8 @@ export const addEntry = async (req, res) => {
       const { data: receipt, error: rErr } = await db.from('receipts').insert({
         receipt_no: receiptNo,
         project_id: link?.receipt.project_id || ngo,
-        donor_name: link?.receipt.donor_name || payer_name || 'Unknown',
-        agent_name: link?.receipt.agent_name || agent_name || null,
+        donor_name: donorName || 'Unknown',
+        agent_name: suspenseAgent,
         donor_mobile: link?.receipt.donor_mobile || req.body.donor_mobile || null,
         donor_id: link?.receipt.donor_id || null,
         log_id: link?.receipt.log_id || null,
@@ -337,8 +352,13 @@ export const editEntry = async (req, res) => {
       if (link) {
         Object.assign(receiptUpdate, link.receipt);
       } else {
-        if (payer_name !== undefined) receiptUpdate.donor_name = payer_name || null;
-        if (agent_name !== undefined) receiptUpdate.agent_name = agent_name || null;
+        const { data: curRec } = await db.from('receipts').select('donor_name').eq('id', existing.receipt_id).maybeSingle();
+        const effDonor = payer_name !== undefined ? (payer_name || null) : (curRec?.donor_name || null);
+        if (payer_name !== undefined) receiptUpdate.donor_name = effDonor;
+        if (agent_name !== undefined) {
+          const effAgent = realAgentName(agent_name);
+          receiptUpdate.agent_name = (effAgent && effDonor) ? effAgent : 'Suspense';
+        }
         if (req.body.donor_mobile !== undefined) receiptUpdate.donor_mobile = req.body.donor_mobile || null;
         if (project_id !== undefined) receiptUpdate.project_id = project_id || 'bsct';
       }
@@ -404,7 +424,10 @@ export const editSuspenseReceipt = async (req, res) => {
     } else {
       if (donor_name !== undefined) updates.donor_name = donor_name;
       if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile;
-      if (agent_name !== undefined) updates.agent_name = agent_name || null;
+      if (agent_name !== undefined) {
+        const effAgent = realAgentName(agent_name);
+        updates.agent_name = (effAgent && donor_name) ? effAgent : 'Suspense';
+      }
       if (project_id !== undefined) updates.project_id = project_id;
     }
     if (amount !== undefined) updates.amount = amount;
