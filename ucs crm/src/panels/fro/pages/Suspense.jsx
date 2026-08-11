@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Inbox, Search, ChevronRight, Phone, ReceiptText } from 'lucide-react';
-import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile } from '../api/donors';
+import { getSuspenseReceipts, claimSuspenseReceipt } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { SkeletonTable } from '../../../components/Skeleton';
 
@@ -25,15 +25,14 @@ export default function FroSuspense() {
   const [query, setQuery] = useState('');
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReceipt, setClaimReceipt] = useState(null);
+  const [claimName, setClaimName] = useState('');
+  const [claimUpi, setClaimUpi] = useState('');
+  const [claimDate, setClaimDate] = useState('');
+  const [claimTime, setClaimTime] = useState('');
   const [claimNotes, setClaimNotes] = useState('');
   const [claimError, setClaimError] = useState('');
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [claiming, setClaiming] = useState(false);
-  const [claimDonor, setClaimDonor] = useState(null);
-  const [claimSearch, setClaimSearch] = useState('');
-  const [claimResults, setClaimResults] = useState([]);
-  const [claimSearching, setClaimSearching] = useState(false);
-  const claimTimer = useRef(null);
 
   const load = async () => {
     try {
@@ -71,39 +70,31 @@ export default function FroSuspense() {
 
   const openClaimModal = (r) => {
     setClaimReceipt(r);
+    setClaimName(r.donor_name || '');
+    setClaimUpi('');
+    setClaimDate('');
+    setClaimTime('');
     setClaimNotes('');
     setClaimError('');
     setClaimSuccess(false);
-    setClaimDonor(null);
-    setClaimSearch('');
-    setClaimResults([]);
     setShowClaimModal(true);
-  };
-
-  const searchClaimDonors = (q) => {
-    setClaimSearch(q);
-    clearTimeout(claimTimer.current);
-    if ((q || '').trim().length < 2) { setClaimResults([]); setClaimSearching(false); return; }
-    claimTimer.current = setTimeout(async () => {
-      setClaimSearching(true);
-      try {
-        const res = await searchDonorsByMobile(q.trim());
-        setClaimResults(Array.isArray(res) ? res : []);
-      } catch (err) {
-        setClaimResults([]);
-      } finally {
-        setClaimSearching(false);
-      }
-    }, 350);
   };
 
   const submitClaim = async () => {
     if (!claimReceipt) return;
-    if (!claimDonor) { setClaimError('Select the donor to claim this receipt'); return; }
+    const name = (claimName || '').trim();
+    if (!name) { setClaimError('Enter the donor name to claim this receipt'); return; }
     setClaiming(true);
     setClaimError('');
     try {
-      await claimSuspenseReceipt(claimReceipt.id, { donor_id: claimDonor.donor_id, notes: claimNotes.trim() || undefined });
+      let txDatetime = null;
+      if (claimDate) txDatetime = claimTime ? `${claimDate}T${claimTime}` : claimDate;
+      await claimSuspenseReceipt(claimReceipt.id, {
+        donor_name: name,
+        upi_transaction_id: (claimUpi || '').trim() || undefined,
+        transaction_datetime: txDatetime || undefined,
+        notes: claimNotes.trim() || undefined,
+      });
       setClaimSuccess(true);
       const data = await getSuspenseReceipts();
       setMonth(data?.month || '');
@@ -266,43 +257,25 @@ export default function FroSuspense() {
               </div>
             ) : (
               <>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>SELECT DONOR</div>
-                {claimDonor ? (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg)', border: '1px solid var(--sage)', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimDonor.donor_name}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{claimDonor.donor_mobile || '—'}{claimDonor.donor_city ? ` · ${claimDonor.donor_city}` : ''}</div>
-                    </div>
-                    <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]) }}
-                      style={{ border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      value={claimSearch}
-                      onChange={e => searchClaimDonors(e.target.value)}
-                      placeholder="Search donor by name or mobile..."
-                      style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
-                    />
-                    {claimSearching && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>Searching...</div>}
-                    {!claimSearching && claimResults.length > 0 && (
-                      <div style={{ marginTop: 6, border: '1px solid var(--line)', borderRadius: 8, maxHeight: 150, overflowY: 'auto' }}>
-                        {claimResults.map(d => (
-                          <div key={d.donor_id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
-                            style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)', fontSize: 11.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{d.donor_name}</span>
-                            <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{d.donor_mobile || ''}{d.donor_city ? ` · ${d.donor_city}` : ''}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {!claimSearching && claimSearch.trim().length >= 2 && claimResults.length === 0 && (
-                      <div style={{ marginTop: 6, padding: '10px 12px', border: '1px dashed var(--line)', borderRadius: 8, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)', background: 'var(--bg)' }}>
-                        No donor found
-                      </div>
-                    )}
-                  </>
-                )}
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>DONOR DETAILS</div>
+                <input
+                  value={claimName}
+                  onChange={e => setClaimName(e.target.value)}
+                  placeholder="Donor name"
+                  style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }}
+                />
+                <input
+                  value={claimUpi}
+                  onChange={e => setClaimUpi(e.target.value)}
+                  placeholder="UPI transaction ID"
+                  style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input type="date" value={claimDate} onChange={e => setClaimDate(e.target.value)}
+                    style={{ flex: 1, padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                  <input type="time" value={claimTime} onChange={e => setClaimTime(e.target.value)}
+                    style={{ flex: 1, padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                </div>
                 <textarea value={claimNotes} onChange={e => setClaimNotes(e.target.value)} rows={2}
                   placeholder="Optional note for accounts (how you know this donor)..."
                   style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', marginTop: 8 }} />
@@ -310,8 +283,8 @@ export default function FroSuspense() {
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
                   <button onClick={() => setShowClaimModal(false)} disabled={claiming}
                     style={{ padding: '7px 16px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
-                  <button onClick={submitClaim} disabled={claiming || !claimDonor}
-                    style={{ padding: '7px 16px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: (claiming || !claimDonor) ? .5 : 1 }}>
+                  <button onClick={submitClaim} disabled={claiming || !(claimName || '').trim()}
+                    style={{ padding: '7px 16px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: (claiming || !(claimName || '').trim()) ? .5 : 1 }}>
                     {claiming ? 'Claiming...' : 'Submit Claim'}
                   </button>
                 </div>
