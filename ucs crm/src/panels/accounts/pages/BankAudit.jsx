@@ -12,6 +12,7 @@ import { downloadSinglePDF } from '../services/pdfGenerator';
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar';
 import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray';
 import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
+import * as XLSX from 'xlsx';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
@@ -220,11 +221,37 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
 function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,editEntry,setEditEntry,saving,handleAdd,handleEdit,handleDelete,handleAddSrc,handleDelSrc,openEdit,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am}){
   const PAGE_SIZE=20;
   const[pg,setPg]=useState(1);
-  const visible=srcFilter?filtered.filter(e=>e.source_id===Number(srcFilter)):filtered;
+  const[sq,setSq]=useState('');
+  const kw=sq.trim().toLowerCase();
+  const searched=kw?filtered.filter(e=>
+    [e.payer_name,e.donor_mobile,e.payment_id,e.check_id,e.receipt_no,e.amount,e.agent_name,e.transaction_date,e.bank_audit_sources?.name,getSrcName(e.source_id)]
+      .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
+  ):filtered;
+  const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
   const pageCount=Math.max(1,Math.ceil(visible.length/PAGE_SIZE));
   const pageItems=visible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
-  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter]);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
+  const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
+  const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
+  const exportExcel=()=>{
+    const HEADERS=['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
+    const rows=[HEADERS,...visible.map(e=>[
+      na(srcOf(e)),na(e.transaction_date),na(e.agent_name),na(e.payer_name),na(e.donor_mobile),
+      'NA','NA','NA','NA',na(e.donor_address_1),na(e.donor_address_2),
+      'NA','NA',na(e.donor_city),na(e.donor_pin_code),na(e.donor_pan),
+      'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
+      'NA','NA','NA',na(e.agent_name),na(e.agent_name),
+      'Bank',na(srcOf(e)),na(e.payment_id),'NA','NA',na(e.bank_name),
+      e.amount??'NA',na(e.receipt_no),'NA',na(e.transaction_date),
+      na(e.payment_time?fmtTime(e.payment_time):''),na(NGO_LABELS[e.project_id]||e.project_id),'Corpus',na(e.remarks),na(srcOf(e)),
+    ])];
+    if(visible.length===0){alert('No entries to export');return}
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Bank Audit');
+    XLSX.writeFile(wb,`bank-audit_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
   return <div>
     {error&&<div style={{display:'flex',alignItems:'center',gap:6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:13,color:'#991b1b'}}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>{error}
@@ -253,8 +280,10 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           <option value="">All Sources</option>
           {sources.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
+        <input placeholder="Search name / txn ID / amount..." value={sq} onChange={e=>setSq(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:190}}/>
         <Btn on={()=>doLoad(selDate,statusTab)} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.4-3.4L23 10M1 14l5.1 4.4A9 9 0 0 0 20.5 15"/></svg>} ch="Refresh"/>
         <Btn on={()=>onAutoMatch()} dis={am} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>} ch={am?'Matching...':'Auto-Match'} bg="#2563eb"/>
+        <Btn on={exportExcel} ic={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>} ch="Export" bg="#16a34a"/>
         <Btn on={()=>{setForm({...EMPTY_FM});setShowAdd(true)}} ch="Add Entry" bg="var(--sage)" style={{marginLeft:'auto'}}/>
         <Btn on={()=>{setSn('');setShowSrc(true)}} ch="Sources" bg="transparent" fg="#374151" style={{border:'1px solid #d1d5db'}}/>
       </div>
