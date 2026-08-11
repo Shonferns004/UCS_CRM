@@ -50,7 +50,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +66,7 @@ export default function Dashboard({ embedded, onStats }) {
   const [leadPage, setLeadPage] = useState(1);
 
   const mountedRef = useRef(true);
+  const clickRef = useRef(null);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const load = useCallback((silent) => {
@@ -88,7 +89,7 @@ export default function Dashboard({ embedded, onStats }) {
     if (rtTimerRef.current) clearTimeout(rtTimerRef.current);
     rtTimerRef.current = setTimeout(() => load(true), 250);
   }, [load]);
-  useEffect(() => () => { if (rtTimerRef.current) clearTimeout(rtTimerRef.current); }, []);
+  useEffect(() => () => { if (rtTimerRef.current) clearTimeout(rtTimerRef.current); if (clickRef.current) clearTimeout(clickRef.current); }, []);
 
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
@@ -257,7 +258,18 @@ export default function Dashboard({ embedded, onStats }) {
               </div>
             ) : (
               pageItems.map(l => (
-              <div key={l.log_id} className="entry-card" onClick={() => setViewingId(l.log_id)} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', opacity: l.accounts_status !== 'pending' ? 0.65 : 1, cursor: 'pointer' }}>
+              <div key={l.log_id} className="entry-card"
+                onClick={() => {
+                  if (!onSelectLead) { setViewingId(l.log_id); return; }
+                  if (clickRef.current) clearTimeout(clickRef.current);
+                  clickRef.current = setTimeout(() => { clickRef.current = null; setViewingId(l.log_id); }, 240);
+                }}
+                onDoubleClick={() => {
+                  if (!onSelectLead) return;
+                  if (clickRef.current) { clearTimeout(clickRef.current); clickRef.current = null; }
+                  if (l.accounts_status === 'pending') onSelectLead(l);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', opacity: l.accounts_status !== 'pending' ? 0.65 : 1, cursor: 'pointer', boxShadow: selectedLogId === l.log_id ? '0 0 0 2px var(--sage)' : undefined, ...(selectedLogId === l.log_id ? { background: 'var(--bg)' } : {}) }}>
                 <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#5B6B4E18', color: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
                   {(l.donor_name || '?').trim().charAt(0).toUpperCase()}
                 </div>
@@ -271,6 +283,7 @@ export default function Dashboard({ embedded, onStats }) {
                  l.accounts_status === 'rejected' ? <span className="pill pill-red" style={{ fontSize: 9 }} title={l.rejection_reason || ''}>Rejected</span> :
                  <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.accounts_status || '\u2014'}</span>}
                  <span className="pill pill-gray" style={{ fontSize: 10 }}>{({ bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
+                {selectedLogId === l.log_id && <span className="pill" style={{ fontSize: 9, background: '#5B6B4E', color: '#fff' }}>Selected</span>}
                 {l.claimed_receipt && <span className="pill" style={{ fontSize: 9, background: '#FDE7DB', color: '#B5603A' }}>Claimant · {l.agent_name || 'Unknown'}</span>}
                 <span className="pill pill-gray" style={{ fontSize: 9 }}>{l.agent_name || 'No agent'}</span>
                 <span style={{ fontSize: 10, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
