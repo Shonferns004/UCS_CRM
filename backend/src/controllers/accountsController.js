@@ -1181,7 +1181,7 @@ export const getPendingReceipts = async (req, res) => {
         'Email ID': r.email || donor?.email || '',
         'Mode of Payment (MOP)': log?.payment_mode || r.mode || 'Bank',
         'Payment ID No.': log?.upi_transaction_id || r.payment_id || '',
-        'Donor Bank Name': '',
+        'Donor Bank Name': r.bank_name || donor?.donors_bank_name || '',
         'Amount': String(r.amount || 0),
         'Receipt No.': r.receipt_no || '',
         'Receipt Date': r.receipt_date || log?.verified_at || '',
