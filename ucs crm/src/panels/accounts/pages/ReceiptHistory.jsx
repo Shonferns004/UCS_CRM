@@ -91,17 +91,22 @@ function buildDonor(r, lead) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
+const StatRow = ({ label, value, color }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '10px 0', borderTop: '1px solid var(--line)' }}>
+    <div style={{ fontSize: 'clamp(20px,1.9vw,26px)', fontWeight: 700, color, lineHeight: 1.2, whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>{value}</div>
+    <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
+  </div>
+);
+
 export default function ReceiptHistory() {
   const [receipts, setReceipts] = useState([]);
   const [total, setTotal] = useState(0);
   const [statsByProject, setStatsByProject] = useState([]);
-  const [projectList, setProjectList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
   const [donorDetail, setDonorDetail] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
   const [receiptTab, setReceiptTab] = useState('linked');
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
@@ -127,7 +132,6 @@ export default function ReceiptHistory() {
     params.set('page', String(page));
     params.set('limit', '100');
     if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (projectFilter) params.set('project', projectFilter);
     if (receiptTab === 'linked') params.set('link', 'linked');
     if (receiptTab === 'unlinked') params.set('link', 'unlinked');
     apiGet(`/accounts/receipts?${params.toString()}`)
@@ -135,11 +139,10 @@ export default function ReceiptHistory() {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
         setTotal(Number(res?.total) || 0);
         setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : []);
-        setProjectList(Array.isArray(res?.projects) ? res.projects.filter(Boolean) : []);
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, searchQuery, projectFilter, receiptTab]);
+  }, [page, searchQuery, receiptTab]);
 
   const handleFile = useCallback(async (file) => {
     if (!file) return;
@@ -227,7 +230,7 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  useEffect(() => { setPage(1); }, [searchQuery, projectFilter, receiptTab]);
+  useEffect(() => { setPage(1); }, [searchQuery, receiptTab]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -416,40 +419,31 @@ export default function ReceiptHistory() {
           </details>
         </div>
       </div>
-      <div className="stats-grid receipt-history-stats">
-        {loading ? (
-          <>
-            {[1,2,3].map(i => (
-              <div key={i} className="stat-card receipt-history-stat-card" style={{ padding: 20 }}>
-                <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4, marginBottom: 8 }} />
-                <div className="sk" style={{ width: '60%', height: 22, borderRadius: 4 }} />
-              </div>
-            ))}
-          </>
-        ) : (
-          statsByProject.map(group => (
-            <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-card" style={{ padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {loading ? (
+        <div className="stats-grid receipt-history-stats">
+          {[1,2,3].map(i => (
+            <div key={i} className="stat-card receipt-history-stat-card" style={{ padding: 20 }}>
+              <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4, marginBottom: 8 }} />
+              <div className="sk" style={{ width: '60%', height: 22, borderRadius: 4 }} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="stats-grid receipt-history-stats">
+          {statsByProject.map(group => (
+            <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
                 {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#5B6B4E' }}>{group.count}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Receipts</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#8b5cf6' }}>{group.donors}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Donors</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', whiteSpace: 'nowrap' }}>{currency(group.total_amount)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginTop: 2 }}>Amount</div>
-                </div>
+              <div style={{ width: '100%' }}>
+                <StatRow label="Total Receipts" value={group.count} color="#5B6B4E" />
+                <StatRow label="Total Donors" value={group.donors} color="#8b5cf6" />
+                <StatRow label="Total Amount" value={currency(group.total_amount)} color="#16a34a" />
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       <div className="card">
         <div className="filter-bar">
@@ -467,12 +461,6 @@ export default function ReceiptHistory() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
-          <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
-            <option value="">All Projects</option>
-            {projectList.map(pid => (
-              <option key={pid} value={pid}>{PROJECT_LABELS[pid] || pid}</option>
-            ))}
-          </select>
           <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
         </div>
         <div className="table-wrap">
@@ -486,7 +474,7 @@ export default function ReceiptHistory() {
               ))
             ) : receipts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery || projectFilter ? 'No receipts match your filters.' : receiptTab === 'unlinked' ? 'All receipts are linked to donors.' : 'No linked receipts yet.'}
+                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'unlinked' ? 'All receipts are linked to donors.' : 'No linked receipts yet.'}
               </div>
             ) : (
               uniqueDonors.map(r => {
