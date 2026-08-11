@@ -120,6 +120,19 @@ function DonorDetail({ donorId, onClose }) {
   )
 }
 
+const parseAssignments = (d, ngoFilter = '') => {
+  if (Array.isArray(d.assignment_list)) return d.assignment_list
+  if (!d.assigned_to) return []
+  const parsed = String(d.assigned_to).split(/\s*,\s*/).map(s => {
+    const m = s.match(/^(.+?)\s*\(([^)]*)\)(?:\s*—\s*(.*))?$/)
+    if (m) return { name: m[1].trim(), station: m[2].trim(), ngo: (m[3] || '').trim() }
+    const clean = s.replace(/\s*—\s*.*$/, '').trim()
+    return { name: clean, station: '', ngo: '' }
+  }).filter(a => a.name)
+  if (!ngoFilter) return parsed
+  return parsed.filter(a => a.ngo && a.ngo.toLowerCase().includes(ngoFilter.toLowerCase()))
+}
+
 export default function Donors() {
   const [donors, setDonors] = useState([])
   const [total, setTotal] = useState(0)
@@ -128,13 +141,20 @@ export default function Donors() {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState(null)
   const [exporting, setExporting] = useState(false)
+  const [ngoFilter, setNgoFilter] = useState('')
+  const [ngoOptions, setNgoOptions] = useState([])
   const limit = 100
 
-  const load = useCallback(async (q, pg) => {
+  useEffect(() => {
+    apiGet('/accounts/ngos').then(res => setNgoOptions(Array.isArray(res) ? res : [])).catch(() => {})
+  }, [])
+
+  const load = useCallback(async (q, pg, ngo) => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (q) params.set('search', q)
+      if (ngo) params.set('ngo', ngo)
       params.set('limit', String(limit))
       params.set('page', String(pg))
       const res = await apiGet('/accounts/donors?' + params.toString())
@@ -144,7 +164,7 @@ export default function Donors() {
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load(search, page) }, [load, search, page])
+  useEffect(() => { load(search, page, ngoFilter) }, [load, search, page, ngoFilter])
 
   const stats = useMemo(() => {
     let amount = 0, count = 0
@@ -159,6 +179,11 @@ export default function Donors() {
 
   const handleSearch = (e) => {
     setSearch(e.target.value)
+    setPage(1)
+  }
+
+  const handleNgoChange = (name) => {
+    setNgoFilter(name)
     setPage(1)
   }
 
@@ -194,26 +219,34 @@ export default function Donors() {
       </div>
 
       <div className="card">
-        <div className="filter-bar">
-          <input
-            className="search-input"
-            placeholder="Search by name, mobile, or city..."
-            value={search}
-            onChange={handleSearch}
-          />
-          <button className="btn" onClick={handleExport} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            {exporting ? 'Exporting...' : 'Export Excel'}
-          </button>
+        <div className="filter-bar" style={{ flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginRight: 'auto' }}>
+            <button className={`btn btn-sm${ngoFilter === '' ? ' btn-primary' : ''}`} onClick={() => handleNgoChange('')}>All</button>
+            {ngoOptions.map(n => (
+              <button key={n.id} className={`btn btn-sm${ngoFilter === n.name ? ' btn-primary' : ''}`} onClick={() => handleNgoChange(n.name)}>{n.name}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginLeft: 'auto' }}>
+            <input
+              className="search-input"
+              placeholder="Search by name, mobile, or city..."
+              value={search}
+              onChange={handleSearch}
+            />
+            <button className="btn" onClick={handleExport} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              {exporting ? 'Exporting...' : 'Export Excel'}
+            </button>
+          </div>
         </div>
         <div className="table-wrap">
-          <table>
+          <table className="donors-table">
             <thead>
               <tr>
                 <th>Donor</th>
                 <th>Mobile</th>
                 <th>Assigned To</th>
-                <th>NGO</th>
+                <th>Station</th>
               </tr>
             </thead>
             <tbody>
@@ -223,6 +256,7 @@ export default function Donors() {
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>No donors found</td></tr>
               ) : donors.map(d => {
                 const initial = (d.name || d.bank_donor_name || d.agent_donor_name || '?')[0].toUpperCase()
+                const assignments = parseAssignments(d, ngoFilter)
                 return (
                   <tr key={d.id} className="clickable-row" onClick={() => setSelectedId(d.id)}>
                     <td>
@@ -232,8 +266,20 @@ export default function Donors() {
                       </div>
                     </td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--ink-soft)' }}>{d.mobile_number || '-'}</td>
-                    <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.assigned_to || '—'}</td>
-                    <td><span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: 'var(--sage)', color: '#fff' }}>{d.ngo || '—'}</span></td>
+                    <td style={{ fontSize: 12, color: 'var(--ink-soft)', padding: 0 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        {assignments.length > 0 ? assignments.map((a, i) => (
+                          <span key={i} style={{ padding: '9px 10px', borderBottom: i < assignments.length - 1 ? '1px solid var(--line)' : 'none' }}>{a.name || '—'}</span>
+                        )) : <span style={{ padding: '9px 10px' }}>—</span>}
+                      </div>
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--ink-soft)', padding: 0 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        {assignments.length > 0 ? assignments.map((a, i) => (
+                          <span key={i} style={{ padding: '9px 10px', borderBottom: i < assignments.length - 1 ? '1px solid var(--line)' : 'none' }}>{a.station || '—'}</span>
+                        )) : <span style={{ padding: '9px 10px' }}>—</span>}
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
@@ -261,6 +307,11 @@ export default function Donors() {
       )}
 
       {selectedId && <DonorDetail donorId={selectedId} onClose={() => { setSelectedId(null) }} />}
+
+      <style>{`
+        .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
+        .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
+      `}</style>
     </div>
   )
 }

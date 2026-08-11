@@ -953,6 +953,85 @@ export const getReceiptList = async (req, res) => {
   }
 };
 
+// Suggest donor addresses from the DB to autofill a lead's missing address.
+// Matches the same donor (mobile/name) across donor_profiles and receipts,
+// plus a free-text ILIKE search over both address columns.
+export const getAddressSuggestions = async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const mobile = (req.query.mobile || '').trim();
+    const name = (req.query.name || '').trim();
+
+    const seen = new Map();
+    const add = (address, source) => {
+      const a = (address || '').trim();
+      if (!a || a.length < 3) return;
+      if (seen.has(a)) { seen.get(a).count += 1; return; }
+      seen.set(a, { address: a, count: 1, source });
+    };
+
+    // 1) The lead's own donor profile address (most relevant, always first)
+    if (mobile) {
+      const { rows } = await db._pool.query(
+        `SELECT address_1 FROM donor_profiles WHERE mobile_number = $1 AND address_1 IS NOT NULL AND address_1 <> ''`,
+        [mobile]
+      );
+      rows.forEach(r => add(r.address_1, 'This donor'));
+    }
+
+    // 2) Other profiles matching the same name/mobile
+    if (name || mobile) {
+      const conds = [];
+      const params = [];
+      if (name) { params.push(`%${name}%`); conds.push(`name ILIKE $${params.length}`); }
+      if (mobile) { params.push(mobile); conds.push(`mobile_number = $${params.length}`); }
+      const { rows } = await db._pool.query(
+        `SELECT address_1 FROM donor_profiles WHERE (${conds.join(' OR ')}) AND address_1 IS NOT NULL AND address_1 <> ''`,
+        params
+      );
+      rows.forEach(r => add(r.address_1, 'Donor profile'));
+    }
+
+    // 3) Receipts filed under the same donor
+    if (name || mobile) {
+      const conds = [];
+      const params = [];
+      if (name) { params.push(`%${name}%`); conds.push(`donor_name ILIKE $${params.length}`); }
+      if (mobile) { params.push(mobile); conds.push(`donor_mobile = $${params.length}`); }
+      const { rows } = await db._pool.query(
+        `SELECT address, count(*)::int AS n FROM receipts
+         WHERE (${conds.join(' OR ')}) AND address IS NOT NULL AND address <> ''
+         GROUP BY address ORDER BY n DESC`,
+        params
+      );
+      rows.forEach(r => add(r.address, 'Receipt'));
+    }
+
+    // 4) Free-text search over addresses
+    if (q && q.length >= 2) {
+      const like = `%${q}%`;
+      const { rows: r1 } = await db._pool.query(
+        `SELECT address, count(*)::int AS n FROM receipts
+         WHERE address ILIKE $1 AND address IS NOT NULL AND address <> ''
+         GROUP BY address ORDER BY n DESC LIMIT 20`,
+        [like]
+      );
+      r1.forEach(r => add(r.address, 'Receipt'));
+      const { rows: r2 } = await db._pool.query(
+        `SELECT address_1, count(*)::int AS n FROM donor_profiles
+         WHERE address_1 ILIKE $1 AND address_1 IS NOT NULL AND address_1 <> ''
+         GROUP BY address_1 ORDER BY n DESC LIMIT 20`,
+        [like]
+      );
+      r2.forEach(r => add(r.address_1, 'Donor profile'));
+    }
+
+    return res.json(Array.from(seen.values()).slice(0, 25));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getPendingReceipts = async (req, res) => {
   try {
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -1857,14 +1936,16 @@ export const getDonorsList = async (req, res) => {
       query = query.or(`name.ilike.%${q}%,mobile_number.ilike.%${q}%,city.ilike.%${q}%`);
     }
 
+    let ngoRow = null;
     if (ngo && ngo.trim()) {
       const n = ngo.trim();
       const ids = new Set();
-      const { data: ngoRow } = await db
+      const { data: matched } = await db
         .from('ngos')
         .select('id')
         .ilike('name', n)
         .maybeSingle();
+      ngoRow = matched || null;
       if (ngoRow) {
         const { data: assigned } = await db
           .from('fro_assignments')
@@ -1918,21 +1999,30 @@ export const getDonorsList = async (req, res) => {
         for (const w of workers || []) workerMap[w.id] = w.name;
       }
 
+      const scopedAssignments = ngoRow
+        ? (assignments || []).filter(a => a.ngo_id === ngoRow.id)
+        : (assignments || []);
+
       const donorNgoMap = {};
       const donorAssignmentMap = {};
-      for (const a of assignments || []) {
+      const donorAssignmentList = {};
+      for (const a of scopedAssignments) {
         if (!donorNgoMap[a.donor_id]) donorNgoMap[a.donor_id] = new Set();
         const ngoName = ngoMap[a.ngo_id];
         if (ngoName) donorNgoMap[a.donor_id].add(ngoName);
 
         if (!donorAssignmentMap[a.donor_id]) donorAssignmentMap[a.donor_id] = [];
         const name = workerMap[a.fro_worker_id];
-        if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'}) — ${ngoName || a.ngo_id}`);
+        if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
+
+        if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
+        donorAssignmentList[a.donor_id].push({ name, station: a.station || '' });
       }
 
       for (const d of data || []) {
         const labels = donorAssignmentMap[d.id];
         d.assigned_to = labels && labels.length > 0 ? [...new Set(labels)].join(', ') : null;
+        d.assignment_list = donorAssignmentList[d.id] || [];
 
         const ngoFromAssignments = donorNgoMap[d.id];
         if (ngoFromAssignments && ngoFromAssignments.size > 0) {
