@@ -221,6 +221,9 @@ export default function Receipts() {
   const [receiptPage, setReceiptPage] = useState(1)
   const [markingAllSent, setMarkingAllSent] = useState(false)
   const [markAllProgress, setMarkAllProgress] = useState({ completed: 0, total: 0 })
+  const [goBackRow, setGoBackRow] = useState(null)
+  const [goBackReason, setGoBackReason] = useState('')
+  const [goBackSubmitting, setGoBackSubmitting] = useState(false)
 
   const removeFromPending = useCallback((receiptId) => {
     setDonors(current => (current || []).filter(donor => donor.receipt_id !== receiptId))
@@ -395,6 +398,23 @@ export default function Receipts() {
     }
   }
 
+  const handleGoBack = async () => {
+    if (!goBackRow?.log_id || goBackSubmitting) return
+    setGoBackSubmitting(true)
+    try {
+      await apiPost(`/accounts/leads/${goBackRow.log_id}/go-back`, { reason: goBackReason || null })
+      const row = goBackRow
+      removeFromPending(row.receipt_id)
+      showToast('success', `Sent ${row['Donor Name'] || 'this lead'} back to the FRO`)
+    } catch (error) {
+      showToast('error', error.message || 'Could not send back the receipt')
+    } finally {
+      setGoBackSubmitting(false)
+      setGoBackRow(null)
+      setGoBackReason('')
+    }
+  }
+
   const handleConfirmBulkSend = async () => {
     setConfirmBulk({ visible:false, donorCount:0 })
     const validDonors = getValidDonors()
@@ -563,6 +583,12 @@ export default function Receipts() {
                           disabled={sendingIndex === realIdx}>
                           {sendingIndex === realIdx ? '...' : 'Send'}
                         </button>
+                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 8px', background:'#fff', color:'#b45309', border:'1px solid #fcd34d' }}
+                          onClick={e => { e.stopPropagation(); setGoBackRow(d) }}
+                          disabled={!d.log_id}
+                          title={d.log_id ? 'Send back to FRO' : 'No linked lead'}>
+                          {'\u21a9 Go Back'}
+                        </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }}>Preview</button>
                       </td>
                     </tr>
@@ -613,6 +639,32 @@ export default function Receipts() {
                       </div>
                     )
                   })()}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {goBackRow && (
+            <div className="modal-overlay" onClick={() => { setGoBackRow(null); setGoBackReason('') }} style={{ zIndex:1000 }}>
+              <div className="modal" style={{ maxWidth:440, width:'92%' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3 style={{ fontSize:15 }}>{'\u21a9'} Go Back to FRO</h3>
+                </div>
+                <div className="modal-body">
+                  <p style={{ margin:0, fontSize:14, fontWeight:600 }}>Send <span style={{ color:'var(--accent)' }}>{goBackRow['Donor Name'] || 'this lead'}</span> back to the FRO?</p>
+                  <p style={{ margin:0, fontSize:12.5, color:'var(--ink-soft)', lineHeight:1.5 }}>
+                    The lead and its receipt will be removed from the collected totals and verification, and the FRO will need to rework the lead.
+                  </p>
+                  <label style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                    <span style={{ fontSize:11, color:'var(--ink-soft)', textTransform:'uppercase', letterSpacing:'.04em' }}>Reason (optional)</span>
+                    <textarea className="field-input" value={goBackReason} onChange={e => setGoBackReason(e.target.value)} placeholder="Why is this receipt being sent back?" rows={3} style={{ resize:'vertical' }} />
+                  </label>
+                  <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:4 }}>
+                    <button className="btn btn-sm" onClick={() => { setGoBackRow(null); setGoBackReason('') }}>Cancel</button>
+                    <button className="btn btn-sm" style={{ background:'#d97706', color:'#fff', border:'none' }} onClick={handleGoBack} disabled={goBackSubmitting}>
+                      {goBackSubmitting ? 'Sending back...' : 'Send Back'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
