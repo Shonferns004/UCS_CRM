@@ -18,12 +18,12 @@ import * as XLSX from 'xlsx';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
-const NGO_LABELS = { bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' };
+const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',_lead_amount:null};
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
-  maan: { label: 'Mann Care', comp: ReceiptTemplateManncar },
+  mann: { label: 'Mann Care', comp: ReceiptTemplateManncar },
   aflf: { label: 'Ashray', comp: ReceiptTemplateAshray },
 };
 function getNgoSettings(project) {
@@ -214,7 +214,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
           <div className="stat-num" style={{color:'#B5603A'}}>{curr(suspense.amount||0)}</div>
           <div className="stat-lbl">Suspense · {suspense.count||0} open</div>
           {setSuspenseNgo&&<div className="stat-actions">
-            {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['maan','MANN']].map(([v,l])=>
+            {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']].map(([v,l])=>
               <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#B5603A':'#FDE7DB',color:suspenseNgo===v?'#fff':'#B5603A',transition:'background .12s'}}>{l}</button>
             )}
           </div>}
@@ -289,7 +289,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           {(selDate||selDay)&&<IconBtn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch={<X size={14} strokeWidth={2.5}/>} title="Clear date filter" bg="transparent" fg="#6b7280" style={{border:'1px solid #d1d5db'}}/>}
         </div>
         {!hideNgoFilter&&<select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
-          <option value="">All NGOs</option><option value="bsct">Being Sevak</option><option value="maan">Mann Care</option><option value="aflf">Ashray</option>
+          <option value="">All NGOs</option><option value="bsct">Being Sevak</option><option value="mann">Mann Care</option><option value="aflf">Ashray</option>
         </select>}
         <select value={srcFilter} onChange={e=>setSrcFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
           <option value="">All Sources</option>
@@ -388,7 +388,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
   useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
 
-  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],maan:['maan','mann','manncar','mann care'],aflf:['aflf','ashray']};
+  const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],mann:['mann','manncar','mann care'],aflf:['aflf','ashray']};
   const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};
 
   const useGlobalNgo = globalNgo !== undefined;
@@ -535,7 +535,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       <div style={{display:'flex',alignItems:'center',gap:8,background:'#f0f7ef',border:'1px solid #cfe3cb',borderRadius:10,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#5B6B4E',flexWrap:'wrap'}}>
         <span style={{fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>Filter</span>
         <span style={{fontWeight:600,whiteSpace:'nowrap'}}>{'\u20B9'}{Number(leadFilter.amount||0).toLocaleString('en-IN')}</span>
-        {leadFilter.ngo&&<span style={{whiteSpace:'nowrap'}}>{'\u00B7'} {({bsct:'Being Sevak',maan:'Mann Care',aflf:'Ashray'})[leadFilter.ngo]||leadFilter.ngo}</span>}
+        {leadFilter.ngo&&<span style={{whiteSpace:'nowrap'}}>{'\u00B7'} {({bsct:'Being Sevak',mann:'Mann Care',aflf:'Ashray'})[leadFilter.ngo]||leadFilter.ngo}</span>}
       </div>
     )}
 
