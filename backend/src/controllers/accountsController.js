@@ -1690,6 +1690,42 @@ export const importReceipts = async (req, res) => {
       console.warn('Could not persist import manifest:', e.message);
     }
 
+    // ─── Pre-compute donor matches by phone (outside the transaction so read-
+    //     heavy queries never bloat the tx and hit RDS statement timeouts) ───
+    const cleanMobile = (m) => String(m || '').replace(/\D/g, '');
+    const last10 = (m) => cleanMobile(m).slice(-10);
+    const mobiles = [...new Set(uniqueRows.map(r => last10(r.donor_mobile)).filter(m => /^\d{10}$/.test(m)))];
+    const donorByMobile = new Map();
+    if (mobiles.length > 0) {
+      const exactFound = new Set();
+      for (let i = 0; i < mobiles.length; i += 100) {
+        const batch = mobiles.slice(i, i + 100);
+        const { rows: exact } = await db._pool.query(
+          `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+           FROM donor_profiles WHERE mobile_number = ANY($1)`, [batch]
+        );
+        for (const d of (exact || [])) {
+          const k = last10(d.mobile_number);
+          if (k) { donorByMobile.set(k, d); exactFound.add(k); }
+        }
+      }
+      const missing = mobiles.filter(m => !exactFound.has(m));
+      if (missing.length > 0) {
+        for (let i = 0; i < missing.length; i += 100) {
+          const batch = missing.slice(i, i + 100);
+          const { rows } = await db._pool.query(
+            `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+             FROM donor_profiles
+             WHERE right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) = ANY($1)`, [batch]
+          );
+          for (const d of (rows || [])) {
+            const k = last10(d.mobile_number);
+            if (k && !donorByMobile.has(k)) donorByMobile.set(k, d);
+          }
+        }
+      }
+    }
+
     // ─── Insert + match + link — one atomic transaction, with retry ───
     const MAX_RETRIES = 3;
     const MAX_QUERY_CONCURRENCY = 6;
@@ -1780,102 +1816,11 @@ export const importReceipts = async (req, res) => {
           let withBank = 0;
           let receiptsByDonor = {};
           if (inserted.length > 0) {
-            const cleanMobile = (m) => String(m || '').replace(/\D/g, '');
-            const last10 = (m) => cleanMobile(m).slice(-10);
-            const mobiles = [...new Set(inserted.map(r => last10(r.donor_mobile)).filter(m => /^\d{10}$/.test(m)))];
-
-            // Match existing donors on the last 10 digits of the mobile so a
-            // donor stored with a +91 / 0 prefix still matches a plain 10-digit
-            // receipt mobile (and vice-versa). Exact full-string matches were
-            // silently dropping these receipts.
-            const donorByMobile = new Map();
-            if (mobiles.length > 0) {
-              const exactFound = new Set();
-              for (let i = 0; i < mobiles.length; i += 100) {
-                const batch = mobiles.slice(i, i + 100);
-                const { rows: exact } = await db._pool.query(
-                  `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                   FROM donor_profiles WHERE mobile_number = ANY($1)`,
-                  [batch]
-                );
-                for (const d of (exact || [])) {
-                  const k = last10(d.mobile_number);
-                  if (k) { donorByMobile.set(k, d); exactFound.add(k); }
-                }
-              }
-              // Suffix fallback for the rest — catches donors stored with a
-              // +91 / 0 prefix that the indexed exact match can't see.
-              const missing = mobiles.filter(m => !exactFound.has(m));
-              if (missing.length > 0) {
-                for (let i = 0; i < missing.length; i += 100) {
-                  const batch = missing.slice(i, i + 100);
-                  const { rows } = await db._pool.query(
-                    `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                     FROM donor_profiles
-                     WHERE right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) = ANY($1)`,
-                    [batch]
-                  );
-                  for (const d of (rows || [])) {
-                    const k = last10(d.mobile_number);
-                    if (k && !donorByMobile.has(k)) donorByMobile.set(k, d);
-                  }
-                }
-              }
-            }
-
-            // Name-based fuzzy match: rescues receipts whose mobile is missing,
-            // malformed, or stored differently. Conservative — only links when a
-            // single strong name match exists (both names agree on every token)
-            // and the phones do not contradict each other, so a receipt never
-            // gets attached to the wrong donor's history.
-            const HONORIFICS = ['shri', 'sri', 'smt', 'shrimati', 'kumari', 'mr', 'mrs', 'ms', 'dr', 'er', 'sir', 'sahab', 'bhai', 'ben', 'late'];
-            const HONORIFIC_RE = new RegExp(`\\b(?:${HONORIFICS.join('|')})\\b`, 'g');
-            const normName = (n) => String(n || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9 ]/g, ' ')
-              .replace(HONORIFIC_RE, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-            const nameTokens = (n) => normName(n).split(' ').filter(Boolean);
-
-            const donorByReceipt = new Map();
-            for (const receipt of inserted) {
-              const mobile = last10(receipt.donor_mobile);
-              if (/^\d{10}$/.test(mobile) && donorByMobile.has(mobile)) {
-                donorByReceipt.set(receipt.id, donorByMobile.get(mobile));
-              }
-            }
-
-            for (const receipt of inserted) {
-              if (donorByReceipt.has(receipt.id)) continue;
-              const tokens = nameTokens(receipt.donor_name);
-              if (tokens.length < 2) continue;
-              const { rows } = await db._pool.query(
-                `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                 FROM donor_profiles
-                 WHERE lower(name) LIKE $1 AND lower(name) LIKE $2
-                 LIMIT 20`,
-                [`%${tokens[0]}%`, `%${tokens[tokens.length - 1]}%`]
-              );
-              const receiptMobile = last10(receipt.donor_mobile);
-              const candidates = (rows || []).filter((d) => {
-                const dt = nameTokens(d.name);
-                if (dt.length === 0) return false;
-                const shared = tokens.filter(t => dt.includes(t));
-                if (shared.length < 2) return false;
-                const receiptInsideDonor = tokens.every(t => dt.includes(t));
-                const donorInsideReceipt = dt.every(t => tokens.includes(t));
-                if (!receiptInsideDonor && !donorInsideReceipt) return false;
-                const dMobile = last10(d.mobile_number);
-                if (/^\d{10}$/.test(receiptMobile) && /^\d{10}$/.test(dMobile) && receiptMobile !== dMobile) return false;
-                return true;
-              });
-              if (candidates.length === 1) donorByReceipt.set(receipt.id, candidates[0]);
-            }
-
             receiptsByDonor = {};
             for (const receipt of inserted) {
-              const donor = donorByReceipt.get(receipt.id);
+              const m = last10(receipt.donor_mobile);
+              if (!/^\d{10}$/.test(m)) continue;
+              const donor = donorByMobile.get(m);
               if (!donor) continue;
               matched++;
               if (!receiptsByDonor[donor.id]) {
