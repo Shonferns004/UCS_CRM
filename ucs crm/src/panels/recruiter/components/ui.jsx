@@ -79,3 +79,5 @@ export function Pill({ status }) {
   const [cls,dot] = PILL[status] || ['pill-gray','#888']
   return <span className={`pill ${cls}`}><span className="d" style={{background:dot}} />{status}</span>
 }
+
+export { cleanField } from '../../../components/ui'
