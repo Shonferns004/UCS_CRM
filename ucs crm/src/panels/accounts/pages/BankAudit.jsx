@@ -286,11 +286,11 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   };
   const exportExcel=()=>{
     const HEADERS=['Branch Name','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch Name'];
-    const agent=v=>(v&&v!=='Suspense')?v:'';
+    const agent=v=>(v&&v!=='Suspense')?v:'NA';
     const rows=[HEADERS,...visible.map(e=>{
       const src=srcOf(e);
       const meta=receivedMeta(src);
-      const mop=meta?meta.mop:'Bank';
+      const mop=meta?na(meta.mop):'Bank';
       const recvBank=meta?meta.receivedBank:na(src);
       return [
         'NA',na(e.transaction_date),na(e.donor_name||e.payer_name),na(e.payer_name),na(e.donor_mobile),
@@ -299,14 +299,14 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
         'NA','NA','NA',agent(e.agent_name),agent(e.agent_name),
         mop,recvBank,na(e.payment_id),'NA','NA',na(e.bank_name),
-        e.amount??'NA',String(e.receipt_no||''),'NA',na(e.transaction_date),
-        na(e.payment_time?fmtTime(e.payment_time):''),na(NGO_LABELS[e.project_id]||e.project_id),'Corpus',na(e.remarks),'NA',
+        e.amount??'NA',na(e.receipt_no),'NA',na(e.transaction_date),
+        na(e.payment_time?fmtTime(e.payment_time):''),na(e.project_id),'Corpus',na(e.remarks),'NA',
       ];
     })];
     if(visible.length===0){alert('No entries to export');return}
     const ws=XLSX.utils.aoa_to_sheet(rows);
-    // Write real date cells with a fixed display format (dd mm yyyy) so Excel
-    // never auto-converts the transaction date into a locale format like "1 Aug".
+    // Write real date cells with a fixed display format (d/mm/yyyy = "1/08/2026") so Excel
+    // never auto-converts the transaction date into a locale format like "1-Aug-26".
     const DATE_COLS=[1,35];
     for(let r=1;r<rows.length;r++){
       for(const c of DATE_COLS){
@@ -315,7 +315,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         if(!cell)continue;
         const m=String(cell.v==null?'':cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
         if(!m)continue;
-        ws[addr]={t:'n',v:Date.UTC(+m[1],+m[2]-1,+m[3])/86400000+25569,z:'dd mm yyyy'};
+        ws[addr]={t:'n',v:Date.UTC(+m[1],+m[2]-1,+m[3])/86400000+25569,z:'d/mm/yyyy'};
       }
     }
     const wb=XLSX.utils.book_new();
