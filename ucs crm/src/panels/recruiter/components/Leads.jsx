@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useRec, LEAD_SOURCES, LEAD_STATUSES, NOT_CONNECTED_OPTIONS } from '../store';
 import { Plus, Users, Search, RefreshCw, Trash, X } from '../icons';
-import { Dropdown } from './ui';
+import { Dropdown, cleanField } from './ui';
 import LeadDetail from './LeadDetail';
 
 const calcAge = (dob) => {
@@ -52,6 +52,7 @@ export default function Leads() {
   const [customSource, setCustomSource] = useState('');
   const [notConnectedOption, setNotConnectedOption] = useState('');
   const [connectedOption, setConnectedOption] = useState('');
+  const [connectionType, setConnectionType] = useState('');
   const [followUpDateTime, setFollowUpDateTime] = useState('');
   const [callBackTime, setCallBackTime] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
@@ -109,7 +110,9 @@ export default function Leads() {
     if (!formValid) { setFormError('Mandatory field validation is missing.'); setTimeout(() => setFormError(''), 3000); return; }
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
-      const finalStatus = connectedOption === 'follow_up' ? 'followed_up' : connectedOption === 'call_back' ? 'call_back' : connectedOption === 'schedule' ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : notConnectedOption;
+      const finalStatus = connectionType === 'connected'
+        ? (connectedOption === 'follow_up' ? 'followed_up' : connectedOption === 'call_back' ? 'call_back' : connectedOption === 'schedule' ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : '')
+        : notConnectedOption;
       const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
       const notesArr = [...formNotes];
       if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
@@ -122,7 +125,7 @@ export default function Leads() {
       setSuccessMsg('Lead created successfully.');
       setTimeout(() => setSuccessMsg(''), 3000);
       setLeadFilters(p => ({ ...p, status: '', source: '' }));
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
     } catch (err) { alert(err.message); }
   };
 
@@ -152,7 +155,7 @@ export default function Leads() {
 
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
-  const formValid = name.trim() && phone.trim() && dob && source && connectedOption && notConnectedOption && selectedJobRole;
+  const formValid = name.trim() && phone.trim() && dob && source && selectedJobRole;
 
 
   if (selectedLead) {
@@ -182,30 +185,40 @@ export default function Leads() {
               <div className="card-pad">
                 <div style={{display:'flex',gap:16}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
-                    {connectedOption === 'follow_up' && (
-                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                        <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
-                      </div>
-                    )}
-                    {connectedOption === 'call_back' && (
-                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                        <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
-                      </div>
-                    )}
-                    {connectedOption === 'schedule' && (
-                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
-                        <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
-                      </div>
-                    )}
+                    <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                      <input type="radio" name="connectionStatus" checked={connectionType==='connected'} onChange={()=>{setConnectionType('connected');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                      CONNECTED
+                    </label>
+                    <div style={connectionType==='not_connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
+                      <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                      {connectedOption === 'follow_up' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                          <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {connectedOption === 'call_back' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                          <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {connectedOption === 'schedule' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                          <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                    <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                    <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                      <input type="radio" name="connectionStatus" checked={connectionType==='not_connected'} onChange={()=>{setConnectionType('not_connected');setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                      NOT CONNECTED
+                    </label>
+                    <div style={connectionType==='connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
+                      <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                    </div>
                   </div>
                 </div>
                 <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
@@ -253,30 +266,40 @@ export default function Leads() {
             <div className="card-pad">
               <div style={{display:'flex',gap:16}}>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                  <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectedOption(e.target.value);setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
-                  {connectedOption === 'follow_up' && (
-                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
-                      <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
-                    </div>
-                  )}
-                  {connectedOption === 'call_back' && (
-                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
-                      <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
-                    </div>
-                  )}
-                  {connectedOption === 'schedule' && (
-                    <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
-                      <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
-                      <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
-                    </div>
-                  )}
+                  <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                    <input type="radio" name="connectionStatus" checked={connectionType==='connected'} onChange={()=>{setConnectionType('connected');setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                    CONNECTED
+                  </label>
+                  <div style={connectionType==='not_connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
+                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                    {connectedOption === 'follow_up' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                        <input type="datetime-local" value={followUpDateTime} onChange={e=>setFollowUpDateTime(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                    {connectedOption === 'call_back' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                        <input type="time" value={callBackTime} onChange={e=>setCallBackTime(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                    {connectedOption === 'schedule' && (
+                      <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                        <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                        <input type="datetime-local" value={scheduledDate} onChange={e=>setScheduledDate(e.target.value)} style={{width:'auto'}} />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
-                  <Dropdown menuInset value={notConnectedOption} onChange={e=>setNotConnectedOption(e.target.value)} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                  <label style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4,display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                    <input type="radio" name="connectionStatus" checked={connectionType==='not_connected'} onChange={()=>{setConnectionType('not_connected');setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} />
+                    NOT CONNECTED
+                  </label>
+                  <div style={connectionType==='connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
+                    <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                  </div>
                 </div>
               </div>
               <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
@@ -349,11 +372,11 @@ export default function Leads() {
                     <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{cursor:'pointer'}}>
                       <td style={{fontWeight:500}}>{l.name}</td>
                       <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
-                      <td>{l.source}</td>
+                      <td>{cleanField(l.source)}</td>
                       <td>{isOwner ? (
-                        <Dropdown className="inline-select" value={l.status} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
-                      ) : statusPill(l.status)}</td>
-                      <td style={{color:'var(--ink-soft)'}}>{getJobRole(l) || '—'}</td>
+                        <Dropdown className="inline-select" value={cleanField(l.status)} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
+                      ) : statusPill(cleanField(l.status))}</td>
+                      <td style={{color:'var(--ink-soft)'}}>{cleanField(getJobRole(l)) || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
                       <button className="btn btn-icon" onClick={() => setDeleteConfirm(l)} title="Delete" style={{color:'#dc2626'}}>
                         <Trash width={13} />
@@ -394,7 +417,7 @@ export default function Leads() {
                     <td>{l.scheduled_date ? new Date(l.scheduled_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
                     <td>{l.scheduled_by_name || l.created_by_name || '—'}</td>
                     <td style={{color:'var(--ink-soft)'}}>{formatDT(l.scheduled_at)}</td>
-                    <td>{l.source}</td>
+                    <td>{cleanField(l.source)}</td>
                   </tr>
                 ))}
               </tbody>
