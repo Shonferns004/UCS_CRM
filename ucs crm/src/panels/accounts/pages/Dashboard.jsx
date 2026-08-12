@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Send, Trash2, Download } from 'lucide-react';
+import { Send, Trash2, Download, FileText, RefreshCw } from 'lucide-react';
 import { apiGet, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
@@ -16,20 +16,8 @@ const SkeletonNum = () => (
   <span className="sk-num" style={{ display:'inline-block',width:48,height:24,borderRadius:6,background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}} />
 );
 
-const SkeletonCard = () => (
-  <div className="entry-card">
-    <div className="ec-main">
-      <div className="ec-primary">
-        <span className="sk-num" style={{ display:'block', width:'60%', height:13, borderRadius:4, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-        <span className="sk-num" style={{ display:'block', width:'40%', height:10, borderRadius:4, marginTop:6, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-      </div>
-      <span className="sk-num" style={{ display:'block', width:56, height:16, borderRadius:5, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-    </div>
-    <div className="ec-meta">
-      <span className="sk-num" style={{ display:'block', width:56, height:16, borderRadius:8, background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-      <span className="sk-num" style={{ display:'block', width:80, height:10, borderRadius:4, marginLeft:'auto', background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite' }} />
-    </div>
-  </div>
+const IconBtn = ({ on, ch, dis, title, bg = '#fff', fg = 'var(--sage)', style }) => (
+  <button className="btn btn-sm fb-btn" onClick={on} disabled={dis} title={title} aria-label={title} style={{ background: bg, color: fg, border: 'none', opacity: dis ? .5 : 1, ...style }}>{ch}</button>
 );
 
 const StatCard = ({ icon, label, value, sub, color, loading: l }) => (
@@ -54,7 +42,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -227,46 +215,52 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       <div className="card">
         <div className="filter-bar">
           <input
-            className="search-input"
-            placeholder="Search by donor, phone, or agent..."
+            placeholder="Search donor / phone / agent / txn ID..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 200, minWidth: 0 }}
           />
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); }}>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); }} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }}>
             <option value="pending">Pending ({allLeads.filter(l => l.accounts_status === 'pending').length})</option>
             <option value="verified">Verified ({allLeads.filter(l => l.accounts_status === 'verified').length})</option>
             <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
             <option value="">All ({allLeads.length})</option>
           </select>
           {globalNgo === undefined && (
-            <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }}>
+            <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }}>
               <option value="">All NGOs</option>
               <option value="bsct">Being Sevak</option>
               <option value="mann">Mann Care</option>
               <option value="aflf">Ashray</option>
             </select>
           )}
+          <IconBtn on={rtLoad} ch={<RefreshCw size={14} strokeWidth={2.5} />} title="Refresh" />
           {statusFilter === 'verified' && leads.length > 0 && (
-            <button className="btn btn-sm fb-btn" title={`Send to Receipts (${leads.length})`} style={{ background:'#1d6f42', color:'#fff', border:'none', marginLeft:8 }} onClick={sendToReceipts}>
-              <Send size={14} strokeWidth={2.5} />
-              <span className="fb-count">{leads.length}</span>
-            </button>
+            <IconBtn on={sendToReceipts} ch={<><Send size={14} strokeWidth={2.5} /><span className="fb-count">{leads.length}</span></>} title={`Send to Receipts (${leads.length})`} bg="#1d6f42" fg="#fff" />
           )}
           {statusFilter === 'pending' && stats.pending.length > 0 && (
-            <button className="btn btn-sm fb-btn" title={`Delete all pending (${stats.pending.length})`} style={{ background:'#dc2626', color:'#fff', border:'none', marginLeft:8 }} onClick={() => setDeleteAllConfirm(true)}>
-              <Trash2 size={14} strokeWidth={2.5} />
-              <span className="fb-count">{stats.pending.length}</span>
-            </button>
+            <IconBtn on={() => setDeleteAllConfirm(true)} ch={<><Trash2 size={14} strokeWidth={2.5} /><span className="fb-count">{stats.pending.length}</span></>} title={`Delete all pending (${stats.pending.length})`} bg="#dc2626" fg="#fff" />
           )}
-          <button className="btn btn-sm fb-btn" title={`Export ${filtered.length} leads`} style={{ background:'#16a34a', color:'#fff', border:'none', marginLeft:8 }} onClick={exportExcel}>
-            <Download size={14} strokeWidth={2.5} />
-            {filtered.length > 0 && <span className="fb-count">{filtered.length}</span>}
-          </button>
+          <IconBtn on={exportExcel} ch={<><Download size={14} strokeWidth={2.5} />{filtered.length > 0 && <span className="fb-count">{filtered.length}</span>}</>} title={`Export ${filtered.length} leads`} bg="#16a34a" fg="#fff" />
         </div>
         <div className="entry-scroll">
           <div className="entry-grid">
             {loading ? (
-              Array.from({ length: 8 }, (_, i) => <SkeletonCard key={i} />)
+              Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="entry-card">
+                  <div className="ec-main">
+                    <div className="ec-primary">
+                      <div className="sk" style={{ width: '45%', height: 13, borderRadius: 4 }} />
+                      <div className="sk" style={{ width: '60%', height: 10, borderRadius: 4, marginTop: 6 }} />
+                    </div>
+                    <div className="sk" style={{ width: 64, height: 18, borderRadius: 5 }} />
+                  </div>
+                  <div className="ec-meta">
+                    <div className="sk" style={{ width: 60, height: 16, borderRadius: 8 }} />
+                    <div className="sk" style={{ width: 90, height: 10, borderRadius: 4 }} />
+                  </div>
+                </div>
+              ))
             ) : pageItems.length === 0 ? (
               <div className="entry-card-empty">
                 {searchQuery ? 'No leads match your search.' : 'No leads found.'}
@@ -275,9 +269,9 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               pageItems.map(l => (
               <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '')}
                 onClick={() => {
-                  if (!onSelectLead) { setViewingId(l.log_id); return; }
+                  if (!onSelectLead) { setViewingId(l.log_id); onView?.(l.log_id); return; }
                   if (clickRef.current) clearTimeout(clickRef.current);
-                  clickRef.current = setTimeout(() => { clickRef.current = null; if (selectedLogId === l.log_id) onSelectLead(null); setViewingId(l.log_id); }, 240);
+                  clickRef.current = setTimeout(() => { clickRef.current = null; if (selectedLogId === l.log_id) onSelectLead(null); setViewingId(l.log_id); onView?.(l.log_id); }, 240);
                 }}
                 onDoubleClick={() => {
                   if (!onSelectLead) return;
@@ -354,8 +348,8 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
         </div>
       )}
 
-      <RightPanel open={!!viewingId} onClose={() => { setViewingId(null); load(); }} title="Lead Details">
-        {viewingId && <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); }} variant="drawer" onDelete={() => { const l = filtered.find(x => x.log_id === viewingId); if (l) { setViewingId(null); setDeleteConfirm(l); } }} />}
+      <RightPanel open={!!viewingId} onClose={() => { setViewingId(null); load(); onView?.(null); }} title="Lead Details" icon={<FileText size={19} strokeWidth={2} />}>
+        {viewingId && <LeadDetail logId={viewingId} onBack={() => { setViewingId(null); load(); onView?.(null); }} variant="drawer" onDelete={() => { const l = filtered.find(x => x.log_id === viewingId); if (l) { setViewingId(null); setDeleteConfirm(l); onView?.(null); } }} />}
       </RightPanel>
 
     </div>
