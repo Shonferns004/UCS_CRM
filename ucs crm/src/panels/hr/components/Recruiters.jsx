@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useHR } from '../store';
-import { Pill, Dropdown, DatePicker } from './ui';
+import { Pill, Dropdown, DatePicker, cleanField } from './ui';
 import { Users, Clock, Check, X, Cal, Heart, Plus } from '../icons';
 
 const calcAge = (dob) => {
@@ -13,6 +13,8 @@ const STATUSES = [
   { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
   { key: 'call_back', label: 'Call Back', color: '#06b6d4' },
   { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
+  { key: 'not_interested', label: 'Not Interested', color: '#c08a2e' },
+  { key: 'hold', label: 'Hold', color: '#c08a2e' },
   { key: 'ringing', label: 'Ringing', color: '#ef4444' },
   { key: 'unreachable', label: 'Unreachable', color: '#ef4444' },
   { key: 'busy', label: 'Busy', color: '#ef4444' },
@@ -108,9 +110,9 @@ export default function Recruiters() {
         name: lead.name,
         phone: lead.phone || '',
         dob: lead.dob || '',
-        source: lead.source || 'Walk-in',
+        source: cleanField(lead.source) || 'Walk-in',
         customSource: '',
-        status: lead.status,
+        status: cleanField(lead.status),
         connectedOption: '',
         notConnectedOption: '',
         followUpDateTime: '',
@@ -147,7 +149,7 @@ export default function Recruiters() {
     if (!form.name.trim()) return;
     try {
       const finalSource = form.source === 'Other' ? (form.customSource.trim() || 'Other') : form.source;
-      const finalStatus = form.connectedOption === 'follow_up' && form.followUpDateTime ? 'followed_up' : form.connectedOption === 'call_back' && form.callBackTime ? 'call_back' : form.connectedOption === 'schedule' && form.scheduledDate ? 'scheduled' : form.connectedOption === 'not_interested' ? 'not_interested' : form.notConnectedOption || form.status;
+      const finalStatus = form.connectedOption === 'follow_up' ? 'followed_up' : form.connectedOption === 'call_back' ? 'call_back' : form.connectedOption === 'schedule' ? 'scheduled' : form.connectedOption === 'not_interested' ? 'not_interested' : form.notConnectedOption || form.status;
       const payload = {
         name: form.name.trim(),
         phone: form.phone || null,
@@ -284,14 +286,14 @@ export default function Recruiters() {
                   <tr><td colSpan={8}><div className="empty">No leads found. <button className="btn btn-sm" onClick={() => openForm(null)}>Add one</button></div></td></tr>
                 ) : (
                   filteredLeads.map(lead => {
-                    const st = STATUSES.find(s => s.key === lead.status) || STATUSES[0];
+                    const st = STATUSES.find(s => s.key === cleanField(lead.status)) || { label: cleanField(lead.status) || '—', color: '#9ca3af' };
                     const displayAge = lead.dob ? calcAge(lead.dob) : lead.age;
                     return (
                       <tr key={lead.id} className="rec-lead-row" onClick={() => openForm(lead)} style={{ cursor: 'pointer' }}>
                         <td><strong>{lead.name}</strong></td>
                         <td>{lead.phone || '\u2014'}</td>
                         <td>{displayAge || '\u2014'}</td>
-                        <td><Pill status={lead.source} /></td>
+                        <td><Pill label={cleanField(lead.source)} /></td>
                         <td>
                           <span className="status-dot" style={{ background: st.color }} />
                           {st.label}
@@ -353,7 +355,7 @@ export default function Recruiters() {
                       <td>{lead.scheduled_date ? new Date(lead.scheduled_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '\u2014'}</td>
                       <td>{lead.scheduled_by_name || lead.created_by_name || '\u2014'}</td>
                       <td className="ink-soft">{formatDT(lead.scheduled_at)}</td>
-                      <td><Pill status={lead.source} /></td>
+                      <td><Pill label={cleanField(lead.source)} /></td>
                       <td>
                         <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openForm(lead); }}>Edit</button>
                       </td>
