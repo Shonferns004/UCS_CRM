@@ -276,7 +276,8 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '')}
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); return; }
-                  onSelectLead(null);
+                  if (clickRef.current) clearTimeout(clickRef.current);
+                  clickRef.current = setTimeout(() => { clickRef.current = null; if (selectedLogId === l.log_id) onSelectLead(null); setViewingId(l.log_id); }, 240);
                 }}
                 onDoubleClick={() => {
                   if (!onSelectLead) return;
@@ -297,6 +298,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                    l.accounts_status === 'rejected' ? <span className="pill pill-red" title={l.rejection_reason || ''}>Rejected</span> :
                    <span className="pill pill-gray">{l.accounts_status || '\u2014'}</span>}
                   <span className="pill pill-gray">{({ bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
+                  {l.upi_transaction_id && <span className="pill pill-gray" style={{ fontFamily: 'monospace' }} title="Incoming payment ID">{l.upi_transaction_id}</span>}
                   {l.claimed_receipt && <span className="pill" style={{ fontSize: 10, background: '#FDE7DB', color: '#B5603A' }}>Claimant</span>}
                   {l.bank_match && <span className="pill" style={{ fontSize: 10, background: l.bank_match.match_source === 'manual' ? '#fef3c7' : '#dbeafe', color: l.bank_match.match_source === 'manual' ? '#92400e' : '#1d4ed8' }} title={`${l.bank_match.match_source === 'manual' ? 'Manually' : 'Auto'} matched${l.bank_match.match_score ? ` · score ${l.bank_match.match_score}` : ''}`}>
                     {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
