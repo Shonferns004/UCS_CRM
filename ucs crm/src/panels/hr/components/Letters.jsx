@@ -54,28 +54,26 @@ const NGO_CONFIG = {
   BSCT: { name: 'BEING SEVAK CHARITABLE TRUST', logo: '/logo/beingsevak-logo.png', alt: 'Being Sevak Charitable Trust', footer: 'Being Sevak Charitable Trust', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.' },
   AFLF: { name: 'AFLF', logo: '/logo/aflf-logo.png', alt: 'AFLF', footer: 'AFLF', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.', logoSize: 140 },
   MANN: { name: 'MANN', logo: '/logo/mann-logo.png', alt: 'MANN', footer: 'MANN', address: '506, Sanjar Enclave, Bhadran Nagar, Kandivali (West), Mumbai, Maharashtra 400067.', logoSize: 140 },
+  UCS: { name: 'ULTIMATE CONSULTANCY SERVICES', displayName: 'Ultimate Consultancy Services', logo: '/logo/ucs-logo.png', alt: 'Ultimate Consultancy Services', footer: 'Ultimate Consultancy Services', address: 'Sanjar Enclave, Office no 506, S.V Road, Kandivali West, Mumbai - 400067' },
 };
 
 function getNgo(key) { return NGO_CONFIG[key] || NGO_CONFIG.BSCT; }
 
 function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+function titleCase(s) { return String(s ?? '').replace(/\b\w/g, c => c.toUpperCase()); }
+
 function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
   const ngo = getNgo(ngoKey);
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
-  const subj = subjectText || `Joining as ${r}`;
-  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
-<div style="display:flex;align-items:center;margin-bottom:4px">
-<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
-<div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
-</div>
-<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
-<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
-<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Subject: ${subj}</div>
-<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
-<div style="margin-bottom:6px"><strong>Dear ${w.name},</strong></div>
-<div style="text-align:justify">
+  const ucs = ngoKey === 'UCS';
+  const company = ngo.displayName || ngo.name;
+  const subj = ucs ? 'Joining Letter' : (subjectText || `Joining as ${r}`);
+  const bodyHtml = ucs ? `
+<p style="margin:0 0 6px 0">We are pleased to inform you that <strong>${company}</strong>, on behalf of (BSCT), has selected you to join the organization as a <strong>Volunteer</strong> to support the Trust's various organizational and social activities.</p>
+<p style="margin:0 0 6px 0">You will initially be associated with <strong>Being Sevak Charitable Trust</strong> for a one-month volunteer training and orientation period, during which your participation, conduct, learning, and overall performance will be observed and evaluated. Upon satisfactory completion of this period, your volunteer engagement may be continued based on the requirements of the Trust and mutual understanding.</p>
+<p style="margin:0 0 6px 0">During your training and volunteer engagement, you will be required to perform the duties and responsibilities assigned to you by your Team Leaders/Supervisors and follow the guidelines, policies, procedures, and values of Being Sevak Charitable Trust.</p>` : `
 <p style="margin:0 0 6px 0">We are delighted to welcome you to <strong>${ngo.name}</strong>. This letter confirms your joining as a <strong>${r}</strong> in the <strong>${d}</strong> department.</p>
 <p style="margin:0 0 6px 0">Your date of joining is <strong>${dateText}</strong>. You will be on a probation period of <strong>one (1) month</strong> from the date of joining, during which your performance will be closely monitored and evaluated.</p>
 <p style="margin:0 0 6px 0">During your probation, you are required to perform all duties and responsibilities assigned to you by your Team Leader or Reporting Manager. Your training will consist of two stages: an initial basic training period of <strong>3 (three) days</strong> from the date of joining, followed by a comprehensive training period of <strong>24 (twenty-four) days</strong>. Please note that <strong>no leave will be permitted</strong> during the training period.</p>
@@ -88,9 +86,24 @@ function buildJoiningLetterHTML(w, dateText, hrNameText, subjectText, ngoKey) {
 </ul>
 <p style="margin:0 0 6px 0">All volunteers are expected to adhere to the highest standards of professionalism, integrity, and confidentiality. Any breach of the company's code of conduct or confidentiality policies may result in disciplinary action, including termination of employment.</p>
 <p style="margin:0 0 6px 0">Please note that during the probation period, you will not be eligible for any other monetary benefits beyond the stipulated stipend. If a volunteer absconds or voluntarily leaves during the training period, they will not be eligible for any training salary or compensation.</p>
-<p style="margin:0 0 6px 0">We look forward to a long and mutually rewarding association with you. Welcome aboard!</p>
+<p style="margin:0 0 6px 0">We look forward to a long and mutually rewarding association with you. Welcome aboard!</p>`;
+  const signatureHtml = ucs
+    ? `<p style="margin:0 0 2px 0">Regards,</p><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${company}</strong></p>`
+    : `<p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p>`;
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
+<div><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
 </div>
-<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>HR,</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p></div>
+<svg width="100%" height="20" viewBox="0 0 700 20" preserveAspectRatio="none" style="display:block"><path d="M0,10 Q175,20 350,10 Q525,0 700,10 L700,20 L0,20 Z" fill="#0B73C4" /></svg>
+<div style="height:2px;background:#F58220;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">${ucs ? subj : `Subject: ${subj}`}</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+<div style="margin-bottom:6px"><strong>Dear ${titleCase(w.name)},</strong></div>
+<div style="text-align:justify">
+${bodyHtml}
+</div>
+<div style="margin-top:12px">${signatureHtml}</div>
 <div style="margin-top:14px;padding-top:4px"><svg width="100%" height="14" viewBox="0 0 700 14" preserveAspectRatio="none" style="display:block;margin-bottom:3px"><path d="M0,7 Q175,0 350,7 Q525,14 700,7 L700,14 L0,14 Z" fill="#0B73C4" /></svg><div style="height:2px;background:#F58220;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
 </div>`;
 }
@@ -629,7 +642,7 @@ export default function Letters() {
         ) : (
         <div className="form-row">
           <label className="field" style={{ flex: '0 0 105px', minWidth: 0 }}>NGOs
-            <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN']} />
+            <Dropdown value={ngo} onChange={e=>setNgo(e.target.value)} options={['BSCT','AFLF','MANN','UCS']} />
           </label>
           <label className="field" style={{ flex: '0 0 150px', minWidth: 0 }}>Volunteer
             <Dropdown value={name} onChange={e=>setName(e.target.value)} searchable
