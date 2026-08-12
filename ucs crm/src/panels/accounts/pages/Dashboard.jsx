@@ -276,8 +276,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '')}
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); return; }
-                  if (clickRef.current) clearTimeout(clickRef.current);
-                  clickRef.current = setTimeout(() => { clickRef.current = null; setViewingId(l.log_id); }, 240);
+                  onSelectLead(null);
                 }}
                 onDoubleClick={() => {
                   if (!onSelectLead) return;

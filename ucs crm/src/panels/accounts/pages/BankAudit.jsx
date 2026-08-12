@@ -194,9 +194,18 @@ function AgentPicker({ value, workers, onChange }){
 }
 
 // ─── Audit Stat Cards ──────────────────────────────────────
-export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null}){
+export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null,total=null}){
   return <div className="stats-grid">
     {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
+      {total!=null&&<div className="stat-card">
+        <div className="stat-icon" style={{background:'#11182718',color:'#111827'}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg>
+        </div>
+        <div className="stat-info">
+          <div className="stat-num" style={{color:'#111827'}}>{total.entries+total.suspense}</div>
+          <div className="stat-lbl">Total · {total.entries} entries + {total.suspense} suspense</div>
+        </div>
+      </div>}
       {sources.filter(s=>s.is_active!==false).map((s,i)=><div className="stat-card" key={s.id}>
         <div className="stat-icon" style={{background:C[i%C.length]+'18',color:C[i%C.length]}}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="12 2 2 7 2 9 22 9 22 7 12 2"/><rect x="4" y="11" width="3" height="7"/><rect x="10.5" y="11" width="3" height="7"/><rect x="17" y="11" width="3" height="7"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
@@ -225,7 +234,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onViewReceipt,onAutoMatch,am,selectedEntryId,onSelectEntry,leadFilterKey}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onViewReceipt,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey}){
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -323,7 +332,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
         <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+(selectedEntryId===e.id?' is-selected':'')}
-          onClick={()=>{if(onSelectEntry){if(e.kind!=='suspense'&&!e.match_status)onSelectEntry(e);return}onOpen(e)}}
+          onClick={()=>{if(onSelectEntry){if(selectionEnabled&&e.kind!=='suspense'&&!e.match_status)onSelectEntry(e);return}onOpen(e)}}
           onDoubleClick={()=>{if(onSelectEntry)onOpen(e)}}>
           <div className="ec-main">
             <div className="ec-primary">
@@ -351,7 +360,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 }
 
 // ─── Main ──────────────────────────────────────────────────
-export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,leadFilter,globalNgo}){
+export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
@@ -393,13 +402,21 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const useGlobalNgo = globalNgo !== undefined;
   const ngoFilter = useGlobalNgo ? globalNgo : nf;
-  const suspenseNgo = useGlobalNgo ? globalNgo : snf;
+  const suspenseNgo = useGlobalNgo ? (cardSuspenseNgo !== undefined ? cardSuspenseNgo : globalNgo) : snf;
 
   const suspense=useMemo(()=>{
     const rows=e.filter(x=>x.kind==='suspense'&&(!suspenseNgo||matchesNgo(x,suspenseNgo)));
     return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
   },[e,suspenseNgo]);
-  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf})},[sr,su,ld,embedded,suspense,suspenseNgo,useGlobalNgo]);
+
+  // Rows in the loaded audit list split into bank entries vs suspense receipts,
+  // so the stat cards can show a combined total that matches the list count.
+  const total=useMemo(()=>{
+    let entries=0,suspenseRows=0;
+    for(const x of e){if(x.kind==='suspense')suspenseRows++;else entries++}
+    return {entries,suspense:suspenseRows};
+  },[e]);
+  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf,total})},[sr,su,ld,embedded,suspense,suspenseNgo,useGlobalNgo]);
 
   const fe=e.filter(en=>{
     if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
@@ -521,7 +538,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const openDetail=(entry)=>{openE(entry)};
 
   return <div>
-    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense} suspenseNgo={snf} setSuspenseNgo={setSnf}/></div>}
+    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense} suspenseNgo={snf} setSuspenseNgo={setSnf} total={total}/></div>}
 
     {/* Pending / History sub-tabs */}
     <div style={{marginBottom:16,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',background:'#fff'}}>
@@ -550,7 +567,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       handleAddSrc={addSrc} handleDelSrc={delSrc}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={openDetail}
       onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
-      onViewReceipt={setRp} selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry}
+      onViewReceipt={setRp} selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry} selectionEnabled={selectionEnabled}
       leadFilterKey={leadFilter ? `${leadFilter.amount}|${leadFilter.ngo || ''}` : ''}
     />
 
