@@ -139,14 +139,6 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
 
   const exportExcel = () => {
     const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
-    const project = l => {
-      const s = String(l.project_supported || '').trim().toLowerCase();
-      if (!s) return 'NA';
-      if (s === 'bsct' || s === 'being sevak' || s === 'beingsevak') return 'bsct';
-      if (s === 'mann' || s === 'mann care' || s === 'manncare') return 'mann';
-      if (s === 'aflf' || s === 'ashray') return 'aflf';
-      return s;
-    };
     const remark = l => l.accounts_status === 'rejected'
       ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
       : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
@@ -162,7 +154,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
         'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
         mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
         l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_datetime || l.verified_at),
-        'NA', project(l), 'Corpus', na(remark(l)), 'NA',
+        'NA', 'NA', 'Corpus', na(remark(l)), 'NA',
       ];
     })];
     if (filtered.length === 0) { alert('No leads to export'); return }
