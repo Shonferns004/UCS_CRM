@@ -118,7 +118,8 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
     return result.filter(l =>
       (l.donor_name || '').toLowerCase().includes(q) ||
       (l.donor_mobile || '').includes(q) ||
-      (l.agent_name || '').toLowerCase().includes(q)
+      (l.agent_name || '').toLowerCase().includes(q) ||
+      String(l.amount || '').toLowerCase().includes(q)
     );
   }, [leads, searchQuery, ngoActive]);
 
@@ -215,7 +216,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       <div className="card">
         <div className="filter-bar">
           <input
-            placeholder="Search donor / phone / agent / txn ID..."
+            placeholder="Search donor / phone / agent / amount..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 200, minWidth: 0 }}

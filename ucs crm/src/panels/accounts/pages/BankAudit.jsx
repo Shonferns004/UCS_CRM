@@ -82,6 +82,18 @@ function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18p
 
 function IconBtn({on,ch,dis,title,bg='#fff',fg='var(--sage)',style}){return <button className="btn btn-sm fb-btn" onClick={on} disabled={dis} title={title} aria-label={title} style={{background:bg,color:fg,border:'none',opacity:dis?.5:1,...style}}>{ch}</button>}
 
+const fieldStyle={padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s, box-shadow .15s',outline:'none',width:'100%',boxSizing:'border-box'};
+const fieldFocus={borderColor:'var(--sage)',boxShadow:'0 0 0 3px rgba(22,163,74,.08)'};
+function FieldSection({title,children,style}){
+  return <div style={{marginBottom:20,...style}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+      <span style={{width:3,height:14,borderRadius:3,background:'var(--sage)',flexShrink:0}}/>
+      <span style={{fontSize:13,fontWeight:700,color:'#111827',letterSpacing:'-.01em'}}>{title}</span>
+    </div>
+    {children}
+  </div>;
+}
+
 // ─── Lead (Log) Picker ────────────────────────────────────
 function LeadPicker({ value, locked, onPick, onClear }){
   const [open,setOpen]=useState(false);
@@ -112,24 +124,27 @@ function LeadPicker({ value, locked, onPick, onClear }){
   },[]);
 
   if(value){
-    return <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px',borderRadius:8,border:'1.5px solid #d1d5db',background:'#f3f4f6',fontSize:12,color:'#374151',minWidth:0}}>
+    return <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,border:'1.5px solid #cfe3cb',background:'#f0f7ef',fontSize:12,color:'#14532d',minWidth:0}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
       <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{locked?`Linked to Lead #${value}`:`Lead #${value}`}</span>
-      {locked?<span style={{color:'#9ca3af',flexShrink:0}}>· locked</span>:<button type="button" onClick={onClear} style={{marginLeft:'auto',flexShrink:0,border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11}}>Clear</button>}
+      {locked?<span style={{color:'#6b7280',flexShrink:0}}>· locked</span>:<button type="button" onClick={onClear} style={{marginLeft:'auto',flexShrink:0,border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11,fontWeight:600}}>Clear</button>}
     </div>;
   }
 
   return <div ref={boxRef} style={{position:'relative'}}>
-    <input className="field-input" placeholder="Search pending lead (donor / mobile / FRO)..." value={q}
+    <input className="field-input" placeholder="Search pending lead (donor / mobile / FRO / amount)..." value={q}
       onChange={e=>{setQ(e.target.value);setOpen(true)}}
-      onFocus={()=>setOpen(true)}
-      style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box'}}/>
-    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:260,overflowY:'auto'}}>
-      {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>Searching...</div>
-        :err?<div style={{padding:14,fontSize:12,color:'#dc2626'}}>{err}</div>
-        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No pending leads found</div>
+      style={{...fieldStyle,width:'100%',boxSizing:'border-box'}}
+      onFocus={()=>setOpen(true)}/>
+    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 6px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,.14)',overflow:'hidden'}}>
+      <div style={{padding:'8px 12px',background:'#f9fafb',borderBottom:'1px solid #eef0f3',fontSize:11,fontWeight:600,color:'#6b7280'}}>Pending leads</div>
+      <div style={{maxHeight:260,overflowY:'auto'}}>
+      {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>Searching...</div>
+        :err?<div style={{padding:14,fontSize:12,color:'#dc2626',textAlign:'center'}}>{err}</div>
+        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>No pending leads found</div>
         :leads.map(l=><button key={l.log_id} type="button" onClick={()=>{onPick(l);setOpen(false);setQ('')}}
-          style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
-          onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+          style={{display:'block',width:'100%',textAlign:'left',padding:'10px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12,transition:'background .12s'}}
+          onMouseOver={e=>{e.currentTarget.style.background='#f0f7ef'}} onMouseOut={e=>{e.currentTarget.style.background='#fff'}}>
           <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
             <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.donor_name||'Unknown'}</span>
             <span style={{fontWeight:700,color:'var(--sage)',whiteSpace:'nowrap'}}>{curr(l.amount||0)}</span>
@@ -138,6 +153,7 @@ function LeadPicker({ value, locked, onPick, onClear }){
             {l.donor_mobile||'\u2014'} · {l.agent_name||'No FRO'} · #{l.log_id}
           </div>
         </button>)}
+      </div>
     </div>}
   </div>;
 }
@@ -238,6 +254,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
   ):filtered;
   const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
+  const suspenseCount=filtered.filter(e=>e.kind==='suspense').length;
   const pageCount=Math.max(1,Math.ceil(visible.length/PAGE_SIZE));
   const pageItems=visible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
   useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq]);
@@ -274,6 +291,10 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     </div>}
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
       <div className="filter-bar">
+        <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700,padding:'5px 11px',borderRadius:999,background:suspenseCount>0?'#FDE7DB':'#f3f4f6',color:suspenseCount>0?'#B5603A':'#9ca3af',whiteSpace:'nowrap'}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
+          {suspenseCount} Suspense
+        </span>
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
           <ModernMonthDateInput
@@ -339,7 +360,10 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
-            <button title="View Receipt" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onViewReceipt(e)}}>
+            <button title="Edit" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onOpen(e)}}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button title="View Receipt" className="ec-action" style={{marginLeft:4}} onClick={ev=>{ev.stopPropagation();onViewReceipt(e)}}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             </button>
           </div>
@@ -448,83 +472,79 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     <>
       <DonorPicker onPick={d=>setFm(p=>({...p,donor_id:d.id||p.donor_id,payer_name:d.name||p.payer_name,donor_name:d.name||p.donor_name,donor_mobile:d.mobile_number||p.donor_mobile,donor_email:d.email||p.donor_email,donor_pan:d.pan_number||p.donor_pan,donor_address_1:d.address_1||p.donor_address_1,donor_address_2:d.address_2||p.donor_address_2,donor_city:d.city||p.donor_city,donor_pin_code:d.pin_code||p.donor_pin_code,log_id:'',_lead_amount:null}))} prefill={isEdit?((fm.donor_mobile&&fm.donor_mobile!=='NA')?fm.donor_mobile:(fm.donor_name||'')):''}/>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Transaction Details</div>
+      <FieldSection title="Transaction Details">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Source <span style={{color:'#dc2626'}}>*</span></span>
-            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&seEntry.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:isEdit&&seEntry&&seEntry.kind==='suspense'?'#f3f4f6':'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&seEntry.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&seEntry.kind==='suspense'?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select source...</option>
               {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
-            <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
         </div>
-        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4,marginTop:12}}>
+        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
           <span>NGO</span>
-          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
             {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
           </select>
         </label>
-      </div>
+      </FieldSection>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Date & Time</div>
+      <FieldSection title="Date & Time">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
             <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payment Time {!isEdit&&<span style={{color:'#dc2626'}}>*</span>}</span>
             <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
           </label>
         </div>
-      </div>
+      </FieldSection>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Agent & Lead Link</div>
+      <FieldSection title="Agent & Lead Link">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
             <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
             <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&seEntry.kind!=='suspense'&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
           </label>
         </div>
         {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
-          <div style={{marginTop:10,padding:'8px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+          <div style={{marginTop:10,padding:'9px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
             <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
             <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
           </div>}
-      </div>
+      </FieldSection>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Additional Info</div>
+      <FieldSection title="Additional Info">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payer Name</span>
-            <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payment ID</span>
-            <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Check ID</span>
-            <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Remarks</span>
-            <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
         </div>
-      </div>
+      </FieldSection>
     </>
   );
 
@@ -557,21 +577,21 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     />
 
     {/* Add Entry Modal */}
-    {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden'}}>
-      <div style={{padding:'16px 20px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f9fafb'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:36,height:36,borderRadius:10,background:isEdit?'#2563eb18':'var(--sage-light, #e8f0e4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+    {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden',borderTop:'3px solid var(--sage)'}}>
+      <div style={{padding:'18px 24px',borderBottom:'1px solid #eef0f3',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#fff'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:40,height:40,borderRadius:12,background:isEdit?'#2563eb18':'#e8f0e4',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'inset 0 0 0 1px rgba(22,101,52,.08)'}}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isEdit?'#2563eb':'var(--sage)'} strokeWidth="2" strokeLinecap="round">{isEdit?<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>}</svg>
           </div>
           <div>
-            <h3 style={{fontSize:15,fontWeight:700,margin:0,color:'#111827'}}>{isEdit?'Edit Entry':'New Bank Entry'}</h3>
-            <p style={{fontSize:11,color:'#9ca3af',margin:0}}>{isEdit?(se.kind==='suspense'?'Update suspense receipt details':'Update entry details'):'Record a new transaction'}</p>
+            <h3 style={{fontSize:16,fontWeight:700,margin:0,color:'#111827',letterSpacing:'-.01em'}}>{isEdit?'Edit Entry':'New Bank Entry'}</h3>
+            <p style={{fontSize:12,color:'#6b7280',margin:0,marginTop:2}}>{isEdit?(se.kind==='suspense'?'Update suspense receipt details':'Update entry details'):'Record a new transaction'}</p>
           </div>
         </div>
-        <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:30,height:30,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#e5e7eb';e.currentTarget.style.color='#374151'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
+        <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:32,height:32,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
       </div>
-      <div className="modal-body" style={{padding:'16px 20px',maxHeight:'75vh',overflowY:'auto'}}>
-        {fer&&<div style={{marginBottom:14,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:8}}>
+      <div className="modal-body" style={{padding:'20px 24px',maxHeight:'72vh',overflowY:'auto'}}>
+        {fer&&<div style={{marginBottom:16,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:8}}>
           <div style={{width:20,height:20,borderRadius:'50%',background:'#dc262618',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
           </div>{fer}
@@ -581,9 +601,9 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
 
       </div>
-      <div style={{padding:'14px 20px',borderTop:'1px solid #f3f4f6',display:'flex',gap:10,justifyContent:'flex-end',background:'#fafafa',borderRadius:'0 0 14px 14px'}}>
-        <button className="btn btn-sm" onClick={()=>{setSa(false);setFer('')}} style={{padding:'8px 18px',borderRadius:8,fontSize:12,fontWeight:600}}>Cancel</button>
-        <button className="btn btn-sm" onClick={addEntry} disabled={sv} style={{padding:'8px 20px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,transition:'all .15s'}}>
+      <div style={{padding:'16px 24px',borderTop:'1px solid #eef0f3',display:'flex',gap:10,justifyContent:'flex-end',background:'#fafafa',borderRadius:'0 0 14px 14px'}}>
+        <button className="btn btn-sm" onClick={()=>{setSa(false);setFer('')}} style={{padding:'9px 18px',borderRadius:8,fontSize:12,fontWeight:600,border:'1px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#f3f4f6'}} onMouseOut={e=>{e.currentTarget.style.background='#fff'}}>Cancel</button>
+        <button className="btn btn-sm" onClick={addEntry} disabled={sv} style={{padding:'9px 22px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,cursor:sv?'not-allowed':'pointer',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.95)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
           {sv?'Adding...':'Add Entry'}
         </button>
       </div>
