@@ -762,7 +762,14 @@ export const searchDonorsForSuspense = async (req, res) => {
 export const listFroSuspense = async (req, res) => {
   try {
     const entries = await BankAudit.getSuspenseForFro(req.user.id);
-    return res.json(entries);
+    const filtered = entries.filter(e => {
+      if (!e.receipts) return true;
+      const r = e.receipts;
+      if (r.donor_id) return false;
+      if (r.agent_name && r.agent_name !== '' && String(r.agent_name).trim().toLowerCase() !== 'suspense') return false;
+      return true;
+    });
+    return res.json(filtered);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
