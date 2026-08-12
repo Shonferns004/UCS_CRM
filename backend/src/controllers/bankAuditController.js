@@ -197,6 +197,12 @@ export const listEntries = async (req, res) => {
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
+      // A receipt linked to an entry that is still unlinked (no donor, no log)
+      // and not a Priyank Shah donation is unresolved money — expose the entry
+      // as a suspense row so the UI counts and styles it with the suspense pool.
+      e.kind = (r && !r.donor_id && !r.log_id && !BankAudit.isPriyankShahAgent(r.agent_name))
+        ? 'suspense'
+        : 'entry';
       delete e.receipts;
     }
 
