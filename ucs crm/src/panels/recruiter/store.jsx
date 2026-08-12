@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useState, useMemo, useEffect } from 'react'
+import { createContext, useContext, useCallback, useState, useMemo, useEffect, useRef } from 'react'
 import { useUcs } from '../../store'
 import { api } from '../../api/auth'
 import { useRealtime } from '../../hooks/useRealtime'
@@ -72,6 +72,7 @@ export function RecProvider({ children }) {
   const [leads, setLeads] = useState([])
   const [leadsLoading, setLeadsLoading] = useState(true)
   const [leadFilters, setLeadFilters] = useState({ search: '', status: '', source: '' })
+  const createdLeadRef = useRef(null)
 
   const fetchLeads = useCallback(async (silent) => {
     if (!token) return
@@ -83,7 +84,13 @@ export function RecProvider({ children }) {
       if (leadFilters.source) params.set('source', leadFilters.source)
       const qs = params.toString()
       const data = await api('/leads' + (qs ? '?' + qs : ''), { _prefix: 'ucs' })
-      setLeads(data)
+      const created = createdLeadRef.current
+      if (created && !data.some(d => d.id === created.id)) {
+        setLeads([created, ...data])
+      } else {
+        setLeads(data)
+      }
+      createdLeadRef.current = null
     } catch (e) { console.error('Error:', e.message); } finally { setLeadsLoading(false) }
   }, [token, leadFilters])
 
@@ -113,6 +120,7 @@ export function RecProvider({ children }) {
         const withoutTemp = p.filter(l => l.id !== temp.id && l.id !== realId)
         return [merged, ...withoutTemp]
       })
+      createdLeadRef.current = merged
     } catch (err) {
       console.error('addLead failed:', err?.message || err)
       setLeads(p => p.filter(l => l.id !== temp.id))

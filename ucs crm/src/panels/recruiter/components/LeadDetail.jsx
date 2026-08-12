@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRec, LEAD_STATUSES } from '../store';
 import { ArrowLeft } from '../icons';
+import { cleanField } from './ui';
 
 const calcAge = (dob) => {
   if (!dob) return null;
@@ -50,19 +51,8 @@ export default function LeadDetail({ lead, onBack }) {
           <div><strong>Name</strong><p>{lead.name}</p></div>
           <div><strong>Phone</strong><p>{lead.phone || '—'}</p></div>
           <div><strong>DOB</strong><p>{lead.dob ? new Date(lead.dob).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—'}{age ? ` (Age: ${age})` : ''}</p></div>
-          <div><strong>Source</strong><p>{lead.source}</p></div>
+          <div><strong>Source</strong><p>{cleanField(lead.source)}</p></div>
           <div><strong>Created by</strong><p>{lead.created_by_name || '—'}</p></div>
-          <div><strong>Status</strong>
-            <p style={{marginTop:4}}>
-              {isOwner ? (
-                <select value={lead.status || ''} onChange={async e => { await updateLead(lead.id, { status: e.target.value }); }}
-                  style={{ border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'4px 8px', fontSize:12, fontFamily:'inherit', outline:'none', background:'var(--paper)', color:'var(--ink)', cursor:'pointer' }}>
-                  <option value="">Select status</option>
-                  {LEAD_STATUSES.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
-                </select>
-              ) : statusPill(lead.status)}
-            </p>
-          </div>
       </div>
       </div>
 
