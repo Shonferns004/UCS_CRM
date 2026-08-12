@@ -47,7 +47,9 @@ Return ONLY valid JSON, an array of exactly 10 question objects:
 - The last 3 must have "type": "short", each with only "question" and "answer": "".
 
 Rules:
-- All 10 questions must be general knowledge (GK) questions (geography, history, science, current affairs, basic logic) AND be relevant to the "${role}" role — e.g. domain news, tools, terminology and everyday concepts the candidate should know.
+- All 10 questions must be PURE general knowledge (GK): geography, history, science, current affairs, basic logic, everyday practical awareness, communication and simple reasoning.
+- STRICTLY do NOT test the "${role}" role's own technical/domain knowledge. Do NOT ask about role-specific tools, software, jargon, procedures or terminology (e.g. for Accounts do NOT ask about ledgers/GAAP/GST; for Telecalling do NOT ask about leads/call scripts/sales; for Graphic Designer do NOT ask about CMYK/design software; for Web App Developer do NOT ask about code/frameworks; for HR do NOT ask about labour laws/onboarding).
+- The questions should still be relevant to the "${role}" context — everyday general awareness and practical concepts that a well-informed candidate applying for this role should know — but must be answerable WITHOUT any role-specific training.
 - Questions must be simple, practical and unambiguous.
 - Keep options short.
 - Do NOT prefix options with letters or numbering (just the option text itself).
