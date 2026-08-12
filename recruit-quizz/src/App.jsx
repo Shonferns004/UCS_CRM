@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { generateQuiz, submitQuiz } from './api'
-import { getT, getQuizT } from './translations'
 
 const ROLES = [
   { value: 'accounts', label: 'Accounts' },
@@ -19,21 +18,6 @@ const ROLE_LABELS = {
   hr: 'HR',
   others: 'Other',
 }
-
-const LANGUAGES = [
-  'English',
-  'Hindi',
-  'Gujarati',
-  'Marathi',
-  'Tamil',
-  'Telugu',
-  'Kannada',
-  'Malayalam',
-  'Bengali',
-  'Punjabi',
-  'Odia',
-  'Urdu',
-]
 
 function Field({ label, required, children }) {
   return (
@@ -130,8 +114,7 @@ function FormStep({ onStart }) {
   )
 }
 
-function InstructionsStep({ candidate, language, onStart, onBack }) {
-  const t = getT(language)
+function InstructionsStep({ candidate, onStart, onBack }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -150,11 +133,19 @@ function InstructionsStep({ candidate, language, onStart, onBack }) {
     <div className="page center">
       <div className="content">
         <div className="login-logo">UCS</div>
-        <h1 className="auth-title">{t.instTitle}</h1>
-        <p className="auth-sub">Hi {candidate.name}, {t.instSub}</p>
+        <h1 className="auth-title">Quiz Instructions</h1>
+        <p className="auth-sub">Hi {candidate.name}, please read these before you begin.</p>
 
         <div className="inst-list">
-          {t.instItems.map((item, i) => (
+          {[
+            'The quiz has 10 questions.',
+            'It includes 7 multiple choice and 3 short answer questions.',
+            'Pick the single best option for multiple choice questions.',
+            'For short answers, write clearly in 1–2 sentences.',
+            'You can take help from Google / search while answering.',
+            'You have 5 minutes, plus 1 extra minute as grace. The quiz submits automatically when time runs out.',
+            'You can move back and forth to review your answers before submitting.',
+          ].map((item, i) => (
             <div className="inst-item" key={i}>
               <span className="inst-num">{i + 1}</span>
               <p>{item}</p>
@@ -162,14 +153,14 @@ function InstructionsStep({ candidate, language, onStart, onBack }) {
           ))}
         </div>
 
-        <div className="inst-note">{t.instNote}</div>
+        <div className="inst-note">Your answers are evaluated by AI. We will get back to you with the result.</div>
 
         {err && <div className="error" style={{ marginBottom: 12 }}><span>!</span> {err}</div>}
 
         <div className="inst-actions">
-          <button className="btn btn-ghost" onClick={onBack}>{t.goBack}</button>
+          <button className="btn btn-ghost" onClick={onBack}>Go Back</button>
           <button className="btn btn-primary btn-block" onClick={start} disabled={busy}>
-            {busy ? t.preparing : t.startQuiz}
+            {busy ? 'Preparing your quiz…' : 'Start Quiz'}
             {!busy && <span className="btn-arrow">→</span>}
           </button>
         </div>
@@ -178,53 +169,7 @@ function InstructionsStep({ candidate, language, onStart, onBack }) {
   )
 }
 
-function LanguageStep({ candidate, locked, language, onPick, onContinue, onBack }) {
-  const [sel, setSel] = useState(language || 'English')
-  const t = getT(locked ? language : sel)
-
-  const start = () => {
-    if (locked) return onContinue()
-    onPick(sel)
-  }
-
-  return (
-    <div className="page center">
-      <div className="content">
-        <div className="login-logo">UCS</div>
-        <h1 className="auth-title">{t.langTitle}</h1>
-        <p className="auth-sub">Hi {candidate.name}, {t.langSub}</p>
-
-        <div className="lang-row" style={{ marginBottom: 14 }}>
-          {LANGUAGES.map((lang) => (
-            <button
-              type="button"
-              key={lang}
-              className={`lang-chip ${sel === lang ? 'sel' : ''}`}
-              onClick={() => setSel(lang)}
-              disabled={locked}
-            >
-              {lang}
-            </button>
-          ))}
-        </div>
-
-        {locked
-          ? <div className="inst-note">🔒 {t.langLocked}</div>
-          : <div className="inst-note">⚠️ {t.langNote}</div>}
-
-        <div className="inst-actions">
-          <button className="btn btn-ghost" onClick={onBack}>{t.goBack}</button>
-          <button className="btn btn-primary btn-block" onClick={start} disabled={locked ? false : !sel}>
-            {locked ? t.continueQuiz : t.startQuiz}
-            {!locked && <span className="btn-arrow">→</span>}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
+function QuizStep({ candidate, questions, onSubmit, onBack }) {
   const [answers, setAnswers] = useState({})
   const [index, setIndex] = useState(0)
   const [error, setError] = useState('')
@@ -234,7 +179,6 @@ function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
   const submittedRef = useRef(false)
   const submitRef = useRef(null)
 
-  const qt = getQuizT(language || 'English')
   const q = questions[index]
   const isLast = index === questions.length - 1
   const answered = String(answers[index] || '').trim()
@@ -271,7 +215,7 @@ function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
   }
 
   const next = () => {
-    if (!answered) return setError(qt.answerRequired)
+    if (!answered) return setError('Please answer this question to continue.')
     setError('')
     if (isLast) {
       submitAll()
@@ -310,7 +254,7 @@ function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
           </button>
           <div className="quiz-top-mid">
             <div className="quiz-count">
-              {qt.question} {index + 1} <span>{qt.of} {questions.length}</span>
+              Question {index + 1} <span>of {questions.length}</span>
             </div>
             <div className="quiz-progress">
               {questions.map((_, i) => (
@@ -330,7 +274,7 @@ function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
         <div className="quiz-body-inner">
           <div className="quiz-meta">
             <span className="quiz-role">{candidate.role_label}</span>
-            <span className="quiz-pill">{q.type === 'mcq' ? qt.mcq : qt.short}</span>
+            <span className="quiz-pill">{q.type === 'mcq' ? 'Multiple Choice' : 'Short Answer'}</span>
           </div>
 
           <div className={`q-slide ${anim}`} key={index}>
@@ -359,11 +303,11 @@ function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
                 <textarea
                   value={answers[index] || ''}
                   onChange={(e) => { setAnswers({ ...answers, [index]: e.target.value }); setError('') }}
-                  placeholder={qt.answerPlaceholder}
+                  placeholder="Type your answer here…"
                   rows={6}
                   autoFocus
                 />
-                <div className="char-hint">{String(answers[index] || '').trim().length} {qt.characters}</div>
+                <div className="char-hint">{String(answers[index] || '').trim().length} characters</div>
               </div>
             )}
 
@@ -376,10 +320,10 @@ function QuizStep({ candidate, language, questions, onSubmit, onBack }) {
         <div className="quiz-bottom-inner">
           <button className="btn-back" onClick={back}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-            {index === 0 ? qt.exit : qt.back}
+            {index === 0 ? 'Exit' : 'Back'}
           </button>
           <button className="btn-next" onClick={next} disabled={!answered || loading}>
-            {loading ? qt.submitting : isLast ? qt.submitQuiz : qt.next}
+            {loading ? 'Submitting…' : isLast ? 'Submit Quiz' : 'Next'}
             {!loading && <span className="btn-arrow">→</span>}
           </button>
         </div>
@@ -409,24 +353,15 @@ export default function App() {
   const [step, setStep] = useState('form')
   const [candidate, setCandidate] = useState(null)
   const [questions, setQuestions] = useState([])
-  const [language, setLanguage] = useState('English')
-  const [locked, setLocked] = useState(false)
 
   const saveDetails = (details) => {
     setCandidate(details)
-    setStep('language')
-  }
-
-  const chooseLanguage = (lang) => {
-    setLanguage(lang)
-    setLocked(true)
     setStep('instructions')
   }
 
   const beginQuiz = async () => {
     const data = await generateQuiz(
       candidate.role === 'others' ? candidate.other_role : candidate.role,
-      language,
     )
     const qs = Array.isArray(data.questions) ? data.questions : []
     if (qs.length !== 10) throw new Error('Could not generate a full quiz. Please try again.')
@@ -440,16 +375,14 @@ export default function App() {
       role: candidate.role,
       other_role: candidate.role === 'others' ? candidate.other_role : undefined,
       role_label: candidate.role_label,
-      language,
       questions,
       answers,
     })
     setStep('result')
   }
 
-  if (step === 'quiz') return <QuizStep candidate={candidate} language={language} questions={questions} onSubmit={submit} onBack={() => setStep('language')} />
+  if (step === 'quiz') return <QuizStep candidate={candidate} questions={questions} onSubmit={submit} onBack={() => setStep('instructions')} />
   if (step === 'result') return <ResultStep candidate={candidate} />
-  if (step === 'language') return <LanguageStep candidate={candidate} locked={locked} language={language} onPick={chooseLanguage} onContinue={() => setStep('quiz')} onBack={() => setStep('form')} />
-  if (step === 'instructions') return <InstructionsStep candidate={candidate} language={language} onStart={beginQuiz} onBack={() => setStep('language')} />
+  if (step === 'instructions') return <InstructionsStep candidate={candidate} onStart={beginQuiz} onBack={() => setStep('form')} />
   return <FormStep onStart={saveDetails} />
 }
