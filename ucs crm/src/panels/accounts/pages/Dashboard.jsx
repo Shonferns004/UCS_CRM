@@ -139,7 +139,14 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
 
   const exportExcel = () => {
     const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
-    const project = l => String(l.donor_project || '').trim() || 'NA';
+    const project = l => {
+      const s = String(l.project_supported || '').trim().toLowerCase();
+      if (!s) return 'NA';
+      if (s === 'bsct' || s === 'being sevak' || s === 'beingsevak') return 'bsct';
+      if (s === 'mann' || s === 'mann care' || s === 'manncare') return 'mann';
+      if (s === 'aflf' || s === 'ashray') return 'aflf';
+      return s;
+    };
     const remark = l => l.accounts_status === 'rejected'
       ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
       : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
