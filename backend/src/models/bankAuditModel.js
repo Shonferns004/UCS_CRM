@@ -1,16 +1,16 @@
 import db from '../config/db.js';
 
-// Suspense receipts: unlinked (donor_id null) and unclaimed (log_id null)
-// receipts with no agent or carrying the legacy 'Suspense' marker in agent_name.
+// Suspense receipts: any receipt that is unlinked (donor_id null) and unclaimed
+// (log_id null), regardless of agent_name — an agent-assigned receipt that is not
+// yet matched to a donor/log is still unresolved money.
 // They appear as rows in the bank audit list until matched (donor_id set),
-// claimed (log_id set), or assigned an agent.
+// claimed (log_id set), or verified.
 export const getUnlinkedReceipts = async () => {
   const { data, error } = await db
     .from('receipts')
     .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, created_at')
     .is('donor_id', null)
     .is('log_id', null)
-    .or('agent_name.is.null,agent_name.eq.Suspense')
     .order('receipt_date', { ascending: false });
   if (error) throw error;
   return data || [];

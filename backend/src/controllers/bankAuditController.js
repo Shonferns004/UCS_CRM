@@ -541,7 +541,6 @@ export const editSuspenseReceipt = async (req, res) => {
       .eq('id', numId)
       .is('donor_id', null)
       .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.Suspense')
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, payment_id, project_id, agent_name, donor_id, log_id, created_at')
       .maybeSingle();
     if (error) throw error;
@@ -575,7 +574,6 @@ export const removeSuspenseReceipt = async (req, res) => {
       .eq('id', numId)
       .is('donor_id', null)
       .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.Suspense')
       .maybeSingle();
     if (!existing) return res.status(404).json({ message: 'Suspense receipt not found' });
 
