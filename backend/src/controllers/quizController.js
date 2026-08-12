@@ -1,8 +1,9 @@
 import groq from '../config/groq.js';
 import db from '../config/db.js';
-import { QUIZ_BANK, GENERIC_BANK } from '../services/quizBank.js';
+import { appendQuizResult } from '../services/googleSheets.js';
+import { GK_BANK } from '../services/quizBank.js';
 
-const QUIZ_MODEL = 'llama-3.3-70b-versatile';
+const QUIZ_MODEL = 'llama-3.1-8b-instant';
 const PASS_PERCENT = 70;
 
 const ROLE_MAP = {
@@ -29,8 +30,8 @@ function extractJson(text) {
   }
 }
 
-function fallbackQuestions(role) {
-  return QUIZ_BANK[role.toLowerCase()] || GENERIC_BANK;
+function fallbackQuestions() {
+  return GK_BANK;
 }
 
 // Generate 10 role-based questions: 7 MCQ + 3 short answer.
@@ -39,18 +40,17 @@ export const generateQuiz = async (req, res) => {
     const role = String(req.body?.role || '').trim();
     if (!role) return res.status(400).json({ message: 'Role is required' });
 
-    const language = String(req.body?.language || 'English').trim().slice(0, 40) || 'English';
-
-    const prompt = `You are an interview coach. Generate a short skill quiz for a candidate applying for the role of "${normalizeRole(role)}" at a non-profit organisation.
+    const prompt = `You are an interview coach. Generate a short general knowledge (GK) quiz for a candidate applying for the role of "${normalizeRole(role)}" at a non-profit organisation.
 
 Return ONLY valid JSON, an array of exactly 10 question objects:
 - The first 7 must have "type": "mcq", each with "question", "options" (exactly 4 strings), and "answer" (the correct option text).
 - The last 3 must have "type": "short", each with only "question" and "answer": "".
 
 Rules:
-- Write ALL questions, options and answers in the language: "${language}".
-- Questions must be simple, practical and relevant to the "${role}" role.
-- Keep options short and unambiguous.
+- All 10 questions must be general knowledge (GK) questions (geography, history, science, current affairs, basic logic) AND be relevant to the "${role}" role — e.g. domain news, tools, terminology and everyday concepts the candidate should know.
+- Questions must be simple, practical and unambiguous.
+- Keep options short.
+- Do NOT prefix options with letters or numbering (just the option text itself).
 - Do not include any text outside the JSON array.`;
 
     let questions = null;
@@ -61,7 +61,7 @@ Rules:
           { role: 'user', content: prompt },
         ],
         model: QUIZ_MODEL,
-        max_tokens: 1500,
+        max_tokens: 900,
         temperature: 0.6,
       });
       const text = completion.choices?.[0]?.message?.content?.trim() || '';
@@ -157,10 +157,31 @@ export const submitQuiz = async (req, res) => {
 
     if (error) console.error('Failed to save quiz result:', error.message);
 
+    const roleLabel = role_label || normalizeRole(role);
+    const passed = percentage >= PASS_PERCENT;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    try {
+      await appendQuizResult({
+        Candidate: `${firstName} ${surname}`.trim(),
+        Role: roleLabel,
+        Age: candidate.age ? Number(candidate.age) : '',
+        Score: `${marks}/${maxMarks}`,
+        Percentage: `${percentage}%`,
+        Verdict: passed ? 'Eligible' : 'Not Eligible',
+        Date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+        Time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+        'Pass/Fail': passed ? 'PASS' : 'FAIL',
+        'AI Feedback': feedback,
+      });
+    } catch (sheetErr) {
+      console.error('Failed to append result to Google Sheet:', sheetErr.message);
+    }
+
     return res.json({
       id: row?.id || null,
       name: `${firstName} ${surname}`,
-      role: role_label || normalizeRole(role),
+      role: roleLabel,
       marks,
       max_marks: maxMarks,
       percentage,
@@ -203,12 +224,13 @@ async function gradeShortAnswers(shortAnswers, role) {
 
 async function buildFeedback(questions, answers, shortMarks, role, percentage) {
   try {
+    const passed = percentage >= PASS_PERCENT;
+    const system = passed
+      ? `You are a fun, encouraging interview coach. Write 2-3 sentences for a "${normalizeRole(role)}" quiz candidate who scored ${percentage}%. Congratulate them, mention their strengths, and encourage them for the interview.`
+      : `You are a cool but honest interview coach. A "${normalizeRole(role)}" quiz candidate scored ${percentage}% and did NOT pass. Write a dope, motivating 2-3 sentence reply explaining exactly why they failed — point to specific wrong multiple-choice questions and weak areas from their answers — and tell them what to study/improve. Keep it encouraging, never harsh.`;
     const completion = await groq.chat.completions.create({
       messages: [
-        {
-          role: 'system',
-          content: `You are an interview coach. Write 2-3 sentences of helpful feedback for a "${normalizeRole(role)}" quiz candidate who scored ${percentage}%. Mention strengths and areas to improve. Be encouraging and specific.`,
-        },
+        { role: 'system', content: system },
         { role: 'user', content: JSON.stringify({ questions, answers, short_marks: shortMarks }) },
       ],
       model: QUIZ_MODEL,

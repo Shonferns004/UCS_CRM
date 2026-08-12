@@ -15,10 +15,10 @@ async function request(path, options = {}) {
   }
 }
 
-export function generateQuiz(role, language) {
+export function generateQuiz(role) {
   return request('/quiz/generate', {
     method: 'POST',
-    body: JSON.stringify({ role, language }),
+    body: JSON.stringify({ role }),
   })
 }
 
