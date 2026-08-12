@@ -338,6 +338,8 @@ export const addEntry = async (req, res) => {
     const agentKnown = link?.receipt.agent_name || realAgentName(agent_name);
     const suspenseAgent = (donorKnown && agentKnown) ? agentKnown : 'Suspense';
 
+    const isSuspense = !donorKnown;
+
     if (receiptId) {
       const receiptFields = {
         amount,
@@ -351,11 +353,15 @@ export const addEntry = async (req, res) => {
       };
       const { data: updatedReceipt, error: rErr } = await db.from('receipts').update(receiptFields).eq('id', receiptId).select('id, receipt_no').single();
       if (rErr) throw rErr;
-      receiptNo = updatedReceipt.receipt_no;
+      if (updatedReceipt.receipt_no) {
+        receiptNo = updatedReceipt.receipt_no;
+      } else {
+        receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
+        const { error: numErr } = await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', receiptId);
+        if (numErr) throw numErr;
+      }
     } else {
-      receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
-      const { data: receipt, error: rErr } = await db.from('receipts').insert({
-        receipt_no: receiptNo,
+      const insertFields = {
         project_id: link?.receipt.project_id || ngo,
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
@@ -367,7 +373,12 @@ export const addEntry = async (req, res) => {
         receipt_time: payment_time || null,
         purpose: 'Bank Audit Entry',
         generated_by: req.user.id,
-      }).select().single();
+      };
+      if (!isSuspense) {
+        receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
+        insertFields.receipt_no = receiptNo;
+      }
+      const { data: receipt, error: rErr } = await db.from('receipts').insert(insertFields).select().single();
       if (rErr) throw rErr;
       receiptId = receipt.id;
     }
