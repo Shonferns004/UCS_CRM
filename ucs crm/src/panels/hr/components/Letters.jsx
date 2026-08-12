@@ -115,7 +115,7 @@ function buildNoBSDDeclarationHTML(w, dateText, hrNameText, subjectText, ngoKey)
 <div style="width:794px;margin:0 auto;box-sizing:border-box;padding:0 44px"><div style="height:1px;background:#ccd6e4;margin:16px 0 0"></div></div>
 </div>
 <div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:0 44px;position:relative;z-index:1">
-<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">${subj}</div>
+<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">Subject:- ${subj}</div>
 <div style="padding:10px 0 24px;line-height:1.7;text-align:justify">
 <table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 8px 0"><strong>Date:</strong> ${dateText}</td></tr></table>
 <p style="margin:0 0 10px 0">I, <strong>Mr./Ms. ${w.name}</strong>, residing at ____________________, have voluntarily joined <strong>${ngo.name}</strong> (Trust/Organization) as a Volunteer. I hereby declare and confirm the following:</p>
@@ -190,7 +190,7 @@ function buildODARDocumentHTML(w, dateText, hrNameText, subjectText, ngoKey, doc
 <div style="width:794px;margin:0 auto;box-sizing:border-box;padding:0 44px"><div style="height:1px;background:#ccd6e4;margin:16px 0 0"></div></div>
 </div>
 <div style="width:794px;margin:0 auto;box-sizing:border-box;flex:1;padding:0 44px;position:relative;z-index:1">
-<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">${subj}</div>
+<div style="text-align:center;font-size:18px;font-weight:700;color:#134987;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px">Subject:- ${subj}</div>
 <div style="padding:10px 0 24px;line-height:1.65;text-align:justify">
 <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
 <tr><td style="padding:4px 0"><strong>Organization Name:</strong> ${ngo.name}</td></tr>
@@ -276,7 +276,7 @@ function ODARDocumentPreview({ w, dateText, hrNameText, subject, ngoKey, docRows
       </div>
       </div>
       <div style={{ width: 794, margin: '0 auto', boxSizing: 'border-box', flex: 1, padding: '0 44px', position: 'relative', zIndex: 1 }}>
-      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#134987', textTransform: 'uppercase', letterSpacing: 0.5, margin: '20px 0 6px' }}>{subj}</div>
+      <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 700, color: '#134987', textTransform: 'uppercase', letterSpacing: 0.5, margin: '20px 0 6px' }}>Subject:- {subj}</div>
       <div style={{ padding: '10px 0 24px', textAlign: 'justify' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
         <tbody>
