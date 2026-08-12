@@ -128,7 +128,13 @@ export const confirmMatchCredit = async (entryId, actorId) => {
         receipt_time: entry.payment_time || null,
         bank_name: bankName,
       }).eq('id', entry.receipt_id).select().single();
-      receipt = updated;
+      if (updated.receipt_no) {
+        receipt = updated;
+      } else {
+        const receiptNo = await getNextReceiptNo(donor.project_supported || entry.project_id || 'bsct');
+        const { data: numbered } = await from('receipts').update({ receipt_no: receiptNo }).eq('id', entry.receipt_id).select().single();
+        receipt = numbered;
+      }
     } else if (existingLogReceipt) {
       // Money already receipted + credited via the earlier lead verification.
       await from('bank_audit_entries').update({ receipt_id: existingLogReceipt.id }).eq('id', entry.id);
@@ -161,6 +167,13 @@ export const confirmMatchCredit = async (entryId, actorId) => {
         donor_id: donorId,
       }).select().single();
       receipt = created;
+    }
+
+    if (receipt?.id) {
+      await from('bank_audit_entries').update({
+        receipt_id: receipt.id,
+        receipt_no: receipt.receipt_no || null,
+      }).eq('id', entry.id);
     }
 
     return { donor_id: donorId, log_id: log.id, amount, receipt_no: receipt?.receipt_no || null, receipt_id: receipt?.id || null };

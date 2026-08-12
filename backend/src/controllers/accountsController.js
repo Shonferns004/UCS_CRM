@@ -319,16 +319,22 @@ export const verifyLead = async (req, res) => {
       // Receipt already exists (e.g. created for a bank audit entry or a suspense
       // claim). Link it to the verified donor and mark its bank audit entry done.
       try {
-        await db.from('receipts').update({
+        const receiptPatch = {
           donor_id: donorId,
           bank_name: donorProfile?.donors_bank_name || null,
           address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
-        }).eq('id', existing.id);
+        };
+        if (!existing.receipt_no) {
+          existing.receipt_no = await getNextReceiptNo(donorProfile?.project_supported || 'bsct');
+          receiptPatch.receipt_no = existing.receipt_no;
+        }
+        await db.from('receipts').update(receiptPatch).eq('id', existing.id);
         await db.from('bank_audit_entries').update({
           donor_id: donorId,
           status: 'verified',
           matched_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          receipt_no: existing.receipt_no || null,
         }).eq('receipt_id', existing.id);
       } catch (err) { console.error('Failed to link existing receipt to donor:', err.message); }
     }
