@@ -15,13 +15,13 @@ const PROJECT_TABS = [
   { id: 'all', label: 'All' },
   { id: 'bsct', label: 'Being Sevak', color: '#3b82f6' },
   { id: 'aflf', label: 'Ashray Life', color: '#22c55e' },
-  { id: 'maan', label: 'Mann Care', color: '#ec4899' },
+  { id: 'mann', label: 'Mann Care', color: '#ec4899' },
 ]
 
 const PROJECT_TAB_COLORS = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' },
   aflf: { bg: '#dcfce7', text: '#16a34a', border: '#86efac' },
-  maan: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
+  mann: { bg: '#fce7f3', text: '#db2777', border: '#f9a8d4' },
 }
 
 // An FRO must only ever see conversations that have been explicitly assigned

@@ -36,7 +36,7 @@ const NAV_BASE = [
   { id: 'tickets', path: '/fro/tickets', label: 'Raise Ticket', Icon: Ticket },
 ]
 
-const INBOX_SHORT = { bsct: 'BSCT', aflf: 'AFLF', maan: 'MAAN' }
+const INBOX_SHORT = { bsct: 'BSCT', aflf: 'AFLF', mann: 'MANN' }
 
 const MAX_DROPDOWN = 4
 
