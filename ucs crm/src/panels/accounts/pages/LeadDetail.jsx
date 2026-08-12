@@ -36,6 +36,10 @@ function combineDatetime(date, time) {
   return d.toISOString();
 }
 
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
 function buildDonor(receipt) {
   return {
     'Receipt No.': receipt.receipt_no || '', 'Receipt Date': receipt.receipt_date || '',
