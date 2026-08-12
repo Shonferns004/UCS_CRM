@@ -248,7 +248,7 @@ export const getSuspenseForNgo = async () => {
 export const getSuspenseForFro = async (froId) => {
   const { data, error } = await db
     .from('bank_audit_entries')
-    .select('*, bank_audit_sources(name)')
+    .select('*, bank_audit_sources(name), receipts!receipt_id(id, donor_id, agent_name)')
     .eq('assigned_to_fro_id', froId)
     .neq('status', 'verified')
     .order('updated_at', { ascending: false });
