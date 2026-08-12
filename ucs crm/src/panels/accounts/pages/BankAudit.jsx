@@ -17,6 +17,11 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
 import * as XLSX from 'xlsx';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
+// A true suspense row is a bare suspense *receipt* (no bank_audit_entries row),
+// whose id is prefixed 'suspense-'. Entries whose linked receipt is unlinked are
+// also tagged kind:'suspense' by the backend, but they are real entries (numeric
+// id) and must keep using the entry endpoints for edit/delete.
+const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id === 'string' && String(r.id).indexOf('suspense-') === 0);
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',_lead_amount:null};
@@ -68,6 +73,14 @@ const fmtTime = t => {
   if (isNaN(h) || isNaN(m)) return t;
   const ap = h >= 12 ? 'PM' : 'AM';
   return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
+};
+const fmtDate = d => {
+  if (!d) return '';
+  const s = String(d);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) { const [y, m, dd] = s.split('-'); return dd + '-' + m + '-' + y; }
+  const dt = new Date(d);
+  if (isNaN(dt)) return s;
+  return String(dt.getDate()).padStart(2, '0') + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + dt.getFullYear();
 };
 function monthBounds(ym){
   const [y,m]=ym.split('-').map(Number);
@@ -242,7 +255,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onViewReceipt,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey}){
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -261,6 +274,16 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
+  const NGO_LABELS={bsct:'Being Sevak',mann:'Mann Care',aflf:'Ashray'};
+  const ngoOf=e=>{
+    const prj=(e.project_id||'').toLowerCase();
+    if(NGO_LABELS[prj])return prj;
+    const s=((e.bank_audit_sources?.name||'')+' '+(e.remarks||'')).toLowerCase();
+    if(/beingsevak|being sevak|\bsevak\b|\bbsct\b/.test(s))return 'bsct';
+    if(/ashray|\baflf\b/.test(s))return 'aflf';
+    if(/manncar|mann care|\bmann\b/.test(s))return 'mann';
+    return '';
+  };
   const exportExcel=()=>{
     const HEADERS=['Branch Name','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch Name'];
     const agent=v=>(v&&v!=='Suspense')?v:'';
@@ -345,27 +368,24 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : visible.length===0 ? (
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
-        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+(selectedEntryId===e.id?' is-selected':'')}
-          onClick={()=>{if(onSelectEntry){if(selectionEnabled){if(e.kind!=='suspense'&&!e.match_status)onSelectEntry(e)}else{onOpen(e)}return}onOpen(e)}}
-          onDoubleClick={()=>{if(onSelectEntry)onOpen(e)}}>
+        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
+          onClick={()=>{if(onSelectEntry&&selectionEnabled&&!isReceiptSuspense(e)&&!e.match_status)onSelectEntry(e)}}>
           <div className="ec-main">
             <div className="ec-primary">
               <div className="ec-title">{e.payer_name||'\u2014'}</div>
-              <div className="ec-sub">{e.transaction_date||'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}{e.receipt_no?' \u00B7 #'+e.receipt_no:''}</div>
+              <div className="ec-sub">{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}{e.receipt_no?' \u00B7 #'+e.receipt_no:''}</div>
             </div>
             <div className="ec-amount">{curr(e.amount)}</div>
-            <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
           </div>
           <div className="ec-meta">
             {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
             {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
+            {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
+            <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
             <button title="Edit" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onOpen(e)}}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <button title="View Receipt" className="ec-action" style={{marginLeft:4}} onClick={ev=>{ev.stopPropagation();onViewReceipt(e)}}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             </button>
           </div>
         </div>
@@ -446,19 +466,19 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date||!fm.payment_time){setFer('Source, amount, date, and payment time are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null,donor_id:fm.donor_id||null});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{
-    if(se.kind==='suspense'){
+    if(isReceiptSuspense(se)){
       await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.donor_name||fm.payer_name||null,donor_mobile:fm.donor_mobile||se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct',agent_name:fm.agent_name,log_id:fm.log_id||null});
     }else{
       await apiPut('/accounts/bank-audit/entries/'+se.id,fm);
     }
     setSe(null);setFm({...EMPTY_FM});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const delEntry=async()=>{if(!dci)return;try{
-    if(dci.kind==='suspense'){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
+    if(isReceiptSuspense(dci)){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
     else{await apiDelete('/accounts/bank-audit/entries/'+dci.id)}
     setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
-  const openE=(entry)=>{const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';if(entry.kind==='suspense'){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
+  const openE=(entry)=>{const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
   const orNa=(v,fallback)=>v||fallback||'NA';
   const pickLead=(l)=>{setFm(p=>({...p,log_id:l.log_id,donor_id:l.donor_id||'',payer_name:l.donor_name||p.payer_name,donor_name:l.donor_name||p.donor_name,donor_mobile:orNa(l.donor_mobile,p.donor_mobile),donor_email:orNa(l.donor_email,p.donor_email),donor_pan:orNa(l.donor_pan,p.donor_pan),donor_address_1:orNa(l.donor_address_1,p.donor_address_1),donor_address_2:orNa(l.donor_address_2,p.donor_address_2),donor_city:orNa(l.donor_city,p.donor_city),donor_pin_code:orNa(l.donor_pin_code,p.donor_pin_code),project_id:l.donor_project||p.project_id,agent_name:l.agent_name||p.agent_name,_lead_amount:Number(l.amount||0)}));};
   const clearLead=()=>setFm(p=>({...p,log_id:'',donor_id:'',donor_name:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',_lead_amount:null}));
@@ -477,7 +497,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Source <span style={{color:'#dc2626'}}>*</span></span>
-            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&seEntry.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&seEntry.kind==='suspense'?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
+            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select source...</option>
               {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
@@ -516,7 +536,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
           </label>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&seEntry.kind!=='suspense'&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
+            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&!isReceiptSuspense(seEntry)&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
           </label>
         </div>
         {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
@@ -573,7 +593,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       handleAddSrc={addSrc} handleDelSrc={delSrc}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={openDetail}
       onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
-      onViewReceipt={setRp} selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry} selectionEnabled={selectionEnabled}
+      selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry} selectionEnabled={selectionEnabled}
       leadFilterKey={leadFilter ? `${leadFilter.amount}|${leadFilter.ngo || ''}` : ''}
     />
 
@@ -660,7 +680,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </button>
       </div>
 
-      {st==='unverified'&&se.kind!=='suspense'&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
+      {st==='unverified'&&!isReceiptSuspense(se)&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
           <div style={{fontSize:12,color:'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.match_donor||''}{se.match_fro?` · ${se.match_fro}`:''}</div>

@@ -10,6 +10,15 @@ import { receivedMeta } from '../services/receivedSource';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
+const fmtDT = d => {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt)) return String(d);
+  const day = String(dt.getDate()).padStart(2, '0');
+  const mon = String(dt.getMonth() + 1).padStart(2, '0');
+  const h = dt.getHours(), m = dt.getMinutes();
+  return `${day}-${mon}-${dt.getFullYear()} \u00B7 ${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
 const LEAD_EXPORT_HEADERS = ['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
 
 const SkeletonNum = () => (
@@ -268,7 +277,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               </div>
             ) : (
               pageItems.map(l => (
-              <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '')}
+              <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '') + (l.bank_match ? (l.bank_match.match_source === 'manual' ? ' is-match-manual' : ' is-match-auto') : ' is-match-unmatched')}
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); onView?.(l.log_id); return; }
                   if (clickRef.current) clearTimeout(clickRef.current);
@@ -299,7 +308,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                     {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
                   </span>}
                   <span className="ec-agent">{l.agent_name || 'No agent'}</span>
-                  <span className="ec-date">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  <span className="ec-date">{fmtDT(l.transaction_datetime || l.created_at)}</span>
                 </div>
               </div>
             ))
