@@ -5,7 +5,7 @@ import db from '../config/db.js';
 
 const TEMPLATE_PROJECT_MAP = {
   bsct_receipt: 'bsct',
-  mann_receipt: 'maan',
+  mann_receipt: 'mann',
   aflf_receipt: 'aflf',
   ashray_receipt: 'aflf',
 };

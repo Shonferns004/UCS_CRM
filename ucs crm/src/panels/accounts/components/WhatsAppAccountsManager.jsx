@@ -3,7 +3,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 
 const PROJECT_OPTIONS = [
   { value: 'bsct', label: 'Being Sevak' },
-  { value: 'maan', label: 'Mann Care' },
+  { value: 'mann', label: 'Mann Care' },
   { value: 'aflf', label: 'Ashray' },
 ];
 

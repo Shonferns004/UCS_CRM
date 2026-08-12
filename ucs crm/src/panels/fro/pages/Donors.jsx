@@ -9,7 +9,7 @@ import ReceiptTemplate_BeingSevak from '../../accounts/components/ReceiptTemplat
 import { generateReceiptPDF } from '../../accounts/services/pdfGenerator';
 
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
-const DB_TO_TEMPLATE = { maan: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
+const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 
 const PERIOD_FILTERS = [
   { id: 'all', label: 'All' },

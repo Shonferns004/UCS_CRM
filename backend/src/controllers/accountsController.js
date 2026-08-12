@@ -106,7 +106,7 @@ export const getLeadList = async (req, res) => {
       donor_address: r.fro_assignments?.donor_profiles?.address_1 || '',
       donor_email: r.fro_assignments?.donor_profiles?.email || '',
       donor_bank_name: r.fro_assignments?.donor_profiles?.donors_bank_name || '',
-      donor_project: (r.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : r.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : r.fro_assignments?.ngos?.name === 'MANN' ? 'maan' : r.fro_assignments?.donor_profiles?.project_supported) || '',
+      donor_project: (r.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : r.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : r.fro_assignments?.ngos?.name === 'MANN' ? 'mann' : r.fro_assignments?.donor_profiles?.project_supported) || '',
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
@@ -1314,7 +1314,7 @@ export const getPendingReceipts = async (req, res) => {
         receipt_id: r.id,
         sent: r.sent || false,
         log_id: r.log_id,
-        'Project': (log?.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : log?.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : log?.fro_assignments?.ngos?.name === 'MANN' ? 'maan' : donor?.project_supported) || '',
+        'Project': (log?.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : log?.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : log?.fro_assignments?.ngos?.name === 'MANN' ? 'mann' : donor?.project_supported) || '',
       };
     });
 

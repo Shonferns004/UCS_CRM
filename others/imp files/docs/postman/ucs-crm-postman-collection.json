@@ -3431,7 +3431,7 @@
             "description": "Create WhatsApp Account",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Mann Care\",\n  \"project\": \"maan\",\n  \"phone_number_id\": \"123456789\",\n  \"access_token\": \"EA...\",\n  \"waba_id\": \"987654321\"\n}"
+              "raw": "{\n  \"name\": \"Mann Care\",\n  \"project\": \"mann\",\n  \"phone_number_id\": \"123456789\",\n  \"access_token\": \"EA...\",\n  \"waba_id\": \"987654321\"\n}"
             }
           }
         },

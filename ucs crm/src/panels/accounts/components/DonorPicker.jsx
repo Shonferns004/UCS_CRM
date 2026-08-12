@@ -18,7 +18,7 @@ const FIELDS = [
   { key: 'address_2', label: 'Address Line 2', type: 'text', placeholder: 'Area / landmark' },
   { key: 'city', label: 'City', type: 'text', placeholder: 'City' },
   { key: 'pin_code', label: 'PIN Code', type: 'text', placeholder: '6-digit PIN' },
-  { key: 'project_supported', label: 'Project Supported', type: 'select', options: ['bsct', 'maan', 'aflf'] },
+  { key: 'project_supported', label: 'Project Supported', type: 'select', options: ['bsct', 'mann', 'aflf'] },
   { key: 'ngo', label: 'NGO', type: 'text', placeholder: 'e.g. Being Sevak' },
   { key: 'station', label: 'Station', type: 'text', placeholder: 'Station' },
   { key: 'mop', label: 'Mode of Payment', type: 'text', placeholder: 'UPI / Cash / Cheque' },
