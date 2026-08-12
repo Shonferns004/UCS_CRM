@@ -11,8 +11,9 @@ function SectionTitle({ children }) {
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '';
 
 export default function LeadAudit() {
-  const [audit, setAudit] = useState({ sources: [], summary: {}, suspense: null, loading: true });
+  const [audit, setAudit] = useState({ sources: [], summary: {}, suspense: null, total: null, loading: true });
   const [globalNgo, setGlobalNgo] = useState('');
+  const [suspenseCardNgo, setSuspenseCardNgo] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [matching, setMatching] = useState(false);
@@ -47,7 +48,7 @@ export default function LeadAudit() {
   return (
     <div>
       <div style={{ display: 'grid', gap: 16, marginBottom: 16 }}>
-        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspense={audit.suspense} suspenseNgo={globalNgo} setSuspenseNgo={setGlobalNgo} />
+        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspense={audit.suspense} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} total={audit.total} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.6px' }}>NGO</span>
@@ -62,17 +63,17 @@ export default function LeadAudit() {
       <div className="two-col" style={{ alignItems: 'flex-start' }}>
         <div style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
           <SectionTitle>Lead Verification</SectionTitle>
-          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={setSelectedLead} globalNgo={globalNgo} />
+          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} globalNgo={globalNgo} />
         </div>
         <div>
           <SectionTitle>Bank Audit</SectionTitle>
-          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} globalNgo={globalNgo} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
+          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
         </div>
       </div>
 
       {(selectedLead || selectedEntry) && (
         <div className="match-bar">
-          {chip(selectedLead, () => setSelectedLead(null), selectedLead?.donor_name || 'Lead', currency(selectedLead?.amount), 'Double-click a lead to select')}
+          {chip(selectedLead, () => { setSelectedLead(null); setSelectedEntry(null); }, selectedLead?.donor_name || 'Lead', currency(selectedLead?.amount), 'Double-click a lead to select · single-click to clear')}
           <span style={{ color: '#d1d5db', fontSize: 16, flexShrink: 0 }}>+</span>
           {chip(selectedEntry, () => setSelectedEntry(null), selectedEntry?.payment_id || selectedEntry?.check_id || 'No ref', currency(selectedEntry?.amount), 'Click a bank entry to select')}
           <button onClick={handleMatch} disabled={!ready}
