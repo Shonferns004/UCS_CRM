@@ -615,89 +615,61 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
 
       {historyOpen && (
         <div className="modal-overlay" onClick={()=>setHistoryOpen(false)}>
-          <div className="modal" style={{maxWidth:850,width:'95%',maxHeight:'88vh',display:'flex',flexDirection:'column',borderRadius:12,overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
-            <div style={{padding:'20px 24px',background:'linear-gradient(135deg, #5B6B4E 0%, #4a5a3e 100%)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <div style={{display:'flex',alignItems:'center',gap:14}}>
-                <div style={{width:44,height:44,borderRadius:'50%',background:'rgba(255,255,255,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:600,backdropFilter:'blur(8px)'}}>
-                  {initials(l.donor_name)}
-                </div>
-                <div>
-                  <h3 style={{margin:0,fontSize:18,fontWeight:600}}>Donation History</h3>
-                  <div style={{fontSize:13,opacity:0.9,marginTop:2}}>{l.donor_name}</div>
-                </div>
-              </div>
-              <button onClick={()=>setHistoryOpen(false)} style={{width:32,height:32,borderRadius:'50%',border:'none',background:'rgba(255,255,255,0.15)',color:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.2s'}} onMouseOver={e=>e.currentTarget.style.background='rgba(255,255,255,0.25)'} onMouseOut={e=>e.currentTarget.style.background='rgba(255,255,255,0.15)'}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <div className="modal" style={{maxWidth:800,width:'95%',maxHeight:'85vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Donation History — {l.donor_name}</h3>
+              <button className="btn btn-sm btn-icon" onClick={()=>setHistoryOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
-            <div style={{padding:'14px 24px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--bg)'}}>
-              <select value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{padding:'8px 32px 8px 12px',border:'1px solid var(--line)',borderRadius:8,fontSize:13,fontFamily:'inherit',outline:'none',background:'var(--card-bg)',cursor:'pointer',fontWeight:500,appearance:'none',backgroundImage:"url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e\")",backgroundPosition:'right 8px center',backgroundRepeat:'no-repeat',backgroundSize:'16px'}}>
-                <option value="all">All Time</option>
-                <option value="this-month">This Month</option>
-                <option value="this-year">This Year</option>
-                {finYears.map(fy=><option key={fy} value={fy}>{fy}</option>)}
-              </select>
-              {!historyLoading && filteredHistory.length > 0 && (
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <span style={{fontSize:13,color:'var(--ink-soft)',fontWeight:500}}>
+            <div className="modal-body" style={{padding:0,flex:1,overflow:'auto',display:'flex',flexDirection:'column'}}>
+              <div style={{padding:'12px 18px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--bg)'}}>
+                <select value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{padding:'6px 10px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',fontSize:12,fontFamily:'inherit',outline:'none',background:'var(--card-bg)',cursor:'pointer'}}>
+                  <option value="all">All Time</option>
+                  <option value="this-month">This Month</option>
+                  <option value="this-year">This Year</option>
+                  {finYears.map(fy=><option key={fy} value={fy}>{fy}</option>)}
+                </select>
+                {!historyLoading && filteredHistory.length > 0 && (
+                  <span style={{fontSize:11,color:'var(--ink-soft)',fontWeight:500}}>
                     {filteredHistory.length} donation{filteredHistory.length!==1?'s':''}
                   </span>
-                </div>
-              )}
-            </div>
-            <div style={{flex:1,overflow:'auto',background:'var(--card-bg)'}}>
+                )}
+              </div>
               {historyLoading ? (
-                <div style={{textAlign:'center',padding:'64px 20px',color:'var(--ink-soft)'}}>
-                  <div style={{width:32,height:32,border:'3px solid var(--line)',borderTopColor:'var(--sage)',borderRadius:'50%',animation:'spin 0.7s linear infinite',margin:'0 auto 16px'}} />
-                  <div style={{fontSize:14,fontWeight:500}}>Loading donations...</div>
+                <div style={{textAlign:'center',padding:'48px 20px',color:'var(--ink-soft)',fontSize:13}}>
+                  <div style={{width:28,height:28,border:'2.5px solid var(--line)',borderTopColor:'var(--sage)',borderRadius:'50%',animation:'spin 0.7s linear infinite',margin:'0 auto 12px'}} />
+                  Loading donations...
                 </div>
               ) : filteredHistory.length === 0 ? (
-                <div style={{textAlign:'center',padding:'80px 20px',color:'var(--ink-soft)'}}>
-                  <div style={{width:72,height:72,borderRadius:'50%',background:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:32}}>💰</div>
-                  <div style={{fontSize:16,fontWeight:600,color:'var(--ink)',marginBottom:6}}>No donations found</div>
-                  <div style={{fontSize:13}}>Try a different time period</div>
+                <div style={{textAlign:'center',padding:'56px 20px',color:'var(--ink-soft)'}}>
+                  <div style={{fontSize:40,marginBottom:12,opacity:.3}}>💰</div>
+                  <div style={{fontSize:14,fontWeight:600,color:'var(--ink)',marginBottom:4}}>No donations found</div>
+                  <div style={{fontSize:12}}>Try a different time period</div>
                 </div>
               ) : (
-                <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead style={{position:'sticky',top:0,background:'var(--card-bg)',zIndex:1}}>
-                    <tr style={{borderBottom:'2px solid var(--line)'}}>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>Date</th>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>Amount</th>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>Mode</th>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>From</th>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>UPI Ref</th>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>Receipt</th>
-                      <th style={{textAlign:'left',padding:'12px 16px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',color:'var(--ink-soft)'}}>Agent</th>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Mode</th>
+                      <th>From</th>
+                      <th>UPI Ref</th>
+                      <th>Receipt</th>
+                      <th>Agent</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredHistory.map((h, idx) => (
-                      <tr key={h.log_id} style={{borderBottom:'1px solid var(--line)',transition:'background 0.15s',cursor:'default'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}>
-                        <td style={{padding:'14px 16px',fontSize:13,whiteSpace:'nowrap',color:'var(--ink)'}}>
-                          {h.verified_at ? new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'}
-                        </td>
-                        <td style={{padding:'14px 16px'}}>
-                          <span style={{fontSize:15,fontWeight:700,color:'var(--sage)',fontVariantNumeric:'tabular-nums'}}>
-                            {currency(h.amount)}
-                          </span>
-                        </td>
-                        <td style={{padding:'14px 16px',fontSize:13,color:'var(--ink)'}}>
-                          {h.payment_mode ? (
-                            <span style={{display:'inline-block',padding:'4px 10px',borderRadius:6,fontSize:12,fontWeight:500,background:h.payment_mode==='UPI'||h.payment_mode==='Google Pay'?'#dbeafe':'#f3f4f6',color:h.payment_mode==='UPI'||h.payment_mode==='Google Pay'?'#1e40af':'#374151'}}>
-                              {h.payment_mode}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td style={{padding:'14px 16px',fontSize:13,color:'var(--ink)'}}>{h.payment_from||'—'}</td>
-                        <td style={{padding:'14px 16px',fontSize:12,fontFamily:'monospace',color:'var(--ink-soft)'}}>{h.upi_transaction_id||'—'}</td>
-                        <td style={{padding:'14px 16px',fontSize:12,fontFamily:'monospace',color:'var(--ink)'}}>{h.receipt_no||'—'}</td>
-                        <td style={{padding:'14px 16px'}}>
-                          {h.agent_name ? (
-                            <span style={{display:'inline-block',padding:'4px 10px',borderRadius:20,fontSize:11,fontWeight:500,background:'#f3f4f6',color:'#374151'}}>
-                              {h.agent_name}
-                            </span>
-                          ) : '—'}
-                        </td>
+                    {filteredHistory.map(h=>(
+                      <tr key={h.log_id}>
+                        <td style={{fontSize:12,whiteSpace:'nowrap'}}>{h.verified_at?new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}</td>
+                        <td><span style={{fontSize:13,fontWeight:600,color:'var(--sage)',fontVariantNumeric:'tabular-nums'}}>{currency(h.amount)}</span></td>
+                        <td style={{fontSize:12}}>{h.payment_mode||'—'}</td>
+                        <td style={{fontSize:12}}>{h.payment_from||'—'}</td>
+                        <td style={{fontSize:11,fontFamily:'monospace',color:'var(--ink-soft)'}}>{h.upi_transaction_id||'—'}</td>
+                        <td style={{fontSize:11,fontFamily:'monospace'}}>{h.receipt_no||'—'}</td>
+                        <td><span className="pill pill-gray">{h.agent_name}</span></td>
                       </tr>
                     ))}
                   </tbody>
