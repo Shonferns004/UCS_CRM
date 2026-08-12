@@ -123,6 +123,8 @@ export default function ReceiptHistory() {
   const [deleteStatus, setDeleteStatus] = useState('');
   const [deleteProgress, setDeleteProgress] = useState(0);
   const [showCleanModal, setShowCleanModal] = useState(false);
+  const [suspenseByNgo, setSuspenseByNgo] = useState(null);
+  const [suspenseLoading, setSuspenseLoading] = useState(false);
   const fileRef = useRef(null);
   const CHUNK_SIZE = 100;
 
@@ -228,6 +230,15 @@ export default function ReceiptHistory() {
       setTimeout(() => { setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }, 1500);
       load();
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
+  };
+
+  const fetchSuspenseByNgo = async () => {
+    setSuspenseLoading(true);
+    try {
+      const data = await apiGet('/accounts/receipts/suspense-by-ngo');
+      setSuspenseByNgo(Array.isArray(data) ? data : []);
+    } catch (err) { alert('Failed to fetch suspense: ' + err.message); }
+    finally { setSuspenseLoading(false); }
   };
 
   useEffect(() => { setPage(1); }, [searchQuery, receiptTab]);
@@ -444,8 +455,56 @@ export default function ReceiptHistory() {
           ))}
         </div>
       )}
+      <div style={{ marginTop: 12 }}>
+        <button
+          onClick={fetchSuspenseByNgo}
+          disabled={suspenseLoading}
+          style={{
+            padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db',
+            background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            display: 'inline-flex', alignItems: 'center', gap: 8, color: '#5B6B4E',
+            opacity: suspenseLoading ? 0.6 : 1, transition: 'all .15s',
+          }}
+          onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
+          onMouseOut={e => e.currentTarget.style.background = '#fff'}
+        >
+          {suspenseLoading ? (
+            <div style={{ width: 14, height: 14, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          )}
+          Find Suspense by NGO
+        </button>
+        {suspenseByNgo && (
+          <span onClick={() => setSuspenseByNgo(null)} style={{ fontSize: 11, color: '#9ca3af', marginLeft: 10, cursor: 'pointer', userSelect:'none' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'-2px',marginRight:2}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            clear
+          </span>
+        )}
+      </div>
+      {suspenseByNgo && suspenseByNgo.length > 0 && (
+        <div className="stats-grid receipt-history-stats" style={{ marginTop: 10 }}>
+          {suspenseByNgo.map(group => (
+            <div key={group.project_id} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '16px 16px', borderLeft: '3px solid #B5603A' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#B5603A', textAlign: 'center', paddingBottom: 8 }}>
+                {PROJECT_LABELS[group.project_id] || group.project_id}
+              </div>
+              <div style={{ width: '100%' }}>
+                <StatRow label="Suspense Receipts" value={group.count} color="#B5603A" />
+                <StatRow label="Suspense Amount" value={currency(group.total_amount)} color="#dc2626" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {suspenseByNgo && suspenseByNgo.length === 0 && (
+        <div style={{ marginTop: 8, fontSize: 12, color: '#059669', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          No suspense receipts found!
+        </div>
+      )}
 
-      <div className="card">
+      <div className="card" style={{ marginTop: 16 }}>
         <div className="filter-bar">
           <div style={{ display: 'flex', gap: 6 }}>
             <button className={`btn btn-sm${receiptTab === 'linked' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('linked')}>
