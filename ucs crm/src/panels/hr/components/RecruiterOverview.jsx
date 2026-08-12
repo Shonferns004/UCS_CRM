@@ -249,7 +249,7 @@ export default function RecruiterOverview() {
 
   const leaderboard = useMemo(() => {
     const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
-    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel']);
+    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel', 'Riddhi Trivedi']);
     return [...filteredRecruiters]
       .filter(r => !HIDDEN.has(r.name))
       .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
