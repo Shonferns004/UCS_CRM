@@ -136,14 +136,14 @@ export default function DonorPicker({ onPick, prefill }) {
     : 0;
 
   return (
-    <div style={{ marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ padding: '10px 14px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>Search Donor</span>
-        <span style={{ fontSize: 10, color: '#9ca3af' }}>Search the donors table by name, mobile, or city</span>
+    <div style={{ marginBottom: 20, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.04)' }}>
+      <div style={{ padding: '12px 16px', background: '#fff', borderBottom: '1px solid #eef0f3', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 3, height: 14, borderRadius: 3, background: 'var(--sage)', flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>Donor</span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>Search by name, mobile, or city</span>
       </div>
 
-      <div style={{ padding: '10px 14px', background: '#fff' }}>
+      <div style={{ padding: '12px 16px', background: '#fff' }}>
         {toast && (
           <div style={{ marginBottom: 10, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12, color: '#166534', display: 'flex', alignItems: 'center', gap: 8 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>

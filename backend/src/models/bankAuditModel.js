@@ -5,6 +5,10 @@ import db from '../config/db.js';
 // yet matched to a donor/log is still unresolved money.
 // They appear as rows in the bank audit list until matched (donor_id set),
 // claimed (log_id set), or verified.
+// Receipts whose agent is Priyank Shah are never suspense — they are treated
+// as known donations even when no donor/log is linked yet.
+export const isPriyankShahAgent = (name) => !!(name && name.trim().toLowerCase() === 'priyank shah');
+
 export const getUnlinkedReceipts = async () => {
   const { data, error } = await db
     .from('receipts')
@@ -16,18 +20,14 @@ export const getUnlinkedReceipts = async () => {
   return data || [];
 };
 
+// Global receipt number sequence created by migration 064 (receipts_no_seq,
+// seeded at the current max + 1). nextval is atomic, so concurrent writes can
+// never receive the same number — the UNIQUE(project_id, receipt_no)
+// constraint backs this up. Numbers are drawn from one shared pool (no per-NGO
+// suffix); the UNIQUE constraint scopes them per NGO.
 export const getNextReceiptNo = async (projectId) => {
-  const ngo = projectId || 'bsct';
-  const { data } = await db.from('receipts').select('receipt_no').eq('project_id', ngo);
-  let maxNum = 0;
-  for (const r of data || []) {
-    const nums = String(r.receipt_no).match(/\d+/g);
-    if (nums && nums.length > 0) {
-      const n = parseInt(nums[nums.length - 1], 10);
-      if (n > maxNum) maxNum = n;
-    }
-  }
-  return String(maxNum + 1);
+  const { rows } = await db._pool.query("SELECT nextval('receipts_no_seq') AS n");
+  return String(rows[0].n);
 };
 
 export const getSources = async () => {
