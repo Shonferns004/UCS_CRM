@@ -60,6 +60,7 @@ import whatsappCrmDataRoutes from './routes/whatsappCrmDataRoutes.js';
 import profileUpdateRequestRoutes from './routes/profileUpdateRequestRoutes.js';
 import configRoutes from './routes/configRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
+import envAdminRoutes from './routes/envAdminRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -189,6 +190,7 @@ app.use('/api/whatsapp-crm', whatsappCrmDataRoutes);
 app.use('/api/profile-update-requests', profileUpdateRequestRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/quiz', quizRoutes);
+app.use('/api/envadmin', envAdminRoutes);
 
 import multer from 'multer';
 const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -419,6 +421,10 @@ app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 // ---------------------------------------------------------------------------
 app.get('/db-viewer', (req, res) => {
   res.sendFile(path.resolve(__dirname, '../../db-viewer.html'));
+});
+
+app.get('/env-admin', (req, res) => {
+  res.sendFile(path.resolve(__dirname, '../../env-admin.html'));
 });
 
 app.get('/api/db/tables', async (req, res) => {
