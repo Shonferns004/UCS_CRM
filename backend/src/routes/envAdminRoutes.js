@@ -137,7 +137,7 @@ router.get('/projects/:name/env', async (req, res) => {
       }
     }
     const needsRestart = comparable ? vars.some((v) => !v.deployed) : null;
-    res.json({ name: req.params.name, envPath: envPath.replace(PROJECTS_ROOT, '.'), comparable, needsRestart, vars });
+    res.json({ name: req.params.name, envPath: envPath.replace(PROJECTS_ROOT, '.'), comparable, needsRestart, vars, raw: lines.join('\n') });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
