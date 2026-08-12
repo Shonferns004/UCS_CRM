@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
+import { isPriyankShahAgent } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
@@ -706,7 +707,7 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const { data: receipts, error } = await db
       .from('receipts')
-      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, created_at')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
       .is('donor_id', null)
       .is('log_id', null)
       .gte('receipt_date', monthStart)
@@ -715,7 +716,10 @@ export const getSuspenseReceipts = async (req, res) => {
       .order('receipt_date', { ascending: false });
     if (error) throw error;
 
-    const receiptIds = (receipts || []).map(r => r.id);
+    // Priyank Shah receipts are never suspense — keep them out of the FRO pool.
+    const filtered = (receipts || []).filter(r => !isPriyankShahAgent(r.agent_name));
+
+    const receiptIds = filtered.map(r => r.id);
     let claims = [];
     if (receiptIds.length > 0) {
       const { data: c, error: cErr } = await db
@@ -735,7 +739,7 @@ export const getSuspenseReceipts = async (req, res) => {
       }
     }
 
-    const result = (receipts || []).map(r => ({
+    const result = filtered.map(r => ({
       id: r.id,
       receipt_no: r.receipt_no,
       donor_name: r.donor_name,
