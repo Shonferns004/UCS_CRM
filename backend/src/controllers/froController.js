@@ -894,34 +894,38 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
     }
 
-    // Attach to the donor's open assignment owned by THIS claiming FRO (or open a
-    // fresh one for them) so the created lead shows up in Lead Verification and
-    // credits the claimant — never another worker's assignment.
+    // Resolve the receipt's project_id to an ngo_id first — the assignment must
+    // match the receipt's NGO, not just any prior assignment for this donor.
+    const { data: ngoRow } = await db
+      .from('ngos')
+      .select('id, name')
+      .ilike('name', receipt.project_id)
+      .maybeSingle();
+    const receiptNgoId = ngoRow?.id || null;
+    if (!receiptNgoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
+
+    // Attach to the donor's open assignment owned by THIS claiming FRO for THIS
+    // NGO (or open a fresh one) so the created lead shows up in Lead Verification
+    // and credits the claimant — never another worker's or another NGO's assignment.
     const { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
+      .eq('ngo_id', receiptNgoId)
       .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
       .maybeSingle();
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
-      const { data: ngoRow } = await db
-        .from('ngos')
-        .select('id, name')
-        .ilike('name', receipt.project_id)
-        .maybeSingle();
-      const ngoId = ngoRow?.id || null;
-      if (!ngoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
       const { scope: claimScope } = await getMyStationScope(workerId);
-      const scopeRow = (claimScope || []).find(s => s.ngo_id === ngoId);
+      const scopeRow = (claimScope || []).find(s => s.ngo_id === receiptNgoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
         .insert({
           donor_id: donorId,
           fro_worker_id: workerId,
-          ngo_id: ngoId,
+          ngo_id: receiptNgoId,
           station: scopeRow?.station || null,
           status: 'lead_done',
           assigned_at: new Date().toISOString(),
