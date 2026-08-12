@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Inbox, Search, ChevronRight, Phone, ReceiptText } from 'lucide-react';
+import { Inbox, Search, ChevronRight, Phone } from 'lucide-react';
 import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { SkeletonTable } from '../../../components/Skeleton';
@@ -225,9 +225,6 @@ export default function FroSuspense() {
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink-soft)', marginTop: 3 }}>
-                      <ReceiptText size={11} />
-                      <span>#{r.receipt_no || r.id}</span>
-                      <span style={{ color: 'var(--line)', margin: '0 3px' }}>•</span>
                       <Phone size={11} />
                       <span>{r.donor_mobile || '\u2014'}</span>
                     </div>
@@ -267,7 +264,7 @@ export default function FroSuspense() {
             <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
               <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 2 }}>
-                Receipt #{claimReceipt.receipt_no || claimReceipt.id} · {claimReceipt.receipt_date}
+                {claimReceipt.receipt_date}
                 {claimReceipt.receipt_time ? ` · ${claimReceipt.receipt_time}` : ''}
               </div>
               <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--sage)', marginTop: 6 }}>{currency(claimReceipt.amount)}</div>
