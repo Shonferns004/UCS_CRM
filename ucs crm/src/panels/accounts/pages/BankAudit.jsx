@@ -396,6 +396,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
             <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
+            {e.agent_name&&e.agent_name!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
             <button title="Edit" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onOpen(e)}}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -462,7 +463,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       const rows=code?e.filter(x=>matchesNgo(x,code)):e;
       let entries=0,suspenseRows=0;
       for(const r of rows){if(r.kind==='suspense')suspenseRows++;else entries++}
-      return {count:rows.length,entries,suspense:suspenseRows,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
+      const suspense=rows.filter(r=>r.kind==='suspense');
+      return {count:suspenseRows,entries,suspense:suspenseRows,amount:suspense.reduce((s,r)=>s+Number(r.amount||0),0)};
     };
     return {all:build(''),bsct:build('bsct'),aflf:build('aflf'),mann:build('mann')};
   },[e]);
