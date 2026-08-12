@@ -253,15 +253,23 @@ export const listEntries = async (req, res) => {
     }
 
     // Merge unresolved suspense receipts (donor_id null, agent 'Suspense') into
-    // the list, scoped to the requested month (or the current month when no
-    // filter is set). Once matched (donor_id set) they leave the suspense set.
+    // the list, scoped to the same date range as the entries filter (or the
+    // current month when no filter is set). Once matched (donor_id set) they
+    // leave the suspense set.
     const showSuspense = !status || status === 'unverified';
     if (showSuspense) {
       const suspense = await BankAudit.getUnlinkedReceipts();
       if (suspense.length > 0) {
         const currentMonth = currentMonthIST();
         const requestedMonth = date_from ? date_from.slice(0, 7) : currentMonth;
-        const rows = suspense.filter((r) => (r.receipt_date || '').slice(0, 7) === requestedMonth);
+        const from = (date_from || '').slice(0, 10);
+        const to = (date_to || date_from || '').slice(0, 10);
+        const rows = suspense.filter((r) => {
+          const rd = (r.receipt_date || '').slice(0, 10);
+          if (!rd) return false;
+          if (!from) return rd.slice(0, 7) === requestedMonth;
+          return rd >= from && rd <= to;
+        });
 
         const suspenseRows = rows.map((r) => ({
           id: `suspense-${r.id}`,
