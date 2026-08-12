@@ -673,11 +673,28 @@ function currentMonthBoundsIST() {
   return { month: monthStart.toISOString().slice(0, 7), monthStart: monthStart.toISOString().slice(0, 10), monthEnd: monthEnd.toISOString().slice(0, 10) };
 }
 
+// Every project_id value a receipt can legitimately carry for an NGO. Mirrors
+// the keyword classification the accounts bank-audit page uses (matchesNgo), so
+// a FRO assigned to 'MANN' also sees receipts whose project_id is spelled as
+// 'manncar' or 'mann care' alongside the canonical 'mann' series.
+const NGO_PROJECT_ALIASES = {
+  bsct: ['bsct', 'beingsevak', 'being sevak', 'sevak'],
+  mann: ['mann', 'manncar', 'mann care'],
+  aflf: ['aflf', 'ashray'],
+};
+
 async function myProjectSet(workerId) {
   const { allowedNgoIds } = await getMyStationScope(workerId);
   if (allowedNgoIds.length === 0) return [];
   const { data: ngos } = await db.from('ngos').select('id, name').in('id', allowedNgoIds);
-  return (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
+  const names = (ngos || []).map(n => n.name.toLowerCase()).filter(Boolean);
+  const aliases = new Set();
+  for (const n of names) {
+    aliases.add(n);
+    const byKey = NGO_PROJECT_ALIASES[n];
+    if (byKey) byKey.forEach(a => aliases.add(a));
+  }
+  return [...aliases];
 }
 
 export const getSuspenseReceipts = async (req, res) => {

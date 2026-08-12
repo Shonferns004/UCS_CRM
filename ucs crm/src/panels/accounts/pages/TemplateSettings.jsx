@@ -3,7 +3,7 @@ import { apiGet } from '../api/auth'
 
 const NGO_LIST = [
   { key: 'bsct', label: 'Being Sevak' },
-  { key: 'maan', label: 'Mann Care' },
+  { key: 'mann', label: 'Mann Care' },
   { key: 'aflf', label: 'Ashray' },
 ]
 
@@ -15,7 +15,7 @@ const RECEIPT_DESIGNS = [
 
 const DEFAULTS = {
   bsct: { receiptDesign: 'beingsevak', metaTemplate: 'bsct_receipt', metaLang: 'en_US' },
-  maan: { receiptDesign: 'manncar', metaTemplate: 'mann_receipt', metaLang: 'en' },
+  mann: { receiptDesign: 'manncar', metaTemplate: 'mann_receipt', metaLang: 'en' },
   aflf: { receiptDesign: 'ashray', metaTemplate: 'aflf_receipt', metaLang: 'en' },
 }
 

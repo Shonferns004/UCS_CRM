@@ -148,7 +148,7 @@ const collection = {
       post('/api/webhooks/razorpay', 'Razorpay Webhook (Public)', null, [...json]),
       post('/api/webhooks/paytm', 'Paytm Webhook (Public)', null, [...json]),
       get('/api/whatsapp/accounts', 'List WhatsApp Accounts'),
-      post('/api/whatsapp/accounts', 'Create WhatsApp Account', { name: 'Mann Care', project: 'maan', phone_number_id: '123456789', access_token: 'EA...', waba_id: '987654321' }),
+      post('/api/whatsapp/accounts', 'Create WhatsApp Account', { name: 'Mann Care', project: 'mann', phone_number_id: '123456789', access_token: 'EA...', waba_id: '987654321' }),
       put('/api/whatsapp/accounts/:id', 'Update WhatsApp Account', { name: 'Updated', is_default: true }),
       del('/api/whatsapp/accounts/:id', 'Delete WhatsApp Account'),
       get('/api/whatsapp/status', 'Check WhatsApp Status'),
