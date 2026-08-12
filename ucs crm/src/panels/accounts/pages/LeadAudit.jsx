@@ -11,7 +11,7 @@ function SectionTitle({ children }) {
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '';
 
 export default function LeadAudit() {
-  const [audit, setAudit] = useState({ sources: [], summary: {}, suspense: null, total: null, loading: true });
+  const [audit, setAudit] = useState({ sources: [], summary: {}, combo: null, loading: true });
   const [globalNgo, setGlobalNgo] = useState('');
   const [suspenseCardNgo, setSuspenseCardNgo] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
@@ -48,7 +48,7 @@ export default function LeadAudit() {
   return (
     <div>
       <div style={{ display: 'grid', gap: 16, marginBottom: 16 }}>
-        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspense={audit.suspense} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} total={audit.total} />
+        <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.6px' }}>NGO</span>
