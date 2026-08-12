@@ -107,7 +107,7 @@ export default function ReceiptHistory() {
   const [donorDetail, setDonorDetail] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [receiptTab, setReceiptTab] = useState('linked');
+  const [receiptTab, setReceiptTab] = useState('donors');
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -134,8 +134,8 @@ export default function ReceiptHistory() {
     params.set('page', String(page));
     params.set('limit', '100');
     if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (receiptTab === 'linked') params.set('link', 'linked');
-    if (receiptTab === 'unlinked') params.set('link', 'unlinked');
+    if (receiptTab === 'donors') params.set('link', 'donors');
+    if (receiptTab === 'suspense') params.set('link', 'suspense');
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -507,11 +507,11 @@ export default function ReceiptHistory() {
       <div className="card" style={{ marginTop: 16 }}>
         <div className="filter-bar">
           <div style={{ display: 'flex', gap: 6 }}>
-            <button className={`btn btn-sm${receiptTab === 'linked' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('linked')}>
-              Linked donors
+            <button className={`btn btn-sm${receiptTab === 'donors' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('donors')}>
+              Donors
             </button>
-            <button className={`btn btn-sm${receiptTab === 'unlinked' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('unlinked')}>
-              Unlinked receipts
+            <button className={`btn btn-sm${receiptTab === 'suspense' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('suspense')}>
+              Suspense
             </button>
           </div>
           <input
@@ -533,7 +533,7 @@ export default function ReceiptHistory() {
               ))
             ) : receipts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'unlinked' ? 'All receipts are linked to donors.' : 'No linked receipts yet.'}
+                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'suspense' ? 'No suspense receipts — all clear!' : 'No linked donors yet.'}
               </div>
             ) : (
               uniqueDonors.map(r => {
