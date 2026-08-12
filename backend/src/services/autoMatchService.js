@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { nextMatchNo } from '../models/bankAuditModel.js';
 
 const MIN_SCORE = 75;
 const MARGIN = 10;
@@ -141,10 +142,12 @@ export const findAutoMatches = async () => {
   }
 
   for (const m of matched) {
+    const matchNo = await nextMatchNo();
     await db.from('bank_audit_entries').update({
       matched_lead_log_id: m.lead.id,
       match_score: m.score,
       match_status: 'matched',
+      match_no: matchNo,
       matched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq('id', m.entry.id);

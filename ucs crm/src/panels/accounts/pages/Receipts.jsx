@@ -14,7 +14,7 @@ import Toast from '../components/Toast'
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en_US' },
-  maan: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
+  mann: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
   aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'aflf_receipt', metaLang: 'en' },
 }
 
@@ -268,8 +268,8 @@ export default function Receipts() {
   const handleDownloadAll = async () => {
     setDownloadAll(true)
     try {
-      const ngoFolder = { bsct:'BSCT', maan:'MANN', aflf:'AFLF' }
-      const namePrefix = { bsct:'BeingSevak', maan:'MannCare', aflf:'Ashray' }
+      const ngoFolder = { bsct:'BSCT', mann:'MANN', aflf:'AFLF' }
+      const namePrefix = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' }
       const all = donors.map((d, i) => ({ element: document.querySelector(`[data-receipt-batch="${i}"]`), donor: d })).filter(x => x.element)
       const groups = {}
       for (const item of all) {
@@ -575,7 +575,7 @@ export default function Receipts() {
                             onClick={e => e.stopPropagation()} />
                         ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
                       </td>
-                      <td style={{ fontSize:12 }}><span className="pill pill-gray">{({ bsct:'Being Sevak', maan:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct'}</span></td>
+                      <td style={{ fontSize:12 }}><span className="pill pill-gray">{({ bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct'}</span></td>
                       <td style={{ display:'flex', gap:4 }}>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
                           onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}

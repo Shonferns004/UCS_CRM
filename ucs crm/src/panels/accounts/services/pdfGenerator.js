@@ -308,7 +308,7 @@ function getFilePrefix(project) {
   if (!project) return ''
   const map = {
     ashray: 'Ashray', beingsevak: 'BeingSevak', manncar: 'MannCare',
-    bsct: 'BeingSevak', aflf: 'Ashray', maan: 'MannCare',
+    bsct: 'BeingSevak', aflf: 'Ashray', mann: 'MannCare',
   }
   return (map[project] || project) + '_'
 }
@@ -317,7 +317,7 @@ function getZipName(project) {
   if (!project || project === 'all') return 'Donation_Receipts.zip'
   const map = {
     ashray: 'Ashray', beingsevak: 'BeingSevak', manncar: 'MannCare',
-    bsct: 'BeingSevak', aflf: 'Ashray', maan: 'MannCare',
+    bsct: 'BeingSevak', aflf: 'Ashray', mann: 'MannCare',
   }
   return (map[project] || project) + '_Donation_Receipts.zip'
 }

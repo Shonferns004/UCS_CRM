@@ -1,16 +1,16 @@
 import db from '../config/db.js';
 
-// Suspense receipts: unlinked (donor_id null) and unclaimed (log_id null)
-// receipts with no agent or carrying the legacy 'Suspense' marker in agent_name.
+// Suspense receipts: any receipt that is unlinked (donor_id null) and unclaimed
+// (log_id null), regardless of agent_name — an agent-assigned receipt that is not
+// yet matched to a donor/log is still unresolved money.
 // They appear as rows in the bank audit list until matched (donor_id set),
-// claimed (log_id set), or assigned an agent.
+// claimed (log_id set), or verified.
 export const getUnlinkedReceipts = async () => {
   const { data, error } = await db
     .from('receipts')
     .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, created_at')
     .is('donor_id', null)
     .is('log_id', null)
-    .or('agent_name.is.null,agent_name.eq.Suspense')
     .order('receipt_date', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -170,10 +170,20 @@ export const getAvailableEntries = async (limit = 200) => {
     }));
 };
 
+// Allocates the next human-readable match number (MTCH-000001, ...) from the
+// bank_audit_match_no_seq sequence created by migration 062.
+export const nextMatchNo = async () => {
+  const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+  return 'MTCH-' + String(rows[0].n).padStart(6, '0');
+};
+
 // Manually link an entry to a lead (matched, source 'manual') without crediting
 // anything yet. Accounts later confirms via the bank audit page or the lead's
-// verify action. Idempotent when re-saved against the same lead.
+// verify action. Idempotent when re-saved against the same lead; an existing
+// match number is kept so a re-match never renumbers the entry.
 export const manualMatchEntry = async (id, logId, actorId) => {
+  const { rows } = await db._pool.query('SELECT match_no FROM bank_audit_entries WHERE id = $1', [id]);
+  const matchNo = rows[0]?.match_no || (await nextMatchNo());
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -181,11 +191,12 @@ export const manualMatchEntry = async (id, logId, actorId) => {
       match_status: 'matched',
       match_source: 'manual',
       matched_by: actorId,
+      match_no: matchNo,
       matched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, bank_audit_sources(name)')
+    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, bank_audit_sources(name)')
     .single();
   if (error) throw error;
   return data;
