@@ -1309,11 +1309,10 @@ export default function Dashboard() {
   const refreshAggregates = useCallback(() => {
     debounce('agg', () => {
       fetchDashboard()
-      fetchData()
       fetchActionCenter()
       fetchAlerts()
     })
-  }, [debounce, fetchDashboard, fetchData, fetchActionCenter, fetchAlerts])
+  }, [debounce, fetchDashboard, fetchActionCenter, fetchAlerts])
 
   const refreshHeatmap = useCallback(() => {
     debounce('heat', fetchAttendanceHeatmap)
@@ -1323,9 +1322,8 @@ export default function Dashboard() {
     debounce('fro', () => {
       fetchFroLiveInline()
       fetchDashboard()
-      fetchData()
     })
-  }, [debounce, fetchFroLiveInline, fetchDashboard, fetchData])
+  }, [debounce, fetchFroLiveInline, fetchDashboard])
 
   useRealtime('leads', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
   useRealtime('workers', { event: '*', onInsert: refreshAggregates, onUpdate: refreshAggregates, onDelete: refreshAggregates })
