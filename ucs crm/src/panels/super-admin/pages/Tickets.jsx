@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { getHrVerifiedTickets, getAllTickets, getPendingCount, approveTicket, rejectTicketSA } from '../api/endpoints'
+import { toast } from '../../../components/Toast'
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000
 
@@ -93,15 +94,14 @@ function ActionModal({ ticket, onClose, onUpdated }) {
 
             <div className="sa-modal-actions">
               <button className="btn btn-danger" onClick={async () => {
-                if (!confirm('Reject this ticket? The attendance will NOT be updated.')) return
                 setLoading(true)
-                try { await rejectTicketSA(ticket.id, remark); onUpdated() } catch (e) { alert(e.message) }
+                try { await rejectTicketSA(ticket.id, remark); onUpdated(); toast('Ticket rejected', 'success') } catch (e) { toast(e.message || 'Failed to reject ticket', 'error') }
                 setLoading(false)
               }} disabled={loading}>Reject</button>
               <button className="btn" onClick={onClose}>Cancel</button>
               <button className="btn btn-primary" onClick={async () => {
                 setLoading(true)
-                try { await approveTicket(ticket.id, remark); onUpdated() } catch (e) { alert(e.message) }
+                try { await approveTicket(ticket.id, remark); onUpdated(); toast('Ticket approved', 'success') } catch (e) { toast(e.message || 'Failed to approve ticket', 'error') }
                 setLoading(false)
               }} disabled={loading}>{loading ? 'Approving...' : 'Approve'}</button>
             </div>
@@ -125,6 +125,65 @@ export default function Tickets() {
   const [statusFilter, setStatusFilter] = useState('hr_verified')
   const [search, setSearch] = useState('')
   const [pendingCount, setPendingCount] = useState(0)
+  const [selectedTickets, setSelectedTickets] = useState(new Set())
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
+  const [bulkConfirmLoading, setBulkConfirmLoading] = useState(false)
+
+  const handleOpenBulkConfirm = () => {
+    const selected = eligibleTickets.filter(t => selectedTickets.has(t.id))
+    if (selected.length === 0) return
+    setBulkConfirmOpen(true)
+  }
+
+  const handleCloseBulkConfirm = () => {
+    setBulkConfirmOpen(false)
+    setBulkConfirmLoading(false)
+  }
+
+  const handleConfirmBulkApprove = async () => {
+    const selected = eligibleTickets.filter(t => selectedTickets.has(t.id))
+    if (selected.length === 0) return
+    setBulkConfirmLoading(true)
+
+    const timeoutMs = 30000
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout - some tickets may not have been processed')), timeoutMs)
+    )
+
+    try {
+      const results = await Promise.race([
+        Promise.allSettled(
+          selected.map(ticket =>
+            approveTicket(ticket.id, '').then(() => ({ id: ticket.id, success: true })).catch(err => ({ id: ticket.id, success: false, error: err.message }))
+          )
+        ),
+        timeoutPromise
+      ])
+
+      const succeeded = results.filter(r => r.status === 'fulfilled' && r.value.success)
+      const failed = results.filter(r => r.status === 'fulfilled' && !r.value.success).map(r => r.value)
+      const errors = results.filter(r => r.status === 'rejected')
+
+      if (failed.length > 0 || errors.length > 0) {
+        const errorMessages = [
+          ...failed.map(f => `Ticket ${f.id}: ${f.error}`),
+          ...errors.map(e => e.reason?.message || 'Unknown error')
+        ]
+        toast(`Failed to approve ${failed.length + errors.length} of ${selected.length} tickets: ${errorMessages.join('; ')}`, 'error')
+      }
+
+      if (succeeded.length > 0) {
+        setSelectedTickets(new Set())
+        setBulkConfirmOpen(false)
+        load()
+        toast(`${succeeded.length} ticket${succeeded.length !== 1 ? 's' : ''} approved successfully`, 'success')
+      }
+    } catch (e) {
+      toast(e.message || 'Failed to approve tickets', 'error')
+    }
+    setBulkConfirmLoading(false)
+  }
 
   const loadTickets = useCallback(async (status) => {
     setLoading(true)
@@ -147,11 +206,6 @@ export default function Tickets() {
 
   useEffect(() => { load() }, [load])
 
-  const handleFilterChange = (status) => {
-    setStatusFilter(status)
-    loadTickets(status)
-  }
-
   const filtered = tickets.filter(t => {
     if (search) {
       const q = search.toLowerCase()
@@ -160,6 +214,46 @@ export default function Tickets() {
     }
     return true
   })
+
+  const eligibleTickets = useMemo(() => filtered.filter(t => t.status === 'hr_verified'), [filtered])
+
+  const allSelected = eligibleTickets.length > 0 && eligibleTickets.every(t => selectedTickets.has(t.id))
+
+  const someSelected = eligibleTickets.some(t => selectedTickets.has(t.id))
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedTickets(prev => {
+        const next = new Set(prev)
+        eligibleTickets.forEach(t => next.delete(t.id))
+        return next
+      })
+    } else {
+      setSelectedTickets(prev => {
+        const next = new Set(prev)
+        eligibleTickets.forEach(t => next.add(t.id))
+        return next
+      })
+    }
+  }
+
+  const handleSelectTicket = (id) => {
+    setSelectedTickets(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleBulkApprove = () => {
+    handleOpenBulkConfirm()
+  }
+
+  const handleFilterChange = (status) => {
+    setStatusFilter(status)
+    loadTickets(status)
+  }
 
   return (
     <div className="sa-page">
@@ -193,6 +287,28 @@ export default function Tickets() {
         </span>
       </div>
 
+      {eligibleTickets.length > 0 && (
+        <div className="sa-card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid var(--border)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={handleSelectAll}
+              style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+            />
+            Select All ({eligibleTickets.length})
+          </label>
+          <button
+            className="btn btn-primary"
+            onClick={handleBulkApprove}
+            disabled={bulkApproving || selectedTickets.size === 0}
+            style={{ marginLeft: 'auto' }}
+          >
+            {bulkApproving ? 'Approving...' : `Bulk Approve (${selectedTickets.size})`}
+          </button>
+        </div>
+      )}
+
       <div className="sa-card" style={{ padding: 0 }}>
         {loading ? (
           <div style={{padding:16}}>
@@ -205,6 +321,7 @@ export default function Tickets() {
             <table className="sa-table" style={{ marginBottom: 0 }}>
               <thead>
                 <tr>
+                  <th style={{ width: 40 }}></th>
                   <th style={{ width: 40 }}>#</th>
                   <th>Date</th>
                   <th>Worker</th>
@@ -220,8 +337,19 @@ export default function Tickets() {
               <tbody>
                 {filtered.map((t, i) => {
                   const info = STATUS_MAP[t.status] || { label: t.status, cls: '' }
+                  const isEligible = t.status === 'hr_verified'
                   return (
                     <tr key={t.id} style={{ cursor: 'default' }}>
+                      <td style={{ textAlign: 'center' }}>
+                        {isEligible && (
+                          <input
+                            type="checkbox"
+                            checked={selectedTickets.has(t.id)}
+                            onChange={() => handleSelectTicket(t.id)}
+                            style={{ width: 16, height: 16, accentColor: 'var(--primary)' }}
+                          />
+                        )}
+                      </td>
                       <td className="sa-muted">{i + 1}</td>
                       <td style={{ fontWeight: 500 }}>{t.date}</td>
                       <td><strong>{t.workers?.name || 'Unknown'}</strong></td>
@@ -256,6 +384,30 @@ export default function Tickets() {
         if (!ticket) return null
         return <ActionModal ticket={ticket} onClose={() => setActionTicketId(null)} onUpdated={() => { setActionTicketId(null); load() }} />
       })()}
+
+      {bulkConfirmOpen && (
+        <div className="sa-modal-overlay" onClick={handleCloseBulkConfirm}>
+          <div className="sa-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              </div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Approve Selected Tickets?</h3>
+            </div>
+
+            <p style={{ color: 'var(--text-soft)', fontSize: 13, lineHeight: 1.5, marginBottom: 20 }}>
+              You are about to approve <strong>{eligibleTickets.filter(t => selectedTickets.has(t.id)).length} selected ticket{eligibleTickets.filter(t => selectedTickets.has(t.id)).length !== 1 ? 's' : ''}</strong>. Attendance will be updated.
+            </p>
+
+            <div className="sa-modal-actions" style={{ justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={handleCloseBulkConfirm} disabled={bulkConfirmLoading}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleConfirmBulkApprove} disabled={bulkConfirmLoading}>
+                {bulkConfirmLoading ? 'Approving...' : 'Approve Tickets'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
