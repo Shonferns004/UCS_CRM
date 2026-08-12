@@ -6,14 +6,22 @@ import db from '../config/db.js';
 // They appear as rows in the bank audit list until matched (donor_id set),
 // claimed (log_id set), or verified.
 export const getUnlinkedReceipts = async () => {
-  const { data, error } = await db
-    .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, created_at')
-    .is('donor_id', null)
-    .is('log_id', null)
-    .order('receipt_date', { ascending: false });
+  // Receipts already turned into a bank audit entry (a bank_audit_entries row
+  // references them via receipt_id) are shown in the list as entries, so they
+  // must not also appear in the suspense pool.
+  const { rows, error } = await db._pool.query(`
+    SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
+           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.created_at
+    FROM receipts r
+    WHERE r.donor_id IS NULL
+      AND r.log_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
+      )
+    ORDER BY r.receipt_date DESC
+  `);
   if (error) throw error;
-  return data || [];
+  return rows || [];
 };
 
 export const getNextReceiptNo = async (projectId) => {
