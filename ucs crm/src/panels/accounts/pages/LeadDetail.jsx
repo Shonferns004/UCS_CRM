@@ -308,78 +308,168 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         </div>
       </div>}
 
+      {/* Notes/Remarks/Rejection Banner */}
       {(l.notes||l.remark||l.rejection_reason)&&(
-        <div className="card" style={{borderLeft:'3px solid #dc2626',marginBottom:16}}>
-          <div className="card-pad" style={{padding:'10px 16px',background:'#fef2f2'}}>
-            {l.remark&&<div style={{display:'flex',gap:8,alignItems:'flex-start'}}><span style={{fontSize:11,fontWeight:700,color:'#dc2626',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Remark:</span><p style={{margin:0,fontSize:13,color:'#991b1b',whiteSpace:'pre-wrap'}}>{l.remark}</p></div>}
-            {l.notes&&<div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:l.remark?8:0}}><span style={{fontSize:11,fontWeight:700,color:'#dc2626',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Notes:</span><p style={{margin:0,fontSize:13,color:'#991b1b',whiteSpace:'pre-wrap'}}>{l.notes}</p></div>}
-            {l.rejection_reason&&<div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:(l.remark||l.notes)?8:0}}><span style={{fontSize:11,fontWeight:700,color:'#dc2626',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Rejection:</span><p style={{margin:0,fontSize:13,color:'#991b1b',whiteSpace:'pre-wrap'}}>{l.rejection_reason}</p></div>}
-          </div>
-        </div>
-      )}
-
-      {l.claimed_receipt && (
-        <div className="card" style={{borderLeft:'3px solid #B5603A',marginBottom:16,background:'#FFF7ED'}}>
-          <div className="card-pad" style={{padding:'10px 16px'}}>
-            <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#B5603A',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Claimed by:</span>
-              <p style={{margin:0,fontSize:13,color:'#7c2d12',whiteSpace:'pre-wrap'}}>
-                {l.claimant_name || l.agent_name || 'An FRO'} claimed this lead from Suspense
-                {l.claimed_receipt.receipt_no ? ` · Receipt #${l.claimed_receipt.receipt_no}` : ''}
-                {l.claimant_login ? ` (${l.claimant_login})` : ''}
-                {l.created_at ? ` · ${new Date(l.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}` : ''}.
-                Accounts verifies the bank audit entry to credit the claimant.
-              </p>
+        <div style={{margin:'16px 0',background:'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',borderRadius:12,border:'1px solid #fecaca',overflow:'hidden'}}>
+          <div style={{padding:'12px 16px',display:'flex',gap:10,alignItems:'flex-start',borderBottom:(l.remark&&l.notes)||(l.remark&&l.rejection_reason)||(l.notes&&l.rejection_reason)?'1px solid #fecaca':'none'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" style={{flexShrink:0,marginTop:1}}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div style={{flex:1}}>
+              {l.remark&&<div><span style={{fontSize:10,fontWeight:700,color:'#dc2626',textTransform:'uppercase',letterSpacing:'0.05em'}}>Remark</span><p style={{margin:'4px 0 0',fontSize:13,color:'#7f1d1d',whiteSpace:'pre-wrap',lineHeight:1.5}}>{l.remark}</p></div>}
+              {l.notes&&<div style={{marginTop:l.remark?12:0}}><span style={{fontSize:10,fontWeight:700,color:'#dc2626',textTransform:'uppercase',letterSpacing:'0.05em'}}>Notes</span><p style={{margin:'4px 0 0',fontSize:13,color:'#7f1d1d',whiteSpace:'pre-wrap',lineHeight:1.5}}>{l.notes}</p></div>}
+              {l.rejection_reason&&<div style={{marginTop:(l.remark||l.notes)?12:0}}><span style={{fontSize:10,fontWeight:700,color:'#dc2626',textTransform:'uppercase',letterSpacing:'0.05em'}}>Rejection Reason</span><p style={{margin:'4px 0 0',fontSize:13,color:'#7f1d1d',whiteSpace:'pre-wrap',lineHeight:1.5}}>{l.rejection_reason}</p></div>}
             </div>
           </div>
         </div>
       )}
 
+      {/* Claim Info Card */}
+      {l.claimed_receipt && (
+        <div style={{margin:'16px 0',background:'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',borderRadius:12,border:'1px solid #fed7aa',overflow:'hidden'}}>
+          <div style={{padding:'14px 18px',display:'flex',gap:12,alignItems:'flex-start'}}>
+            <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:10,fontWeight:700,color:'#c2410c',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:4}}>Claimed by FRO</div>
+              <div style={{fontSize:13,color:'#7c2d12',lineHeight:1.5}}>
+                <strong>{l.claimant_name || l.agent_name || 'An FRO'}</strong> claimed this lead from Suspense
+                {l.claimed_receipt.receipt_no ? ` · Receipt #${l.claimed_receipt.receipt_no}` : ''}
+                {l.claimant_login && <span style={{color:'#9a3412'}}> ({l.claimant_login})</span>}
+                {l.created_at && <span> · {new Date(l.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>}
+              </div>
+              <div style={{fontSize:11,color:'#9a3412',marginTop:4,opacity:0.8}}>Accounts verifies the bank audit entry to credit the claimant.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
       <div className="two-col detail-layout" style={drawer ? { gridTemplateColumns: '1fr' } : undefined}>
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
-          <div className="card">
-            <div className="card-head"><h3>Payment & Transaction Details</h3></div>
-            <div className="card-pad">
-              <div className="info-grid">
-                <div><div className="label">Amount</div><div className="value-mono" style={{color:'var(--sage)'}}>{currency(l.amount)}</div></div>
-                <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{fontSize:10,color:'var(--ink-soft)'}}>({l.agent_login})</span></div></div>
-                <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div></div>
-                <div><div className="label">Payment Mode</div>{isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div className="value">{form.payment_mode||'\u2014'}</div>}</div>
-                 <div style={{position:'relative'}} ref={suggestRef}><div className="label">UPI Transaction ID</div>{isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} />:<div className="value">{form.upi_transaction_id||'\u2014'}</div>}{isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',boxShadow:'var(--shadow-md)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:2}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'8px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}</div>
-                <div><div className="label">Date</div>{isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" />:<div className="value">{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</div>}</div>
-                <div><div className="label">Time</div>{isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div className="value">{form.transaction_time||'\u2014'}</div>}</div>
-                <div><div className="label">From</div>{isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" />:<div className="value">{form.payment_from||'\u2014'}</div>}</div>
+          {/* Payment & Transaction Details */}
+          <div style={{background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
+            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              </div>
+              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Payment & Transaction Details</h3>
+            </div>
+            <div style={{padding:'18px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:'16px 20px'}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Amount</div>
+                  <div style={{fontSize:20,fontWeight:800,color:'var(--sage)',fontFamily:'var(--font-mono, monospace)'}}>{currency(l.amount)}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Agent</div>
+                  <div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{l.agent_name}</div>
+                  <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{l.agent_login}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Submitted</div>
+                  <div style={{fontSize:12,color:'var(--ink)'}}>{new Date(l.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
+                  <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{new Date(l.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Payment Mode</div>
+                  {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'\u2014'}</div>}
+                </div>
+                <div style={{position:'relative'}} ref={suggestRef}>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>UPI Transaction ID</div>
+                  {isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.upi_transaction_id||'\u2014'}</div>}
+                  {isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:4}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{fontWeight:500}}>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Date</div>
+                  {isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Time</div>
+                  {isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_time||'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>From</div>
+                  {isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.payment_from||'\u2014'}</div>}
+                </div>
               </div>
             </div>
           </div>
-          <div className="card">
-            <div className="card-head"><h3>Donor Information</h3></div>
-            <div className="card-pad">
-              <div className="info-grid">
-                <div><div className="label">Name</div>{isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="Donor name" />:<div className="value">{form.donor_name||'\u2014'}</div>}</div>
-                <div><div className="label">Mobile</div>{isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" />:<div className="value">{form.donor_mobile||'\u2014'}</div>}</div>
-                <div><div className="label">City</div>{isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" />:<div className="value">{form.donor_city||'\u2014'}</div>}</div>
-                <div><div className="label">Email</div>{isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" />:<div className="value">{form.donor_email||'\u2014'}</div>}</div>
-                <div><div className="label">Address</div>{isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',boxShadow:'var(--shadow-md)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:2}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'8px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div className="value">{form.donor_address||'\u2014'}</div>}</div>
-                <div><div className="label">PAN</div>{isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" />:<div className="value">{form.donor_pan||'\u2014'}</div>}</div>
-                <div><div className="label">DOB</div><div className="value">{l.donor_dob||'\u2014'}</div></div>
-                <div><div className="label">Project</div><div className="value">{l.donor_project||'\u2014'}</div></div>
-                <div><div className="label">Donations</div><div className="value">{l.donation_count||0} times</div></div>
-                <div><div className="label">Total Donated</div><div className="value-mono" style={{color:'var(--sage)',cursor:'pointer',borderBottom:'1px dashed var(--sage)'}} onClick={loadHistory} title="Click to view donation history">{currency(l.total_donated)}</div></div>
+
+          {/* Donor Information */}
+          <div style={{background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
+            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
+              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Donor Information</h3>
+            </div>
+            <div style={{padding:'18px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:'16px 20px'}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Name</div>
+                  {isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="Donor name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{form.donor_name||'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Mobile</div>
+                  {isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)'}}>{form.donor_mobile||'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>City</div>
+                  {isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_city||'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Email</div>
+                  {isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_email||'\u2014'}</div>}
+                </div>
+                <div style={{gridColumn:'1 / -1'}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Address</div>
+                  {isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:4}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div style={{fontSize:12,color:'var(--ink)',lineHeight:1.5}}>{form.donor_address||'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>PAN</div>
+                  {isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12,textTransform:'uppercase'}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',textTransform:'uppercase'}}>{form.donor_pan||'\u2014'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>DOB</div>
+                  <div style={{fontSize:12,color:'var(--ink)'}}>{l.donor_dob||'\u2014'}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Project</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)'}}>{l.donor_project||'\u2014'}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Donations</div>
+                  <div style={{fontSize:12,color:'var(--ink)'}}>{l.donation_count||0} times</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Total Donated</div>
+                  <div style={{fontSize:14,fontWeight:700,color:'var(--sage)',fontFamily:'var(--font-mono, monospace)',cursor:'pointer',borderBottom:'1px dashed var(--sage)',display:'inline-block'}} onClick={loadHistory} title="Click to view donation history">{currency(l.total_donated)}</div>
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Screenshot Section */}
         <div>
-          {l.screenshot_url ? (
-            <div className="card" style={{position:'sticky',top:16,overflow:'hidden'}}>
+          <div style={{position:'sticky',top:16,background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
+            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #10b981 0%, #059669 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Payment Proof</h3>
+            </div>
+            {l.screenshot_url ? (
               <ScreenshotImage src={l.screenshot_url} onClick={()=>setShowScreenshot(true)} />
-            </div>
-          ) : (
-            <div className="card" style={{overflow:'hidden'}}>
-              <div style={{textAlign:'center',padding:'40px 20px',color:'var(--ink-soft)'}}><div style={{fontSize:32,marginBottom:8,opacity:.3}}>{'\u{1F5BC}\uFE0F'}</div><div style={{fontSize:13}}>No screenshot available</div></div>
-            </div>
-          )}
+            ) : (
+              <div style={{textAlign:'center',padding:'48px 24px',color:'var(--ink-soft)'}}>
+                <div style={{width:56,height:56,borderRadius:'50%',background:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{opacity:.4}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </div>
+                <div style={{fontSize:13,fontWeight:500}}>No screenshot available</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
