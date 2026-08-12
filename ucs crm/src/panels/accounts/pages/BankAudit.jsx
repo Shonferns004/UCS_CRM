@@ -259,12 +259,25 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
         'NA','NA','NA',agent(e.agent_name),agent(e.agent_name),
         mop,recvBank,na(e.payment_id),'NA','NA',na(e.bank_name),
-        e.amount??'NA','','NA',na(e.transaction_date),
+        e.amount??'NA',String(e.receipt_no||''),'NA',na(e.transaction_date),
         na(e.payment_time?fmtTime(e.payment_time):''),na(NGO_LABELS[e.project_id]||e.project_id),'Corpus',na(e.remarks),'NA',
       ];
     })];
     if(visible.length===0){alert('No entries to export');return}
     const ws=XLSX.utils.aoa_to_sheet(rows);
+    // Write real date cells with a fixed display format (dd mm yyyy) so Excel
+    // never auto-converts the transaction date into a locale format like "1 Aug".
+    const DATE_COLS=[1,35];
+    for(let r=1;r<rows.length;r++){
+      for(const c of DATE_COLS){
+        const addr=XLSX.utils.encode_cell({r,c});
+        const cell=ws[addr];
+        if(!cell)continue;
+        const m=String(cell.v==null?'':cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if(!m)continue;
+        ws[addr]={t:'n',v:Date.UTC(+m[1],+m[2]-1,+m[3])/86400000+25569,z:'dd mm yyyy'};
+      }
+    }
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Bank Audit');
     XLSX.writeFile(wb,`bank-audit_${new Date().toISOString().slice(0,10)}.xlsx`);
