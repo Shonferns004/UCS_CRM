@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { Users, Check, Plane, Bell } from '../icons';
+import { Users, Check, Plane, Bell, Star } from '../icons';
+import { Avatar } from './ui';
 import { fetchWorkers, fetchAttendance, fetchLeaves, fetchHolidays } from '../store';
 import api from '../api/auth';
 import RecentNotices from '../../../components/RecentNotices';
@@ -220,6 +221,31 @@ export default function Visualizations() {
     return events.slice(0, 10);
   }, [holidays, leaves]);
 
+  /* Work anniversaries — only today's, computed from each worker's joining date (created_at) */
+  const anniversaries = useMemo(() => {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const todayMD = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const list = [];
+    (workers || []).forEach(x => {
+      if (!x.created_at) return;
+      const jd = new Date(x.created_at);
+      if (isNaN(jd.getTime())) return;
+      const years = curYear - jd.getFullYear();
+      if (years < 1) return;
+      const joinMD = `${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+      if (joinMD !== todayMD) return;
+      list.push({
+        name: x.name || 'Unknown',
+        dept: x.department || '',
+        years,
+        date: new Date(curYear, jd.getMonth(), jd.getDate()),
+      });
+    });
+    list.sort((a, b) => a.date - b.date);
+    return list;
+  }, [workers]);
+
   /* Bubble data */
   const bubbleData = useMemo(() => {
     const s30 = new Date(); s30.setDate(s30.getDate() - 30);
@@ -348,6 +374,29 @@ export default function Visualizations() {
             </div>
           )) : <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center', padding: 12 }}>No upcoming events</div>}
         </div>
+      </div>
+
+      {/* Work Anniversaries — full width */}
+      <div className="mc" style={{ gridColumn: '1 / -1', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--gold)', fontWeight: 700 }}><Star width={13} style={{ color: 'var(--gold)' }} />Work Anniversaries</span>
+          {anniversaries.length > 0 && <span style={{ background: 'var(--gold-soft)', color: '#8a6217', fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>Today</span>}
+        </div>
+        {anniversaries.length ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {anniversaries.map((a, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: '1px solid var(--gold)', borderRadius: 8, background: 'var(--gold-soft)' }}>
+                <Avatar name={a.name} size={26} />
+                <div style={{ fontSize: 11, lineHeight: 1.3, flex: 1 }}>
+                  <span style={{ fontWeight: 700 }}>{a.name}</span>
+                  {a.dept ? <span style={{ color: 'var(--ink-soft)', marginLeft: 6 }}>{a.dept}</span> : null}
+                  <div style={{ color: '#8a6217', fontSize: 10, fontWeight: 600 }}>completes {a.years} year{a.years > 1 ? 's' : ''} today</div>
+                </div>
+                <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--sage-soft)', color: '#3f4c34', padding: '2px 8px', borderRadius: 10 }}>Today</span>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center', padding: 12 }}>No work anniversaries today</div>}
       </div>
 
       {/* Recruiter Overview — full width */}

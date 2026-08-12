@@ -204,7 +204,6 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
         </div>
         <div className="stat-info">
           <div className="stat-num" style={{color:'#111827'}}>{c.count}</div>
-          <div className="stat-lbl">Total · {c.entries} entries + {c.suspense} suspense</div>
           <div style={{fontSize:11,color:'#6b7280'}}>{curr(c.amount)}</div>
           {setSuspenseNgo&&<div className="stat-actions">
             {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']].map(([v,l])=>
@@ -534,14 +533,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   return <div>
     {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspenseNgo={snf} setSuspenseNgo={setSnf} combo={combo}/></div>}
-
-    {/* Pending / History sub-tabs */}
-    <div style={{marginBottom:16,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',background:'#fff'}}>
-      <div style={{display:'flex',background:'#fff',borderBottom:'1px solid #f3f4f6'}}>
-        <Tab a={st==='unverified'} on={()=>setSt('unverified')} ch="Pending"/>
-        <Tab a={st==='verified'} on={()=>setSt('verified')} ch="History"/>
-      </div>
-    </div>
 
     {leadFilter&&(
       <div style={{display:'flex',alignItems:'center',gap:8,background:'#f0f7ef',border:'1px solid #cfe3cb',borderRadius:10,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#5B6B4E',flexWrap:'wrap'}}>
