@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { RefreshCw, Zap, Download, Plus, ListFilter, X, Loader2 } from 'lucide-react';
+import { RefreshCw, Zap, Download, Plus, ListFilter, X, Loader2, Landmark } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
@@ -325,7 +325,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
         <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+(selectedEntryId===e.id?' is-selected':'')}
-          onClick={()=>{if(onSelectEntry){if(selectionEnabled&&e.kind!=='suspense'&&!e.match_status)onSelectEntry(e);return}onOpen(e)}}
+          onClick={()=>{if(onSelectEntry){if(selectionEnabled){if(e.kind!=='suspense'&&!e.match_status)onSelectEntry(e)}else{onOpen(e)}return}onOpen(e)}}
           onDoubleClick={()=>{if(onSelectEntry)onOpen(e)}}>
           <div className="ec-main">
             <div className="ec-primary">
@@ -353,7 +353,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 }
 
 // ─── Main ──────────────────────────────────────────────────
-export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo}){
+export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
@@ -410,6 +410,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     return {all:build(''),bsct:build('bsct'),aflf:build('aflf'),mann:build('mann')};
   },[e]);
   useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf,combo})},[sr,su,ld,embedded,suspenseNgo,useGlobalNgo,e]);
+  useEffect(()=>{onView?.(se?se.id:null)},[se]);
 
   const fe=e.filter(en=>{
     if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
@@ -629,7 +630,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     </div></div>}
 
     {/* Entry Editor (Sidebar) */}
-    {se&&<RightPanel open={!!se} onClose={()=>setSe(null)} topOffset={72} title={se.kind==='suspense'?'Suspense Receipt':'Entry Editor'} subtitle={se.transaction_date||''} accent={se.kind==='suspense'?'#B5603A':'var(--sage)'}>
+    {se&&<RightPanel open={!!se} onClose={()=>setSe(null)} topOffset={72} title={se.kind==='suspense'?'Suspense Receipt':'Entry Editor'} subtitle={se.transaction_date||''} accent={se.kind==='suspense'?'#B5603A':'var(--sage)'} icon={<Landmark size={19} strokeWidth={2} />}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
         <div style={{fontSize:24,fontWeight:700,color:se.kind==='suspense'?'#B5603A':'var(--sage)'}}>{curr(se.amount)}</div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>

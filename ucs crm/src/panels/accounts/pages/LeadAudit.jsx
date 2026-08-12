@@ -16,6 +16,8 @@ export default function LeadAudit() {
   const [suspenseCardNgo, setSuspenseCardNgo] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
+  const [detailView, setDetailView] = useState(null);
+  const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
 
   const handleMatch = async () => {
@@ -46,7 +48,7 @@ export default function LeadAudit() {
   const ready = !!(selectedLead && selectedEntry && !matching);
 
   return (
-    <div>
+    <div style={{ marginRight: (detailView || entryDetailView) ? 640 : 0, transition: 'margin-right .25s ease' }}>
       <div style={{ display: 'grid', gap: 16, marginBottom: 16 }}>
         <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} />
       </div>
@@ -63,11 +65,11 @@ export default function LeadAudit() {
       <div className="two-col" style={{ alignItems: 'flex-start' }}>
         <div style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
           <SectionTitle>Lead Verification</SectionTitle>
-          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} globalNgo={globalNgo} />
+          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} />
         </div>
         <div>
           <SectionTitle>Bank Audit</SectionTitle>
-          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
+          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
         </div>
       </div>
 
