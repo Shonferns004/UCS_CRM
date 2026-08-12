@@ -1779,14 +1779,23 @@ export const importReceipts = async (req, res) => {
           }
           const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
 
-          // A repeat upload must not create a duplicate receipt, but it can
-          // enrich an existing receipt with the FSE/agent name and, when present
-          // in the newer sheet, the receipt date and time.
+          // A repeat upload enriches an existing receipt with any changed fields
+          // from the newer sheet (agent, address, mobile, PAN, email, mode,
+          // payment ref, bank, dates, donor name). Never touches donor_id, log_id,
+          // or amount — those are linked/credited values and donor-total columns.
           const enrichUpdates = parsed
             .filter(({ parsed: row }) => row.receipt_no && existingReceiptIds.has(row.receipt_no))
             .map(({ parsed: row }) => {
               const patch = {};
               if (row.agent_name) patch.agent_name = row.agent_name;
+              if (row.address) patch.address = row.address;
+              if (row.pan_number) patch.pan_number = row.pan_number;
+              if (row.email) patch.email = row.email;
+              if (row.mode) patch.mode = row.mode;
+              if (row.payment_id) patch.payment_id = row.payment_id;
+              if (row.bank_name) patch.bank_name = row.bank_name;
+              if (row.donor_name) patch.donor_name = row.donor_name;
+              if (row.donor_mobile) patch.donor_mobile = row.donor_mobile;
               if (row.receipt_time) patch.receipt_time = row.receipt_time;
               if (row.receipt_date) patch.receipt_date = row.receipt_date;
               return { id: existingReceiptIds.get(row.receipt_no), patch };
@@ -1817,12 +1826,14 @@ export const importReceipts = async (req, res) => {
           let receiptsByDonor = {};
           if (inserted.length > 0) {
             receiptsByDonor = {};
+            const matchedIds = new Set();
             for (const receipt of inserted) {
               const m = last10(receipt.donor_mobile);
               if (!/^\d{10}$/.test(m)) continue;
               const donor = donorByMobile.get(m);
               if (!donor) continue;
               matched++;
+              matchedIds.add(receipt.id);
               if (!receiptsByDonor[donor.id]) {
                 receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
               }
@@ -1831,6 +1842,52 @@ export const importReceipts = async (req, res) => {
               receiptsByDonor[donor.id].donation_count += 1;
               if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
                 receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+              }
+            }
+
+            // Auto-create donor profiles for unmatched valid mobiles so receipts
+            // clear out of the suspense pool instead of sitting orphaned.
+            {
+              const toCreateMap = new Map();
+              for (const r of inserted) {
+                if (matchedIds.has(r.id)) continue;
+                const m = last10(r.donor_mobile);
+                if (!/^\d{10}$/.test(m)) continue;
+                if (!toCreateMap.has(m)) toCreateMap.set(m, r.donor_name || 'Unknown Donor');
+              }
+              if (toCreateMap.size > 0) {
+                const rows = [...toCreateMap].map(([mobile, name]) => ({
+                  name, mobile_number: mobile,
+                  total_amount: 0, donation_count: 0,
+                  created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+                }));
+                for (let i = 0; i < rows.length; i += 500) {
+                  const { data: created, error } = await from('donor_profiles')
+                    .insert(rows.slice(i, i + 500))
+                    .select('id, mobile_number, total_amount, donation_count, last_donation_date');
+                  if (error) throw new Error(error.message);
+                  for (const d of (created || [])) {
+                    const k = last10(d.mobile_number);
+                    if (k) donorByMobile.set(k, d);
+                  }
+                }
+                for (const receipt of inserted) {
+                  if (matchedIds.has(receipt.id)) continue;
+                  const m = last10(receipt.donor_mobile);
+                  if (!/^\d{10}$/.test(m)) continue;
+                  const donor = donorByMobile.get(m);
+                  if (!donor) continue;
+                  matched++;
+                  if (!receiptsByDonor[donor.id]) {
+                    receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
+                  }
+                  receiptsByDonor[donor.id].ids.push(receipt.id);
+                  receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
+                  receiptsByDonor[donor.id].donation_count += 1;
+                  if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
+                    receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+                  }
+                }
               }
             }
 
