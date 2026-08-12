@@ -9,7 +9,6 @@ import * as XLSX from 'xlsx';
 import { receivedMeta } from '../services/receivedSource';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
-const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
 const fmtDT = d => {
   if (!d) return '';
   const dt = new Date(d);
@@ -140,27 +139,40 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
 
   const exportExcel = () => {
     const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
-    const project = l => NGO_LABELS[l.donor_project] || l.donor_project || 'NA';
+    const project = l => String(l.donor_project || '').trim() || 'NA';
     const remark = l => l.accounts_status === 'rejected'
       ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
       : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
     const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => {
       const meta = receivedMeta(l.received_source);
-      const mop = meta ? meta.mop : 'Bank';
-      const recvBank = meta ? meta.receivedBank : na(l.donor_bank_name);
+      const mop = meta ? na(meta.mop) : 'Bank';
+      const recvBank = meta ? na(meta.receivedBank) : na(l.donor_bank_name);
       return [
-        'NA', na(l.transaction_date), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
+        'NA', na(l.transaction_datetime || l.verified_at), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
         'NA', 'NA', 'NA', 'NA', na(l.donor_address),
         na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
         'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
         'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
         mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
-        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_date),
-        'NA', project(l), 'Corpus', remark(l), 'NA',
+        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_datetime || l.verified_at),
+        'NA', project(l), 'Corpus', na(remark(l)), 'NA',
       ];
     })];
     if (filtered.length === 0) { alert('No leads to export'); return }
     const ws = XLSX.utils.aoa_to_sheet(rows);
+    // Write real date cells with a fixed display format (d/mm/yyyy = "1/08/2026") so Excel
+    // never auto-converts the transaction date into a locale format like "1-Aug-26".
+    const DATE_COLS = [1, 35];
+    for (let r = 1; r < rows.length; r++) {
+      for (const c of DATE_COLS) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr];
+        if (!cell) continue;
+        const m = String(cell.v == null ? '' : cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) continue;
+        ws[addr] = { t: 'n', v: Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 + 25569, z: 'd/mm/yyyy' };
+      }
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Lead Verification');
     XLSX.writeFile(wb, `lead-verification_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -179,7 +191,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       'Donor Bank Name': l.donor_bank_name || '',
       'Amount': String(l.amount || 0),
       'Receipt No.': l.receipt_no || '',
-      'Receipt Date': l.verified_at || l.transaction_date || '',
+      'Receipt Date': l.verified_at || l.transaction_datetime || '',
       'Account Of': 'Corpus',
       'Mobile No.': l.donor_mobile || '',
       'City': l.donor_city || '',
