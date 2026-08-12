@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateRole } from '../middleware/authMiddleware.js';
-import { getLeadList, verifyLead, rejectLead, goBackLead, undoLeadVerification, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getAddressSuggestions, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, clearReceipts, getReceiptCount, getDonorsList, exportDonors, getDonorDetail, updateDonor, getImportNgoOptions } from '../controllers/accountsController.js';
+import { getLeadList, verifyLead, rejectLead, goBackLead, undoLeadVerification, deleteLead, deleteAllPendingLeads, getSuspenseList, createSuspense, addSuspenseNote, assignSuspense, generateReceipt, getReceipt, getReceiptList, getAddressSuggestions, getPendingReceipts, markReceiptAsSent, patchLeadField, getDonorHistory, getDayEndReport, importReceipts, clearReceipts, getReceiptCount, getSuspenseByNgo, getDonorsList, exportDonors, getDonorDetail, updateDonor, getImportNgoOptions } from '../controllers/accountsController.js';
 
 const router = Router();
 
@@ -24,6 +24,7 @@ router.post('/suspense/:id/assign', assignSuspense);
 router.post('/leads/:logId/receipt', generateReceipt);
 router.get('/leads/:logId/receipt', getReceipt);
 router.get('/receipts/count', getReceiptCount);
+router.get('/receipts/suspense-by-ngo', getSuspenseByNgo);
 router.get('/receipts', getReceiptList);
 router.get('/receipts/pending', getPendingReceipts);
 router.post('/receipts/mark-sent', markReceiptAsSent);

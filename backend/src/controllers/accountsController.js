@@ -2228,6 +2228,29 @@ export const getReceiptCount = async (req, res) => {
   }
 };
 
+// Bare suspense receipts per NGO: unlinked (no donor, no log), no agent assigned,
+// not priyank, not already in a bank-audit entry. The same pool the bank-audit
+// page counts as suspense.
+export const getSuspenseByNgo = async (req, res) => {
+  try {
+    const { rows } = await db._pool.query(`
+      SELECT project_id,
+             count(*)::int AS count,
+             COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+      FROM receipts
+      WHERE donor_id IS NULL AND log_id IS NULL
+        AND (agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')
+        AND lower(trim(COALESCE(agent_name, ''))) <> 'priyank shah'
+        AND NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)
+      GROUP BY project_id
+      ORDER BY count(*) DESC
+    `);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorsList = async (req, res) => {
   try {
     const { search, page = '1', limit = '50', ngo } = req.query;
