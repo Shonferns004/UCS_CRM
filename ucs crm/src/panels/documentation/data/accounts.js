@@ -2219,15 +2219,15 @@ The assignment model creates a many-to-many relationship between workers and wha
               description: 'List all configured WhatsApp Business accounts.',
               curl: 'curl -X GET "https://ucs-crm-backend.vercel.app/api/whatsapp/accounts" -H "Authorization: Bearer <token>"',
               requestBody: null,
-              responseBody: [{ id: 1, name: 'Mann Care WhatsApp', project: 'maan', phone_number_id: '123456789', is_active: true, is_default: false }],
+              responseBody: [{ id: 1, name: 'Mann Care WhatsApp', project: 'mann', phone_number_id: '123456789', is_active: true, is_default: false }],
             },
             {
               method: 'POST',
               path: '/api/whatsapp/accounts',
               auth: 'Bearer token (accounts, admin)',
               description: 'Create a new WhatsApp Business account.',
-              curl: 'curl -X POST "https://ucs-crm-backend.vercel.app/api/whatsapp/accounts" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d \'{"name":"Mann Care","project":"maan","phone_number_id":"123456789","access_token":"EA...","waba_id":"987654321"}\'',
-              requestBody: { name: 'Mann Care', project: 'maan', phone_number_id: '123456789', access_token: 'EA...', waba_id: '987654321' },
+              curl: 'curl -X POST "https://ucs-crm-backend.vercel.app/api/whatsapp/accounts" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d \'{"name":"Mann Care","project":"mann","phone_number_id":"123456789","access_token":"EA...","waba_id":"987654321"}\'',
+              requestBody: { name: 'Mann Care', project: 'mann', phone_number_id: '123456789', access_token: 'EA...', waba_id: '987654321' },
               responseBody: { id: 1, name: 'Mann Care', message: 'Account created' },
             },
             {

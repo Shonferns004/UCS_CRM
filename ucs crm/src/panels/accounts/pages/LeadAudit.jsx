@@ -54,7 +54,7 @@ export default function LeadAudit() {
         <select value={globalNgo} onChange={e => setGlobalNgo(e.target.value)} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}>
           <option value="">All NGOs</option>
           <option value="bsct">Being Sevak</option>
-          <option value="maan">Mann Care</option>
+          <option value="mann">Mann Care</option>
           <option value="aflf">Ashray</option>
         </select>
         <span style={{ fontSize: 11, color: '#9ca3af' }}>Filters both Leads and Bank Audit</span>

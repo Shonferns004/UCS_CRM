@@ -12,8 +12,8 @@ const CLAIM_BADGES = {
   rejected: { text: 'Claim Rejected', color: '#b91c1c', bg: '#fee2e2' },
 };
 
-const NGO_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
-const NGO_SHORT = { bsct: 'BSCT', maan: 'MANN', aflf: 'AFLF' };
+const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
+const NGO_SHORT = { bsct: 'BSCT', mann: 'MANN', aflf: 'AFLF' };
 
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 

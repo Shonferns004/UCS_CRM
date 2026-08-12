@@ -1,7 +1,7 @@
 const PROJECT_ALIASES = [
   { project: 'bsct', aliases: ['bsct', 'being sevak'] },
   { project: 'aflf', aliases: ['aflf', 'ashray life'] },
-  { project: 'maan', aliases: ['maan', 'mann care'] },
+  { project: 'mann', aliases: ['mann', 'mann care'] },
 ]
 
 export function getWhatsAppProject(donor = {}) {

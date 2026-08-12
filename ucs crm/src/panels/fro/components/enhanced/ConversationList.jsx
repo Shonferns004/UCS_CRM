@@ -1,13 +1,13 @@
 const PROJECT_LABELS = {
   bsct: 'Being Sevak',
   aflf: 'Ashray Life',
-  maan: 'Mann Care',
+  mann: 'Mann Care',
 }
 
 const PROJECT_BADGES = {
   bsct: { bg: '#dbeafe', text: '#1d4ed8' },
   aflf: { bg: '#dcfce7', text: '#16a34a' },
-  maan: { bg: '#fce7f3', text: '#db2777' },
+  mann: { bg: '#fce7f3', text: '#db2777' },
 }
 
 export default function ConversationList({ conversations = [], activeId, onSelect, loading, searchQuery }) {

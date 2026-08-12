@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiGet, apiPost, apiDelete } from '../api/auth';
 
-const PROJECT_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
+const PROJECT_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
 
 export default function WhatsAppAgents() {
   const [accounts, setAccounts] = useState([]);

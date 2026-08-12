@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 import { receivedMeta } from '../services/receivedSource';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
-const NGO_LABELS = { bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' };
+const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
 const LEAD_EXPORT_HEADERS = ['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
 
 const SkeletonNum = () => (
@@ -242,7 +242,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
             <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }}>
               <option value="">All NGOs</option>
               <option value="bsct">Being Sevak</option>
-              <option value="maan">Mann Care</option>
+              <option value="mann">Mann Care</option>
               <option value="aflf">Ashray</option>
             </select>
           )}
@@ -297,7 +297,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                    l.accounts_status === 'verified' ? <span className="pill pill-green">Verified</span> :
                    l.accounts_status === 'rejected' ? <span className="pill pill-red" title={l.rejection_reason || ''}>Rejected</span> :
                    <span className="pill pill-gray">{l.accounts_status || '\u2014'}</span>}
-                  <span className="pill pill-gray">{({ bsct: 'Being Sevak', maan: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
+                  <span className="pill pill-gray">{({ bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' })[l.donor_project] || l.donor_project || '\u2014'}</span>
                   {l.claimed_receipt && <span className="pill" style={{ fontSize: 10, background: '#FDE7DB', color: '#B5603A' }}>Claimant</span>}
                   {l.bank_match && <span className="pill" style={{ fontSize: 10, background: l.bank_match.match_source === 'manual' ? '#fef3c7' : '#dbeafe', color: l.bank_match.match_source === 'manual' ? '#92400e' : '#1d4ed8' }} title={`${l.bank_match.match_source === 'manual' ? 'Manually' : 'Auto'} matched${l.bank_match.match_score ? ` · score ${l.bank_match.match_score}` : ''}`}>
                     {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
