@@ -710,22 +710,34 @@ export const getSuspenseReceipts = async (req, res) => {
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
       .is('donor_id', null)
       .is('log_id', null)
+      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
       .order('receipt_date', { ascending: false });
     if (error) throw error;
 
-    // Priyank Shah receipts are never suspense — keep them out of the FRO pool.
     const filtered = (receipts || []).filter(r => !isPriyankShahAgent(r.agent_name));
 
     const receiptIds = filtered.map(r => r.id);
-    let claims = [];
+    const bankReceiptSet = new Set();
     if (receiptIds.length > 0) {
+      for (let i = 0; i < receiptIds.length; i += 1000) {
+        const { data: bankRows, error: bankErr } = await db
+          .from('bank_audit_entries').select('receipt_id').in('receipt_id', receiptIds.slice(i, i + 1000));
+        if (bankErr) throw bankErr;
+        for (const br of (bankRows || [])) bankReceiptSet.add(br.receipt_id);
+      }
+    }
+    const pool = filtered.filter(r => !bankReceiptSet.has(r.id));
+
+    const poolIds = pool.map(r => r.id);
+    let claims = [];
+    if (poolIds.length > 0) {
       const { data: c, error: cErr } = await db
         .from('receipt_claims')
         .select('receipt_id, fro_worker_id, status')
-        .in('receipt_id', receiptIds);
+        .in('receipt_id', poolIds);
       if (cErr) throw cErr;
       claims = c || [];
     }
@@ -739,7 +751,7 @@ export const getSuspenseReceipts = async (req, res) => {
       }
     }
 
-    const result = filtered.map(r => ({
+    const result = pool.map(r => ({
       id: r.id,
       receipt_no: r.receipt_no,
       donor_name: r.donor_name,
