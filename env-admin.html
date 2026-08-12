@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Env &amp; Server Admin</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel2: #1d2638;
+    --border: #2a3650;
+    --text: #dbe3f0;
+    --muted: #8a96ad;
+    --accent: #4f8cff;
+    --accent2: #38d39f;
+    --danger: #ff5c5c;
+    --warn: #ffb648;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); display: inline-block; margin-right: 6px; }
+  .dot.ok { background: var(--accent2); }
+  .dot.err { background: var(--danger); }
+  .spacer { flex: 1; }
+  button {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+  button.danger:hover { background: rgba(255,92,92,.12); }
+  main { padding: 24px; max-width: 1280px; margin: 0 auto; }
+  section { margin-bottom: 28px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 14px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .card .value { font-size: 24px; font-weight: 600; margin-top: 6px; }
+  .card .value.small { font-size: 16px; }
+  .bar { height: 6px; background: var(--panel2); border-radius: 3px; margin-top: 10px; overflow: hidden; }
+  .bar > div { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .bar > div.warn { background: var(--warn); }
+  .bar > div.danger { background: var(--danger); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .project {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .project .name { font-weight: 600; font-size: 15px; word-break: break-all; }
+  .badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .badge.yes { border-color: var(--accent2); color: var(--accent2); }
+  .badge.warn { border-color: var(--warn); color: var(--warn); }
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    background: rgba(255,182,72,.08);
+    border: 1px solid var(--warn);
+    color: var(--warn);
+  }
+  .banner button { margin-left: auto; padding: 5px 10px; }
+  .project .meta { font-size: 12px; color: var(--muted); }
+  .project .row { display: flex; align-items: center; gap: 8px; }
+  .project .row .spacer { flex: 1; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  tr:last-child td { border-bottom: none; }
+  .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+  .status-online { color: var(--accent2); }
+  .status-errored, .status-stopped { color: var(--danger); }
+  .muted { color: var(--muted); }
+
+  dialog {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    width: min(760px, 94vw);
+    max-height: 88vh;
+    padding: 0;
+  }
+  dialog::backdrop { background: rgba(4,8,16,.65); }
+  .dlg-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dlg-head h3 { margin: 0; font-size: 16px; }
+  .dlg-head .path { font-size: 12px; color: var(--muted); font-family: Consolas, monospace; }
+  .dlg-body { padding: 16px 18px; overflow: auto; max-height: 70vh; }
+  form.add {
+    display: grid;
+    grid-template-columns: 220px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 18px;
+    padding: 14px;
+    background: var(--panel2);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+  }
+  input, textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: Consolas, monospace;
+    width: 100%;
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .vrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .vrow:last-child { border-bottom: none; }
+  .vrow .key { font-weight: 600; min-width: 180px; word-break: break-all; }
+  .vrow .val {
+    flex: 1;
+    color: var(--muted);
+    font-family: Consolas, monospace;
+    font-size: 12.5px;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+  .vrow .actions { display: flex; gap: 6px; }
+  .vrow button { padding: 5px 9px; font-size: 12px; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    z-index: 100;
+    max-width: 360px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: .2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .toast.ok { border-color: var(--accent2); }
+  .toast.err { border-color: var(--danger); }
+  @media (max-width: 640px) {
+    form.add { grid-template-columns: 1fr; }
+    .vrow { flex-wrap: wrap; }
+    .vrow .key { min-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Env &amp; Server Admin</h1>
+  <span class="sub"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></span>
+  <div class="spacer"></div>
+  <button id="tokenBtn">Token</button>
+  <button id="restartBtn" class="danger">Restart backend</button>
+  <button id="refreshBtn">Refresh</button>
+</header>
+
+<main>
+  <section>
+    <h2>Server Load</h2>
+    <div class="cards" id="sysCards"></div>
+    <div id="pm2Wrap" style="margin-top:14px"></div>
+  </section>
+
+  <section>
+    <h2>Projects</h2>
+    <div class="grid" id="projectsGrid"></div>
+  </section>
+</main>
+
+<dialog id="envDialog">
+  <div class="dlg-head">
+    <h3 id="dlgTitle">Project</h3>
+    <span class="path" id="dlgPath"></span>
+    <div class="spacer"></div>
+    <button id="dlgClose">Close</button>
+  </div>
+  <div class="dlg-body">
+    <div id="deployBanner"></div>
+    <form class="add" id="addForm">
+      <input id="newKey" placeholder="KEY_NAME" autocomplete="off" spellcheck="false">
+      <textarea id="newValue" rows="1" placeholder="value" autocomplete="off" spellcheck="false" style="resize:vertical; min-height:34px"></textarea>
+      <button class="primary" id="addBtn" type="submit">Add / Update</button>
+    </form>
+    <div id="varsList"></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TOKEN = '';
+  try { TOKEN = localStorage.getItem('envAdminToken') || ''; } catch (e) {}
+  var currentProject = null;
+  var currentVars = [];
+  var lastSystem = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---- helpers ------------------------------------------------------------
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtBytes(b) {
+    b = Number(b) || 0;
+    if (b >= 1e12) return (b / 1e12).toFixed(2) + ' TB';
+    if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
+    if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB';
+    return (b / 1024).toFixed(0) + ' KB';
+  }
+  function fmtUptime(s) {
+    s = Number(s) || 0;
+    var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm ' + (s % 60) + 's';
+  }
+  function barClass(pct) {
+    if (pct >= 90) return 'danger';
+    if (pct >= 70) return 'warn';
+    return '';
+  }
+  function toast(msg, type) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show ' + (type || 'ok');
+    clearTimeout(t._t);
+    t._t = setTimeout(function () { t.className = 'toast'; }, 2600);
+  }
+  function setStatus(text, cls) {
+    $('statusText').textContent = text;
+    $('statusDot').className = 'dot ' + (cls || '');
+  }
+
+  // ---- api ----------------------------------------------------------------
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+    if (TOKEN) headers['x-admin-key'] = TOKEN;
+    return fetch(path, Object.assign({}, opts, { headers: headers })).then(function (r) {
+      if (r.status === 401) {
+        var t = prompt('Enter admin token:');
+        if (t) {
+          TOKEN = t.trim();
+          try { localStorage.setItem('envAdminToken', TOKEN); } catch (e) {}
+          return api(path, opts);
+        }
+        throw new Error('Unauthorized');
+      }
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.message || ('HTTP ' + r.status));
+        return data;
+      });
+    });
+  }
+
+  // ---- system -------------------------------------------------------------
+  function card(label, value, opts) {
+    opts = opts || {};
+    var bar = opts.pct != null
+      ? '<div class="bar"><div class="' + barClass(opts.pct) + '" style="width:' + Math.max(0, Math.min(100, opts.pct)) + '%"></div></div>'
+      : '';
+    return '<div class="card"><div class="label">' + esc(label) + '</div><div class="value' + (opts.small ? ' small' : '') + '">' + esc(value) + '</div>' + bar + '</div>';
+  }
+
+  function renderSystem(d) {
+    var html = '';
+    html += card('CPU', (d.cpu && d.cpu.usagePct != null) ? d.cpu.usagePct + '%' : 'n/a', { pct: (d.cpu && d.cpu.usagePct) || 0, small: true });
+    html += card('Memory', d.mem.pct + '%', { pct: d.mem.pct, small: true });
+    html += card('RAM Used', fmtBytes(d.mem.used) + ' / ' + fmtBytes(d.mem.total), { small: true });
+    html += card('Host', d.hostname, { small: true });
+    html += card('Uptime', fmtUptime(d.uptime_seconds), { small: true });
+    html += card('Load Avg', (d.load_avg || []).join(' / '), { small: true });
+    html += card('Node', d.node, { small: true });
+    $('sysCards').innerHTML = html;
+
+    var diskHtml = d.disk && d.disk.length
+      ? d.disk.map(function (ds) {
+          return '<div class="card"><div class="label">Disk — ' + esc(ds.mount) + '</div><div class="value small">' +
+            esc(fmtBytes(ds.used) + ' / ' + fmtBytes(ds.total) + ' (' + ds.pct + '%)') + '</div>' +
+            '<div class="bar"><div class="' + barClass(ds.pct) + '" style="width:' + Math.min(100, ds.pct) + '%"></div></div></div>';
+        }).join('')
+      : '';
+    var pm2Html = '';
+    if (d.pm2 && d.pm2.length) {
+      pm2Html = '<table><thead><tr><th>Process</th><th>Status</th><th>Restarts</th><th>CPU</th><th>Memory</th><th>Uptime</th></tr></thead><tbody>' +
+        d.pm2.map(function (p) {
+          var cls = p.status === 'online' ? 'status-online' : (p.status === 'errored' || p.status === 'stopped' ? 'status-errored' : '');
+          return '<tr><td class="mono">' + esc(p.name) + '</td>' +
+            '<td class="' + cls + '">' + esc(p.status) + '</td>' +
+            '<td>' + p.restart_time + '</td>' +
+            '<td>' + p.cpu + '%</td>' +
+            '<td>' + fmtBytes(p.memory) + '</td>' +
+            '<td>' + fmtUptime(Math.round(p.uptime_ms / 1000)) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+    $('pm2Wrap').innerHTML = diskHtml + pm2Html;
+  }
+
+  function loadSystem() {
+    return api('/api/envadmin/system').then(function (d) {
+      lastSystem = d;
+      renderSystem(d);
+      setStatus('connected — ' + d.hostname, 'ok');
+      return d;
+    }).catch(function (e) {
+      setStatus(e.message, 'err');
+      toast(e.message, 'err');
+    });
+  }
+
+  // ---- projects -----------------------------------------------------------
+  function renderProjects(projects) {
+    var grid = $('projectsGrid');
+    if (!projects.length) {
+      grid.innerHTML = '<div class="empty">No projects found</div>';
+      return;
+    }
+    grid.innerHTML = projects.map(function (p) {
+      var badge = p.hasEnv
+        ? '<span class="badge yes">.env · ' + p.envCount + '</span>'
+        : '<span class="badge">no .env</span>';
+      var deploy = '';
+      if (p.comparable) {
+        deploy = p.needsRestart
+          ? '<span class="badge warn">needs restart</span>'
+          : '<span class="badge yes">deployed</span>';
+      }
+      var mtime = p.mtime ? new Date(p.mtime).toLocaleString() : '—';
+      return '<div class="project">' +
+        '<div class="name">' + esc(p.name) + '</div>' +
+        '<div class="row">' + badge + ' ' + deploy + '</div>' +
+        '<div class="meta">modified ' + esc(mtime) + '</div>' +
+        '<div class="row"><div class="spacer"></div>' +
+        '<button class="primary" data-open="' + esc(encodeURIComponent(p.name)) + '">Open</button></div>' +
+        '</div>';
+    }).join('');
+    grid.querySelectorAll('[data-open]').forEach(function (b) {
+      b.addEventListener('click', function () { openProject(decodeURIComponent(b.getAttribute('data-open'))); });
+    });
+  }
+
+  function loadProjects() {
+    return api('/api/envadmin/projects').then(function (d) {
+      renderProjects(d.projects || []);
+      return d;
+    }).catch(function (e) {
+      setStatus(e.message, 'err');
+      toast(e.message, 'err');
+    });
+  }
+
+  // ---- env dialog ---------------------------------------------------------
+  function openProject(name) {
+    currentProject = name;
+    $('dlgTitle').textContent = name;
+    $('dlgPath').textContent = '';
+    $('newKey').value = '';
+    $('newValue').value = '';
+    $('addBtn').textContent = 'Add / Update';
+    $('envDialog').showModal();
+    loadEnv();
+  }
+
+  function loadEnv() {
+    var list = $('varsList');
+    list.innerHTML = '<div class="empty">Loading…</div>';
+    api('/api/envadmin/projects/' + encodeURIComponent(currentProject) + '/env').then(function (d) {
+      currentVars = d.vars || [];
+      $('dlgPath').textContent = d.envPath || '';
+      if (d.comparable && d.needsRestart) {
+        $('deployBanner').innerHTML = 'Some vars are not live in the running process yet. ' +
+          '<button id="bannerRestart" class="danger">Restart now</button>';
+        $('bannerRestart').addEventListener('click', restartBackend);
+      } else if (d.comparable) {
+        $('deployBanner').innerHTML = '<span class="badge yes">deployed</span> <span style="font-size:12px">all vars match the running process</span>';
+      } else {
+        $('deployBanner').innerHTML = '';
+      }
+      renderVars(currentVars);
+      updateAddBtn();
+    }).catch(function (e) {
+      list.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+      toast(e.message, 'err');
+    });
+  }
+
+  function maskValue(v) {
+    if (v.length <= 8) return v;
+    return v.slice(0, 6) + '••••••••';
+  }
+
+  function renderVars(vars) {
+    var list = $('varsList');
+    if (!vars.length) {
+      list.innerHTML = '<div class="empty">No variables yet — add one above.</div>';
+      return;
+    }
+    list.innerHTML = vars.map(function (v) {
+      var dot = v.deployed == null
+        ? ''
+        : (v.deployed
+            ? '<span class="dot ok" title="live in running process"></span>'
+            : '<span class="dot" title="changed — restart to deploy"></span>');
+      return '<div class="vrow" data-key="' + esc(v.key) + '">' +
+        '<div class="key mono">' + dot + ' ' + esc(v.key) + '</div>' +
+        '<div class="val" data-revealed="0" title="' + esc(v.value) + '">' + esc(maskValue(v.value)) + '</div>' +
+        '<div class="actions">' +
+        '<button data-act="toggle">' + (v.value.length <= 8 ? 'show' : 'reveal') + '</button>' +
+        '<button data-act="copy">copy</button>' +
+        '<button data-act="edit">edit</button>' +
+        '<button class="danger" data-act="del">del</button>' +
+        '</div></div>';
+    }).join('');
+
+    list.querySelectorAll('.vrow').forEach(function (row) {
+      var key = row.getAttribute('data-key');
+      var v = vars.find(function (x) { return x.key === key; });
+      var valEl = row.querySelector('.val');
+
+      row.querySelector('[data-act="toggle"]').addEventListener('click', function () {
+        var revealed = valEl.getAttribute('data-revealed') === '1';
+        if (revealed) { valEl.textContent = maskValue(v.value); valEl.setAttribute('data-revealed', '0'); }
+        else { valEl.textContent = v.value; valEl.setAttribute('data-revealed', '1'); }
+      });
+      row.querySelector('[data-act="copy"]').addEventListener('click', function () {
+        (navigator.clipboard ? navigator.clipboard.writeText(v.value) : Promise.reject())
+          .then(function () { toast('Copied ' + key, 'ok'); })
+          .catch(function () {
+            var ta = document.createElement('textarea');
+            ta.value = v.value;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            toast('Copied ' + key, 'ok');
+          });
+      });
+      row.querySelector('[data-act="edit"]').addEventListener('click', function () {
+        $('newKey').value = key;
+        $('newValue').value = v.value;
+        $('newKey').focus();
+        updateAddBtn();
+      });
+      row.querySelector('[data-act="del"]').addEventListener('click', function () {
+        if (!confirm('Delete ' + key + ' from ' + currentProject + '/.env?')) return;
+        api('/api/envadmin/projects/' + encodeURIComponent(currentProject) + '/env/' + encodeURIComponent(key), { method: 'DELETE' })
+          .then(function () { toast('Deleted ' + key, 'ok'); loadEnv(); refreshProjects(); })
+          .catch(function (e) { toast(e.message, 'err'); });
+      });
+    });
+  }
+
+  function updateAddBtn() {
+    var key = $('newKey').value.trim();
+    var exists = currentVars.some(function (v) { return v.key === key; });
+    $('addBtn').textContent = exists ? 'Update ' + key : 'Add';
+  }
+
+  function refreshProjects() {
+    api('/api/envadmin/projects').then(function (d) { renderProjects(d.projects || []); }).catch(function () {});
+  }
+
+  // ---- restart ------------------------------------------------------------
+  var restarting = false;
+
+  function restartBackend() {
+    if (restarting) return;
+    if (!confirm('Restart the backend now to deploy .env changes?\nThe API will be offline for a few seconds.')) return;
+    restarting = true;
+    var btn = $('restartBtn');
+    btn.disabled = true;
+    btn.textContent = 'Restarting…';
+    var before = lastSystem && lastSystem.pm2 && lastSystem.pm2[0] ? lastSystem.pm2[0].restart_time : null;
+    setStatus('restarting…', '');
+    api('/api/envadmin/restart', { method: 'POST' })
+      .catch(function () {})
+      .then(function () { pollUntilBack(before); });
+  }
+
+  function pollUntilBack(before) {
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      fetch('/api/health', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function () {
+        api('/api/envadmin/system').then(function (s) {
+          var rt = s.pm2 && s.pm2[0] ? s.pm2[0].restart_time : -1;
+          if (before == null || rt > before) {
+            clearInterval(timer);
+            finishRestart(s, false);
+          }
+        }).catch(function () {});
+      }).catch(function () {});
+      if (tries >= 40) {
+        clearInterval(timer);
+        finishRestart(null, true);
+      }
+    }, 2000);
+  }
+
+  function finishRestart(s, timedOut) {
+    restarting = false;
+    var btn = $('restartBtn');
+    btn.disabled = false;
+    btn.textContent = 'Restart backend';
+    loadProjects();
+    if (s) {
+      lastSystem = s;
+      renderSystem(s);
+      setStatus('connected — ' + s.hostname, 'ok');
+      toast(timedOut ? 'Backend is back but restart may have failed' : 'Backend restarted & .env redeployed', timedOut ? 'err' : 'ok');
+    } else {
+      setStatus('connected', 'ok');
+      loadSystem();
+      toast('Backend is back online', 'ok');
+    }
+    if ($('envDialog').open) loadEnv();
+  }
+
+  // ---- events -------------------------------------------------------------
+  $('addForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var key = $('newKey').value.trim();
+    var value = $('newValue').value;
+    if (!key) { toast('Key is required', 'err'); return; }
+    api('/api/envadmin/projects/' + encodeURIComponent(currentProject) + '/env', {
+      method: 'POST',
+      body: JSON.stringify({ key: key, value: value }),
+    }).then(function () {
+      toast(key + ' saved', 'ok');
+      $('newKey').value = '';
+      $('newValue').value = '';
+      updateAddBtn();
+      loadEnv();
+      refreshProjects();
+    }).catch(function (e) { toast(e.message, 'err'); });
+  });
+
+  $('newKey').addEventListener('input', updateAddBtn);
+
+  $('refreshBtn').addEventListener('click', function () {
+    loadSystem();
+    loadProjects();
+  });
+
+  $('restartBtn').addEventListener('click', restartBackend);
+
+  $('dlgClose').addEventListener('click', function () { $('envDialog').close(); });
+
+  $('tokenBtn').addEventListener('click', function () {
+    var t = prompt('Current token: ' + (TOKEN ? TOKEN : '(none)') + '\n\nEnter new admin token (leave empty to clear):');
+    if (t === null) return;
+    TOKEN = t.trim();
+    try { localStorage.setItem('envAdminToken', TOKEN); } catch (e) {}
+    toast('Token saved', 'ok');
+  });
+
+  // ---- init ---------------------------------------------------------------
+  loadSystem();
+  loadProjects();
+  setInterval(loadSystem, 15000);
+})();
+</script>
+</body>
+</html>
