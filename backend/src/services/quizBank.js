@@ -118,3 +118,21 @@ export const GENERIC_BANK = bank(
     'What are your strengths and weaknesses?',
   ]
 );
+
+// General knowledge fallback used when the AI quiz generation fails.
+export const GK_BANK = bank(
+  [
+    { question: 'What is the capital of India?', options: ['New Delhi', 'Mumbai', 'Kolkata', 'Chennai'], answer: 'New Delhi' },
+    { question: 'Which is the largest planet in our solar system?', options: ['Earth', 'Mars', 'Jupiter', 'Saturn'], answer: 'Jupiter' },
+    { question: 'How many continents are there in the world?', options: ['5', '6', '7', '8'], answer: '7' },
+    { question: 'Which gas do plants absorb from the air?', options: ['Oxygen', 'Carbon dioxide', 'Nitrogen', 'Hydrogen'], answer: 'Carbon dioxide' },
+    { question: 'How many days are there in a leap year?', options: ['365', '366', '364', '360'], answer: '366' },
+    { question: 'Which is the national flower of India?', options: ['Rose', 'Sunflower', 'Lotus', 'Marigold'], answer: 'Lotus' },
+    { question: 'Which of these is a continent?', options: ['India', 'Africa', 'China', 'England'], answer: 'Africa' },
+  ],
+  [
+    'Name any one current event you recently read or watched in the news.',
+    'Why is general awareness important for everyday life?',
+    'Name one famous Indian freedom fighter and his or her contribution.',
+  ]
+);
