@@ -611,40 +611,74 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
 
       {historyOpen && (
         <div className="modal-overlay" onClick={()=>setHistoryOpen(false)}>
-          <div className="modal" style={{maxWidth:700,width:'90%',maxHeight:'85vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Donation History — {l.donor_name}</h3>
-              <button className="btn btn-sm" onClick={()=>setHistoryOpen(false)}>Close</button>
+          <div className="modal" style={{maxWidth:720,width:'95%',maxHeight:'85vh',display:'flex',flexDirection:'column',overflow:'hidden'}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-head">
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:32,height:32,borderRadius:8,background:'#5B6B4E22',color:'var(--sage)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700}}>
+                  {initials(l.donor_name)}
+                </div>
+                <div>
+                  <h3 style={{margin:0,fontSize:15,fontWeight:600}}>Donation History</h3>
+                  <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:1}}>{l.donor_name}</div>
+                </div>
+              </div>
+              <button className="btn btn-sm btn-icon" onClick={()=>setHistoryOpen(false)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
             </div>
-            <div className="modal-body" style={{padding:16}}>
-              <div className="filter-bar" style={{marginBottom:12}}>
-                <select className="field-input" value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{maxWidth:200}}>
+            <div className="modal-body" style={{flex:1,overflow:'auto',padding:0}}>
+              <div style={{padding:'12px 18px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--bg)'}}>
+                <select className="btn btn-sm" value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{minWidth:120,cursor:'pointer'}}>
                   <option value="all">All Time</option>
                   <option value="this-month">This Month</option>
                   <option value="this-year">This Year</option>
                   {finYears.map(fy=><option key={fy} value={fy}>{fy}</option>)}
                 </select>
+                {!historyLoading && filteredHistory.length > 0 && (
+                  <span style={{fontSize:11,color:'var(--ink-soft)',fontWeight:500}}>
+                    {filteredHistory.length} donation{filteredHistory.length!==1?'s':''}
+                  </span>
+                )}
               </div>
-              {historyLoading ? <div style={{textAlign:'center',padding:20,color:'var(--ink-soft)'}}>Loading...</div> :
-               filteredHistory.length===0 ? <div style={{textAlign:'center',padding:20,color:'var(--ink-soft)'}}>No donation history found</div> :
-               <div className="table-wrap">
+              {historyLoading ? (
+                <div style={{textAlign:'center',padding:'40px 20px',color:'var(--ink-soft)',fontSize:13}}>
+                  <div style={{width:24,height:24,border:'2px solid var(--line)',borderTopColor:'var(--sage)',borderRadius:'50%',animation:'spin 0.6s linear infinite',margin:'0 auto 10px'}} />
+                  Loading donations...
+                </div>
+              ) : filteredHistory.length === 0 ? (
+                <div style={{textAlign:'center',padding:'40px 20px',color:'var(--ink-soft)'}}>
+                  <div style={{fontSize:32,marginBottom:8,opacity:.3}}>💰</div>
+                  <div style={{fontSize:14,fontWeight:600,color:'var(--ink)'}}>No donations found</div>
+                  <div style={{fontSize:12,marginTop:4}}>Try a different time period</div>
+                </div>
+              ) : (
                 <table>
-                  <thead><tr><th>Date</th><th>Amount</th><th>Mode</th><th>From</th><th>UPI Ref</th><th>Receipt</th><th>Agent</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Mode</th>
+                      <th>From</th>
+                      <th>UPI Ref</th>
+                      <th>Receipt</th>
+                      <th>Agent</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {filteredHistory.map(h=>(
-                      <tr key={h.log_id}>
-                        <td style={{fontSize:11}}>{h.verified_at?new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</td>
-                        <td><strong style={{color:'var(--sage)'}}>{currency(h.amount)}</strong></td>
-                        <td style={{fontSize:12}}>{h.payment_mode||'\u2014'}</td>
-                        <td style={{fontSize:12}}>{h.payment_from||'\u2014'}</td>
-                        <td style={{fontSize:11,fontFamily:'monospace'}}>{h.upi_transaction_id||'\u2014'}</td>
-                        <td style={{fontSize:11,fontFamily:'monospace'}}>{h.receipt_no||'\u2014'}</td>
+                      <tr key={h.log_id} style={{transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                        <td style={{fontSize:12,whiteSpace:'nowrap'}}>{h.verified_at?new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}</td>
+                        <td><span style={{fontSize:13,fontWeight:600,color:'var(--sage)',fontVariantNumeric:'tabular-nums'}}>{currency(h.amount)}</span></td>
+                        <td style={{fontSize:12}}>{h.payment_mode||'—'}</td>
+                        <td style={{fontSize:12}}>{h.payment_from||'—'}</td>
+                        <td style={{fontSize:11,fontFamily:'monospace',color:'var(--ink-soft)'}}>{h.upi_transaction_id||'—'}</td>
+                        <td style={{fontSize:11,fontFamily:'monospace'}}>{h.receipt_no||'—'}</td>
                         <td><span className="pill pill-gray">{h.agent_name}</span></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>}
+              )}
             </div>
           </div>
         </div>
