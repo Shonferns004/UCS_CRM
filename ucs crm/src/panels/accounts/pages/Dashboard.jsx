@@ -150,7 +150,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
         'NA', na(l.transaction_datetime || l.verified_at), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
         'NA', 'NA', 'NA', 'NA', na(l.donor_address),
         na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
-        'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
+        'NA', na(l.donor_email), 'NA', 'NA', 'NA',
         'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
         mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
         l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_datetime || l.verified_at),
