@@ -1129,7 +1129,10 @@ export const getReceiptList = async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const search = (req.query.search || '').trim();
     const project = (req.query.project || '').trim();
-    const link = req.query.link === 'unlinked' ? 'unlinked' : (req.query.link === 'linked' ? 'linked' : '');
+    const link = (req.query.link === 'suspense' || req.query.link === 'unlinked')
+      ? 'suspense'
+      : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors' : '');
+    const isSuspense = link === 'suspense';
 
     // Cheap per-NGO aggregates + project options (unfiltered).
     const statsRes = await db._pool.query(
@@ -1155,13 +1158,11 @@ export const getReceiptList = async (req, res) => {
       params.push(project);
       where.push(`project_id = $${params.length}`);
     }
-    if (link === 'linked') where.push('donor_id IS NOT NULL');
-    // Agent-assigned receipts are handled (owned by the FSE / tracked in the
-    // FRO pool), so they never appear in Accounts' "Unlinked receipts" tab —
-    // mirroring the bank-audit suspense rule.
-    if (link === 'unlinked') {
+    if (link === 'donors') where.push('donor_id IS NOT NULL');
+    if (isSuspense) {
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')`);
+      where.push(`NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)`);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
