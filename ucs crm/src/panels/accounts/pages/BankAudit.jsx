@@ -194,16 +194,23 @@ function AgentPicker({ value, workers, onChange }){
 }
 
 // ─── Audit Stat Cards ──────────────────────────────────────
-export function AuditStatCards({sources=[],summary={},loading=false,suspense=null,suspenseNgo='',setSuspenseNgo=null,total=null}){
+export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null}){
+  const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
   return <div className="stats-grid">
     {loading?Array.from({length:Math.max(sources.length||4,4)},(_,i)=><SkStat key={i}/>):<>
-      {total!=null&&<div className="stat-card">
+      {c&&<div className="stat-card">
         <div className="stat-icon" style={{background:'#11182718',color:'#111827'}}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg>
         </div>
         <div className="stat-info">
-          <div className="stat-num" style={{color:'#111827'}}>{total.entries+total.suspense}</div>
-          <div className="stat-lbl">Total · {total.entries} entries + {total.suspense} suspense</div>
+          <div className="stat-num" style={{color:'#111827'}}>{c.count}</div>
+          <div className="stat-lbl">Total · {c.entries} entries + {c.suspense} suspense</div>
+          <div style={{fontSize:11,color:'#6b7280'}}>{curr(c.amount)}</div>
+          {setSuspenseNgo&&<div className="stat-actions">
+            {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']].map(([v,l])=>
+              <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#111827':'#e5e7eb',color:suspenseNgo===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
+            )}
+          </div>}
         </div>
       </div>}
       {sources.filter(s=>s.is_active!==false).map((s,i)=><div className="stat-card" key={s.id}>
@@ -215,20 +222,6 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspense=nul
           <div className="stat-lbl">{s.name}</div>
         </div>
       </div>)}
-      {suspense!=null&&<div className="stat-card">
-        <div className="stat-icon" style={{background:'#B5603A18',color:'#B5603A'}}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div className="stat-info">
-          <div className="stat-num" style={{color:'#B5603A'}}>{curr(suspense.amount||0)}</div>
-          <div className="stat-lbl">Suspense · {suspense.count||0} open</div>
-          {setSuspenseNgo&&<div className="stat-actions">
-            {[['','All'],['bsct','BSCT'],['aflf','AFLF'],['mann','MANN']].map(([v,l])=>
-              <button key={v||'all'} onClick={()=>setSuspenseNgo(v)} style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:'none',cursor:'pointer',background:suspenseNgo===v?'#B5603A':'#FDE7DB',color:suspenseNgo===v?'#fff':'#B5603A',transition:'background .12s'}}>{l}</button>
-            )}
-          </div>}
-        </div>
-      </div>}
     </>}
   </div>;
 }
@@ -404,19 +397,19 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const ngoFilter = useGlobalNgo ? globalNgo : nf;
   const suspenseNgo = useGlobalNgo ? (cardSuspenseNgo !== undefined ? cardSuspenseNgo : globalNgo) : snf;
 
-  const suspense=useMemo(()=>{
-    const rows=e.filter(x=>x.kind==='suspense'&&(!suspenseNgo||matchesNgo(x,suspenseNgo)));
-    return {count:rows.length,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
-  },[e,suspenseNgo]);
-
-  // Rows in the loaded audit list split into bank entries vs suspense receipts,
-  // so the stat cards can show a combined total that matches the list count.
-  const total=useMemo(()=>{
-    let entries=0,suspenseRows=0;
-    for(const x of e){if(x.kind==='suspense')suspenseRows++;else entries++}
-    return {entries,suspense:suspenseRows};
+  // Per-NGO totals over the whole loaded list (bank entries + suspense receipts)
+  // so the cards show the same combined count as the list. The card's NGO buttons
+  // (suspenseNgo) filter only these cards, never the panels below.
+  const combo=useMemo(()=>{
+    const build=(code)=>{
+      const rows=code?e.filter(x=>matchesNgo(x,code)):e;
+      let entries=0,suspenseRows=0;
+      for(const r of rows){if(r.kind==='suspense')suspenseRows++;else entries++}
+      return {count:rows.length,entries,suspense:suspenseRows,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
+    };
+    return {all:build(''),bsct:build('bsct'),aflf:build('aflf'),mann:build('mann')};
   },[e]);
-  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,suspense,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf,total})},[sr,su,ld,embedded,suspense,suspenseNgo,useGlobalNgo]);
+  useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf,combo})},[sr,su,ld,embedded,suspenseNgo,useGlobalNgo,e]);
 
   const fe=e.filter(en=>{
     if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
@@ -538,7 +531,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const openDetail=(entry)=>{openE(entry)};
 
   return <div>
-    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspense={suspense} suspenseNgo={snf} setSuspenseNgo={setSnf} total={total}/></div>}
+    {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspenseNgo={snf} setSuspenseNgo={setSnf} combo={combo}/></div>}
 
     {/* Pending / History sub-tabs */}
     <div style={{marginBottom:16,borderRadius:10,overflow:'hidden',border:'1px solid #e5e7eb',background:'#fff'}}>
