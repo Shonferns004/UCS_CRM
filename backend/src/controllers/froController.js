@@ -710,22 +710,34 @@ export const getSuspenseReceipts = async (req, res) => {
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
       .is('donor_id', null)
       .is('log_id', null)
+      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
       .order('receipt_date', { ascending: false });
     if (error) throw error;
 
-    // Priyank Shah receipts are never suspense — keep them out of the FRO pool.
     const filtered = (receipts || []).filter(r => !isPriyankShahAgent(r.agent_name));
 
     const receiptIds = filtered.map(r => r.id);
-    let claims = [];
+    const bankReceiptSet = new Set();
     if (receiptIds.length > 0) {
+      for (let i = 0; i < receiptIds.length; i += 1000) {
+        const { data: bankRows, error: bankErr } = await db
+          .from('bank_audit_entries').select('receipt_id').in('receipt_id', receiptIds.slice(i, i + 1000));
+        if (bankErr) throw bankErr;
+        for (const br of (bankRows || [])) bankReceiptSet.add(br.receipt_id);
+      }
+    }
+    const pool = filtered.filter(r => !bankReceiptSet.has(r.id));
+
+    const poolIds = pool.map(r => r.id);
+    let claims = [];
+    if (poolIds.length > 0) {
       const { data: c, error: cErr } = await db
         .from('receipt_claims')
         .select('receipt_id, fro_worker_id, status')
-        .in('receipt_id', receiptIds);
+        .in('receipt_id', poolIds);
       if (cErr) throw cErr;
       claims = c || [];
     }
@@ -739,7 +751,7 @@ export const getSuspenseReceipts = async (req, res) => {
       }
     }
 
-    const result = filtered.map(r => ({
+    const result = pool.map(r => ({
       id: r.id,
       receipt_no: r.receipt_no,
       donor_name: r.donor_name,
@@ -882,34 +894,38 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
     }
 
-    // Attach to the donor's open assignment owned by THIS claiming FRO (or open a
-    // fresh one for them) so the created lead shows up in Lead Verification and
-    // credits the claimant — never another worker's assignment.
+    // Resolve the receipt's project_id to an ngo_id first — the assignment must
+    // match the receipt's NGO, not just any prior assignment for this donor.
+    const { data: ngoRow } = await db
+      .from('ngos')
+      .select('id, name')
+      .ilike('name', receipt.project_id)
+      .maybeSingle();
+    const receiptNgoId = ngoRow?.id || null;
+    if (!receiptNgoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
+
+    // Attach to the donor's open assignment owned by THIS claiming FRO for THIS
+    // NGO (or open a fresh one) so the created lead shows up in Lead Verification
+    // and credits the claimant — never another worker's or another NGO's assignment.
     const { data: assignment } = await db
       .from('fro_assignments')
       .select('id, fro_worker_id')
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
+      .eq('ngo_id', receiptNgoId)
       .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
       .maybeSingle();
 
     let assignmentId = assignment?.id;
     if (!assignmentId) {
-      const { data: ngoRow } = await db
-        .from('ngos')
-        .select('id, name')
-        .ilike('name', receipt.project_id)
-        .maybeSingle();
-      const ngoId = ngoRow?.id || null;
-      if (!ngoId) return res.status(400).json({ message: 'Could not resolve the NGO for this receipt' });
       const { scope: claimScope } = await getMyStationScope(workerId);
-      const scopeRow = (claimScope || []).find(s => s.ngo_id === ngoId);
+      const scopeRow = (claimScope || []).find(s => s.ngo_id === receiptNgoId);
       const { data: created, error: asgErr } = await db
         .from('fro_assignments')
         .insert({
           donor_id: donorId,
           fro_worker_id: workerId,
-          ngo_id: ngoId,
+          ngo_id: receiptNgoId,
           station: scopeRow?.station || null,
           status: 'lead_done',
           assigned_at: new Date().toISOString(),

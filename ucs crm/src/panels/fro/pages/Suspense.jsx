@@ -257,88 +257,174 @@ export default function FroSuspense() {
       </div>
 
       {showClaimModal && claimReceipt && (
-        <div onClick={() => { if (!claiming && !claimSuccess) setShowClaimModal(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 400, maxWidth: '92vw', padding: 20, boxShadow: '0 8px 32px rgba(0,0,0,.15)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Claim Suspense Receipt</div>
-            <div style={{ fontSize: 10, color: 'var(--ink-soft)', marginBottom: 12 }}>Your claim becomes a pending lead in Lead Verification. Accounts verifies it and adds it to your collected.</div>
-            <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 2 }}>
-                {claimReceipt.receipt_date}
-                {claimReceipt.receipt_time ? ` · ${claimReceipt.receipt_time}` : ''}
+        <div onClick={() => { if (!claiming && !claimSuccess) setShowClaimModal(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 16, width: 480, maxWidth: '100%', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.2)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg, #f8fafc 0%, #fff 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 18 }}>
+                  <Inbox size={18} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Claim Suspense Receipt</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>Link this receipt to a donor for verification</div>
+                </div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--sage)', marginTop: 6 }}>{currency(claimReceipt.amount)}</div>
             </div>
-            {claimSuccess ? (
-              <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--sage)', fontWeight: 600, fontSize: 12 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: 'middle', marginRight: 4 }}>check_circle</span>
-                Claim submitted — pending in Lead Verification
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>SELECT DONOR</div>
-                {claimDonor ? (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg)', border: '1px solid var(--sage)', borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{claimDonor.donor_name}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--ink-soft)' }}>{claimDonor.donor_mobile || '—'}{claimDonor.donor_city ? ` · ${claimDonor.donor_city}` : ''}</div>
-                    </div>
-                    <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]) }}
-                      style={{ border: 'none', background: 'none', fontSize: 16, cursor: 'pointer', color: 'var(--ink-soft)' }}>×</button>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+              {claimSuccess ? (
+                <div style={{ textAlign: 'center', padding: '32px 20px' }}>
+                  <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#166534" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                   </div>
-                ) : (
-                  <>
-                    <input
-                      value={claimSearch}
-                      onChange={e => searchClaimDonors(e.target.value)}
-                      placeholder="Search donor by name or mobile..."
-                      style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
-                    />
-                    {claimSearching && <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 6 }}>Searching...</div>}
-                    {!claimSearching && claimResults.length > 0 && (
-                      <div style={{ marginTop: 6, border: '1px solid var(--line)', borderRadius: 8, maxHeight: 150, overflowY: 'auto' }}>
-                        {claimResults.map(d => (
-                          <div key={d.donor_id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
-                            style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)', fontSize: 11.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{d.donor_name}</span>
-                            <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>{d.donor_mobile || ''}{d.donor_city ? ` · ${d.donor_city}` : ''}</span>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#166534', marginBottom: 6 }}>Claim Submitted Successfully</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>This receipt is now pending in Lead Verification</div>
+                </div>
+              ) : (
+                <>
+                  {/* Receipt Summary */}
+                  <div style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderRadius: 12, padding: '16px 18px', marginBottom: 20, border: '1px solid #fbbf24' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Receipt Details</div>
+                      <div style={{ fontSize: 10, color: '#92400e', opacity: 0.7 }}>{NGO_SHORT[claimReceipt.project_id] || claimReceipt.project_id}</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#78350f', marginBottom: 4 }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#92400e' }}>
+                      <span>{claimReceipt.receipt_date || '—'}</span>
+                      {claimReceipt.receipt_time && <span>· {claimReceipt.receipt_time}</span>}
+                      <span style={{ marginLeft: 'auto', fontSize: 18, fontWeight: 800, color: '#78350f' }}>{currency(claimReceipt.amount)}</span>
+                    </div>
+                  </div>
+
+                  {/* Donor Selection */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Select Donor</div>
+                    {claimDonor ? (
+                      <div style={{ background: '#f0fdf4', border: '2px solid var(--sage)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>
+                            {initials(claimDonor.donor_name)}
                           </div>
-                        ))}
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{claimDonor.donor_name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
+                              {claimDonor.donor_mobile || '—'}
+                              {claimDonor.donor_city && <span> · {claimDonor.donor_city}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]) }}
+                          style={{ border: 'none', background: 'rgba(0,0,0,.05)', width: 28, height: 28, borderRadius: '50%', fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                       </div>
+                    ) : (
+                      <>
+                        <div style={{ position: 'relative', marginBottom: 8 }}>
+                          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-soft)' }} />
+                          <input
+                            value={claimSearch}
+                            onChange={e => searchClaimDonors(e.target.value)}
+                            placeholder="Search by donor name or mobile number..."
+                            style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' }}
+                            onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                            onBlur={e => e.target.style.borderColor = 'var(--line)'}
+                          />
+                        </div>
+                        {claimSearching && (
+                          <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center', padding: '12px 0' }}>
+                            <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid var(--line)', borderTopColor: 'var(--sage)', borderRadius: '50%', animation: 'spin 0.6s linear infinite', marginRight: 6 }} />
+                            Searching donors...
+                          </div>
+                        )}
+                        {!claimSearching && claimResults.length > 0 && (
+                          <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 180, overflowY: 'auto', background: 'var(--card-bg)' }}>
+                            {claimResults.map((d, i) => (
+                              <div key={d.donor_id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
+                                style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: i < claimResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 10, transition: 'background .1s' }}
+                                onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                                onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                                <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                                  {initials(d.donor_name)}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{d.donor_name}</div>
+                                  <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', marginTop: 1 }}>{d.donor_mobile || ''}{d.donor_city ? ` · ${d.donor_city}` : ''}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!claimSearching && claimSearch.trim().length >= 2 && claimResults.length === 0 && (
+                          <div style={{ padding: '16px', border: '1.5px dashed var(--line)', borderRadius: 10, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)', background: 'var(--bg)' }}>
+                            <div style={{ fontSize: 20, marginBottom: 4 }}>🔍</div>
+                            No donor found for "{claimSearch}"
+                          </div>
+                        )}
+                      </>
                     )}
-                    {!claimSearching && claimSearch.trim().length >= 2 && claimResults.length === 0 && (
-                      <div style={{ marginTop: 6, padding: '10px 12px', border: '1px dashed var(--line)', borderRadius: 8, textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)', background: 'var(--bg)' }}>
-                        No donor found
+                  </div>
+
+                  {/* Optional Details */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Optional Details</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <input
+                        value={claimUpi}
+                        onChange={e => setClaimUpi(e.target.value)}
+                        placeholder="UPI Transaction ID (e.g., UPI123456789)"
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' }}
+                        onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                        onBlur={e => e.target.style.borderColor = 'var(--line)'}
+                      />
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <input type="date" value={claimDate} onChange={e => setClaimDate(e.target.value)}
+                          style={{ flex: 1, padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' }}
+                          onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--line)'} />
+                        <input type="time" value={claimTime} onChange={e => setClaimTime(e.target.value)}
+                          style={{ flex: 1, padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' }}
+                          onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                          onBlur={e => e.target.style.borderColor = 'var(--line)'} />
                       </div>
-                    )}
-                  </>
-                )}
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-soft)', marginTop: 8, marginBottom: 6 }}>OPTIONAL DETAILS</div>
-                <input
-                  value={claimUpi}
-                  onChange={e => setClaimUpi(e.target.value)}
-                  placeholder="UPI transaction ID"
-                  style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }}
-                />
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <input type="date" value={claimDate} onChange={e => setClaimDate(e.target.value)}
-                    style={{ flex: 1, padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
-                  <input type="time" value={claimTime} onChange={e => setClaimTime(e.target.value)}
-                    style={{ flex: 1, padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
-                </div>
-                <textarea value={claimNotes} onChange={e => setClaimNotes(e.target.value)} rows={2}
-                  placeholder="Optional note for accounts (how you know this donor)..."
-                  style={{ width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 11, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', marginTop: 8 }} />
-                {claimError && <div style={{ fontSize: 10.5, color: '#b91c1c', marginTop: 6 }}>{claimError}</div>}
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-                  <button onClick={() => setShowClaimModal(false)} disabled={claiming}
-                    style={{ padding: '7px 16px', border: '1px solid var(--line)', borderRadius: 6, background: '#fff', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>Cancel</button>
-                  <button onClick={submitClaim} disabled={claiming || !claimDonor}
-                    style={{ padding: '7px 16px', border: 'none', borderRadius: 6, background: 'var(--sage)', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', opacity: (claiming || !claimDonor) ? .5 : 1 }}>
-                    {claiming ? 'Claiming...' : 'Submit Claim'}
-                  </button>
-                </div>
-              </>
+                      <textarea value={claimNotes} onChange={e => setClaimNotes(e.target.value)} rows={2}
+                        placeholder="Note for accounts (how do you know this donor?)"
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s', minHeight: 60 }}
+                        onFocus={e => e.target.style.borderColor = 'var(--sage)'}
+                        onBlur={e => e.target.style.borderColor = 'var(--line)'} />
+                    </div>
+                  </div>
+
+                  {claimError && (
+                    <div style={{ background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px', fontSize: 11, color: '#b91c1c', marginBottom: 16 }}>
+                      {claimError}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!claimSuccess && (
+              <div style={{ padding: '16px 24px', borderTop: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowClaimModal(false)} disabled={claiming}
+                  style={{ padding: '10px 20px', border: '1.5px solid var(--line)', borderRadius: 10, background: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s' }}
+                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onMouseOut={e => e.currentTarget.style.background = '#fff'}>
+                  Cancel
+                </button>
+                <button onClick={submitClaim} disabled={claiming || !claimDonor}
+                  style={{ padding: '10px 24px', border: 'none', borderRadius: 10, background: 'var(--sage)', color: '#fff', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 2px 8px rgba(91,107,78,.3)', transition: 'all .15s', opacity: (claiming || !claimDonor) ? .5 : 1 }}
+                  onMouseOver={e => { if (!claiming && claimDonor) e.currentTarget.style.transform = 'translateY(-1px)' }}
+                  onMouseOut={e => e.currentTarget.style.transform = 'none'}>
+                  {claiming ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                      Claiming...
+                    </span>
+                  ) : 'Submit Claim'}
+                </button>
+              </div>
             )}
           </div>
         </div>

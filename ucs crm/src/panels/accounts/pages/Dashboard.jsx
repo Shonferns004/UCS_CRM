@@ -50,7 +50,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView, amountFilter = '', listRef, onListScroll, onAmounts }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +85,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   }, [statusFilter]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { onAmounts?.(allLeads.map(l => Number(l.amount)).filter(Number.isFinite)); }, [allLeads, onAmounts]);
 
   const rtTimerRef = useRef(null);
   const rtLoad = useCallback(() => {
@@ -121,6 +122,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   const filtered = useMemo(() => {
     let result = leads;
     if (ngoActive) result = result.filter(l => l.donor_project === ngoActive);
+    if (amountFilter !== '' && amountFilter != null) result = result.filter(l => Number(l.amount) === Number(amountFilter));
     if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase();
     return result.filter(l =>
@@ -129,12 +131,12 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       (l.agent_name || '').toLowerCase().includes(q) ||
       String(l.amount || '').toLowerCase().includes(q)
     );
-  }, [leads, searchQuery, ngoActive]);
+  }, [leads, searchQuery, ngoActive, amountFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((leadPage - 1) * PAGE_SIZE, leadPage * PAGE_SIZE);
 
-  useEffect(() => { setLeadPage(1); }, [searchQuery, ngoActive, statusFilter]);
+  useEffect(() => { setLeadPage(1); }, [searchQuery, ngoActive, statusFilter, amountFilter]);
   useEffect(() => { if (leadPage > pageCount) setLeadPage(pageCount); }, [pageCount, leadPage]);
 
   const exportExcel = () => {
@@ -241,12 +243,19 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
             onChange={e => setSearchQuery(e.target.value)}
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 200, minWidth: 0 }}
           />
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); }} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }}>
-            <option value="pending">Pending ({allLeads.filter(l => l.accounts_status === 'pending').length})</option>
-            <option value="verified">Verified ({allLeads.filter(l => l.accounts_status === 'verified').length})</option>
-            <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
-            <option value="">All ({allLeads.length})</option>
-          </select>
+          {embedded ? (
+            <span style={{ display:'inline-flex', alignItems:'center', gap:6, minHeight:32, padding:'0 11px', borderRadius:999, background:'#fff3cd', color:'#a16207', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }} title="Showing pending leads">
+              <span style={{ width:7, height:7, borderRadius:'50%', background:'#eab308' }} />
+              Pending {allLeads.filter(l => l.accounts_status === 'pending').length}
+            </span>
+          ) : (
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); }} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }}>
+              <option value="pending">Pending ({allLeads.filter(l => l.accounts_status === 'pending').length})</option>
+              <option value="verified">Verified ({allLeads.filter(l => l.accounts_status === 'verified').length})</option>
+              <option value="rejected">Rejected ({allLeads.filter(l => l.accounts_status === 'rejected').length})</option>
+              <option value="">All ({allLeads.length})</option>
+            </select>
+          )}
           {globalNgo === undefined && (
             <select value={ngoFilter} onChange={e => { setNgoFilter(e.target.value); }} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }}>
               <option value="">All NGOs</option>
@@ -264,7 +273,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
           )}
           <IconBtn on={exportExcel} ch={<><Download size={14} strokeWidth={2.5} />{filtered.length > 0 && <span className="fb-count">{filtered.length}</span>}</>} title={`Export ${filtered.length} leads`} bg="#16a34a" fg="#fff" />
         </div>
-        <div className="entry-scroll">
+        <div className="entry-scroll" ref={listRef} onScroll={onListScroll}>
           <div className="entry-grid">
             {loading ? (
               Array.from({ length: 6 }, (_, i) => (
@@ -292,12 +301,23 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); onView?.(l.log_id); return; }
                   if (clickRef.current) clearTimeout(clickRef.current);
-                  clickRef.current = setTimeout(() => { clickRef.current = null; if (selectedLogId === l.log_id) onSelectLead(null); setViewingId(l.log_id); onView?.(l.log_id); }, 240);
+                  clickRef.current = setTimeout(() => {
+                    clickRef.current = null;
+                    if (selectedLogId === l.log_id) {
+                      onSelectLead(null);
+                    } else {
+                      setViewingId(l.log_id);
+                      onView?.(l.log_id);
+                    }
+                  }, 300);
                 }}
                 onDoubleClick={() => {
                   if (!onSelectLead) return;
                   if (clickRef.current) { clearTimeout(clickRef.current); clickRef.current = null; }
-                  if (l.accounts_status === 'pending') onSelectLead(l);
+                  if (l.accounts_status === 'pending') {
+                    if (selectedLogId === l.log_id) onSelectLead(null);
+                    else onSelectLead(l);
+                  }
                 }}>
                 <div className="ec-main">
                   <div className="ec-primary">
