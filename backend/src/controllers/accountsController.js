@@ -2,7 +2,8 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, verifyEntry, getNextReceiptNo } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -1164,8 +1165,18 @@ export const getReceiptList = async (req, res) => {
     }
     if (link === 'donors') where.push('donor_id IS NOT NULL');
     if (isSuspense) {
+      const now = new Date();
+      const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
+      const y = ist.getUTCFullYear();
+      const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+      params.push(`${y}-${m}-01`);
+      where.push(`receipt_date >= $${params.length}`);
+      const lastDay = new Date(Date.UTC(y, ist.getUTCMonth() + 1, 0)).getUTCDate();
+      params.push(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+      where.push(`receipt_date <= $${params.length}`);
       where.push('donor_id IS NULL');
-      where.push(`(agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')`);
+      where.push(`(agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))`);
+      where.push(`(donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))`);
       where.push(`NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)`);
     }
     if (link === 'others') {
@@ -1958,61 +1969,170 @@ export const importReceipts = async (req, res) => {
             });
           }
 
-          // ── Auto-credit current-month receipts to the assigned FRO ──
-          // Only receipts dated in the current month can close an open lead and
-          // add to the FRO's collected; older/backfilled rows stay as history.
-          const nowD = new Date();
-          const currentMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
-          const isCurrentMonth = (d) => typeof d === 'string' && d.slice(0, 7) === currentMonth;
-
+          // ── Credit each imported receipt to the FRO named on it (agent/FSE) ──
+          // The FRO is resolved by fuzzy name match; the donor is matched by
+          // mobile (or created in that FRO's donor list when the number is new);
+          // the amount is credited to that FRO and the donation is written to
+          // the donor's history (fro_donor_log). No month gate — backfilled
+          // receipts still get their history entry (their date keeps them out of
+          // the current month's collected). Truly-suspense receipts (agent AND
+          // mobile both missing) are skipped here and stay in the suspense pool.
+          const nowIso = new Date().toISOString();
           const donorIdByReceiptId = new Map();
           for (const [donorId, info] of Object.entries(receiptsByDonor)) {
             for (const id of info.ids) donorIdByReceiptId.set(id, parseInt(donorId, 10));
           }
-          const creditPool = [...inserted, ...naturalKeyMatched].filter(r => donorIdByReceiptId.has(r.id) && isCurrentMonth(r.receipt_date));
+
+          const creditPool = [...inserted, ...naturalKeyMatched].filter(
+            r => !isBlankSuspenseValue(r.agent_name) && parseFloat(r.amount || 0) > 0
+          );
 
           let leadsCollected = 0;
           const credits = new Map();
           if (creditPool.length > 0) {
-            const donorIds = [...new Set(creditPool.map(r => donorIdByReceiptId.get(r.id)))];
-            const openAssignments = [];
-            const ASSIGN_BATCH = 1000;
-            for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
-              const { data, error: asgnErr } = await from('fro_assignments')
-                .select('id, donor_id, fro_worker_id, ngo_id, assigned_at')
-                .in('donor_id', donorIds.slice(i, i + ASSIGN_BATCH))
-                .not('status', 'eq', 'reassigned')
-                .not('status', 'eq', 'donation_collected')
-                .not('status', 'eq', 'lead_done')
-                .not('status', 'eq', 'done');
-              if (asgnErr) throw new Error(asgnErr.message);
-              openAssignments.push(...(data || []));
+            // Workers for this NGO (via worker_ngo_allocations), falling back to
+            // all active workers when no allocation rows exist, plus their
+            // station mapping so created assignments land on the right station.
+            const { data: allocatedRows } = await from('worker_ngo_allocations')
+              .select('worker_id')
+              .eq('ngo_id', ngo_id);
+            let workerRows = [];
+            if ((allocatedRows || []).length > 0) {
+              const workerIds = [...new Set(allocatedRows.map(a => a.worker_id))];
+              for (let i = 0; i < workerIds.length; i += 500) {
+                const { data: wr, error: werr } = await from('workers')
+                  .select('id, name, is_active')
+                  .in('id', workerIds.slice(i, i + 500));
+                if (werr) throw new Error(werr.message);
+                workerRows.push(...(wr || []));
+              }
+            } else {
+              const { data: wr, error: werr } = await from('workers')
+                .select('id, name, is_active');
+              if (werr) throw new Error(werr.message);
+              workerRows = wr || [];
+            }
+            const activeWorkers = workerRows.filter(w => w.is_active !== false);
+
+            const { data: stationRows } = await from('fro_station_assignments')
+              .select('fro_worker_id, station')
+              .eq('ngo_id', ngo_id);
+            const stationByWorker = {};
+            for (const s of (stationRows || [])) {
+              if (s.fro_worker_id && s.station && !stationByWorker[s.fro_worker_id]) {
+                stationByWorker[s.fro_worker_id] = s.station;
+              }
             }
 
-            // Only credit an assignment that belongs to the selected NGO, so a
-            // BSCT receipt never closes/credits an AFLF or MANN lead for the
-            // same donor.
-            const assignmentByDonor = {};
-            for (const a of openAssignments) {
-              if (!a.fro_worker_id) continue;
-              if (a.ngo_id !== ngo_id) continue;
-              const cur = assignmentByDonor[a.donor_id];
-              if (!cur || new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) assignmentByDonor[a.donor_id] = a;
+            // Fuzzy FRO-name match: exact first, then close name matches.
+            const resolveWorker = (agentName) => {
+              if (!agentName) return null;
+              const an = String(agentName).trim().toLowerCase();
+              const exact = activeWorkers.find(w => String(w.name || '').trim().toLowerCase() === an);
+              if (exact) return exact;
+              return activeWorkers.find(w => nameMatch(agentName, w.name)) || null;
+            };
+
+            // Pre-load the donors' existing assignments for this NGO so money can
+            // close them (and credit their owner) instead of duplicating.
+            // Reassigned rows are included too: fro_assignments is UNIQUE on
+            // (donor_id, ngo_id), so reusing the existing row beats a duplicate.
+            const poolDonorIds = [...new Set(creditPool.map(r => donorIdByReceiptId.get(r.id)).filter(Boolean))];
+            const assignmentsByDonor = new Map();
+            if (poolDonorIds.length > 0) {
+              for (let i = 0; i < poolDonorIds.length; i += 1000) {
+                const { data: aData, error: aErr } = await from('fro_assignments')
+                  .select('id, donor_id, fro_worker_id, ngo_id, status, assigned_at')
+                  .in('donor_id', poolDonorIds.slice(i, i + 1000))
+                  .eq('ngo_id', ngo_id);
+                if (aErr) throw new Error(aErr.message);
+                for (const a of (aData || [])) {
+                  const cur = assignmentsByDonor.get(a.donor_id);
+                  const isReassigned = a.status === 'reassigned';
+                  if (!cur) { assignmentsByDonor.set(a.donor_id, a); continue; }
+                  const curReassigned = cur.status === 'reassigned';
+                  if (!isReassigned && curReassigned) { assignmentsByDonor.set(a.donor_id, a); continue; }
+                  if (isReassigned === curReassigned && new Date(a.assigned_at || 0) > new Date(cur.assigned_at || 0)) {
+                    assignmentsByDonor.set(a.donor_id, a);
+                  }
+                }
+              }
             }
 
             const logs = [];
-            const assignmentIds = new Set();
+            const closeAssignmentIds = new Set();
+            const newDonorTotals = new Map();
+
             for (const r of creditPool) {
-              const a = assignmentByDonor[donorIdByReceiptId.get(r.id)];
-              if (!a) continue;
+              const worker = resolveWorker(r.agent_name);
+              if (!worker) continue; // unknown FRO → keep receipt, skip credit until resolved
+
+              let donorId = donorIdByReceiptId.get(r.id) || null;
+              if (!donorId) {
+                // Agent present but no donor yet (mobile missing / number not in
+                // the DB) → create the donor under this FRO's donor list.
+                const mobile = cleanMobile(r.donor_mobile);
+                const { data: created, error: cErr } = await from('donor_profiles')
+                  .insert({
+                    name: r.donor_name || 'Unknown Donor',
+                    mobile_number: mobile || r.donor_mobile || null,
+                    project_supported: r.project_id,
+                    total_amount: 0,
+                    donation_count: 0,
+                    created_at: nowIso,
+                    updated_at: nowIso,
+                  })
+                  .select('id, mobile_number, total_amount, donation_count, last_donation_date')
+                  .single();
+                if (cErr) throw new Error(cErr.message);
+                donorId = created.id;
+                matched++;
+                const m10 = last10(created.mobile_number);
+                if (/^\d{10}$/.test(m10) && !donorByMobile.has(m10)) donorByMobile.set(m10, created);
+                donorIdByReceiptId.set(r.id, donorId);
+                await from('receipts').update({ donor_id: donorId }).eq('id', r.id);
+                newDonorTotals.set(donorId, { amount: 0, count: 0, last: null });
+              }
+
+              // Reuse the donor's existing assignment for this NGO (its owner
+              // keeps the credit — never steal) or open one under this FRO.
+              let assignment = assignmentsByDonor.get(donorId) || null;
+              if (!assignment) {
+                const { data: created, error: asErr } = await from('fro_assignments')
+                  .insert({
+                    donor_id: donorId,
+                    fro_worker_id: worker.id,
+                    ngo_id,
+                    station: stationByWorker[worker.id] || null,
+                    status: 'donation_collected',
+                    assigned_at: nowIso,
+                  })
+                  .select('id, fro_worker_id, status')
+                  .single();
+                if (asErr) throw new Error(asErr.message);
+                assignment = created;
+                assignmentsByDonor.set(donorId, assignment);
+              }
+
+              const froWorkerId = assignment.fro_worker_id;
+              if (!froWorkerId) continue;
+
+              const amount = parseFloat(r.amount || 0);
+              const t = newDonorTotals.get(donorId);
+              if (t) {
+                t.amount += amount;
+                t.count += 1;
+                if (r.receipt_date && (!t.last || r.receipt_date > t.last)) t.last = r.receipt_date;
+              }
+
               logs.push({
-                assignment_id: a.id,
-                donor_id: donorIdByReceiptId.get(r.id),
-                fro_worker_id: a.fro_worker_id,
+                assignment_id: assignment.id,
+                donor_id: donorId,
+                fro_worker_id: froWorkerId,
                 action: 'donation',
-                amount_collected: parseFloat(r.amount || 0),
+                amount_collected: amount,
                 accounts_status: 'verified',
-                verified_at: r.receipt_date || new Date().toISOString(),
+                verified_at: r.receipt_date || nowIso,
                 verified_by: req.user.id,
                 created_by: req.user.id,
                 upi_transaction_id: r.payment_id || null,
@@ -2020,11 +2140,24 @@ export const importReceipts = async (req, res) => {
                 pan_number: r.pan_number || null,
                 notes: `Auto-credited from imported receipt ${r.receipt_no || r.id}`,
               });
-              assignmentIds.add(a.id);
-              const cred = credits.get(a.fro_worker_id) || { count: 0, total: 0 };
+              closeAssignmentIds.add(assignment.id);
+              const cred = credits.get(froWorkerId) || { count: 0, total: 0 };
               cred.count += 1;
-              cred.total += parseFloat(r.amount || 0);
-              credits.set(a.fro_worker_id, cred);
+              cred.total += amount;
+              credits.set(froWorkerId, cred);
+            }
+
+            // Donors created in this phase get their first donation rolled up.
+            if (newDonorTotals.size > 0) {
+              for (const [donorId, t] of newDonorTotals) {
+                await from('donor_profiles').update({
+                  total_amount: Math.round(t.amount * 100) / 100,
+                  donation_count: t.count,
+                  first_donation_date: t.last,
+                  last_donation_date: t.last,
+                  updated_at: nowIso,
+                }).eq('id', donorId);
+              }
             }
 
             if (logs.length > 0) {
@@ -2037,10 +2170,13 @@ export const importReceipts = async (req, res) => {
               });
               leadsCollected = logs.length;
 
-              if (assignmentIds.size > 0) {
+              // Change the donor's status: close the assignments the money
+              // settled (leave already-closed rows untouched).
+              if (closeAssignmentIds.size > 0) {
                 const { error: closeErr } = await from('fro_assignments')
-                  .update({ status: 'donation_collected', last_contacted_at: new Date().toISOString() })
-                  .in('id', [...assignmentIds]);
+                  .update({ status: 'donation_collected', last_contacted_at: nowIso })
+                  .in('id', [...closeAssignmentIds])
+                  .neq('status', 'donation_collected');
                 if (closeErr) throw new Error(closeErr.message);
               }
             }
@@ -2275,23 +2411,32 @@ export const getReceiptCount = async (req, res) => {
   }
 };
 
-// Bare suspense receipts per NGO: unlinked (no donor, no log), no agent assigned,
-// not priyank, not already in a bank-audit entry. The same pool the bank-audit
-// page counts as suspense.
+// Bare suspense receipts per NGO: unlinked (no donor, no log), truly suspense
+// (agent name AND donor mobile both missing), not priyank, not already in a
+// bank-audit entry. The same pool the bank-audit page counts as suspense.
 export const getSuspenseByNgo = async (req, res) => {
   try {
+    const now = new Date();
+    const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
+    const y = ist.getUTCFullYear();
+    const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+    const monthStart = `${y}-${m}-01`;
+    const lastDay = new Date(Date.UTC(y, ist.getUTCMonth() + 1, 0)).getUTCDate();
+    const monthEnd = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
     const { rows } = await db._pool.query(`
       SELECT project_id,
              count(*)::int AS count,
              COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
       FROM receipts
       WHERE donor_id IS NULL AND log_id IS NULL
-        AND (agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')
+        AND (agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))
+        AND (donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))
         AND lower(trim(COALESCE(agent_name, ''))) <> 'priyank shah'
+        AND receipt_date >= $1 AND receipt_date <= $2
         AND NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)
       GROUP BY project_id
       ORDER BY count(*) DESC
-    `);
+    `, [monthStart, monthEnd]);
     return res.json(rows);
   } catch (error) {
     return res.status(500).json({ message: error.message });

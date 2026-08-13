@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { isPriyankShahAgent } from '../models/bankAuditModel.js';
+import { isPriyankShahAgent, isBlankSuspenseValue } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
@@ -710,14 +710,19 @@ export const getSuspenseReceipts = async (req, res) => {
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
       .is('donor_id', null)
       .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense')
+      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.NA,agent_name.eq.na')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
       .order('receipt_date', { ascending: false });
     if (error) throw error;
 
-    const filtered = (receipts || []).filter(r => !isPriyankShahAgent(r.agent_name));
+    // Truly suspense: BOTH the agent name and the donor mobile are missing.
+    const filtered = (receipts || []).filter(r =>
+      !isPriyankShahAgent(r.agent_name)
+      && isBlankSuspenseValue(r.agent_name)
+      && isBlankSuspenseValue(r.donor_mobile)
+    );
 
     const receiptIds = filtered.map(r => r.id);
     const bankReceiptSet = new Set();

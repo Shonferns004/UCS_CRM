@@ -1,13 +1,22 @@
 import db from '../config/db.js';
 
 // Suspense receipts: any receipt that is unlinked (donor_id null), unclaimed
-// (log_id null), and NOT already assigned to an agent (agent_name still NULL /
-// empty / 'Suspense'). Once an agent name is attached — by an FRO claim, an
-// import FSE name, or an Accounts assignment — the receipt is handled and
-// leaves the Accounts suspense pool (the FRO pool still lists it for claiming).
-// Receipts whose agent is Priyank Shah are never suspense — they are treated
-// as known donations even when no donor/log is linked yet.
+// (log_id null), and is "truly suspense" — BOTH the agent name AND the donor
+// mobile are missing (NULL / '' / 'NA' / 'suspense'). As soon as either the
+// agent name (an FRO claim, an import FSE name, or an Accounts assignment) or a
+// donor mobile is attached, the money is identifiable and leaves the Accounts
+// suspense pool (the FRO pool still lists it for claiming). Receipts whose
+// agent is Priyank Shah are never suspense — they are treated as known
+// donations even when no donor/log is linked yet.
 export const isPriyankShahAgent = (name) => !!(name && name.trim().toLowerCase() === 'priyank shah');
+
+// A field value counts as "missing" for the suspense rule when it is NULL,
+// empty, 'NA', or the 'Suspense' marker (case-insensitive, trimmed).
+export const isBlankSuspenseValue = (value) => {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim().toLowerCase();
+  return s === '' || s === 'na' || s === 'suspense';
+};
 
 export const getUnlinkedReceipts = async () => {
   // Receipts already turned into a bank audit entry (a bank_audit_entries row
@@ -19,7 +28,8 @@ export const getUnlinkedReceipts = async () => {
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
-      AND (r.agent_name IS NULL OR r.agent_name = '' OR r.agent_name = 'Suspense')
+      AND (r.agent_name IS NULL OR trim(r.agent_name) = '' OR lower(trim(r.agent_name)) IN ('na', 'suspense'))
+      AND (r.donor_mobile IS NULL OR trim(r.donor_mobile) = '' OR lower(trim(r.donor_mobile)) IN ('na', 'suspense'))
       AND NOT EXISTS (
         SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
       )
@@ -292,7 +302,7 @@ export const getSuspenseForNgo = async () => {
 export const getSuspenseForFro = async (froId) => {
   const { data, error } = await db
     .from('bank_audit_entries')
-    .select('*, bank_audit_sources(name), receipts!receipt_id(id, donor_id, agent_name)')
+    .select('*, bank_audit_sources(name), receipts!receipt_id(id, donor_id, agent_name, donor_mobile)')
     .eq('assigned_to_fro_id', froId)
     .neq('status', 'verified')
     .order('updated_at', { ascending: false });

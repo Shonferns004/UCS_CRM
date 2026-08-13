@@ -70,7 +70,7 @@ export default function LeadAudit() {
   const ready = !!(selectedLead && selectedEntry && !matching);
 
   return (
-    <div className="lead-audit-workspace" style={{ marginRight: (detailView || entryDetailView) ? 640 : 0, transition: 'margin-right .25s ease' }}>
+    <div className="lead-audit-workspace" style={{ marginRight: (detailView || entryDetailView) ? 640 : 0, width: (detailView || entryDetailView) ? 'calc(100% - 640px)' : '100%', transition: 'width .25s ease, margin-right .25s ease' }}>
       <div className="lead-audit-summary">
         <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} />
       </div>
