@@ -6,7 +6,9 @@ import './index.css'
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => { console.error('Service worker registration failed:', err.message); })
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((reg) => reg.unregister())
+    }).catch(() => {})
   })
 }
 
