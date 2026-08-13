@@ -144,7 +144,7 @@ export const verifyLead = async (req, res) => {
     const { logId } = req.params;
     const {
       pan_number, notes,
-      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address,
+      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, donor_dob,
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
@@ -210,6 +210,7 @@ export const verifyLead = async (req, res) => {
         if (donor_email !== undefined) donorUpdate.email = donor_email || null;
         if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
         if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
+        if (donor_dob !== undefined) donorUpdate.birth_date = donor_dob || null;
         try { await db.from('donor_profiles').update(donorUpdate).eq('id', donorId); }
         catch (err) { console.error('Failed to update donor profile:', err); }
       }
@@ -279,6 +280,7 @@ export const verifyLead = async (req, res) => {
       if (donor_email !== undefined) donorUpdate.email = donor_email || null;
       if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
       if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
+      if (donor_dob !== undefined) donorUpdate.birth_date = donor_dob || null;
       try {
         const { data: donor } = await db
           .from('donor_profiles')
@@ -973,8 +975,8 @@ export const deleteAllPendingLeads = async (req, res) => {
 
 // ─── Inline Field Update ───────────────────────────────────
 
-const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'pan_number', 'notes', 'remark',
-  'donor_name', 'donor_mobile', 'donor_city', 'donor_email', 'donor_pan', 'donor_address'];
+const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'payment_mode', 'pan_number', 'notes', 'remark',
+  'donor_name', 'donor_mobile', 'donor_city', 'donor_email', 'donor_pan', 'donor_address', 'donor_dob'];
 
 const DONOR_FIELD_MAP = {
   donor_name: 'name',
@@ -983,6 +985,7 @@ const DONOR_FIELD_MAP = {
   donor_email: 'email',
   donor_pan: 'pan_number',
   donor_address: 'address_1',
+  donor_dob: 'birth_date',
 };
 
 export const patchLeadField = async (req, res) => {

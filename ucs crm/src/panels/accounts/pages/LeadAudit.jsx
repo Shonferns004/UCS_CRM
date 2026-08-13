@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
 
 function SectionTitle({ children }) {
-  return <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 10 }}>{children}</div>;
+  return <div className="lead-audit-section-title"><span>{children}</span></div>;
 }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '';
@@ -13,12 +13,34 @@ const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') :
 export default function LeadAudit() {
   const [audit, setAudit] = useState({ sources: [], summary: {}, combo: null, loading: true });
   const [globalNgo, setGlobalNgo] = useState('');
+  const [amountFilter, setAmountFilter] = useState('');
+  const [amounts, setAmounts] = useState([]);
   const [suspenseCardNgo, setSuspenseCardNgo] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
+  const leadScrollRef = useRef(null);
+  const auditScrollRef = useRef(null);
+  const syncingScroll = useRef(false);
+
+  const handleListScroll = (source, event) => {
+    if (syncingScroll.current) return;
+    const from = event.currentTarget;
+    const to = source === 'lead' ? auditScrollRef.current : leadScrollRef.current;
+    if (!to || from.scrollHeight <= from.clientHeight || to.scrollHeight <= to.clientHeight) return;
+    syncingScroll.current = true;
+    const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight);
+    to.scrollTop = ratio * (to.scrollHeight - to.clientHeight);
+    requestAnimationFrame(() => { syncingScroll.current = false; });
+  };
+
+  const updateAmounts = useCallback((values) => setAmounts(prev => {
+    const next = Array.from(new Set([...prev, ...values])).sort((a, b) => a - b);
+    return next.length === prev.length && next.every((value, index) => value === prev[index]) ? prev : next;
+  }), []);
+  const amountOptions = useMemo(() => amounts, [amounts]);
 
   const handleMatch = async () => {
     if (!selectedLead || !selectedEntry || matching) return;
@@ -36,40 +58,47 @@ export default function LeadAudit() {
   };
 
   const chip = (selected, onClear, main, sub, hint) => selected ? (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f0f7ef', border: '1px solid #cfe3cb', fontSize: 12 }}>
+    <div className="match-chip" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f0f7ef', border: '1px solid #cfe3cb', fontSize: 12 }}>
       <span style={{ fontWeight: 600, color: 'var(--sage)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{main}</span>
       <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{sub}</span>
       <button onClick={onClear} title="Clear" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', display: 'flex', padding: 0, flexShrink: 0 }}><X size={14} strokeWidth={2.5} /></button>
     </div>
   ) : (
-    <div style={{ fontSize: 12, color: '#9ca3af', padding: '0 4px', whiteSpace: 'nowrap' }}>{hint}</div>
+    <div className="match-hint" style={{ fontSize: 12, color: '#9ca3af', padding: '0 4px', whiteSpace: 'nowrap' }}>{hint}</div>
   );
 
   const ready = !!(selectedLead && selectedEntry && !matching);
 
   return (
-    <div style={{ marginRight: (detailView || entryDetailView) ? 640 : 0, transition: 'margin-right .25s ease' }}>
-      <div style={{ display: 'grid', gap: 16, marginBottom: 16 }}>
+    <div className="lead-audit-workspace" style={{ marginRight: (detailView || entryDetailView) ? 640 : 0, transition: 'margin-right .25s ease' }}>
+      <div className="lead-audit-summary">
         <AuditStatCards sources={audit.sources} summary={audit.summary} loading={audit.loading} suspenseNgo={suspenseCardNgo} setSuspenseNgo={setSuspenseCardNgo} combo={audit.combo} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: '#fff', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.6px' }}>NGO</span>
+      <div className="lead-audit-global-filter">
+        <span className="lead-audit-filter-label">Workspace filter</span>
+        <span className="lead-audit-filter-divider" />
+        <span className="lead-audit-filter-key">NGO</span>
         <select value={globalNgo} onChange={e => setGlobalNgo(e.target.value)} style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}>
           <option value="">All NGOs</option>
           <option value="bsct">Being Sevak</option>
           <option value="mann">Mann Care</option>
           <option value="aflf">Ashray</option>
         </select>
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>Filters both Leads and Bank Audit</span>
+        <span className="lead-audit-filter-key">Amount</span>
+        <select value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}>
+          <option value="">All amounts</option>
+          {amountOptions.map(amount => <option key={amount} value={amount}>{currency(amount)}</option>)}
+        </select>
+        <span className="lead-audit-filter-help">Filters both Lead Verification and Bank Audit</span>
       </div>
-      <div className="two-col" style={{ alignItems: 'flex-start' }}>
-        <div style={{ position: 'sticky', top: 0, alignSelf: 'flex-start' }}>
+      <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
+        <div style={{ alignSelf: 'flex-start' }}>
           <SectionTitle>Lead Verification</SectionTitle>
-          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} />
+          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} listRef={leadScrollRef} onListScroll={e => handleListScroll('lead', e)} onAmounts={updateAmounts} />
         </div>
         <div>
           <SectionTitle>Bank Audit</SectionTitle>
-          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
+          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} listRef={auditScrollRef} onListScroll={e => handleListScroll('audit', e)} onAmounts={updateAmounts} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
         </div>
       </div>
 

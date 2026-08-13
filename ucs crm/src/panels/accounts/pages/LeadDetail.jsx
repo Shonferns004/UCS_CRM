@@ -15,7 +15,7 @@ const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Cheque', 'NEFT'];
 
 function getTemplateId(projectId) { return DB_TO_TEMPLATE[projectId] || 'beingsevak'; }
 
-const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
+const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : 'NA';
 
 function SkeletonField({ w = 100 }) {
   return <span style={{ display:'block', height:14, width: typeof w === 'number' ? w : w, borderRadius:4, background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite', marginBottom:3 }} />;
@@ -85,7 +85,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
 
-  const [form, setForm] = useState({ donor_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'', upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
+  const [form, setForm] = useState({ donor_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'',donor_dob:null, upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestRef = useRef(null);
@@ -156,7 +156,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       .then(ll => {
         if (ll && !hasInitRef.current) {
           const {date,time} = parseDatetime(ll.transaction_datetime);
-          setForm({ donor_name:ll.donor_name||'',donor_mobile:ll.donor_mobile||'',donor_city:ll.donor_city||'', donor_email:ll.donor_email||'',donor_address:ll.donor_address||'',donor_pan:ll.pan_number||ll.donor_pan||'', upi_transaction_id:ll.upi_transaction_id||'',transaction_date:date,transaction_time:time, payment_from:ll.payment_from||'',payment_mode:ll.payment_mode||'UPI' });
+          setForm({ donor_name:ll.donor_name||'',donor_mobile:ll.donor_mobile||'',donor_city:ll.donor_city||'', donor_email:ll.donor_email||'',donor_address:ll.donor_address||'',donor_pan:ll.pan_number||ll.donor_pan||'', donor_dob:ll.donor_dob?new Date(ll.donor_dob):null, upi_transaction_id:ll.upi_transaction_id||'',transaction_date:date,transaction_time:time, payment_from:ll.payment_from||'',payment_mode:ll.payment_mode||'UPI' });
           hasInitRef.current = true;
         }
       }).catch(()=>{})
@@ -194,7 +194,8 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       const res = await apiPost(`/accounts/leads/${lead.log_id}/verify`, {
         pan_number:form.donor_pan||null,donor_name:form.donor_name||null,donor_mobile:form.donor_mobile||null,
         donor_city:form.donor_city||null,donor_email:form.donor_email||null,donor_pan:form.donor_pan||null,
-        donor_address:form.donor_address||null,upi_transaction_id:form.upi_transaction_id||null,
+        donor_address:form.donor_address||null,donor_dob:form.donor_dob?form.donor_dob.toISOString():null,
+        upi_transaction_id:form.upi_transaction_id||null,
         transaction_datetime:combineDatetime(form.transaction_date,form.transaction_time),
         payment_from:form.payment_from||null,payment_mode:form.payment_mode||'UPI',
       });
@@ -376,24 +377,24 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Payment Mode</div>
-                  {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'\u2014'}</div>}
+                  {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'NA'}</div>}
                 </div>
                 <div style={{position:'relative'}} ref={suggestRef}>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>UPI Transaction ID</div>
-                  {isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.upi_transaction_id||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.upi_transaction_id||'NA'}</div>}
                   {isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:4}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{fontWeight:500}}>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Date</div>
-                  {isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</div>}
+                  {isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Time</div>
-                  {isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_time||'\u2014'}</div>}
+                  {isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_time||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>From</div>
-                  {isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.payment_from||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.payment_from||'NA'}</div>}
                 </div>
               </div>
             </div>
@@ -411,35 +412,35 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:'16px 20px'}}>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Name</div>
-                  {isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="Donor name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{form.donor_name||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="Donor name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{form.donor_name||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Mobile</div>
-                  {isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)'}}>{form.donor_mobile||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)'}}>{form.donor_mobile||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>City</div>
-                  {isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_city||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_city||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Email</div>
-                  {isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_email||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_email||'NA'}</div>}
                 </div>
                 <div style={{gridColumn:'1 / -1'}}>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Address</div>
-                  {isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:4}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div style={{fontSize:12,color:'var(--ink)',lineHeight:1.5}}>{form.donor_address||'\u2014'}</div>}
+                  {isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:4}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div style={{fontSize:12,color:'var(--ink)',lineHeight:1.5}}>{form.donor_address||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>PAN</div>
-                  {isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12,textTransform:'uppercase'}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',textTransform:'uppercase'}}>{form.donor_pan||'\u2014'}</div>}
+                  {isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12,textTransform:'uppercase'}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',textTransform:'uppercase'}}>{form.donor_pan||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>DOB</div>
-                  <div style={{fontSize:12,color:'var(--ink)'}}>{l.donor_dob||'\u2014'}</div>
+                  {isPending?<DatePicker selected={form.donor_dob} onChange={d=>setField('donor_dob',d)} dateFormat="dd/MM/yyyy" placeholderText="Select DOB" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={80} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_dob?new Date(form.donor_dob).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Project</div>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)'}}>{l.donor_project||'\u2014'}</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)'}}>{l.donor_project||'NA'}</div>
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Donations</div>
