@@ -144,7 +144,7 @@ export const verifyLead = async (req, res) => {
     const { logId } = req.params;
     const {
       pan_number, notes,
-      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address,
+      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, donor_dob,
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
@@ -210,6 +210,7 @@ export const verifyLead = async (req, res) => {
         if (donor_email !== undefined) donorUpdate.email = donor_email || null;
         if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
         if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
+        if (donor_dob !== undefined) donorUpdate.birth_date = donor_dob || null;
         try { await db.from('donor_profiles').update(donorUpdate).eq('id', donorId); }
         catch (err) { console.error('Failed to update donor profile:', err); }
       }
@@ -279,6 +280,7 @@ export const verifyLead = async (req, res) => {
       if (donor_email !== undefined) donorUpdate.email = donor_email || null;
       if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
       if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
+      if (donor_dob !== undefined) donorUpdate.birth_date = donor_dob || null;
       try {
         const { data: donor } = await db
           .from('donor_profiles')
@@ -973,8 +975,8 @@ export const deleteAllPendingLeads = async (req, res) => {
 
 // ─── Inline Field Update ───────────────────────────────────
 
-const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'pan_number', 'notes', 'remark',
-  'donor_name', 'donor_mobile', 'donor_city', 'donor_email', 'donor_pan', 'donor_address'];
+const ALLOWED_FIELDS = ['upi_transaction_id', 'transaction_datetime', 'payment_from', 'payment_mode', 'pan_number', 'notes', 'remark',
+  'donor_name', 'donor_mobile', 'donor_city', 'donor_email', 'donor_pan', 'donor_address', 'donor_dob'];
 
 const DONOR_FIELD_MAP = {
   donor_name: 'name',
@@ -983,6 +985,7 @@ const DONOR_FIELD_MAP = {
   donor_email: 'email',
   donor_pan: 'pan_number',
   donor_address: 'address_1',
+  donor_dob: 'birth_date',
 };
 
 export const patchLeadField = async (req, res) => {
@@ -1129,7 +1132,11 @@ export const getReceiptList = async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const search = (req.query.search || '').trim();
     const project = (req.query.project || '').trim();
-    const link = req.query.link === 'unlinked' ? 'unlinked' : (req.query.link === 'linked' ? 'linked' : '');
+    const link = (req.query.link === 'suspense' || req.query.link === 'unlinked')
+      ? 'suspense'
+      : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors'
+      : (req.query.link === 'others' ? 'others' : ''));
+    const isSuspense = link === 'suspense';
 
     // Cheap per-NGO aggregates + project options (unfiltered).
     const statsRes = await db._pool.query(
@@ -1155,13 +1162,14 @@ export const getReceiptList = async (req, res) => {
       params.push(project);
       where.push(`project_id = $${params.length}`);
     }
-    if (link === 'linked') where.push('donor_id IS NOT NULL');
-    // Agent-assigned receipts are handled (owned by the FSE / tracked in the
-    // FRO pool), so they never appear in Accounts' "Unlinked receipts" tab —
-    // mirroring the bank-audit suspense rule.
-    if (link === 'unlinked') {
+    if (link === 'donors') where.push('donor_id IS NOT NULL');
+    if (isSuspense) {
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')`);
+      where.push(`NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)`);
+    }
+    if (link === 'others') {
+      where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -1689,6 +1697,42 @@ export const importReceipts = async (req, res) => {
       console.warn('Could not persist import manifest:', e.message);
     }
 
+    // ─── Pre-compute donor matches by phone (outside the transaction so read-
+    //     heavy queries never bloat the tx and hit RDS statement timeouts) ───
+    const cleanMobile = (m) => String(m || '').replace(/\D/g, '');
+    const last10 = (m) => cleanMobile(m).slice(-10);
+    const mobiles = [...new Set(uniqueRows.map(r => last10(r.donor_mobile)).filter(m => /^\d{10}$/.test(m)))];
+    const donorByMobile = new Map();
+    if (mobiles.length > 0) {
+      const exactFound = new Set();
+      for (let i = 0; i < mobiles.length; i += 100) {
+        const batch = mobiles.slice(i, i + 100);
+        const { rows: exact } = await db._pool.query(
+          `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+           FROM donor_profiles WHERE mobile_number = ANY($1)`, [batch]
+        );
+        for (const d of (exact || [])) {
+          const k = last10(d.mobile_number);
+          if (k) { donorByMobile.set(k, d); exactFound.add(k); }
+        }
+      }
+      const missing = mobiles.filter(m => !exactFound.has(m));
+      if (missing.length > 0) {
+        for (let i = 0; i < missing.length; i += 100) {
+          const batch = missing.slice(i, i + 100);
+          const { rows } = await db._pool.query(
+            `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+             FROM donor_profiles
+             WHERE right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) = ANY($1)`, [batch]
+          );
+          for (const d of (rows || [])) {
+            const k = last10(d.mobile_number);
+            if (k && !donorByMobile.has(k)) donorByMobile.set(k, d);
+          }
+        }
+      }
+    }
+
     // ─── Insert + match + link — one atomic transaction, with retry ───
     const MAX_RETRIES = 3;
     const MAX_QUERY_CONCURRENCY = 6;
@@ -1742,14 +1786,23 @@ export const importReceipts = async (req, res) => {
           }
           const toInsert = uniqueRows.filter(r => !r.receipt_no || !alreadyInserted.has(r.receipt_no));
 
-          // A repeat upload must not create a duplicate receipt, but it can
-          // enrich an existing receipt with the FSE/agent name and, when present
-          // in the newer sheet, the receipt date and time.
+          // A repeat upload enriches an existing receipt with any changed fields
+          // from the newer sheet (agent, address, mobile, PAN, email, mode,
+          // payment ref, bank, dates, donor name). Never touches donor_id, log_id,
+          // or amount — those are linked/credited values and donor-total columns.
           const enrichUpdates = parsed
             .filter(({ parsed: row }) => row.receipt_no && existingReceiptIds.has(row.receipt_no))
             .map(({ parsed: row }) => {
               const patch = {};
               if (row.agent_name) patch.agent_name = row.agent_name;
+              if (row.address) patch.address = row.address;
+              if (row.pan_number) patch.pan_number = row.pan_number;
+              if (row.email) patch.email = row.email;
+              if (row.mode) patch.mode = row.mode;
+              if (row.payment_id) patch.payment_id = row.payment_id;
+              if (row.bank_name) patch.bank_name = row.bank_name;
+              if (row.donor_name) patch.donor_name = row.donor_name;
+              if (row.donor_mobile) patch.donor_mobile = row.donor_mobile;
               if (row.receipt_time) patch.receipt_time = row.receipt_time;
               if (row.receipt_date) patch.receipt_date = row.receipt_date;
               return { id: existingReceiptIds.get(row.receipt_no), patch };
@@ -1779,104 +1832,15 @@ export const importReceipts = async (req, res) => {
           let withBank = 0;
           let receiptsByDonor = {};
           if (inserted.length > 0) {
-            const cleanMobile = (m) => String(m || '').replace(/\D/g, '');
-            const last10 = (m) => cleanMobile(m).slice(-10);
-            const mobiles = [...new Set(inserted.map(r => last10(r.donor_mobile)).filter(m => /^\d{10}$/.test(m)))];
-
-            // Match existing donors on the last 10 digits of the mobile so a
-            // donor stored with a +91 / 0 prefix still matches a plain 10-digit
-            // receipt mobile (and vice-versa). Exact full-string matches were
-            // silently dropping these receipts.
-            const donorByMobile = new Map();
-            if (mobiles.length > 0) {
-              const exactFound = new Set();
-              for (let i = 0; i < mobiles.length; i += 100) {
-                const batch = mobiles.slice(i, i + 100);
-                const { rows: exact } = await db._pool.query(
-                  `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                   FROM donor_profiles WHERE mobile_number = ANY($1)`,
-                  [batch]
-                );
-                for (const d of (exact || [])) {
-                  const k = last10(d.mobile_number);
-                  if (k) { donorByMobile.set(k, d); exactFound.add(k); }
-                }
-              }
-              // Suffix fallback for the rest — catches donors stored with a
-              // +91 / 0 prefix that the indexed exact match can't see.
-              const missing = mobiles.filter(m => !exactFound.has(m));
-              if (missing.length > 0) {
-                for (let i = 0; i < missing.length; i += 100) {
-                  const batch = missing.slice(i, i + 100);
-                  const { rows } = await db._pool.query(
-                    `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                     FROM donor_profiles
-                     WHERE right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) = ANY($1)`,
-                    [batch]
-                  );
-                  for (const d of (rows || [])) {
-                    const k = last10(d.mobile_number);
-                    if (k && !donorByMobile.has(k)) donorByMobile.set(k, d);
-                  }
-                }
-              }
-            }
-
-            // Name-based fuzzy match: rescues receipts whose mobile is missing,
-            // malformed, or stored differently. Conservative — only links when a
-            // single strong name match exists (both names agree on every token)
-            // and the phones do not contradict each other, so a receipt never
-            // gets attached to the wrong donor's history.
-            const HONORIFICS = ['shri', 'sri', 'smt', 'shrimati', 'kumari', 'mr', 'mrs', 'ms', 'dr', 'er', 'sir', 'sahab', 'bhai', 'ben', 'late'];
-            const HONORIFIC_RE = new RegExp(`\\b(?:${HONORIFICS.join('|')})\\b`, 'g');
-            const normName = (n) => String(n || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9 ]/g, ' ')
-              .replace(HONORIFIC_RE, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-            const nameTokens = (n) => normName(n).split(' ').filter(Boolean);
-
-            const donorByReceipt = new Map();
-            for (const receipt of inserted) {
-              const mobile = last10(receipt.donor_mobile);
-              if (/^\d{10}$/.test(mobile) && donorByMobile.has(mobile)) {
-                donorByReceipt.set(receipt.id, donorByMobile.get(mobile));
-              }
-            }
-
-            for (const receipt of inserted) {
-              if (donorByReceipt.has(receipt.id)) continue;
-              const tokens = nameTokens(receipt.donor_name);
-              if (tokens.length < 2) continue;
-              const { rows } = await db._pool.query(
-                `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                 FROM donor_profiles
-                 WHERE lower(name) LIKE $1 AND lower(name) LIKE $2
-                 LIMIT 20`,
-                [`%${tokens[0]}%`, `%${tokens[tokens.length - 1]}%`]
-              );
-              const receiptMobile = last10(receipt.donor_mobile);
-              const candidates = (rows || []).filter((d) => {
-                const dt = nameTokens(d.name);
-                if (dt.length === 0) return false;
-                const shared = tokens.filter(t => dt.includes(t));
-                if (shared.length < 2) return false;
-                const receiptInsideDonor = tokens.every(t => dt.includes(t));
-                const donorInsideReceipt = dt.every(t => tokens.includes(t));
-                if (!receiptInsideDonor && !donorInsideReceipt) return false;
-                const dMobile = last10(d.mobile_number);
-                if (/^\d{10}$/.test(receiptMobile) && /^\d{10}$/.test(dMobile) && receiptMobile !== dMobile) return false;
-                return true;
-              });
-              if (candidates.length === 1) donorByReceipt.set(receipt.id, candidates[0]);
-            }
-
             receiptsByDonor = {};
+            const matchedIds = new Set();
             for (const receipt of inserted) {
-              const donor = donorByReceipt.get(receipt.id);
+              const m = last10(receipt.donor_mobile);
+              if (!/^\d{10}$/.test(m)) continue;
+              const donor = donorByMobile.get(m);
               if (!donor) continue;
               matched++;
+              matchedIds.add(receipt.id);
               if (!receiptsByDonor[donor.id]) {
                 receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
               }
@@ -1885,6 +1849,52 @@ export const importReceipts = async (req, res) => {
               receiptsByDonor[donor.id].donation_count += 1;
               if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
                 receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+              }
+            }
+
+            // Auto-create donor profiles for unmatched valid mobiles so receipts
+            // clear out of the suspense pool instead of sitting orphaned.
+            {
+              const toCreateMap = new Map();
+              for (const r of inserted) {
+                if (matchedIds.has(r.id)) continue;
+                const m = last10(r.donor_mobile);
+                if (!/^\d{10}$/.test(m)) continue;
+                if (!toCreateMap.has(m)) toCreateMap.set(m, r.donor_name || 'Unknown Donor');
+              }
+              if (toCreateMap.size > 0) {
+                const rows = [...toCreateMap].map(([mobile, name]) => ({
+                  name, mobile_number: mobile,
+                  total_amount: 0, donation_count: 0,
+                  created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+                }));
+                for (let i = 0; i < rows.length; i += 500) {
+                  const { data: created, error } = await from('donor_profiles')
+                    .insert(rows.slice(i, i + 500))
+                    .select('id, mobile_number, total_amount, donation_count, last_donation_date');
+                  if (error) throw new Error(error.message);
+                  for (const d of (created || [])) {
+                    const k = last10(d.mobile_number);
+                    if (k) donorByMobile.set(k, d);
+                  }
+                }
+                for (const receipt of inserted) {
+                  if (matchedIds.has(receipt.id)) continue;
+                  const m = last10(receipt.donor_mobile);
+                  if (!/^\d{10}$/.test(m)) continue;
+                  const donor = donorByMobile.get(m);
+                  if (!donor) continue;
+                  matched++;
+                  if (!receiptsByDonor[donor.id]) {
+                    receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
+                  }
+                  receiptsByDonor[donor.id].ids.push(receipt.id);
+                  receiptsByDonor[donor.id].total_amount += parseFloat(receipt.amount || 0);
+                  receiptsByDonor[donor.id].donation_count += 1;
+                  if (receipt.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || receipt.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
+                    receiptsByDonor[donor.id].last_donation_date = receipt.receipt_date;
+                  }
+                }
               }
             }
 
@@ -2223,6 +2233,29 @@ export const getReceiptCount = async (req, res) => {
       .from('receipts')
       .select('*', { count: 'exact', head: true });
     return res.json({ count: count || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Bare suspense receipts per NGO: unlinked (no donor, no log), no agent assigned,
+// not priyank, not already in a bank-audit entry. The same pool the bank-audit
+// page counts as suspense.
+export const getSuspenseByNgo = async (req, res) => {
+  try {
+    const { rows } = await db._pool.query(`
+      SELECT project_id,
+             count(*)::int AS count,
+             COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+      FROM receipts
+      WHERE donor_id IS NULL AND log_id IS NULL
+        AND (agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')
+        AND lower(trim(COALESCE(agent_name, ''))) <> 'priyank shah'
+        AND NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)
+      GROUP BY project_id
+      ORDER BY count(*) DESC
+    `);
+    return res.json(rows);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -23,7 +23,25 @@ export default function RightPanel({ open, onClose, title, subtitle, width = 640
   const chipBg = `color-mix(in srgb, ${accent} 14%, #ffffff)`;
 
   return createPortal(
-    <div ref={panelRef} style={{ position: 'fixed', top: topOffset, right: 0, width, maxWidth: '100vw', height: `calc(100vh - ${topOffset}px)`, background: 'var(--card-bg)', borderTopLeftRadius: 18, borderBottomLeftRadius: 18, borderLeft: '1px solid var(--line)', boxShadow: '-10px 0 36px rgba(15,23,42,.15)', display: 'flex', flexDirection: 'column', zIndex: 1001, overflow: 'hidden', animation: 'rp-slide .3s cubic-bezier(.22,1,.36,1) both' }}>
+    <div ref={panelRef} style={{
+      // This component is portaled to body, outside .panel-accounts. Keep the
+      // Accounts theme available to the panel and all of its detail content.
+      '--sage': '#5B6B4E',
+      '--sage-light': '#7A8F6A',
+      '--ink': '#1a1a2e',
+      '--ink-soft': '#6b7280',
+      '--line': '#e5e7eb',
+      '--danger': '#d9534f',
+      '--warning': '#e67e22',
+      '--success': '#16a34a',
+      '--bg': '#f5f6fa',
+      '--card-bg': '#ffffff',
+      '--radius': '12px',
+      '--radius-sm': '8px',
+      '--shadow': '0 1px 3px rgba(0,0,0,0.06)',
+      '--shadow-md': '0 4px 12px rgba(0,0,0,0.08)',
+      position: 'fixed', top: topOffset, right: 0, width, maxWidth: '100vw', height: `calc(100vh - ${topOffset}px)`, background: 'var(--card-bg)', borderTopLeftRadius: 18, borderBottomLeftRadius: 18, borderLeft: '1px solid var(--line)', boxShadow: '-10px 0 36px rgba(15,23,42,.15)', display: 'flex', flexDirection: 'column', zIndex: 1001, overflow: 'hidden', animation: 'rp-slide .3s cubic-bezier(.22,1,.36,1) both'
+    }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 16px 16px 18px', borderBottom: '1px solid var(--line)', background: `linear-gradient(90deg, ${tint}, #ffffff 72%)`, flexShrink: 0 }}>
         <div style={{ width: 38, height: 38, borderRadius: 12, background: chipBg, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: `0 1px 3px ${tint}` }}>{icon || <DefaultIcon />}</div>
         <div style={{ minWidth: 0, flex: 1 }}>

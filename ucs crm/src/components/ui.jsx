@@ -222,3 +222,25 @@ export function Who({ name, role }) {
     </div>
   )
 }
+
+export const cleanField = (v) => {
+  if (v == null) return v;
+  if (typeof v === 'object') {
+    const t = v.target || v.value || v.label;
+    if (typeof t === 'string') return t;
+    if (t && typeof t === 'object' && t.value != null) return String(t.value);
+    return v.value || '';
+  }
+  const s = String(v).trim();
+  if (!s.startsWith('{')) return s;
+  try {
+    const o = JSON.parse(s);
+    if (o && typeof o === 'object') {
+      const t = o.target || o.value;
+      if (typeof t === 'string') return t;
+      if (t && typeof t === 'object' && t.value != null) return String(t.value);
+      if (typeof o.label === 'string') return o.label;
+    }
+  } catch (e) {}
+  return s;
+}

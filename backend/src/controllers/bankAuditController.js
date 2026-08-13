@@ -197,10 +197,14 @@ export const listEntries = async (req, res) => {
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
-      // A receipt linked to an entry that is still unlinked (no donor, no log)
-      // and not a Priyank Shah donation is unresolved money — expose the entry
-      // as a suspense row so the UI counts and styles it with the suspense pool.
-      e.kind = (r && !r.donor_id && !r.log_id && !BankAudit.isPriyankShahAgent(r.agent_name))
+      // An entry whose receipt is still unlinked (no donor, no log) is only
+      // suspense when the receipt has no agent assigned — once an agent name is
+      // attached (FRO claim / import FSE / Accounts assignment), the money is
+      // handled and leaves the Accounts suspense pool, consistent with the bare
+      // suspense rule in getUnlinkedReceipts.
+      e.kind = (r && !r.donor_id && !r.log_id
+                 && !BankAudit.isPriyankShahAgent(r.agent_name)
+                 && (!r.agent_name || r.agent_name === '' || r.agent_name === 'Suspense'))
         ? 'suspense'
         : 'entry';
       delete e.receipts;
@@ -758,7 +762,14 @@ export const searchDonorsForSuspense = async (req, res) => {
 export const listFroSuspense = async (req, res) => {
   try {
     const entries = await BankAudit.getSuspenseForFro(req.user.id);
-    return res.json(entries);
+    const filtered = entries.filter(e => {
+      if (!e.receipts) return true;
+      const r = e.receipts;
+      if (r.donor_id) return false;
+      if (r.agent_name && r.agent_name !== '' && String(r.agent_name).trim().toLowerCase() !== 'suspense') return false;
+      return true;
+    });
+    return res.json(filtered);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
