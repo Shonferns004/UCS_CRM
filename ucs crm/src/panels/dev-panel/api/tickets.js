@@ -17,6 +17,13 @@ export const getUnifiedDevTickets = (params = {}) => {
   ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)))
 }
 
+export const getDevTickets = (params = {}) => {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v) qs.set(k, v) })
+  const s = qs.toString()
+  return p(`/developer-tickets${s ? '?' + s : ''}`)
+}
+
 export const getDevTicketStats = () => p('/developer-tickets/stats')
 export const getMyDevTickets = () => p('/developer-tickets/my')
 export const getUnassignedTickets = () => p('/developer-tickets/unassigned')
