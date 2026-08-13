@@ -1,33 +1,42 @@
 import db from '../config/db.js';
 
-// Suspense receipts: any receipt that is unlinked (donor_id null) and unclaimed
-// (log_id null), regardless of agent_name — an agent-assigned receipt that is not
-// yet matched to a donor/log is still unresolved money.
-// They appear as rows in the bank audit list until matched (donor_id set),
-// claimed (log_id set), or verified.
+// Suspense receipts: any receipt that is unlinked (donor_id null), unclaimed
+// (log_id null), and NOT already assigned to an agent (agent_name still NULL /
+// empty / 'Suspense'). Once an agent name is attached — by an FRO claim, an
+// import FSE name, or an Accounts assignment — the receipt is handled and
+// leaves the Accounts suspense pool (the FRO pool still lists it for claiming).
+// Receipts whose agent is Priyank Shah are never suspense — they are treated
+// as known donations even when no donor/log is linked yet.
+export const isPriyankShahAgent = (name) => !!(name && name.trim().toLowerCase() === 'priyank shah');
+
 export const getUnlinkedReceipts = async () => {
-  const { data, error } = await db
-    .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, created_at')
-    .is('donor_id', null)
-    .is('log_id', null)
-    .order('receipt_date', { ascending: false });
+  // Receipts already turned into a bank audit entry (a bank_audit_entries row
+  // references them via receipt_id) are shown in the list as entries, so they
+  // must not also appear in the suspense pool.
+  const { rows, error } = await db._pool.query(`
+    SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
+           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.created_at
+    FROM receipts r
+    WHERE r.donor_id IS NULL
+      AND r.log_id IS NULL
+      AND (r.agent_name IS NULL OR r.agent_name = '' OR r.agent_name = 'Suspense')
+      AND NOT EXISTS (
+        SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
+      )
+    ORDER BY r.receipt_date DESC
+  `);
   if (error) throw error;
-  return data || [];
+  return rows || [];
 };
 
+// Global receipt number sequence created by migration 064 (receipts_no_seq,
+// seeded at the current max + 1). nextval is atomic, so concurrent writes can
+// never receive the same number — the UNIQUE(project_id, receipt_no)
+// constraint backs this up. Numbers are drawn from one shared pool (no per-NGO
+// suffix); the UNIQUE constraint scopes them per NGO.
 export const getNextReceiptNo = async (projectId) => {
-  const ngo = projectId || 'bsct';
-  const { data } = await db.from('receipts').select('receipt_no').eq('project_id', ngo);
-  let maxNum = 0;
-  for (const r of data || []) {
-    const nums = String(r.receipt_no).match(/\d+/g);
-    if (nums && nums.length > 0) {
-      const n = parseInt(nums[nums.length - 1], 10);
-      if (n > maxNum) maxNum = n;
-    }
-  }
-  return String(maxNum + 1);
+  const { rows } = await db._pool.query("SELECT nextval('receipts_no_seq') AS n");
+  return String(rows[0].n);
 };
 
 export const getSources = async () => {

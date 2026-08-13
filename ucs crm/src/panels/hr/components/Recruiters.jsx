@@ -86,7 +86,7 @@ export default function Recruiters() {
 
   const leaderboard = useMemo(() => {
     const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
-    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel']);
+    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel', 'Riddhi Trivedi']);
     return recruiters
       .map(r => {
         const rLeads = leads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);

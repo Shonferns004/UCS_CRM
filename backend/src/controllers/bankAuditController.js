@@ -197,6 +197,12 @@ export const listEntries = async (req, res) => {
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
+      // A receipt linked to an entry that is still unlinked (no donor, no log)
+      // and not a Priyank Shah donation is unresolved money — expose the entry
+      // as a suspense row so the UI counts and styles it with the suspense pool.
+      e.kind = (r && !r.donor_id && !r.log_id && !BankAudit.isPriyankShahAgent(r.agent_name))
+        ? 'suspense'
+        : 'entry';
       delete e.receipts;
     }
 
@@ -253,15 +259,23 @@ export const listEntries = async (req, res) => {
     }
 
     // Merge unresolved suspense receipts (donor_id null, agent 'Suspense') into
-    // the list, scoped to the requested month (or the current month when no
-    // filter is set). Once matched (donor_id set) they leave the suspense set.
+    // the list, scoped to the same date range as the entries filter (or the
+    // current month when no filter is set). Once matched (donor_id set) they
+    // leave the suspense set.
     const showSuspense = !status || status === 'unverified';
     if (showSuspense) {
-      const suspense = await BankAudit.getUnlinkedReceipts();
+      const suspense = (await BankAudit.getUnlinkedReceipts()).filter((r) => !BankAudit.isPriyankShahAgent(r.agent_name));
       if (suspense.length > 0) {
         const currentMonth = currentMonthIST();
         const requestedMonth = date_from ? date_from.slice(0, 7) : currentMonth;
-        const rows = suspense.filter((r) => (r.receipt_date || '').slice(0, 7) === requestedMonth);
+        const from = (date_from || '').slice(0, 10);
+        const to = (date_to || date_from || '').slice(0, 10);
+        const rows = suspense.filter((r) => {
+          const rd = (r.receipt_date || '').slice(0, 10);
+          if (!rd) return false;
+          if (!from) return rd.slice(0, 7) === requestedMonth;
+          return rd >= from && rd <= to;
+        });
 
         const suspenseRows = rows.map((r) => ({
           id: `suspense-${r.id}`,
@@ -335,10 +349,11 @@ export const addEntry = async (req, res) => {
     // (never suspense).
     const donorName = link?.receipt.donor_name || pickedDonor?.name || payer_name || null;
     const donorKnown = !!(link || pickedDonor);
+    const priyankAgent = BankAudit.isPriyankShahAgent(agent_name);
     const agentKnown = link?.receipt.agent_name || realAgentName(agent_name);
-    const suspenseAgent = (donorKnown && agentKnown) ? agentKnown : 'Suspense';
+    const suspenseAgent = (donorKnown || priyankAgent) ? (agentKnown || 'Priyank Shah') : 'Suspense';
 
-    const isSuspense = !donorKnown;
+    const isSuspense = !donorKnown && !priyankAgent;
 
     if (receiptId) {
       const receiptFields = {
@@ -457,7 +472,7 @@ export const editEntry = async (req, res) => {
         Object.assign(receiptUpdate, donorProfileReceipt(pickedDonor));
         if (agent_name !== undefined) {
           const effAgent = realAgentName(agent_name);
-          receiptUpdate.agent_name = (effAgent && pickedDonor.name) ? effAgent : 'Suspense';
+          receiptUpdate.agent_name = (effAgent && pickedDonor.name) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
         }
         if (project_id !== undefined) receiptUpdate.project_id = project_id || 'bsct';
       } else {
@@ -466,7 +481,7 @@ export const editEntry = async (req, res) => {
         if (payer_name !== undefined) receiptUpdate.donor_name = effDonor;
         if (agent_name !== undefined) {
           const effAgent = realAgentName(agent_name);
-          receiptUpdate.agent_name = (effAgent && effDonor) ? effAgent : 'Suspense';
+          receiptUpdate.agent_name = (effAgent && effDonor) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
         }
         if (req.body.donor_mobile !== undefined) receiptUpdate.donor_mobile = req.body.donor_mobile || null;
         if (project_id !== undefined) receiptUpdate.project_id = project_id || 'bsct';
@@ -538,7 +553,7 @@ export const editSuspenseReceipt = async (req, res) => {
       if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile;
       if (agent_name !== undefined) {
         const effAgent = realAgentName(agent_name);
-        updates.agent_name = (effAgent && donor_name) ? effAgent : 'Suspense';
+        updates.agent_name = (effAgent && donor_name) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
       }
       if (project_id !== undefined) updates.project_id = project_id;
     }

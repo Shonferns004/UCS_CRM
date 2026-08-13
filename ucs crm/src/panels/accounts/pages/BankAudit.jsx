@@ -17,6 +17,11 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
 import * as XLSX from 'xlsx';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
+// A true suspense row is a bare suspense *receipt* (no bank_audit_entries row),
+// whose id is prefixed 'suspense-'. Entries whose linked receipt is unlinked are
+// also tagged kind:'suspense' by the backend, but they are real entries (numeric
+// id) and must keep using the entry endpoints for edit/delete.
+const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id === 'string' && String(r.id).indexOf('suspense-') === 0);
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',_lead_amount:null};
@@ -69,6 +74,14 @@ const fmtTime = t => {
   const ap = h >= 12 ? 'PM' : 'AM';
   return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
 };
+const fmtDate = d => {
+  if (!d) return '';
+  const s = String(d);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) { const [y, m, dd] = s.split('-'); return dd + '-' + m + '-' + y; }
+  const dt = new Date(d);
+  if (isNaN(dt)) return s;
+  return String(dt.getDate()).padStart(2, '0') + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + dt.getFullYear();
+};
 function monthBounds(ym){
   const [y,m]=ym.split('-').map(Number);
   const last=new Date(Date.UTC(y,m,0)).getUTCDate();
@@ -81,6 +94,18 @@ function SkStat(){return <div className="stat-card"><div className="sk" style={{
 function Tab({a,on,ic,ch}){return <button onClick={on} style={{padding:'10px 18px',fontSize:13,fontWeight:a?700:500,border:'none',background:a?'#fff':'transparent',cursor:'pointer',color:a?'var(--sage)':'#6b7280',borderBottom:a?'2px solid var(--sage)':'2px solid transparent',marginBottom:-2,display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',transition:'all .15s'}}>{ic}{ch}</button>}
 
 function IconBtn({on,ch,dis,title,bg='#fff',fg='var(--sage)',style}){return <button className="btn btn-sm fb-btn" onClick={on} disabled={dis} title={title} aria-label={title} style={{background:bg,color:fg,border:'none',opacity:dis?.5:1,...style}}>{ch}</button>}
+
+const fieldStyle={padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s, box-shadow .15s',outline:'none',width:'100%',boxSizing:'border-box'};
+const fieldFocus={borderColor:'var(--sage)',boxShadow:'0 0 0 3px rgba(22,163,74,.08)'};
+function FieldSection({title,children,style}){
+  return <div style={{marginBottom:20,...style}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+      <span style={{width:3,height:14,borderRadius:3,background:'var(--sage)',flexShrink:0}}/>
+      <span style={{fontSize:13,fontWeight:700,color:'#111827',letterSpacing:'-.01em'}}>{title}</span>
+    </div>
+    {children}
+  </div>;
+}
 
 // ─── Lead (Log) Picker ────────────────────────────────────
 function LeadPicker({ value, locked, onPick, onClear }){
@@ -112,24 +137,27 @@ function LeadPicker({ value, locked, onPick, onClear }){
   },[]);
 
   if(value){
-    return <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 12px',borderRadius:8,border:'1.5px solid #d1d5db',background:'#f3f4f6',fontSize:12,color:'#374151',minWidth:0}}>
+    return <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,border:'1.5px solid #cfe3cb',background:'#f0f7ef',fontSize:12,color:'#14532d',minWidth:0}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
       <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{locked?`Linked to Lead #${value}`:`Lead #${value}`}</span>
-      {locked?<span style={{color:'#9ca3af',flexShrink:0}}>· locked</span>:<button type="button" onClick={onClear} style={{marginLeft:'auto',flexShrink:0,border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11}}>Clear</button>}
+      {locked?<span style={{color:'#6b7280',flexShrink:0}}>· locked</span>:<button type="button" onClick={onClear} style={{marginLeft:'auto',flexShrink:0,border:'1px solid #fecaca',background:'#fff',color:'#dc2626',borderRadius:6,padding:'2px 8px',cursor:'pointer',fontSize:11,fontWeight:600}}>Clear</button>}
     </div>;
   }
 
   return <div ref={boxRef} style={{position:'relative'}}>
-    <input className="field-input" placeholder="Search pending lead (donor / mobile / FRO)..." value={q}
+    <input className="field-input" placeholder="Search pending lead (donor / mobile / FRO / amount)..." value={q}
       onChange={e=>{setQ(e.target.value);setOpen(true)}}
-      onFocus={()=>setOpen(true)}
-      style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box'}}/>
-    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:260,overflowY:'auto'}}>
-      {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>Searching...</div>
-        :err?<div style={{padding:14,fontSize:12,color:'#dc2626'}}>{err}</div>
-        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No pending leads found</div>
+      style={{...fieldStyle,width:'100%',boxSizing:'border-box'}}
+      onFocus={()=>setOpen(true)}/>
+    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 6px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,.14)',overflow:'hidden'}}>
+      <div style={{padding:'8px 12px',background:'#f9fafb',borderBottom:'1px solid #eef0f3',fontSize:11,fontWeight:600,color:'#6b7280'}}>Pending leads</div>
+      <div style={{maxHeight:260,overflowY:'auto'}}>
+      {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>Searching...</div>
+        :err?<div style={{padding:14,fontSize:12,color:'#dc2626',textAlign:'center'}}>{err}</div>
+        :leads.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>No pending leads found</div>
         :leads.map(l=><button key={l.log_id} type="button" onClick={()=>{onPick(l);setOpen(false);setQ('')}}
-          style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
-          onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+          style={{display:'block',width:'100%',textAlign:'left',padding:'10px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12,transition:'background .12s'}}
+          onMouseOver={e=>{e.currentTarget.style.background='#f0f7ef'}} onMouseOut={e=>{e.currentTarget.style.background='#fff'}}>
           <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
             <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.donor_name||'Unknown'}</span>
             <span style={{fontWeight:700,color:'var(--sage)',whiteSpace:'nowrap'}}>{curr(l.amount||0)}</span>
@@ -138,6 +166,7 @@ function LeadPicker({ value, locked, onPick, onClear }){
             {l.donor_mobile||'\u2014'} · {l.agent_name||'No FRO'} · #{l.log_id}
           </div>
         </button>)}
+      </div>
     </div>}
   </div>;
 }
@@ -226,7 +255,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onViewReceipt,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey}){
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -238,32 +267,57 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
   ):filtered;
   const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
+  const suspenseCount=filtered.filter(e=>e.kind==='suspense').length;
   const pageCount=Math.max(1,Math.ceil(visible.length/PAGE_SIZE));
   const pageItems=visible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
   useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
+  const NGO_LABELS={bsct:'Being Sevak',mann:'Mann Care',aflf:'Ashray'};
+  const ngoOf=e=>{
+    const prj=(e.project_id||'').toLowerCase();
+    if(NGO_LABELS[prj])return prj;
+    const s=((e.bank_audit_sources?.name||'')+' '+(e.remarks||'')).toLowerCase();
+    if(/beingsevak|being sevak|\bsevak\b|\bbsct\b/.test(s))return 'bsct';
+    if(/ashray|\baflf\b/.test(s))return 'aflf';
+    if(/manncar|mann care|\bmann\b/.test(s))return 'mann';
+    return '';
+  };
   const exportExcel=()=>{
-    const HEADERS=['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
+    const HEADERS=['Branch Name','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch Name'];
+    const agent=v=>(v&&v!=='Suspense')?v:'NA';
     const rows=[HEADERS,...visible.map(e=>{
       const src=srcOf(e);
       const meta=receivedMeta(src);
-      const mop=meta?meta.mop:'Bank';
+      const mop=meta?na(meta.mop):'Bank';
       const recvBank=meta?meta.receivedBank:na(src);
       return [
-        'NA',na(e.transaction_date),na(e.agent_name),na(e.payer_name),na(e.donor_mobile),
+        'NA',na(e.transaction_date),na(e.donor_name||e.payer_name),na(e.payer_name),na(e.donor_mobile),
         'NA','NA','NA','NA',na(e.donor_address_1),na(e.donor_address_2),
         'NA','NA',na(e.donor_city),na(e.donor_pin_code),na(e.donor_pan),
         'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
-        'NA','NA','NA',na(e.agent_name),na(e.agent_name),
+        'NA','NA','NA',agent(e.agent_name),agent(e.agent_name),
         mop,recvBank,na(e.payment_id),'NA','NA',na(e.bank_name),
         e.amount??'NA',na(e.receipt_no),'NA',na(e.transaction_date),
-        na(e.payment_time?fmtTime(e.payment_time):''),na(NGO_LABELS[e.project_id]||e.project_id),'Corpus',na(e.remarks),'NA',
+        na(e.payment_time?fmtTime(e.payment_time):''),na(e.project_id),'Corpus',na(e.remarks),'NA',
       ];
     })];
     if(visible.length===0){alert('No entries to export');return}
     const ws=XLSX.utils.aoa_to_sheet(rows);
+    // Write real date cells with a fixed display format (d/mm/yyyy = "1/08/2026") so Excel
+    // never auto-converts the transaction date into a locale format like "1-Aug-26".
+    const DATE_COLS=[1,35];
+    for(let r=1;r<rows.length;r++){
+      for(const c of DATE_COLS){
+        const addr=XLSX.utils.encode_cell({r,c});
+        const cell=ws[addr];
+        if(!cell)continue;
+        const m=String(cell.v==null?'':cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if(!m)continue;
+        ws[addr]={t:'n',v:Date.UTC(+m[1],+m[2]-1,+m[3])/86400000+25569,z:'d/mm/yyyy'};
+      }
+    }
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Bank Audit');
     XLSX.writeFile(wb,`bank-audit_${new Date().toISOString().slice(0,10)}.xlsx`);
@@ -274,6 +328,10 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     </div>}
     <div className="card" style={{marginBottom:14,borderRadius:10}}>
       <div className="filter-bar">
+        <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700,padding:'5px 11px',borderRadius:999,background:suspenseCount>0?'#FDE7DB':'#f3f4f6',color:suspenseCount>0?'#B5603A':'#9ca3af',whiteSpace:'nowrap'}}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
+          {suspenseCount} Suspense
+        </span>
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
           <ModernMonthDateInput
@@ -323,24 +381,25 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : visible.length===0 ? (
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
-        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+(selectedEntryId===e.id?' is-selected':'')}
-          onClick={()=>{if(onSelectEntry){if(selectionEnabled){if(e.kind!=='suspense'&&!e.match_status)onSelectEntry(e)}else{onOpen(e)}return}onOpen(e)}}
-          onDoubleClick={()=>{if(onSelectEntry)onOpen(e)}}>
+        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
+          onClick={()=>{if(onSelectEntry&&selectionEnabled&&!isReceiptSuspense(e)&&!e.match_status)onSelectEntry(e)}}>
           <div className="ec-main">
             <div className="ec-primary">
               <div className="ec-title">{e.payer_name||'\u2014'}</div>
-              <div className="ec-sub">{e.transaction_date||'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}{e.receipt_no?' \u00B7 #'+e.receipt_no:''}</div>
+              <div className="ec-sub">{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}{e.receipt_no?' \u00B7 #'+e.receipt_no:''}</div>
             </div>
             <div className="ec-amount">{curr(e.amount)}</div>
-            <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
           </div>
           <div className="ec-meta">
             {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
             {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
+            {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
+            <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
+            {e.agent_name&&e.agent_name!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
-            <button title="View Receipt" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onViewReceipt(e)}}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <button title="Edit" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onOpen(e)}}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
           </div>
         </div>
@@ -404,7 +463,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       const rows=code?e.filter(x=>matchesNgo(x,code)):e;
       let entries=0,suspenseRows=0;
       for(const r of rows){if(r.kind==='suspense')suspenseRows++;else entries++}
-      return {count:rows.length,entries,suspense:suspenseRows,amount:rows.reduce((s,r)=>s+Number(r.amount||0),0)};
+      const suspense=rows.filter(r=>r.kind==='suspense');
+      return {count:suspenseRows,entries,suspense:suspenseRows,amount:suspense.reduce((s,r)=>s+Number(r.amount||0),0)};
     };
     return {all:build(''),bsct:build('bsct'),aflf:build('aflf'),mann:build('mann')};
   },[e]);
@@ -421,19 +481,19 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const addEntry=async()=>{setFer('');if(!fm.src_id||!fm.amount||!fm.transaction_date||!fm.payment_time){setFer('Source, amount, date, and payment time are required');return};if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setSv(true);try{await apiPost('/accounts/bank-audit/entries',{source_id:fm.src_id,amount:fm.amount,payment_id:fm.payment_id,check_id:fm.check_id,transaction_date:fm.transaction_date,remarks:fm.remarks,payer_name:fm.payer_name,payment_time:fm.payment_time,project_id:fm.project_id||'bsct',donor_mobile:fm.donor_mobile,donor_email:fm.donor_email,donor_pan:fm.donor_pan,donor_address_1:fm.donor_address_1,donor_address_2:fm.donor_address_2,donor_city:fm.donor_city,donor_pin_code:fm.donor_pin_code,agent_name:fm.agent_name,log_id:fm.log_id||null,donor_id:fm.donor_id||null});setSa(false);setFm({...EMPTY_FM});load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const editEntry=async()=>{if(!se)return;if(Number(fm.amount)<=0){setFer('Amount must be greater than zero');return};setFer('');setSv(true);try{
-    if(se.kind==='suspense'){
+    if(isReceiptSuspense(se)){
       await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.donor_name||fm.payer_name||null,donor_mobile:fm.donor_mobile||se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct',agent_name:fm.agent_name,log_id:fm.log_id||null});
     }else{
       await apiPut('/accounts/bank-audit/entries/'+se.id,fm);
     }
     setSe(null);setFm({...EMPTY_FM});setFer('');load(sd,st)}catch(e){alert(e.message)}finally{setSv(false)}};
   const delEntry=async()=>{if(!dci)return;try{
-    if(dci.kind==='suspense'){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
+    if(isReceiptSuspense(dci)){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
     else{await apiDelete('/accounts/bank-audit/entries/'+dci.id)}
     setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}};
   const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){alert(e.message)}};
-  const openE=(entry)=>{const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';if(entry.kind==='suspense'){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
+  const openE=(entry)=>{const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
   const orNa=(v,fallback)=>v||fallback||'NA';
   const pickLead=(l)=>{setFm(p=>({...p,log_id:l.log_id,donor_id:l.donor_id||'',payer_name:l.donor_name||p.payer_name,donor_name:l.donor_name||p.donor_name,donor_mobile:orNa(l.donor_mobile,p.donor_mobile),donor_email:orNa(l.donor_email,p.donor_email),donor_pan:orNa(l.donor_pan,p.donor_pan),donor_address_1:orNa(l.donor_address_1,p.donor_address_1),donor_address_2:orNa(l.donor_address_2,p.donor_address_2),donor_city:orNa(l.donor_city,p.donor_city),donor_pin_code:orNa(l.donor_pin_code,p.donor_pin_code),project_id:l.donor_project||p.project_id,agent_name:l.agent_name||p.agent_name,_lead_amount:Number(l.amount||0)}));};
   const clearLead=()=>setFm(p=>({...p,log_id:'',donor_id:'',donor_name:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',_lead_amount:null}));
@@ -448,83 +508,79 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     <>
       <DonorPicker onPick={d=>setFm(p=>({...p,donor_id:d.id||p.donor_id,payer_name:d.name||p.payer_name,donor_name:d.name||p.donor_name,donor_mobile:d.mobile_number||p.donor_mobile,donor_email:d.email||p.donor_email,donor_pan:d.pan_number||p.donor_pan,donor_address_1:d.address_1||p.donor_address_1,donor_address_2:d.address_2||p.donor_address_2,donor_city:d.city||p.donor_city,donor_pin_code:d.pin_code||p.donor_pin_code,log_id:'',_lead_amount:null}))} prefill={isEdit?((fm.donor_mobile&&fm.donor_mobile!=='NA')?fm.donor_mobile:(fm.donor_name||'')):''}/>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Transaction Details</div>
+      <FieldSection title="Transaction Details">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Source <span style={{color:'#dc2626'}}>*</span></span>
-            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&seEntry.kind==='suspense'} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:isEdit&&seEntry&&seEntry.kind==='suspense'?'#f3f4f6':'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+            <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select source...</option>
               {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
-            <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
         </div>
-        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4,marginTop:12}}>
+        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
           <span>NGO</span>
-          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}>
+          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
             {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
           </select>
         </label>
-      </div>
+      </FieldSection>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Date & Time</div>
+      <FieldSection title="Date & Time">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
             <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payment Time {!isEdit&&<span style={{color:'#dc2626'}}>*</span>}</span>
             <ModernTimeInput value={fm.payment_time} onChange={d=>setFm(p=>({...p,payment_time:d}))} placeholder="Select time" />
           </label>
         </div>
-      </div>
+      </FieldSection>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Agent & Lead Link</div>
+      <FieldSection title="Agent & Lead Link">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
             <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&seEntry.kind!=='suspense'&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
+            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&!isReceiptSuspense(seEntry)&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
           </label>
         </div>
         {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
-          <div style={{marginTop:10,padding:'8px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+          <div style={{marginTop:10,padding:'9px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
             <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
             <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
           </div>}
-      </div>
+      </FieldSection>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.8px',color:'#9ca3af',marginBottom:10}}>Additional Info</div>
+      <FieldSection title="Additional Info">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payer Name</span>
-            <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="e.g. Ravi Kumar" value={fm.payer_name} onChange={e=>setFm(p=>({...p,payer_name:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payment ID</span>
-            <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="e.g. pay_xxx" value={fm.payment_id} onChange={e=>setFm(p=>({...p,payment_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Check ID</span>
-            <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="e.g. chk_xxx" value={fm.check_id} onChange={e=>setFm(p=>({...p,check_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:4}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Remarks</span>
-            <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,transition:'border-color .15s',outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--sage)'} onBlur={e=>e.target.style.borderColor='#e5e7eb'}/>
+            <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
         </div>
-      </div>
+      </FieldSection>
     </>
   );
 
@@ -552,26 +608,26 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       handleAddSrc={addSrc} handleDelSrc={delSrc}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={openDetail}
       onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
-      onViewReceipt={setRp} selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry} selectionEnabled={selectionEnabled}
+      selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry} selectionEnabled={selectionEnabled}
       leadFilterKey={leadFilter ? `${leadFilter.amount}|${leadFilter.ngo || ''}` : ''}
     />
 
     {/* Add Entry Modal */}
-    {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden'}}>
-      <div style={{padding:'16px 20px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f9fafb'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:36,height:36,borderRadius:10,background:isEdit?'#2563eb18':'var(--sage-light, #e8f0e4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+    {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden',borderTop:'3px solid var(--sage)'}}>
+      <div style={{padding:'18px 24px',borderBottom:'1px solid #eef0f3',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#fff'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:40,height:40,borderRadius:12,background:isEdit?'#2563eb18':'#e8f0e4',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'inset 0 0 0 1px rgba(22,101,52,.08)'}}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isEdit?'#2563eb':'var(--sage)'} strokeWidth="2" strokeLinecap="round">{isEdit?<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>}</svg>
           </div>
           <div>
-            <h3 style={{fontSize:15,fontWeight:700,margin:0,color:'#111827'}}>{isEdit?'Edit Entry':'New Bank Entry'}</h3>
-            <p style={{fontSize:11,color:'#9ca3af',margin:0}}>{isEdit?(se.kind==='suspense'?'Update suspense receipt details':'Update entry details'):'Record a new transaction'}</p>
+            <h3 style={{fontSize:16,fontWeight:700,margin:0,color:'#111827',letterSpacing:'-.01em'}}>{isEdit?'Edit Entry':'New Bank Entry'}</h3>
+            <p style={{fontSize:12,color:'#6b7280',margin:0,marginTop:2}}>{isEdit?(se.kind==='suspense'?'Update suspense receipt details':'Update entry details'):'Record a new transaction'}</p>
           </div>
         </div>
-        <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:30,height:30,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#e5e7eb';e.currentTarget.style.color='#374151'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
+        <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:32,height:32,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
       </div>
-      <div className="modal-body" style={{padding:'16px 20px',maxHeight:'75vh',overflowY:'auto'}}>
-        {fer&&<div style={{marginBottom:14,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:8}}>
+      <div className="modal-body" style={{padding:'20px 24px',maxHeight:'72vh',overflowY:'auto'}}>
+        {fer&&<div style={{marginBottom:16,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:8}}>
           <div style={{width:20,height:20,borderRadius:'50%',background:'#dc262618',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
           </div>{fer}
@@ -581,9 +637,9 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
 
       </div>
-      <div style={{padding:'14px 20px',borderTop:'1px solid #f3f4f6',display:'flex',gap:10,justifyContent:'flex-end',background:'#fafafa',borderRadius:'0 0 14px 14px'}}>
-        <button className="btn btn-sm" onClick={()=>{setSa(false);setFer('')}} style={{padding:'8px 18px',borderRadius:8,fontSize:12,fontWeight:600}}>Cancel</button>
-        <button className="btn btn-sm" onClick={addEntry} disabled={sv} style={{padding:'8px 20px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,transition:'all .15s'}}>
+      <div style={{padding:'16px 24px',borderTop:'1px solid #eef0f3',display:'flex',gap:10,justifyContent:'flex-end',background:'#fafafa',borderRadius:'0 0 14px 14px'}}>
+        <button className="btn btn-sm" onClick={()=>{setSa(false);setFer('')}} style={{padding:'9px 18px',borderRadius:8,fontSize:12,fontWeight:600,border:'1px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#f3f4f6'}} onMouseOut={e=>{e.currentTarget.style.background='#fff'}}>Cancel</button>
+        <button className="btn btn-sm" onClick={addEntry} disabled={sv} style={{padding:'9px 22px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--sage)',color:'#fff',border:'none',display:'inline-flex',alignItems:'center',gap:6,opacity:sv?.6:1,cursor:sv?'not-allowed':'pointer',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.95)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
           {sv?'Adding...':'Add Entry'}
         </button>
       </div>
@@ -639,7 +695,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </button>
       </div>
 
-      {st==='unverified'&&se.kind!=='suspense'&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
+      {st==='unverified'&&!isReceiptSuspense(se)&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
           <div style={{fontSize:12,color:'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.match_donor||''}{se.match_fro?` · ${se.match_fro}`:''}</div>

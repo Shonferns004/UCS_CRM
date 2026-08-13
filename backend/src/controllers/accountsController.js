@@ -53,7 +53,7 @@ export const getLeadList = async (req, res) => {
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
-        .select('id, receipt_no, donor_id, log_id')
+        .select('id, receipt_no, donor_id, donor_mobile, log_id')
         .in('log_id', logIds);
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
@@ -100,7 +100,7 @@ export const getLeadList = async (req, res) => {
       assignment_status: r.fro_assignments?.status || 'lead_done',
       donor_id: r.fro_assignments?.donor_id,
       donor_name: r.fro_assignments?.donor_profiles?.name || 'Unknown',
-      donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || '',
+      donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || receiptMap[r.id]?.donor_mobile || '',
       donor_city: r.fro_assignments?.donor_profiles?.city || '',
       donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
       donor_address: r.fro_assignments?.donor_profiles?.address_1 || '',
@@ -1156,7 +1156,13 @@ export const getReceiptList = async (req, res) => {
       where.push(`project_id = $${params.length}`);
     }
     if (link === 'linked') where.push('donor_id IS NOT NULL');
-    if (link === 'unlinked') where.push('donor_id IS NULL');
+    // Agent-assigned receipts are handled (owned by the FSE / tracked in the
+    // FRO pool), so they never appear in Accounts' "Unlinked receipts" tab —
+    // mirroring the bank-audit suspense rule.
+    if (link === 'unlinked') {
+      where.push('donor_id IS NULL');
+      where.push(`(agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')`);
+    }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
@@ -1773,29 +1779,102 @@ export const importReceipts = async (req, res) => {
           let withBank = 0;
           let receiptsByDonor = {};
           if (inserted.length > 0) {
-            const mobiles = [...new Set(
-              inserted.map(r => (r.donor_mobile || '').replace(/\D/g, '')).filter(m => m.length >= 10)
-            )];
+            const cleanMobile = (m) => String(m || '').replace(/\D/g, '');
+            const last10 = (m) => cleanMobile(m).slice(-10);
+            const mobiles = [...new Set(inserted.map(r => last10(r.donor_mobile)).filter(m => /^\d{10}$/.test(m)))];
 
-            const donorByMobile = {};
+            // Match existing donors on the last 10 digits of the mobile so a
+            // donor stored with a +91 / 0 prefix still matches a plain 10-digit
+            // receipt mobile (and vice-versa). Exact full-string matches were
+            // silently dropping these receipts.
+            const donorByMobile = new Map();
             if (mobiles.length > 0) {
+              const exactFound = new Set();
               for (let i = 0; i < mobiles.length; i += 100) {
                 const batch = mobiles.slice(i, i + 100);
-                const { data: donors, error: donorErr } = await from('donor_profiles')
-                  .select('id, mobile_number, total_amount, donation_count, last_donation_date')
-                  .in('mobile_number', batch);
-                if (donorErr) throw new Error(donorErr.message);
-                for (const d of (donors || [])) {
-                  donorByMobile[(d.mobile_number || '').replace(/\D/g, '')] = d;
+                const { rows: exact } = await db._pool.query(
+                  `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+                   FROM donor_profiles WHERE mobile_number = ANY($1)`,
+                  [batch]
+                );
+                for (const d of (exact || [])) {
+                  const k = last10(d.mobile_number);
+                  if (k) { donorByMobile.set(k, d); exactFound.add(k); }
+                }
+              }
+              // Suffix fallback for the rest — catches donors stored with a
+              // +91 / 0 prefix that the indexed exact match can't see.
+              const missing = mobiles.filter(m => !exactFound.has(m));
+              if (missing.length > 0) {
+                for (let i = 0; i < missing.length; i += 100) {
+                  const batch = missing.slice(i, i + 100);
+                  const { rows } = await db._pool.query(
+                    `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+                     FROM donor_profiles
+                     WHERE right(regexp_replace(mobile_number, '[^0-9]', '', 'g'), 10) = ANY($1)`,
+                    [batch]
+                  );
+                  for (const d of (rows || [])) {
+                    const k = last10(d.mobile_number);
+                    if (k && !donorByMobile.has(k)) donorByMobile.set(k, d);
+                  }
                 }
               }
             }
 
+            // Name-based fuzzy match: rescues receipts whose mobile is missing,
+            // malformed, or stored differently. Conservative — only links when a
+            // single strong name match exists (both names agree on every token)
+            // and the phones do not contradict each other, so a receipt never
+            // gets attached to the wrong donor's history.
+            const HONORIFICS = ['shri', 'sri', 'smt', 'shrimati', 'kumari', 'mr', 'mrs', 'ms', 'dr', 'er', 'sir', 'sahab', 'bhai', 'ben', 'late'];
+            const HONORIFIC_RE = new RegExp(`\\b(?:${HONORIFICS.join('|')})\\b`, 'g');
+            const normName = (n) => String(n || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9 ]/g, ' ')
+              .replace(HONORIFIC_RE, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const nameTokens = (n) => normName(n).split(' ').filter(Boolean);
+
+            const donorByReceipt = new Map();
+            for (const receipt of inserted) {
+              const mobile = last10(receipt.donor_mobile);
+              if (/^\d{10}$/.test(mobile) && donorByMobile.has(mobile)) {
+                donorByReceipt.set(receipt.id, donorByMobile.get(mobile));
+              }
+            }
+
+            for (const receipt of inserted) {
+              if (donorByReceipt.has(receipt.id)) continue;
+              const tokens = nameTokens(receipt.donor_name);
+              if (tokens.length < 2) continue;
+              const { rows } = await db._pool.query(
+                `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
+                 FROM donor_profiles
+                 WHERE lower(name) LIKE $1 AND lower(name) LIKE $2
+                 LIMIT 20`,
+                [`%${tokens[0]}%`, `%${tokens[tokens.length - 1]}%`]
+              );
+              const receiptMobile = last10(receipt.donor_mobile);
+              const candidates = (rows || []).filter((d) => {
+                const dt = nameTokens(d.name);
+                if (dt.length === 0) return false;
+                const shared = tokens.filter(t => dt.includes(t));
+                if (shared.length < 2) return false;
+                const receiptInsideDonor = tokens.every(t => dt.includes(t));
+                const donorInsideReceipt = dt.every(t => tokens.includes(t));
+                if (!receiptInsideDonor && !donorInsideReceipt) return false;
+                const dMobile = last10(d.mobile_number);
+                if (/^\d{10}$/.test(receiptMobile) && /^\d{10}$/.test(dMobile) && receiptMobile !== dMobile) return false;
+                return true;
+              });
+              if (candidates.length === 1) donorByReceipt.set(receipt.id, candidates[0]);
+            }
+
             receiptsByDonor = {};
             for (const receipt of inserted) {
-              const mobile = (receipt.donor_mobile || '').replace(/\D/g, '');
-              if (mobile.length < 10) continue;
-              const donor = donorByMobile[mobile];
+              const donor = donorByReceipt.get(receipt.id);
               if (!donor) continue;
               matched++;
               if (!receiptsByDonor[donor.id]) {

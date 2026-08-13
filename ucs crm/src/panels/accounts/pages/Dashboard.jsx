@@ -9,7 +9,15 @@ import * as XLSX from 'xlsx';
 import { receivedMeta } from '../services/receivedSource';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
-const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
+const fmtDT = d => {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt)) return String(d);
+  const day = String(dt.getDate()).padStart(2, '0');
+  const mon = String(dt.getMonth() + 1).padStart(2, '0');
+  const h = dt.getHours(), m = dt.getMinutes();
+  return `${day}-${mon}-${dt.getFullYear()} \u00B7 ${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
 const LEAD_EXPORT_HEADERS = ['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
 
 const SkeletonNum = () => (
@@ -118,7 +126,8 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
     return result.filter(l =>
       (l.donor_name || '').toLowerCase().includes(q) ||
       (l.donor_mobile || '').includes(q) ||
-      (l.agent_name || '').toLowerCase().includes(q)
+      (l.agent_name || '').toLowerCase().includes(q) ||
+      String(l.amount || '').toLowerCase().includes(q)
     );
   }, [leads, searchQuery, ngoActive]);
 
@@ -130,27 +139,39 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
 
   const exportExcel = () => {
     const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
-    const project = l => NGO_LABELS[l.donor_project] || l.donor_project || 'NA';
     const remark = l => l.accounts_status === 'rejected'
       ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
       : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
     const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => {
       const meta = receivedMeta(l.received_source);
-      const mop = meta ? meta.mop : 'Bank';
-      const recvBank = meta ? meta.receivedBank : na(l.donor_bank_name);
+      const mop = meta ? na(meta.mop) : 'Bank';
+      const recvBank = meta ? na(meta.receivedBank) : na(l.donor_bank_name);
       return [
-        'NA', na(l.transaction_date), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
+        'NA', na(l.transaction_datetime || l.verified_at), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
         'NA', 'NA', 'NA', 'NA', na(l.donor_address),
         na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
-        'NA', na(l.donor_email), 'NA', 'NA', na(l.donor_mobile),
+        'NA', na(l.donor_email), 'NA', 'NA', 'NA',
         'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
         mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
-        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_date),
-        'NA', project(l), 'Corpus', remark(l), 'NA',
+        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_datetime || l.verified_at),
+        'NA', 'NA', 'Corpus', na(remark(l)), 'NA',
       ];
     })];
     if (filtered.length === 0) { alert('No leads to export'); return }
     const ws = XLSX.utils.aoa_to_sheet(rows);
+    // Write real date cells with a fixed display format (d/mm/yyyy = "1/08/2026") so Excel
+    // never auto-converts the transaction date into a locale format like "1-Aug-26".
+    const DATE_COLS = [1, 35];
+    for (let r = 1; r < rows.length; r++) {
+      for (const c of DATE_COLS) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr];
+        if (!cell) continue;
+        const m = String(cell.v == null ? '' : cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) continue;
+        ws[addr] = { t: 'n', v: Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 + 25569, z: 'd/mm/yyyy' };
+      }
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Lead Verification');
     XLSX.writeFile(wb, `lead-verification_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -169,7 +190,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       'Donor Bank Name': l.donor_bank_name || '',
       'Amount': String(l.amount || 0),
       'Receipt No.': l.receipt_no || '',
-      'Receipt Date': l.verified_at || l.transaction_date || '',
+      'Receipt Date': l.verified_at || l.transaction_datetime || '',
       'Account Of': 'Corpus',
       'Mobile No.': l.donor_mobile || '',
       'City': l.donor_city || '',
@@ -215,7 +236,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       <div className="card">
         <div className="filter-bar">
           <input
-            placeholder="Search donor / phone / agent / txn ID..."
+            placeholder="Search donor / phone / agent / amount..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 200, minWidth: 0 }}
@@ -267,7 +288,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               </div>
             ) : (
               pageItems.map(l => (
-              <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '')}
+              <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '') + (l.bank_match ? (l.bank_match.match_source === 'manual' ? ' is-match-manual' : ' is-match-auto') : ' is-match-unmatched')}
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); onView?.(l.log_id); return; }
                   if (clickRef.current) clearTimeout(clickRef.current);
@@ -298,7 +319,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                     {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
                   </span>}
                   <span className="ec-agent">{l.agent_name || 'No agent'}</span>
-                  <span className="ec-date">{new Date(l.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  <span className="ec-date">{fmtDT(l.transaction_datetime || l.created_at)}</span>
                 </div>
               </div>
             ))
