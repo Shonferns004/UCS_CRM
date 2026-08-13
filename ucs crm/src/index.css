@@ -1240,7 +1240,12 @@
 .panel-accounts .entry-scroll::-webkit-scrollbar { display:none; width:0; height:0; }
 .panel-accounts .entry-card { position:relative; background:var(--card-bg); border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:0 1px 2px rgba(0,0,0,.04); cursor:pointer; transition:box-shadow .15s, transform .15s, border-color .15s; }
 .panel-accounts .entry-card:hover { box-shadow:0 6px 16px rgba(0,0,0,.08); transform:translateY(-1px); border-color:#d5dae2; }
-.panel-accounts .entry-card.is-selected { box-shadow:0 0 0 2px var(--sage); background:var(--bg); }
+.panel-accounts .entry-card.is-selected { 
+  background:rgba(91, 107, 78, 0.15); 
+  border:2px solid var(--sage);
+  box-shadow:0 2px 8px rgba(91, 107, 78, 0.2); 
+  padding:11px 13px;
+}
 .panel-accounts .entry-card.is-suspense { background:#fffaf5; }
 .panel-accounts .entry-card.is-match-auto { border-left:20px solid #16a34a; }
 .panel-accounts .entry-card.is-match-manual { border-left:20px solid #f59e0b; }
@@ -1272,6 +1277,39 @@
 .panel-accounts .info-grid .value-mono { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
 .panel-accounts .two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 .panel-accounts .detail-layout { grid-template-columns:2fr 1fr; }
+.panel-accounts .lead-audit-workspace { max-width:1700px; }
+.panel-accounts .lead-audit-summary { margin-bottom:18px; }
+.panel-accounts .lead-audit-global-filter { display:flex; align-items:center; gap:9px; min-height:48px; margin-top:-18px; margin-bottom:14px; padding:8px 14px; background:var(--card-bg); border:1px solid #d9e2ee; border-radius:11px; box-shadow:0 2px 8px rgba(31,55,86,.04); flex-wrap:wrap; }
+.panel-accounts .lead-audit-global-filter { position:static; }
+.panel-accounts .lead-audit-filter-label { font-size:11px; font-weight:700; color:var(--ink); }
+.panel-accounts .lead-audit-filter-divider { width:1px; height:18px; background:var(--line); }
+.panel-accounts .lead-audit-filter-key { font-size:10px; font-weight:700; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.08em; }
+.panel-accounts .lead-audit-global-filter select { min-width:112px; padding:7px 28px 7px 10px !important; border-color:#cbd5e1 !important; border-radius:7px !important; background:#fff; color:var(--ink); }
+.panel-accounts .lead-audit-filter-help { font-size:11px; color:#94a3b8; }
+.panel-accounts .lead-audit-section-title { display:flex; align-items:center; gap:9px; margin:0 0 9px; color:var(--ink-soft); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; }
+.panel-accounts .lead-audit-section-title::before { content:''; width:4px; height:16px; border-radius:4px; background:var(--sage); }
+.panel-accounts .lead-audit-section-title span { flex:0 0 auto; }
+.panel-accounts .lead-audit-section-title::after { content:''; height:1px; flex:1; background:linear-gradient(90deg,var(--line),transparent); }
+.panel-accounts .lead-audit-columns { gap:18px; }
+.panel-accounts .lead-audit-columns > div { min-width:0; }
+.panel-accounts .lead-audit-columns .card { background:transparent; border-color:transparent; box-shadow:none; overflow:hidden; }
+.panel-accounts .lead-audit-columns .filter-bar { background:var(--card-bg); border:1px solid #dce4ee; border-radius:11px; box-shadow:0 2px 8px rgba(31,55,86,.05); }
+.panel-accounts .lead-audit-columns .entry-scroll { max-height:min(68vh,720px); padding:2px 4px 2px 0; background:transparent; }
+.panel-accounts .lead-audit-columns .entry-grid { gap:9px; }
+.panel-accounts .lead-audit-columns .entry-card { border-radius:10px; padding:13px 14px; }
+.panel-accounts .lead-audit-columns .entry-card,
+.panel-accounts .lead-audit-columns .entry-card.is-suspense { background:transparent; box-shadow:none; }
+.panel-accounts .lead-audit-columns .entry-card.is-match-auto { border-left-width:6px; }
+.panel-accounts .lead-audit-columns .entry-card.is-match-manual { border-left-width:6px; }
+.panel-accounts .lead-audit-columns .entry-card.is-match-unmatched { border-left-width:6px; }
+.panel-accounts .lead-audit-columns .ec-title { font-size:12px; }
+.panel-accounts .lead-audit-columns .ec-amount { font-size:15px; }
+.panel-accounts .lead-audit-columns .ec-meta { margin-top:9px; padding-top:9px; }
+.panel-accounts .lead-audit-workspace .match-bar { gap:10px; padding:9px 12px; background:rgba(255,255,255,.97); border:1px solid #cbdceb; border-radius:13px; box-shadow:0 10px 28px rgba(31,55,86,.16); }
+.panel-accounts .lead-audit-workspace .match-chip { min-height:38px; padding:7px 10px !important; border-radius:9px !important; background:#eef7ec !important; border-color:#c9e0c3 !important; }
+.panel-accounts .lead-audit-workspace .match-chip::before { content:'Selected lead'; display:block; font-size:9px; font-weight:800; color:#6b8064; text-transform:uppercase; letter-spacing:.06em; margin-right:2px; }
+.panel-accounts .lead-audit-workspace .match-hint { min-height:38px; display:flex; align-items:center; padding:0 8px; border:1px dashed #d5dde8; border-radius:9px; background:#f8fafc; color:#64748b; }
+.panel-accounts .lead-audit-workspace .match-bar > span:not(.match-chip):not(.match-hint) { color:#94a3b8 !important; font-weight:700; }
 .panel-event-head .hamburger, .panel-accounts .hamburger { display:none; align-items:center; justify-content:center; width:36px; height:36px; border:none; background:transparent; border-radius:8px; cursor:pointer; color:var(--ink); margin-right:4px; flex-shrink:0; }
 .panel-event-head .hamburger:hover, .panel-accounts .hamburger:hover { background:var(--bg); }
 .panel-event-head .sidebar-overlay, .panel-accounts .sidebar-overlay { display:none; }
