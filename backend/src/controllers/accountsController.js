@@ -1865,9 +1865,10 @@ export const importReceipts = async (req, res) => {
           let withBank = 0;
           let receiptsByDonor = {};
           const matchedIds = new Set();
-          if (inserted.length > 0) {
+          if (inserted.length > 0 || naturalKeyMatched.length > 0) {
             receiptsByDonor = {};
-            for (const receipt of inserted) {
+            const matchPool = [...inserted, ...naturalKeyMatched].filter(r => !r.donor_id);
+            for (const receipt of matchPool) {
               const m = last10(receipt.donor_mobile);
               if (!/^\d{10}$/.test(m)) continue;
               const donor = donorByMobile.get(m);
@@ -1889,7 +1890,7 @@ export const importReceipts = async (req, res) => {
             // clear out of the suspense pool instead of sitting orphaned.
             {
               const toCreateMap = new Map();
-              for (const r of inserted) {
+              for (const r of matchPool) {
                 if (matchedIds.has(r.id)) continue;
                 const m = last10(r.donor_mobile);
                 if (!/^\d{10}$/.test(m)) continue;
@@ -1911,7 +1912,7 @@ export const importReceipts = async (req, res) => {
                     if (k) donorByMobile.set(k, d);
                   }
                 }
-                for (const receipt of inserted) {
+                for (const receipt of matchPool) {
                   if (matchedIds.has(receipt.id)) continue;
                   const m = last10(receipt.donor_mobile);
                   if (!/^\d{10}$/.test(m)) continue;
@@ -1933,130 +1934,6 @@ export const importReceipts = async (req, res) => {
             }
 
             withBank = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
-          }
-
-          // ── Name-based credit for rows no phone could match ──
-          // Receipts whose donor name is a real person (not 'Suspense') but had
-          // no matching mobile get linked to the matching donor profile (auto-
-          // creating one if needed) and, when the row names an FSE, assigned to
-          // that FSE as the donor's dedicated FRO. A blank or 'Suspense' agent
-          // still links the donor but skips the FRO assignment.
-          const nameReceipts = [...inserted, ...naturalKeyMatched].filter(r => !matchedIds.has(r.id));
-          if (nameReceipts.length > 0) {
-            const normName = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
-            const nameMatches = new Map();
-            const names = [...new Set(nameReceipts.map(r => normName(r.donor_name)).filter(Boolean))];
-            if (names.length > 0) {
-              for (let i = 0; i < names.length; i += 100) {
-                const batch = names.slice(i, i + 100);
-                const { rows } = await db._pool.query(
-                  `SELECT id, name, mobile_number, total_amount, donation_count, last_donation_date
-                   FROM donor_profiles WHERE LOWER(BTRIM(name)) = ANY($1)`, [batch]
-                );
-                for (const d of (rows || [])) {
-                  const k = normName(d.name);
-                  if (k && !nameMatches.has(k)) nameMatches.set(k, d);
-                }
-              }
-            }
-
-            const profilesToCreate = [];
-            for (const r of nameReceipts) {
-              const n = normName(r.donor_name);
-              if (!n || nameMatches.has(n)) continue;
-              nameMatches.set(n, { pending: true, name: String(r.donor_name).trim() });
-              profilesToCreate.push({ name: String(r.donor_name).trim(), project_supported: batchProjectId, total_amount: 0, donation_count: 0 });
-            }
-            if (profilesToCreate.length > 0) {
-              for (let i = 0; i < profilesToCreate.length; i += 500) {
-                const { data: created, error } = await from('donor_profiles')
-                  .insert(profilesToCreate.slice(i, i + 500))
-                  .select('id, name, mobile_number, total_amount, donation_count, last_donation_date');
-                if (error) throw new Error(error.message);
-                for (const d of (created || [])) {
-                  const k = normName(d.name);
-                  if (k) nameMatches.set(k, d);
-                }
-              }
-            }
-
-            const agentNames = [...new Set(nameReceipts.map(r => normName(r.agent_name)).filter(n => n && !/^suspense$/i.test(n)))];
-            const workerIdByName = new Map();
-            if (agentNames.length > 0) {
-              for (let i = 0; i < agentNames.length; i += 100) {
-                const batch = agentNames.slice(i, i + 100);
-                const { rows: workers } = await db._pool.query(
-                  `SELECT id, name FROM workers WHERE LOWER(BTRIM(name)) = ANY($1)`, [batch]
-                );
-                for (const w of (workers || [])) {
-                  const k = normName(w.name);
-                  if (k && !workerIdByName.has(k)) workerIdByName.set(k, w.id);
-                }
-              }
-            }
-
-            const assignmentsToCreate = [];
-            for (const r of nameReceipts) {
-              if (r.donor_id) continue;
-              const n = normName(r.donor_name);
-              const donor = nameMatches.get(n);
-              if (!donor || !donor.id) continue;
-              matched++;
-              if (!receiptsByDonor[donor.id]) {
-                receiptsByDonor[donor.id] = { ids: [], total_amount: donor.total_amount || 0, donation_count: donor.donation_count || 0, last_donation_date: donor.last_donation_date };
-              }
-              receiptsByDonor[donor.id].ids.push(r.id);
-              receiptsByDonor[donor.id].total_amount += parseFloat(r.amount || 0);
-              receiptsByDonor[donor.id].donation_count += 1;
-              if (r.receipt_date && (!receiptsByDonor[donor.id].last_donation_date || r.receipt_date > receiptsByDonor[donor.id].last_donation_date)) {
-                receiptsByDonor[donor.id].last_donation_date = r.receipt_date;
-              }
-              const agent = normName(r.agent_name);
-              if (!agent || /^suspense$/i.test(agent)) continue;
-              const workerId = workerIdByName.get(agent);
-              if (!workerId) continue;
-              assignmentsToCreate.push({ donor_id: donor.id, fro_worker_id: workerId, ngo_id, status: 'pending', assigned_at: new Date().toISOString() });
-            }
-
-            if (assignmentsToCreate.length > 0) {
-              const existingByDonor = new Map();
-              for (let i = 0; i < assignmentsToCreate.length; i += 1000) {
-                const slice = assignmentsToCreate.slice(i, i + 1000);
-                const donorIds = [...new Set(slice.map(a => a.donor_id))];
-                const { data, error: asgnErr } = await from('fro_assignments')
-                  .select('id, donor_id, fro_worker_id')
-                  .in('donor_id', donorIds)
-                  .eq('ngo_id', ngo_id)
-                  .not('status', 'eq', 'reassigned');
-                if (asgnErr) throw new Error(asgnErr.message);
-                for (const a of (data || [])) {
-                  if (!existingByDonor.has(a.donor_id)) existingByDonor.set(a.donor_id, a);
-                }
-              }
-              const toInsertAssignment = [];
-              const toClaim = [];
-              for (const a of assignmentsToCreate) {
-                const cur = existingByDonor.get(a.donor_id);
-                if (!cur) { toInsertAssignment.push(a); continue; }
-                if (cur.fro_worker_id === a.fro_worker_id) continue;
-                if (!cur.fro_worker_id) {
-                  toClaim.push({ id: cur.id, fro_worker_id: a.fro_worker_id });
-                  existingByDonor.set(a.donor_id, { ...cur, fro_worker_id: a.fro_worker_id });
-                }
-              }
-              for (let i = 0; i < toInsertAssignment.length; i += 500) {
-                const { error } = await from('fro_assignments').insert(toInsertAssignment.slice(i, i + 500));
-                if (error) throw new Error(error.message);
-              }
-              if (toClaim.length > 0) {
-                await mapLimit(toClaim, MAX_QUERY_CONCURRENCY, async ({ id, fro_worker_id }) => {
-                  const { error } = await from('fro_assignments')
-                    .update({ fro_worker_id, assigned_at: new Date().toISOString() })
-                    .eq('id', id);
-                  if (error) throw new Error(error.message);
-                });
-              }
-            }
           }
 
           // Link receipts to donors and roll up donor totals. A failed
