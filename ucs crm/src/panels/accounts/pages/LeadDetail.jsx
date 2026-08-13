@@ -15,7 +15,7 @@ const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Cheque', 'NEFT'];
 
 function getTemplateId(projectId) { return DB_TO_TEMPLATE[projectId] || 'beingsevak'; }
 
-const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
+const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : 'NA';
 
 function SkeletonField({ w = 100 }) {
   return <span style={{ display:'block', height:14, width: typeof w === 'number' ? w : w, borderRadius:4, background:'linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%)', backgroundSize:'200% 100%', animation:'sk-shimmer 1.4s infinite', marginBottom:3 }} />;
@@ -34,6 +34,10 @@ function combineDatetime(date, time) {
   const d = new Date(date);
   if (time) { const [h, m] = time.split(':').map(Number); d.setHours(h||0, m||0, 0, 0); }
   return d.toISOString();
+}
+
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 }
 
 function buildDonor(receipt) {
@@ -81,7 +85,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
 
-  const [form, setForm] = useState({ donor_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'', upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
+  const [form, setForm] = useState({ donor_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'',donor_dob:null, upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestRef = useRef(null);
@@ -152,7 +156,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       .then(ll => {
         if (ll && !hasInitRef.current) {
           const {date,time} = parseDatetime(ll.transaction_datetime);
-          setForm({ donor_name:ll.donor_name||'',donor_mobile:ll.donor_mobile||'',donor_city:ll.donor_city||'', donor_email:ll.donor_email||'',donor_address:ll.donor_address||'',donor_pan:ll.pan_number||ll.donor_pan||'', upi_transaction_id:ll.upi_transaction_id||'',transaction_date:date,transaction_time:time, payment_from:ll.payment_from||'',payment_mode:ll.payment_mode||'UPI' });
+          setForm({ donor_name:ll.donor_name||'',donor_mobile:ll.donor_mobile||'',donor_city:ll.donor_city||'', donor_email:ll.donor_email||'',donor_address:ll.donor_address||'',donor_pan:ll.pan_number||ll.donor_pan||'', donor_dob:ll.donor_dob?new Date(ll.donor_dob):null, upi_transaction_id:ll.upi_transaction_id||'',transaction_date:date,transaction_time:time, payment_from:ll.payment_from||'',payment_mode:ll.payment_mode||'UPI' });
           hasInitRef.current = true;
         }
       }).catch(()=>{})
@@ -190,7 +194,8 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       const res = await apiPost(`/accounts/leads/${lead.log_id}/verify`, {
         pan_number:form.donor_pan||null,donor_name:form.donor_name||null,donor_mobile:form.donor_mobile||null,
         donor_city:form.donor_city||null,donor_email:form.donor_email||null,donor_pan:form.donor_pan||null,
-        donor_address:form.donor_address||null,upi_transaction_id:form.upi_transaction_id||null,
+        donor_address:form.donor_address||null,donor_dob:form.donor_dob?form.donor_dob.toISOString():null,
+        upi_transaction_id:form.upi_transaction_id||null,
         transaction_datetime:combineDatetime(form.transaction_date,form.transaction_time),
         payment_from:form.payment_from||null,payment_mode:form.payment_mode||'UPI',
       });
@@ -308,78 +313,168 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         </div>
       </div>}
 
+      {/* Notes/Remarks/Rejection Banner */}
       {(l.notes||l.remark||l.rejection_reason)&&(
-        <div className="card" style={{borderLeft:'3px solid #dc2626',marginBottom:16}}>
-          <div className="card-pad" style={{padding:'10px 16px',background:'#fef2f2'}}>
-            {l.remark&&<div style={{display:'flex',gap:8,alignItems:'flex-start'}}><span style={{fontSize:11,fontWeight:700,color:'#dc2626',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Remark:</span><p style={{margin:0,fontSize:13,color:'#991b1b',whiteSpace:'pre-wrap'}}>{l.remark}</p></div>}
-            {l.notes&&<div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:l.remark?8:0}}><span style={{fontSize:11,fontWeight:700,color:'#dc2626',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Notes:</span><p style={{margin:0,fontSize:13,color:'#991b1b',whiteSpace:'pre-wrap'}}>{l.notes}</p></div>}
-            {l.rejection_reason&&<div style={{display:'flex',gap:8,alignItems:'flex-start',marginTop:(l.remark||l.notes)?8:0}}><span style={{fontSize:11,fontWeight:700,color:'#dc2626',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Rejection:</span><p style={{margin:0,fontSize:13,color:'#991b1b',whiteSpace:'pre-wrap'}}>{l.rejection_reason}</p></div>}
-          </div>
-        </div>
-      )}
-
-      {l.claimed_receipt && (
-        <div className="card" style={{borderLeft:'3px solid #B5603A',marginBottom:16,background:'#FFF7ED'}}>
-          <div className="card-pad" style={{padding:'10px 16px'}}>
-            <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-              <span style={{fontSize:11,fontWeight:700,color:'#B5603A',textTransform:'uppercase',whiteSpace:'nowrap',marginTop:1}}>Claimed by:</span>
-              <p style={{margin:0,fontSize:13,color:'#7c2d12',whiteSpace:'pre-wrap'}}>
-                {l.claimant_name || l.agent_name || 'An FRO'} claimed this lead from Suspense
-                {l.claimed_receipt.receipt_no ? ` · Receipt #${l.claimed_receipt.receipt_no}` : ''}
-                {l.claimant_login ? ` (${l.claimant_login})` : ''}
-                {l.created_at ? ` · ${new Date(l.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}` : ''}.
-                Accounts verifies the bank audit entry to credit the claimant.
-              </p>
+        <div style={{margin:'16px 0',background:'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',borderRadius:12,border:'1px solid #fecaca',overflow:'hidden'}}>
+          <div style={{padding:'12px 16px',display:'flex',gap:10,alignItems:'flex-start',borderBottom:(l.remark&&l.notes)||(l.remark&&l.rejection_reason)||(l.notes&&l.rejection_reason)?'1px solid #fecaca':'none'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" style={{flexShrink:0,marginTop:1}}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div style={{flex:1}}>
+              {l.remark&&<div><span style={{fontSize:10,fontWeight:700,color:'#dc2626',textTransform:'uppercase',letterSpacing:'0.05em'}}>Remark</span><p style={{margin:'4px 0 0',fontSize:13,color:'#7f1d1d',whiteSpace:'pre-wrap',lineHeight:1.5}}>{l.remark}</p></div>}
+              {l.notes&&<div style={{marginTop:l.remark?12:0}}><span style={{fontSize:10,fontWeight:700,color:'#dc2626',textTransform:'uppercase',letterSpacing:'0.05em'}}>Notes</span><p style={{margin:'4px 0 0',fontSize:13,color:'#7f1d1d',whiteSpace:'pre-wrap',lineHeight:1.5}}>{l.notes}</p></div>}
+              {l.rejection_reason&&<div style={{marginTop:(l.remark||l.notes)?12:0}}><span style={{fontSize:10,fontWeight:700,color:'#dc2626',textTransform:'uppercase',letterSpacing:'0.05em'}}>Rejection Reason</span><p style={{margin:'4px 0 0',fontSize:13,color:'#7f1d1d',whiteSpace:'pre-wrap',lineHeight:1.5}}>{l.rejection_reason}</p></div>}
             </div>
           </div>
         </div>
       )}
 
+      {/* Claim Info Card */}
+      {l.claimed_receipt && (
+        <div style={{margin:'16px 0',background:'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',borderRadius:12,border:'1px solid #fed7aa',overflow:'hidden'}}>
+          <div style={{padding:'14px 18px',display:'flex',gap:12,alignItems:'flex-start'}}>
+            <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:10,fontWeight:700,color:'#c2410c',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:4}}>Claimed by FRO</div>
+              <div style={{fontSize:13,color:'#7c2d12',lineHeight:1.5}}>
+                <strong>{l.claimant_name || l.agent_name || 'An FRO'}</strong> claimed this lead from Suspense
+                {l.claimed_receipt.receipt_no ? ` · Receipt #${l.claimed_receipt.receipt_no}` : ''}
+                {l.claimant_login && <span style={{color:'#9a3412'}}> ({l.claimant_login})</span>}
+                {l.created_at && <span> · {new Date(l.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>}
+              </div>
+              <div style={{fontSize:11,color:'#9a3412',marginTop:4,opacity:0.8}}>Accounts verifies the bank audit entry to credit the claimant.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
       <div className="two-col detail-layout" style={drawer ? { gridTemplateColumns: '1fr' } : undefined}>
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
-          <div className="card">
-            <div className="card-head"><h3>Payment & Transaction Details</h3></div>
-            <div className="card-pad">
-              <div className="info-grid">
-                <div><div className="label">Amount</div><div className="value-mono" style={{color:'var(--sage)'}}>{currency(l.amount)}</div></div>
-                <div><div className="label">Agent</div><div className="value">{l.agent_name} <span style={{fontSize:10,color:'var(--ink-soft)'}}>({l.agent_login})</span></div></div>
-                <div><div className="label">Submitted</div><div className="value">{new Date(l.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div></div>
-                <div><div className="label">Payment Mode</div>{isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div className="value">{form.payment_mode||'\u2014'}</div>}</div>
-                 <div style={{position:'relative'}} ref={suggestRef}><div className="label">UPI Transaction ID</div>{isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} />:<div className="value">{form.upi_transaction_id||'\u2014'}</div>}{isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',boxShadow:'var(--shadow-md)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:2}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'8px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}</div>
-                <div><div className="label">Date</div>{isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" />:<div className="value">{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</div>}</div>
-                <div><div className="label">Time</div>{isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div className="value">{form.transaction_time||'\u2014'}</div>}</div>
-                <div><div className="label">From</div>{isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" />:<div className="value">{form.payment_from||'\u2014'}</div>}</div>
+          {/* Payment & Transaction Details */}
+          <div style={{background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
+            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              </div>
+              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Payment & Transaction Details</h3>
+            </div>
+            <div style={{padding:'18px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:'16px 20px'}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Amount</div>
+                  <div style={{fontSize:20,fontWeight:800,color:'var(--sage)',fontFamily:'var(--font-mono, monospace)'}}>{currency(l.amount)}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Agent</div>
+                  <div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{l.agent_name}</div>
+                  <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{l.agent_login}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Submitted</div>
+                  <div style={{fontSize:12,color:'var(--ink)'}}>{new Date(l.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
+                  <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{new Date(l.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Payment Mode</div>
+                  {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'NA'}</div>}
+                </div>
+                <div style={{position:'relative'}} ref={suggestRef}>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>UPI Transaction ID</div>
+                  {isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.upi_transaction_id||'NA'}</div>}
+                  {isPending&&showSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:200,overflowY:'auto',marginTop:4}}>{suggestions.map(s=><div key={s.id} onMouseDown={()=>selectSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{fontWeight:500}}>{s.payment_id}</span><span className="pill pill-gray" style={{fontSize:10}}>{s.bank_audit_sources?.name}</span></div>)}</div>:null}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Date</div>
+                  {isPending?<DatePicker selected={form.transaction_date} onChange={d=>setField('transaction_date',d)} dateFormat="dd/MM/yyyy" placeholderText="Select date" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={50} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_date?new Date(form.transaction_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Time</div>
+                  {isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.transaction_time||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>From</div>
+                  {isPending?<input className="field-input" value={form.payment_from} onChange={e=>setField('payment_from',e.target.value)} placeholder="Sender name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.payment_from||'NA'}</div>}
+                </div>
               </div>
             </div>
           </div>
-          <div className="card">
-            <div className="card-head"><h3>Donor Information</h3></div>
-            <div className="card-pad">
-              <div className="info-grid">
-                <div><div className="label">Name</div>{isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="Donor name" />:<div className="value">{form.donor_name||'\u2014'}</div>}</div>
-                <div><div className="label">Mobile</div>{isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" />:<div className="value">{form.donor_mobile||'\u2014'}</div>}</div>
-                <div><div className="label">City</div>{isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" />:<div className="value">{form.donor_city||'\u2014'}</div>}</div>
-                <div><div className="label">Email</div>{isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" />:<div className="value">{form.donor_email||'\u2014'}</div>}</div>
-                <div><div className="label">Address</div>{isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',boxShadow:'var(--shadow-md)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:2}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'8px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div className="value">{form.donor_address||'\u2014'}</div>}</div>
-                <div><div className="label">PAN</div>{isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" />:<div className="value">{form.donor_pan||'\u2014'}</div>}</div>
-                <div><div className="label">DOB</div><div className="value">{l.donor_dob||'\u2014'}</div></div>
-                <div><div className="label">Project</div><div className="value">{l.donor_project||'\u2014'}</div></div>
-                <div><div className="label">Donations</div><div className="value">{l.donation_count||0} times</div></div>
-                <div><div className="label">Total Donated</div><div className="value-mono" style={{color:'var(--sage)',cursor:'pointer',borderBottom:'1px dashed var(--sage)'}} onClick={loadHistory} title="Click to view donation history">{currency(l.total_donated)}</div></div>
+
+          {/* Donor Information */}
+          <div style={{background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
+            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
+              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Donor Information</h3>
+            </div>
+            <div style={{padding:'18px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:'16px 20px'}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Name</div>
+                  {isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="Donor name" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{form.donor_name||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Mobile</div>
+                  {isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="Mobile" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)'}}>{form.donor_mobile||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>City</div>
+                  {isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="City" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_city||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Email</div>
+                  {isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="Email" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_email||'NA'}</div>}
+                </div>
+                <div style={{gridColumn:'1 / -1'}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Address</div>
+                  {isPending?<div style={{position:'relative'}} ref={addrSuggestRef}><input className="field-input" value={form.donor_address} onChange={e=>handleAddressChange(e.target.value)} placeholder="Address" onFocus={handleAddressFocus} onBlur={()=>setTimeout(()=>setShowAddrSuggestions(false),200)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />{isPending&&showAddrSuggestions?<div style={{position:'absolute',top:'100%',left:0,right:0,background:'var(--card-bg)',border:'1px solid var(--line)',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',zIndex:50,maxHeight:220,overflowY:'auto',marginTop:4}}>{addrSuggestions.map((s,i)=><div key={i} onMouseDown={()=>selectAddressSuggestion(s)} style={{padding:'10px 12px',cursor:'pointer',fontSize:12,borderBottom:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='var(--bg)'} onMouseOut={e=>e.currentTarget.style.background='transparent'}><span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.address}</span><span className="pill pill-gray" style={{fontSize:10,flexShrink:0}}>{s.source}{s.count>1?` \u00D7${s.count}`:''}</span></div>)}</div>:null}</div>:<div style={{fontSize:12,color:'var(--ink)',lineHeight:1.5}}>{form.donor_address||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>PAN</div>
+                  {isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="ABCDE1234F" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12,textTransform:'uppercase'}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',textTransform:'uppercase'}}>{form.donor_pan||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>DOB</div>
+                  {isPending?<DatePicker selected={form.donor_dob} onChange={d=>setField('donor_dob',d)} dateFormat="dd/MM/yyyy" placeholderText="Select DOB" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={80} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_dob?new Date(form.donor_dob).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Project</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)'}}>{l.donor_project||'NA'}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Donations</div>
+                  <div style={{fontSize:12,color:'var(--ink)'}}>{l.donation_count||0} times</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Total Donated</div>
+                  <div style={{fontSize:14,fontWeight:700,color:'var(--sage)',fontFamily:'var(--font-mono, monospace)',cursor:'pointer',borderBottom:'1px dashed var(--sage)',display:'inline-block'}} onClick={loadHistory} title="Click to view donation history">{currency(l.total_donated)}</div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div>
-          {l.screenshot_url ? (
-            <div className="card" style={{position:'sticky',top:16,overflow:'hidden'}}>
+
+        {/* Screenshot Section */}
+        <div style={{marginTop:16}}>
+          <div style={{position:'sticky',top:16,background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
+            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #10b981 0%, #059669 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Payment Proof</h3>
+            </div>
+            {l.screenshot_url ? (
               <ScreenshotImage src={l.screenshot_url} onClick={()=>setShowScreenshot(true)} />
-            </div>
-          ) : (
-            <div className="card" style={{overflow:'hidden'}}>
-              <div style={{textAlign:'center',padding:'40px 20px',color:'var(--ink-soft)'}}><div style={{fontSize:32,marginBottom:8,opacity:.3}}>{'\u{1F5BC}\uFE0F'}</div><div style={{fontSize:13}}>No screenshot available</div></div>
-            </div>
-          )}
+            ) : (
+              <div style={{textAlign:'center',padding:'48px 24px',color:'var(--ink-soft)'}}>
+                <div style={{width:56,height:56,borderRadius:'50%',background:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{opacity:.4}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </div>
+                <div style={{fontSize:13,fontWeight:500}}>No screenshot available</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -396,7 +491,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       )}
 
       {drawer ? (
-        <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',backdropFilter:'blur(16px)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
+        <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',backdropFilter:'blur(16px)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)',zIndex:100}}>
           {isPending && (
             <div style={{display:'flex',gap:12,width:'100%',alignItems:'center'}}>
               {onDelete && (
@@ -491,71 +586,151 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       )}
 
       {showReceipt && receipt && donor && ReceiptComp && (
-        <div className="modal-overlay" onClick={()=>setShowReceipt(false)}>
-          <div className="modal" style={{maxWidth:800,width:'90%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Receipt Preview</h3>
+        drawer ? (
+          <div style={{margin:'16px -18px -18px',borderTop:'1px solid var(--line)',background:'var(--card-bg)'}}>
+            <div style={{padding:'12px 18px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--bg)'}}>
+              <span style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>Receipt Preview</span>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <input
-                  type="tel"
-                  className="field-input"
-                  placeholder="WhatsApp number"
-                  value={waPhone}
-                  onChange={e => setWaPhone(e.target.value)}
-                  style={{ width: 200, fontSize: 12, padding: '6px 10px' }}
-                />
                 <button className="btn btn-primary btn-sm" onClick={handleDownload}>Download PDF</button>
                 {waResult && (
-                  <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626',marginRight:4}}>{waResult.message}</span>
+                  <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626'}}>{waResult.message}</span>
                 )}
                 <button className="btn btn-sm" style={{background:'#25D366',color:'#fff'}} onClick={sendWA} disabled={sendingWA}>{sendingWA ? 'Sending...' : 'Send via WhatsApp'}</button>
-                <button className="btn btn-sm" onClick={()=>setShowReceipt(false)}>Close</button>
+                <button className="btn btn-sm btn-icon" onClick={()=>setShowReceipt(false)}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             </div>
-            <div className="modal-body" style={{padding:20}}>
+            <div style={{padding:20,display:'flex',justifyContent:'center',overflow:'auto',maxHeight:'60vh'}}>
               <div data-receipt-print><ReceiptComp donor={donor} index={0} project={templateId} /></div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="modal-overlay" onClick={()=>setShowReceipt(false)}>
+            <div className="modal" style={{maxWidth:800,width:'90%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Receipt Preview</h3>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <button className="btn btn-primary btn-sm" onClick={handleDownload}>Download PDF</button>
+                  {waResult && (
+                    <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626',marginRight:4}}>{waResult.message}</span>
+                  )}
+                  <button className="btn btn-sm" style={{background:'#25D366',color:'#fff'}} onClick={sendWA} disabled={sendingWA}>{sendingWA ? 'Sending...' : 'Send via WhatsApp'}</button>
+                  <button className="btn btn-sm" onClick={()=>setShowReceipt(false)}>Close</button>
+                </div>
+              </div>
+              <div className="modal-body" style={{padding:20}}>
+                <div data-receipt-print><ReceiptComp donor={donor} index={0} project={templateId} /></div>
+              </div>
+            </div>
+          </div>
+        )
       )}
 
       {historyOpen && (
-        <div className="modal-overlay" onClick={()=>setHistoryOpen(false)}>
-          <div className="modal" style={{maxWidth:700,width:'90%',maxHeight:'85vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Donation History — {l.donor_name}</h3>
-              <button className="btn btn-sm" onClick={()=>setHistoryOpen(false)}>Close</button>
+        <div className="modal-overlay" onClick={()=>setHistoryOpen(false)} style={{background:'rgba(15,23,42,.46)',backdropFilter:'blur(2px)'}}>
+          <div className="modal" style={{maxWidth:520,width:'90%',maxHeight:'80vh',display:'flex',flexDirection:'column',overflow:'hidden',border:'1px solid #e5e7eb',borderRadius:16,boxShadow:'0 24px 70px rgba(15,23,42,.24)'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'20px 22px',background:'linear-gradient(135deg,#f8fafc 0%,#ffffff 72%)',borderBottom:'1px solid var(--line)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+                <div style={{width:44,height:44,borderRadius:13,background:'linear-gradient(135deg,var(--sage),#435437)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:700,flexShrink:0,boxShadow:'0 4px 10px rgba(91,107,78,.22)'}}>
+                  {l.donor_name ? l.donor_name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) : '?'}
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--sage)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3}}>Donor history</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'var(--ink)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.donor_name || 'Donor'}</div>
+                  {!historyLoading && filteredHistory.length > 0 && (
+                    <div style={{fontSize:12,color:'var(--ink-soft)',marginTop:3,display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:22,padding:'0 6px',borderRadius:7,background:'#e8efe5',color:'var(--sage)',fontWeight:700}}>{filteredHistory.length}</span>
+                      donation{filteredHistory.length!==1?'s':''}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button onClick={()=>setHistoryOpen(false)} title="Close donor history" aria-label="Close donor history" style={{width:34,height:34,border:'1px solid var(--line)',borderRadius:10,background:'#fff',color:'var(--ink-soft)',display:'inline-flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#f1f5f9';e.currentTarget.style.color='var(--ink)'}} onMouseOut={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.color='var(--ink-soft)'}}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
             </div>
-            <div className="modal-body" style={{padding:16}}>
-              <div className="filter-bar" style={{marginBottom:12}}>
-                <select className="field-input" value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{maxWidth:200}}>
+            <div className="modal-body" style={{padding:'18px 22px',overflowY:'auto'}}>
+              <div style={{marginBottom:16}}>
+                <select value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{width:'100%',padding:'8px 12px',border:'1px solid var(--line)',borderRadius:'var(--radius)',fontSize:13,fontFamily:'inherit',outline:'none',background:'var(--card-bg)',cursor:'pointer'}}>
                   <option value="all">All Time</option>
                   <option value="this-month">This Month</option>
                   <option value="this-year">This Year</option>
                   {finYears.map(fy=><option key={fy} value={fy}>{fy}</option>)}
                 </select>
               </div>
-              {historyLoading ? <div style={{textAlign:'center',padding:20,color:'var(--ink-soft)'}}>Loading...</div> :
-               filteredHistory.length===0 ? <div style={{textAlign:'center',padding:20,color:'var(--ink-soft)'}}>No donation history found</div> :
-               <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Date</th><th>Amount</th><th>Mode</th><th>From</th><th>UPI Ref</th><th>Receipt</th><th>Agent</th></tr></thead>
-                  <tbody>
-                    {filteredHistory.map(h=>(
-                      <tr key={h.log_id}>
-                        <td style={{fontSize:11}}>{h.verified_at?new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'\u2014'}</td>
-                        <td><strong style={{color:'var(--sage)'}}>{currency(h.amount)}</strong></td>
-                        <td style={{fontSize:12}}>{h.payment_mode||'\u2014'}</td>
-                        <td style={{fontSize:12}}>{h.payment_from||'\u2014'}</td>
-                        <td style={{fontSize:11,fontFamily:'monospace'}}>{h.upi_transaction_id||'\u2014'}</td>
-                        <td style={{fontSize:11,fontFamily:'monospace'}}>{h.receipt_no||'\u2014'}</td>
-                        <td><span className="pill pill-gray">{h.agent_name}</span></td>
-                      </tr>
+              {historyLoading ? (
+                <div style={{textAlign:'center',padding:'40px 20px',color:'var(--ink-soft)'}}>
+                  <div style={{width:28,height:28,border:'2.5px solid var(--line)',borderTopColor:'var(--sage)',borderRadius:'50%',animation:'spin 0.7s linear infinite',margin:'0 auto 12px'}} />
+                  <div style={{fontSize:13}}>Loading donations...</div>
+                </div>
+              ) : filteredHistory.length === 0 ? (
+                <p style={{fontSize:12,color:'var(--ink-soft)',textAlign:'center',padding:24,margin:0}}>No donations found</p>
+              ) : (
+                <>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:.5,marginBottom:10}}>Donations</div>
+                  <div style={{display:'flex',flexDirection:'column'}}>
+                    {filteredHistory.map((h,i)=>(
+                      <div key={h.log_id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0',borderBottom:i<filteredHistory.length-1?'1px solid var(--line)':'none'}}>
+                        <div style={{width:6,height:6,borderRadius:'50%',background:'var(--sage)',flexShrink:0}} />
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6}}>
+                            <span style={{fontSize:12,fontWeight:600,fontFamily:'monospace',color:'var(--ink)'}}>{h.receipt_no||'—'}</span>
+                            <span style={{fontSize:11,color:'var(--ink-soft)'}}>
+                              {h.verified_at?new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}
+                            </span>
+                          </div>
+                          <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>
+                            {h.payment_mode||''}
+                            {h.payment_from && <> · {h.payment_from}</>}
+                            {h.agent_name && <> · {h.agent_name}</>}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <div style={{fontSize:14,fontWeight:700,color:'var(--sage)',whiteSpace:'nowrap'}}>{currency(h.amount)}</div>
+                          {h.receipt_no && (
+                            <button
+                              onClick={()=>{
+                                const receiptData = {
+                                  receipt_no: h.receipt_no,
+                                  receipt_date: h.verified_at || h.created_at,
+                                  donor_name: l.donor_name,
+                                  amount: h.amount,
+                                  mode: h.payment_mode,
+                                  payment_id: h.upi_transaction_id,
+                                  bank_name: h.payment_from,
+                                  pan_number: l.donor_pan,
+                                  address: l.donor_address,
+                                  project_id: l.donor_project,
+                                };
+                                setReceipt(receiptData);
+                                setShowReceipt(true);
+                              }}
+                              title="View Receipt"
+                              style={{padding:'4px 8px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',background:'var(--card-bg)',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontSize:11,color:'var(--ink-soft)',transition:'all 0.15s'}}
+                              onMouseOver={e=>{e.currentTarget.style.background='var(--sage)';e.currentTarget.style.color='#fff';e.currentTarget.style.borderColor='var(--sage)'}}
+                              onMouseOut={e=>{e.currentTarget.style.background='var(--card-bg)';e.currentTarget.style.color='var(--ink-soft)';e.currentTarget.style.borderColor='var(--line)'}}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>}
+                  </div>
+                </>
+              )}
             </div>
+            {!historyLoading && filteredHistory.length > 0 && (
+              <div style={{padding:'14px 20px',borderTop:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--bg)'}}>
+                <span style={{fontSize:12,color:'var(--ink-soft)',fontWeight:500}}>Total donations</span>
+                <span style={{fontSize:16,fontWeight:700,color:'var(--sage)'}}>
+                  {currency(filteredHistory.reduce((sum,h)=>sum+Number(h.amount||0),0))}
+                  <span style={{fontSize:11,fontWeight:400,color:'var(--ink-soft)',marginLeft:4}}>({filteredHistory.length})</span>
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}

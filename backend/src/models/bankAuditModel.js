@@ -208,7 +208,51 @@ export const manualMatchEntry = async (id, logId, actorId) => {
     .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, bank_audit_sources(name)')
     .single();
   if (error) throw error;
+  await syncEntryToLead(id, logId);
   return data;
+};
+
+export const syncEntryToLead = async (entryId, logId) => {
+  const { data: entry } = await db
+    .from('bank_audit_entries')
+    .select('payment_id, check_id, transaction_date, payment_time, payer_name')
+    .eq('id', entryId)
+    .maybeSingle();
+  if (!entry) return;
+
+  const { data: lead } = await db
+    .from('fro_donor_logs')
+    .select('upi_transaction_id, payment_from, transaction_datetime, payment_mode')
+    .eq('id', logId)
+    .maybeSingle();
+  if (!lead) return;
+
+  const patch = {};
+
+  if (!lead.upi_transaction_id && entry.payment_id) {
+    patch.upi_transaction_id = entry.payment_id;
+  }
+
+  if (!lead.payment_from && entry.payer_name) {
+    patch.payment_from = entry.payer_name;
+  }
+
+  if (!lead.transaction_datetime && entry.transaction_date) {
+    const dt = entry.payment_time
+      ? `${entry.transaction_date}T${entry.payment_time}`
+      : entry.transaction_date;
+    patch.transaction_datetime = dt;
+  }
+
+  if (!lead.payment_mode) {
+    if (entry.payment_id) patch.payment_mode = 'UPI';
+    else if (entry.check_id) patch.payment_mode = 'Cheque';
+    else patch.payment_mode = 'Bank Transfer';
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await db.from('fro_donor_logs').update(patch).eq('id', logId);
+  }
 };
 
 export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {

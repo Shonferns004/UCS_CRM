@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { nextMatchNo } from '../models/bankAuditModel.js';
+import { nextMatchNo, syncEntryToLead } from '../models/bankAuditModel.js';
 
 const MIN_SCORE = 75;
 const MARGIN = 10;
@@ -151,6 +151,7 @@ export const findAutoMatches = async () => {
       matched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq('id', m.entry.id);
+    await syncEntryToLead(m.entry.id, m.lead.id);
   }
 
   return {

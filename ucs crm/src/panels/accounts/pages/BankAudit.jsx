@@ -255,7 +255,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey,amountFilter='',sharedListRef,onListScroll}){
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -267,10 +267,11 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
       .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
   ):filtered;
   const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
+  const amountVisible=amountFilter!==''&&amountFilter!=null?visible.filter(e=>Number(e.amount)===Number(amountFilter)):visible;
   const suspenseCount=filtered.filter(e=>e.kind==='suspense').length;
-  const pageCount=Math.max(1,Math.ceil(visible.length/PAGE_SIZE));
-  const pageItems=visible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
-  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq]);
+  const pageCount=Math.max(1,Math.ceil(amountVisible.length/PAGE_SIZE));
+  const pageItems=amountVisible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq,amountFilter]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
@@ -362,7 +363,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         <IconBtn on={()=>{setSn('');setShowSrc(true)}} ch={<ListFilter size={14} strokeWidth={2.5}/>} title="Manage sources" bg="transparent" fg="#374151" style={{border:'1px solid #d1d5db'}}/>
       </div>
     </div>
-    <div className="entry-scroll" ref={listRef}>
+    <div className="entry-scroll" ref={sharedListRef} onScroll={onListScroll}>
       <div className="entry-grid">
         {loading ? Array.from({length:5}).map((_,i)=>
           <div key={i} className="entry-card">
@@ -382,7 +383,8 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
         <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
-          onClick={()=>{if(onSelectEntry&&selectionEnabled&&!isReceiptSuspense(e)&&!e.match_status)onSelectEntry(e)}}>
+          onClick={()=>{if(!onSelectEntry||!selectionEnabled||e.match_status)return;if(clickRef.current)clearTimeout(clickRef.current);clickRef.current=setTimeout(()=>{clickRef.current=null;if(selectedEntryId===e.id)onSelectEntry(null);else onSelectEntry(e)},300)}}
+          onDoubleClick={()=>{if(clickRef.current){clearTimeout(clickRef.current);clickRef.current=null}if(!onSelectEntry||!selectionEnabled||e.match_status)return;if(selectedEntryId===e.id)onSelectEntry(null);else onSelectEntry(e)}}>
           <div className="ec-main">
             <div className="ec-primary">
               <div className="ec-title">{e.payer_name||'\u2014'}</div>
@@ -411,7 +413,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 }
 
 // ─── Main ──────────────────────────────────────────────────
-export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView}){
+export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView,amountFilter='',listRef,onListScroll,onAmounts}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
@@ -419,7 +421,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[cm,setCm]=useState(false);const[am,setAm]=useState(false);
-  const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);
+  const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);const clickRef=useRef(null);
   const[wr,setWr]=useState([]);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
@@ -445,6 +447,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     }catch(err){console.error(err);setEr(err.message)}finally{setLd(false)}
   }
   useEffect(()=>{load(sd,st,dd)},[sd,dd,st]);
+  useEffect(()=>{onAmounts?.(e.map(x=>Number(x.amount)).filter(Number.isFinite))},[e,onAmounts]);
   useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
   useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
 
@@ -603,6 +606,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       selDate={sd} setSelDate={setSd} selDay={dd} setSelDay={setDd} doLoad={load}
       ngoFilter={ngoFilter} setNgoFilter={setNf} hideNgoFilter={useGlobalNgo} srcFilter={sf} setSrcFilter={setSf}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
+      amountFilter={amountFilter} sharedListRef={listRef} onListScroll={onListScroll}
       form={fm} setForm={setFm}
       handleAdd={addEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc}

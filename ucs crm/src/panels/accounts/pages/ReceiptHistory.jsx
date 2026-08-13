@@ -136,6 +136,7 @@ export default function ReceiptHistory() {
     if (searchQuery.trim()) params.set('search', searchQuery.trim());
     if (receiptTab === 'donors') params.set('link', 'donors');
     if (receiptTab === 'suspense') params.set('link', 'suspense');
+    if (receiptTab === 'others') params.set('link', 'others');
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -513,6 +514,9 @@ export default function ReceiptHistory() {
             <button className={`btn btn-sm${receiptTab === 'suspense' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('suspense')}>
               Suspense
             </button>
+            <button className={`btn btn-sm${receiptTab === 'others' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('others')}>
+              Others
+            </button>
           </div>
           <input
             className="search-input"
@@ -533,7 +537,7 @@ export default function ReceiptHistory() {
               ))
             ) : receipts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'suspense' ? 'No suspense receipts — all clear!' : 'No linked donors yet.'}
+                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'suspense' ? 'No suspense receipts — all clear!' : receiptTab === 'others' ? 'No other receipts found.' : 'No linked donors yet.'}
               </div>
             ) : (
               uniqueDonors.map(r => {
