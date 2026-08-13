@@ -1767,6 +1767,11 @@ export const importReceipts = async (req, res) => {
       try {
         console.time('import-tx');
         const result = await db.transaction(async ({ from }) => {
+          // receipts.receipt_no is NOT NULL, so any imported row without a
+          // number gets one generated from the shared sequence.
+          for (const r of uniqueRows) {
+            if (!r.receipt_no) r.receipt_no = String(await getNextReceiptNo(batchProjectId));
+          }
           // Retry-safe dedupe: anything already in the DB is skipped, so a
           // re-upload (or a partial previous run) never creates duplicates.
           // Scoped by NGO (project_id) so each NGO's own 1..n series is deduped
