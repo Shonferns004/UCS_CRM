@@ -3,7 +3,9 @@ import { Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useUcs } from '../../store';
 import Dashboard from './pages/Dashboard';
 import TicketList from './pages/TicketList';
+import MyTickets from './pages/MyTickets';
 import TicketDetail from './pages/TicketDetail';
+import { ToastProvider } from './components/Toast';
 
 const NAV = [
   { id: 'dashboard', path: '/dev-panel', label: 'Dashboard', icon: 'dashboard' },
@@ -73,14 +75,17 @@ export default function DevPanel() {
         </header>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+          <ToastProvider>
           <Routes>
             <Route index element={<Dashboard />} />
             <Route path="tickets" element={<TicketList filter="all" />} />
-            <Route path="my-tickets" element={<TicketList filter="my" />} />
+            <Route path="my-tickets" element={<MyTickets />} />
             <Route path="unassigned" element={<TicketList filter="unassigned" />} />
             <Route path="tickets/:id" element={<TicketDetail />} />
+            <Route path="tickets/new" element={<div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-soft)', fontSize: 13 }}>Create Ticket page not implemented yet.</div>} />
             <Route path="*" element={<Navigate to="/dev-panel" replace />} />
           </Routes>
+          </ToastProvider>
         </div>
       </main>
     </div>

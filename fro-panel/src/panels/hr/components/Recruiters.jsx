@@ -1,0 +1,476 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useHR } from '../store';
+import { Pill, Dropdown, DatePicker } from './ui';
+import { Users, Clock, Check, X, Cal, Heart, Plus } from '../icons';
+
+const calcAge = (dob) => {
+  if (!dob) return null;
+  const diff = Date.now() - new Date(dob).getTime();
+  return Math.floor(diff / 31557600000);
+};
+
+const STATUSES = [
+  { key: 'followed_up', label: 'Followed Up', color: '#06b6d4' },
+  { key: 'call_back', label: 'Call Back', color: '#06b6d4' },
+  { key: 'scheduled', label: 'Scheduled', color: '#3b82f6' },
+  { key: 'ringing', label: 'Ringing', color: '#ef4444' },
+  { key: 'unreachable', label: 'Unreachable', color: '#ef4444' },
+  { key: 'busy', label: 'Busy', color: '#ef4444' },
+  { key: 'switched_off', label: 'Switched Off', color: '#ef4444' },
+  { key: 'wrong_number', label: 'Wrong Number', color: '#ef4444' },
+  { key: 'invalid', label: 'Invalid', color: '#ef4444' },
+  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
+];
+const NOT_CONNECTED_OPTIONS = [
+  { key: 'ringing', label: 'Ringing', color: '#f59e0b' },
+  { key: 'unreachable', label: 'Unreachable', color: '#ef4444' },
+  { key: 'busy', label: 'Busy', color: '#f59e0b' },
+  { key: 'switched_off', label: 'Switched Off', color: '#6b7280' },
+  { key: 'wrong_number', label: 'Wrong Number', color: '#ef4444' },
+  { key: 'invalid', label: 'Invalid', color: '#ef4444' },
+  { key: 'rejected', label: 'Rejected', color: '#ef4444' },
+];
+const SOURCES = ['Walk-in', 'LinkedIn', 'Referral', 'Job Portal', 'Other'];
+
+const formatDT = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+};
+
+export default function Recruiters() {
+  const { fetchLeads, addLead, updateLead, fetchRecruiters, user } = useHR();
+  const [leads, setLeads] = useState([]);
+  const [leadsLoading, setLeadsLoading] = useState(true);
+  const [recruiters, setRecruiters] = useState([]);
+  const [recruitersLoading, setRecruitersLoading] = useState(true);
+  const [recruiterFilter, setRecruiterFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editingLead, setEditingLead] = useState(null);
+  const [form, setForm] = useState({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
+  const [newNote, setNewNote] = useState('');
+  const [tab, setTab] = useState('all');
+  const [formErrors, setFormErrors] = useState({ name: '', phone: '' });
+
+  useEffect(() => {
+    setLeadsLoading(true);
+    fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
+    fetchRecruiters().then(setRecruiters).catch((err) => { console.error('API error:', err.message); }).finally(() => setRecruitersLoading(false));
+  }, []);
+
+  const filteredLeads = leads.filter(l => {
+    if (recruiterFilter && String(l.recruiter_id) !== recruiterFilter) return false;
+    if (statusFilter && l.status !== statusFilter) return false;
+    if (sourceFilter && l.source !== sourceFilter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      if (!l.name.toLowerCase().includes(s) && !(l.phone || '').includes(s)) return false;
+    }
+    return true;
+  });
+
+  const scheduledLeads = leads.filter(l => l.status === 'scheduled');
+
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const stats = {
+    total: leads.length,
+    filtered: filteredLeads.length,
+    newToday: leads.filter(l => l.created_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
+    scheduled: leads.filter(l => l.status === 'scheduled').length,
+    scheduledTomorrow: leads.filter(l => l.status === 'scheduled' && l.scheduled_date === tomorrowStr).length,
+
+  };
+
+  const leaderboard = useMemo(() => {
+    const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
+    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel', 'Riddhi Trivedi']);
+    return recruiters
+      .map(r => {
+        const rLeads = leads.filter(l => l.recruiter_id === r.id || l.created_by === r.id);
+        const total = rLeads.length;
+        const scheduled = rLeads.filter(l => l.status === 'scheduled').length;
+        const joined = rLeads.filter(l => l.status === 'joined').length;
+        return { ...r, leadsCount: total, scheduled, joined };
+      })
+      .filter(r => !HIDDEN.has(r.name))
+      .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
+      .sort((a, b) => b.joined - a.joined || b.leadsCount - a.leadsCount);
+  }, [recruiters, leads]);
+
+  const openForm = (lead) => {
+    if (lead) {
+      let notes = [];
+      try { notes = typeof lead.notes === 'string' ? JSON.parse(lead.notes) : (lead.notes || []); } catch { notes = []; }
+      setForm({
+        name: lead.name,
+        phone: lead.phone || '',
+        dob: lead.dob || '',
+        source: lead.source || 'Walk-in',
+        customSource: '',
+        status: lead.status,
+        connectedOption: '',
+        notConnectedOption: '',
+        followUpDateTime: '',
+        callBackTime: '',
+        scheduledDate: '',
+        notes,
+        recruiter_id: lead.recruiter_id || '',
+      });
+      setEditingLead(lead);
+    } else {
+      setForm({ name: '', phone: '', dob: '', source: 'Walk-in', customSource: '', status: '', connectedOption: '', notConnectedOption: '', followUpDateTime: '', callBackTime: '', scheduledDate: '', notes: [], recruiter_id: '' });
+      setEditingLead(null);
+    }
+    setNewNote('');
+    setShowForm(true);
+  };
+
+  const addNote = () => {
+    if (!newNote.trim()) return;
+    const note = {
+      text: newNote.trim(),
+      date: new Date().toISOString(),
+      added_by: user?.name || 'HR User',
+    };
+    setForm(f => ({ ...f, notes: [...f.notes, note] }));
+    setNewNote('');
+  };
+
+  const removeNote = (idx) => {
+    setForm(f => ({ ...f, notes: f.notes.filter((_, i) => i !== idx) }));
+  };
+
+  const submitForm = async () => {
+    if (!form.name.trim()) return;
+    try {
+      const finalSource = form.source === 'Other' ? (form.customSource.trim() || 'Other') : form.source;
+      const finalStatus = form.connectedOption === 'follow_up' && form.followUpDateTime ? 'followed_up' : form.connectedOption === 'call_back' && form.callBackTime ? 'call_back' : form.connectedOption === 'schedule' && form.scheduledDate ? 'scheduled' : form.connectedOption === 'not_interested' ? 'not_interested' : form.notConnectedOption || form.status;
+      const payload = {
+        name: form.name.trim(),
+        phone: form.phone || null,
+        dob: form.dob || null,
+        source: finalSource,
+        status: finalStatus,
+        notes: JSON.stringify(form.notes),
+        recruiter_id: form.recruiter_id || null,
+      };
+      if (finalStatus === 'followed_up' && form.followUpDateTime) payload.follow_up_date = form.followUpDateTime;
+      if (finalStatus === 'call_back' && form.callBackTime) payload.call_back_time = form.callBackTime;
+      if (finalStatus === 'scheduled' && form.scheduledDate) payload.scheduled_date = form.scheduledDate;
+      if (editingLead) {
+        await updateLead(editingLead.id, payload);
+        setShowForm(false);
+        setEditingLead(null);
+        setLeadsLoading(true);
+        fetchLeads().then(d => { setLeads(d); setLeadsLoading(false); }).catch((err) => { console.error('API error:', err.message); setLeadsLoading(false); });
+      } else {
+        const temp = { ...payload, id: -Date.now(), created_at: new Date().toISOString(), name: form.name.trim() };
+        setLeads(p => [temp, ...p]);
+        setShowForm(false);
+        try {
+          const res = await addLead(payload);
+          setLeads(p => p.map(l => l.id === temp.id ? { ...res, ...payload, id: res?.id || l.id } : l));
+        } catch {
+          setLeads(p => p.filter(l => l.id !== temp.id));
+        }
+      }
+    } catch (e) { console.error('Error:', e.message); }
+  };
+
+  const formAge = form.dob ? calcAge(form.dob) : null;
+
+  return (
+    <>
+      <div className="stats">
+        <div className="stat"><Users width={16}/> <div className="stat-label">Total</div><div className="stat-value">{stats.total}</div></div>
+        <div className="stat"><Cal width={16}/> <div className="stat-label">Scheduled</div><div className="stat-value" style={{color:'#3b82f6'}}>{stats.scheduled}</div></div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h3>Recruiters</h3>
+        </div>
+        <div className="card-pad">
+          {recruitersLoading ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }} aria-hidden="true">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="sk" style={{ height: 110, borderRadius: 12 }} />
+              ))}
+            </div>
+          ) : leaderboard.length === 0 ? (
+            <div className="empty">No recruiters found.</div>
+          ) : (
+            <div className="ro-leaderboard-grid">
+              {leaderboard.slice(0, 5).map((r, i) => {
+                const medals = ['🥇', '🥈', '🥉'];
+                const medal = medals[i] || '';
+                const isTop = i === 0;
+                const rate = r.leadsCount > 0 ? Math.round(r.joined / r.leadsCount * 100) : 0;
+                return (
+                  <div key={r.id} className={`ro-lb-card ${isTop ? 'ro-lb-top' : ''}`} onClick={() => setRecruiterFilter(String(r.id))} style={{ cursor: 'pointer' }}>
+                    {isTop && <div className="ro-lb-trophy">🏆</div>}
+                    <div className="ro-lb-medal">{medal || `#${i + 1}`}</div>
+                    <div className="ro-lb-name">{r.name}</div>
+                    <div className="ro-lb-stats">
+                      <span>{r.leadsCount} Leads</span>
+                      <span>{r.scheduled} Scheduled</span>
+                      <span>{r.joined} Joined</span>
+                      <span>{rate}% Success</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {recruiterFilter && (
+                <button className="btn btn-sm" onClick={() => setRecruiterFilter('')} style={{ alignSelf: 'center' }}>
+                  Clear filter
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="tabs" style={{marginBottom:0}}>
+        <button className={`tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>All</button>
+        <button className={`tab ${tab === 'scheduled' ? 'active' : ''}`} onClick={() => setTab('scheduled')}>
+          Scheduled{scheduledLeads.length > 0 && ` (${scheduledLeads.length})`}
+        </button>
+      </div>
+
+      {tab === 'all' && (
+        <div className="card" style={{marginTop:20}}>
+          <div className="card-head">
+            <h3>Leads {filteredLeads.length !== leads.length && <span className="sub">({filteredLeads.length} of {leads.length})</span>}</h3>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Dropdown className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 130 }}
+                options={[{value:'',label:'All statuses'}, ...STATUSES.map(s => ({value:s.key, label:s.label}))]} />
+              <Dropdown className="filter-select" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{ width: '100%', maxWidth: 130 }}
+                options={[{value:'',label:'All sources'}, ...SOURCES.map(s => ({value:s, label:s}))]} />
+              <input className="filter-select" placeholder="Search name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Phone</th>
+                  <th>Age</th>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Created by</th>
+                  <th>Date</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {leadsLoading ? (
+                  Array.from({length:5}).map((_,i) => (
+                    <tr key={i}>
+                      <td><div className="sk" style={{height:14,width:100,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:80,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:30,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:60,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:50,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:80,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:70,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:40,borderRadius:4}}/></td>
+                    </tr>
+                  ))
+                ) : filteredLeads.length === 0 ? (
+                  <tr><td colSpan={8}><div className="empty">No leads found. <button className="btn btn-sm" onClick={() => openForm(null)}>Add one</button></div></td></tr>
+                ) : (
+                  filteredLeads.map(lead => {
+                    const st = STATUSES.find(s => s.key === lead.status) || STATUSES[0];
+                    const displayAge = lead.dob ? calcAge(lead.dob) : lead.age;
+                    return (
+                      <tr key={lead.id} className="rec-lead-row" onClick={() => openForm(lead)} style={{ cursor: 'pointer' }}>
+                        <td><strong>{lead.name}</strong></td>
+                        <td>{lead.phone || '\u2014'}</td>
+                        <td>{displayAge || '\u2014'}</td>
+                        <td><Pill status={lead.source} /></td>
+                        <td>
+                          <span className="status-dot" style={{ background: st.color }} />
+                          {st.label}
+                        </td>
+                        <td className="ink-soft">{lead.created_by_name || '\u2014'}</td>
+                        <td className="ink-soft">{lead.created_at?.slice(0, 10)}</td>
+                        <td>
+                          <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openForm(lead); }}>Edit</button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'scheduled' && (
+        <div className="card" style={{marginTop:20}}>
+          <div className="card-head">
+            <h3>Scheduled interviews</h3>
+            <span className="sub">{scheduledLeads.length} lead{scheduledLeads.length!==1?'s':''}</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Phone</th>
+                  <th>Interview date</th>
+                  <th>Scheduled by</th>
+                  <th>Scheduled at</th>
+                  <th>Source</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {leadsLoading ? (
+                  Array.from({length:3}).map((_,i) => (
+                    <tr key={i}>
+                      <td><div className="sk" style={{height:14,width:100,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:80,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:80,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:80,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:70,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:60,borderRadius:4}}/></td>
+                      <td><div className="sk" style={{height:14,width:40,borderRadius:4}}/></td>
+                    </tr>
+                  ))
+                ) : scheduledLeads.length === 0 ? (
+                  <tr><td colSpan={7}><div className="empty">No scheduled interviews.</div></td></tr>
+                ) : (
+                  scheduledLeads.map(lead => (
+                    <tr key={lead.id} className="rec-lead-row" onClick={() => openForm(lead)} style={{ cursor: 'pointer' }}>
+                      <td><strong>{lead.name}</strong></td>
+                      <td>{lead.phone || '\u2014'}</td>
+                      <td>{lead.scheduled_date ? new Date(lead.scheduled_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '\u2014'}</td>
+                      <td>{lead.scheduled_by_name || lead.created_by_name || '\u2014'}</td>
+                      <td className="ink-soft">{formatDT(lead.scheduled_at)}</td>
+                      <td><Pill status={lead.source} /></td>
+                      <td>
+                        <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openForm(lead); }}>Edit</button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {showForm && (
+        <div className="modal-overlay" onClick={() => setShowForm(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>{editingLead ? 'Edit Lead' : 'New Lead'}</h3>
+              <button className="btn btn-icon" onClick={() => setShowForm(false)}><X width={18} /></button>
+            </div>
+            <div className="modal-body">
+
+              <label className="field">Name *
+                <input value={form.name} onChange={e => { const v = e.target.value; if (/\d/.test(v)) { setFormErrors(ef => ({ ...ef, name: 'Name cannot contain numbers' })); return; } setFormErrors(ef => ({ ...ef, name: '' })); setForm(f => ({ ...f, name: v })); }} placeholder="Full name" autoFocus />
+                {formErrors.name && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{formErrors.name}</div>}
+              </label>
+
+              <div className="form-row">
+                <label className="field">Phone number
+                  <input value={form.phone} onChange={e => { const v = e.target.value; if (/[a-zA-Z]/.test(v)) { setFormErrors(ef => ({ ...ef, phone: 'Phone number cannot contain characters' })); return; } setFormErrors(ef => ({ ...ef, phone: '' })); setForm(f => ({ ...f, phone: v })); }} placeholder="Phone number" />
+                  {formErrors.phone && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{formErrors.phone}</div>}
+                </label>
+                <label className="field">DOB
+                  <DatePicker value={form.dob} onChange={v => setForm(f => ({ ...f, dob: v }))} />
+                  <div style={{height:'1.3em',fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{formAge !== null ? `Age: ${formAge}` : ''}</div>
+                </label>
+              </div>
+
+              <div className="form-row">
+                <label className="field">Source
+                  <Dropdown value={form.source} onChange={v => { const val = v?.target?.value ?? v; setForm(f => ({ ...f, source: val, customSource: val !== 'Other' ? '' : f.customSource })); }}
+                    options={SOURCES.map(s => ({value:s, label:s}))} customTrigger="Other" customValue={form.customSource} onCustomChange={v => setForm(f => ({ ...f, customSource: v }))} />
+                </label>
+              </div>
+              <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
+                <div className="card-head"><h4 style={{fontSize:13,fontWeight:600,margin:0}}>CONNECTION STATUS</h4></div>
+                <div className="card-pad">
+                  <div style={{display:'flex',gap:16}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                      <Dropdown menuInset value={form.connectedOption} onChange={v => { const val = v?.target?.value ?? v; setForm(f => ({ ...f, connectedOption: val, followUpDateTime: '', callBackTime: '', scheduledDate: '' })); }} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                      {form.connectedOption === 'follow_up' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
+                          <input type="datetime-local" value={form.followUpDateTime} onChange={e => setForm(f => ({ ...f, followUpDateTime: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {form.connectedOption === 'call_back' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Call Back</span>
+                          <input type="time" value={form.callBackTime} onChange={e => setForm(f => ({ ...f, callBackTime: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                      {form.connectedOption === 'schedule' && (
+                        <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
+                          <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Schedule</span>
+                          <input type="datetime-local" value={form.scheduledDate} onChange={e => setForm(f => ({ ...f, scheduledDate: e.target.value }))} style={{width:'auto'}} />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:4}}>NOT CONNECTED <span style={{color:'var(--danger)'}}>*</span></div>
+                      <Dropdown menuInset value={form.notConnectedOption} onChange={v => { const val = v?.target?.value ?? v; setForm(f => ({ ...f, notConnectedOption: val })); }}
+                        options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS.map(s => ({value:s.key, label:s.label}))]} style={{width:'100%'}} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <label className="field">Assigned to
+                <Dropdown value={form.recruiter_id} onChange={e => setForm(f => ({ ...f, recruiter_id: e.target.value }))}
+                  options={[{value:'',label:'\u2014 Unassigned \u2014'}, ...recruiters.map(r => ({value:r.id, label:r.name}))]} />
+              </label>
+
+              <label className="field" style={{ marginTop: 4 }}>Notes</label>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <input value={newNote} onChange={e => setNewNote(e.target.value)}
+                  placeholder="Add a note…" style={{ flex: 1, padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', fontSize: 13, outline: 'none', background: 'var(--paper)', color: 'var(--ink)', fontFamily: 'inherit' }}
+                  onKeyDown={e => { if (e.key === 'Enter') addNote(); }} />
+                <button className="btn btn-sm" onClick={addNote} disabled={!newNote.trim()}>Add</button>
+              </div>
+              {form.notes.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>No notes yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {form.notes.map((n, i) => (
+                    <div key={i} style={{ padding: '8px 10px', background: 'var(--sand)', borderRadius: 'var(--radius-sm)', fontSize: 13, position: 'relative' }}>
+                      <div style={{ paddingRight: 20 }}>{n.text}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 4 }}>
+                        {n.added_by} · {new Date(n.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                      </div>
+                      <button className="btn btn-icon" onClick={() => removeNote(i)}
+                        style={{ position: 'absolute', top: 4, right: 4, padding: 2, fontSize: 14, lineHeight: 1, color: 'var(--danger)' }} title="Remove note">
+                        <X width={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setShowForm(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={submitForm}>{editingLead ? 'Save' : 'Add Lead'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
