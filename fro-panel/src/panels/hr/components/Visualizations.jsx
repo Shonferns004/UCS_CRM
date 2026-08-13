@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { Users, Check, Plane, Bell, Star } from '../icons';
+import { Users, Check, Plane, Bell, Star, Heart } from '../icons';
 import { Avatar } from './ui';
 import { fetchWorkers, fetchAttendance, fetchLeaves, fetchHolidays } from '../store';
 import api from '../api/auth';
@@ -246,7 +246,31 @@ export default function Visualizations() {
     return list;
   }, [workers]);
 
-  /* Bubble data */
+  /* Birthdays — only today's, computed from each worker's date of birth */
+  const birthdays = useMemo(() => {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const todayMD = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const list = [];
+    (workers || []).forEach(x => {
+      if (!x.dob) return;
+      const d = new Date(x.dob);
+      if (isNaN(d.getTime())) return;
+      const dobMD = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (dobMD !== todayMD) return;
+      let age = curYear - d.getFullYear();
+      const notYet = (now.getMonth() < d.getMonth()) || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate());
+      if (notYet) age--;
+      list.push({
+        name: x.name || 'Unknown',
+        dept: x.department || '',
+        age: Math.max(age, 0),
+        date: new Date(curYear, d.getMonth(), d.getDate()),
+      });
+    });
+    list.sort((a, b) => a.date - b.date);
+    return list;
+  }, [workers]);
   const bubbleData = useMemo(() => {
     const s30 = new Date(); s30.setDate(s30.getDate() - 30);
     const ss = s30.toISOString().slice(0, 10);
@@ -376,27 +400,53 @@ export default function Visualizations() {
         </div>
       </div>
 
-      {/* Work Anniversaries — full width */}
-      <div className="mc" style={{ gridColumn: '1 / -1', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--gold)', fontWeight: 700 }}><Star width={13} style={{ color: 'var(--gold)' }} />Work Anniversaries</span>
-          {anniversaries.length > 0 && <span style={{ background: 'var(--gold-soft)', color: '#8a6217', fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>Today</span>}
-        </div>
-        {anniversaries.length ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {anniversaries.map((a, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: '1px solid var(--gold)', borderRadius: 8, background: 'var(--gold-soft)' }}>
-                <Avatar name={a.name} size={26} />
-                <div style={{ fontSize: 11, lineHeight: 1.3, flex: 1 }}>
-                  <span style={{ fontWeight: 700 }}>{a.name}</span>
-                  {a.dept ? <span style={{ color: 'var(--ink-soft)', marginLeft: 6 }}>{a.dept}</span> : null}
-                  <div style={{ color: '#8a6217', fontSize: 10, fontWeight: 600 }}>completes {a.years} year{a.years > 1 ? 's' : ''} today</div>
-                </div>
-                <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--sage-soft)', color: '#3f4c34', padding: '2px 8px', borderRadius: 10 }}>Today</span>
-              </div>
-            ))}
+      {/* Work Anniversaries + Birthdays — asymmetric full-width split */}
+      <div className="mc" style={{ gridColumn: '1 / -1', overflow: 'hidden', display: 'grid', gridTemplateColumns: '1.7fr 1fr', padding: 0 }}>
+        {/* Work Anniversaries — wider */}
+        <div style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 12, borderRight: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--gold)', fontWeight: 700 }}><Star width={13} style={{ color: 'var(--gold)' }} />Work Anniversaries</span>
+            {anniversaries.length > 0 && <span style={{ background: 'var(--gold-soft)', color: '#8a6217', fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>Today</span>}
           </div>
-        ) : <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center', padding: 12 }}>No work anniversaries today</div>}
+          {anniversaries.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {anniversaries.map((a, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: '1px solid var(--gold)', borderRadius: 8, background: 'var(--gold-soft)' }}>
+                  <Avatar name={a.name} size={26} />
+                  <div style={{ fontSize: 11, lineHeight: 1.3, flex: 1 }}>
+                    <span style={{ fontWeight: 700 }}>{a.name}</span>
+                    {a.dept ? <span style={{ color: 'var(--ink-soft)', marginLeft: 6 }}>{a.dept}</span> : null}
+                    <div style={{ color: '#8a6217', fontSize: 10, fontWeight: 600 }}>completes {a.years} year{a.years > 1 ? 's' : ''} today</div>
+                  </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--sage-soft)', color: '#3f4c34', padding: '2px 8px', borderRadius: 10 }}>Today</span>
+                </div>
+              ))}
+            </div>
+          ) : <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center', padding: 12 }}>No work anniversaries today</div>}
+        </div>
+
+        {/* Birthdays — narrower */}
+        <div style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 12 }}>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#be4b7b', fontWeight: 700 }}><Heart width={13} style={{ color: '#be4b7b' }} />Birthdays</span>
+            {birthdays.length > 0 && <span style={{ background: '#fce7f3', color: '#be4b7b', fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>Today</span>}
+          </div>
+          {birthdays.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {birthdays.map((b, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: '1px solid #f3c8dd', borderRadius: 8, background: '#fdf0f6' }}>
+                  <Avatar name={b.name} size={26} />
+                  <div style={{ fontSize: 11, lineHeight: 1.3, flex: 1 }}>
+                    <span style={{ fontWeight: 700 }}>{b.name}</span>
+                    {b.dept ? <span style={{ color: 'var(--ink-soft)', marginLeft: 6 }}>{b.dept}</span> : null}
+                    <div style={{ color: '#be4b7b', fontSize: 10, fontWeight: 600 }}>turns {b.age} today</div>
+                  </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--sage-soft)', color: '#3f4c34', padding: '2px 8px', borderRadius: 10 }}>Today</span>
+                </div>
+              ))}
+            </div>
+          ) : <div style={{ fontSize: 11, color: 'var(--ink-soft)', textAlign: 'center', padding: 12 }}>No birthdays today</div>}
+        </div>
       </div>
 
       {/* Recruiter Overview — full width */}
