@@ -818,6 +818,39 @@
 .panel-hr .cal-side-item.cal-side-bday { background:#fdf2f8; }
 .panel-hr .cal-side-item.cal-side-event { background:#eef4ff; }
 
+/* ── DEV PANEL (.panel-dev) ── Material-3 inspired tokens ── */
+.panel-dev {
+  --bg: #f7f9fb;                 /* surface / page background */
+  --surface: #f7f9fb;
+  --card-bg: #ffffff;            /* surface-container-lowest */
+  --surface-container-low: #f2f4f6;
+  --surface-container: #eceef0;
+  --surface-container-high: #e6e8ea;
+  --surface-container-highest: #e0e3e5;
+  --line: #e0e3e5;               /* borders */
+  --outline: #737686;
+  --outline-variant: #c3c6d7;
+  --ink: #191c1e;                /* on-surface */
+  --ink-soft: #6b7280;           /* on-surface-variant / muted */
+  --ink-variant: #434655;
+  --ink-muted: #94a3b8;
+  --primary: #6366f1;            /* indigo, matches existing dev-panel accent */
+  --primary-hover: #4f46e5;
+  --primary-container: #c7d2fe;
+  --on-primary: #ffffff;
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+  --on-error-container: #93000a;
+  --success: #16a34a;
+  --success-container: #dcfce7;
+  --warning: #d97706;
+  --warning-container: #fefce8;
+  --tertiary: #3e3fcc;
+  --tertiary-container: #e1e0ff;
+}
+.panel-dev .material-symbols-outlined { font-family: 'Material Symbols Outlined'; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+.panel-dev .material-symbols-outlined.filled { font-variation-settings: 'FILL' 1; }
+
 /* ── Recruiter Overview ── */
 .ro-wrap { display:flex; flex-direction:column; gap:0; }
 .ro-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:14px; flex-wrap:wrap; }
