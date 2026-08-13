@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Call daily code generation endpoint
         run: |
-          curl -X POST https://13-207-47-116.sslip.io/api/cron/generate-daily-codes \
+          curl -X POST https://api.beingsevak.org/api/cron/generate-daily-codes \
             -H "Content-Type: application/json" \
             -H "x-api-key: ${{ secrets.CRON_API_KEY }}" \
             -f

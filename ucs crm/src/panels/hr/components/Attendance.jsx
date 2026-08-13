@@ -4,7 +4,7 @@ import { Dropdown } from './ui';
 import * as XLSX from 'xlsx-js-style';
 
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
-const API_BASE = import.meta.env.VITE_API_URL || 'https://43-200-198-122.sslip.io/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
 
 function fmtTime(iso) {
   if (!iso) return <span className="time-cell dim">&mdash;</span>;
