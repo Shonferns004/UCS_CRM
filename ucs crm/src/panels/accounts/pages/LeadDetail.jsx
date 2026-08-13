@@ -455,7 +455,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         </div>
 
         {/* Screenshot Section */}
-        <div>
+        <div style={{marginTop:16}}>
           <div style={{position:'sticky',top:16,background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
             <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
               <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #10b981 0%, #059669 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -490,7 +490,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       )}
 
       {drawer ? (
-        <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',backdropFilter:'blur(16px)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
+        <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',backdropFilter:'blur(16px)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)',zIndex:100}}>
           {isPending && (
             <div style={{display:'flex',gap:12,width:'100%',alignItems:'center'}}>
               {onDelete && (
