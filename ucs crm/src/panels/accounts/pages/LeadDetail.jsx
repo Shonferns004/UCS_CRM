@@ -585,56 +585,71 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       )}
 
       {showReceipt && receipt && donor && ReceiptComp && (
-        <div className="modal-overlay" onClick={()=>setShowReceipt(false)}>
-          <div className="modal" style={{maxWidth:800,width:'90%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Receipt Preview</h3>
+        drawer ? (
+          <div style={{margin:'16px -18px -18px',borderTop:'1px solid var(--line)',background:'var(--card-bg)'}}>
+            <div style={{padding:'12px 18px',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--bg)'}}>
+              <span style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>Receipt Preview</span>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <input
-                  type="tel"
-                  className="field-input"
-                  placeholder="WhatsApp number"
-                  value={waPhone}
-                  onChange={e => setWaPhone(e.target.value)}
-                  style={{ width: 200, fontSize: 12, padding: '6px 10px' }}
-                />
                 <button className="btn btn-primary btn-sm" onClick={handleDownload}>Download PDF</button>
                 {waResult && (
-                  <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626',marginRight:4}}>{waResult.message}</span>
+                  <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626'}}>{waResult.message}</span>
                 )}
                 <button className="btn btn-sm" style={{background:'#25D366',color:'#fff'}} onClick={sendWA} disabled={sendingWA}>{sendingWA ? 'Sending...' : 'Send via WhatsApp'}</button>
-                <button className="btn btn-sm" onClick={()=>setShowReceipt(false)}>Close</button>
+                <button className="btn btn-sm btn-icon" onClick={()=>setShowReceipt(false)}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
             </div>
-            <div className="modal-body" style={{padding:20}}>
+            <div style={{padding:20,display:'flex',justifyContent:'center',overflow:'auto',maxHeight:'60vh'}}>
               <div data-receipt-print><ReceiptComp donor={donor} index={0} project={templateId} /></div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="modal-overlay" onClick={()=>setShowReceipt(false)}>
+            <div className="modal" style={{maxWidth:800,width:'90%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Receipt Preview</h3>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <button className="btn btn-primary btn-sm" onClick={handleDownload}>Download PDF</button>
+                  {waResult && (
+                    <span style={{fontSize:11,color:waResult.success?'#059669':'#dc2626',marginRight:4}}>{waResult.message}</span>
+                  )}
+                  <button className="btn btn-sm" style={{background:'#25D366',color:'#fff'}} onClick={sendWA} disabled={sendingWA}>{sendingWA ? 'Sending...' : 'Send via WhatsApp'}</button>
+                  <button className="btn btn-sm" onClick={()=>setShowReceipt(false)}>Close</button>
+                </div>
+              </div>
+              <div className="modal-body" style={{padding:20}}>
+                <div data-receipt-print><ReceiptComp donor={donor} index={0} project={templateId} /></div>
+              </div>
+            </div>
+          </div>
+        )
       )}
 
       {historyOpen && (
-        <div className="modal-overlay" onClick={()=>setHistoryOpen(false)}>
-          <div className="modal" style={{maxWidth:520,width:'90%',maxHeight:'80vh',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-head" style={{justifyContent:'space-between'}}>
-              <div style={{display:'flex',alignItems:'center',gap:12}}>
-                <div style={{width:38,height:38,borderRadius:'50%',background:'var(--sage)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700}}>
+        <div className="modal-overlay" onClick={()=>setHistoryOpen(false)} style={{background:'rgba(15,23,42,.46)',backdropFilter:'blur(2px)'}}>
+          <div className="modal" style={{maxWidth:520,width:'90%',maxHeight:'80vh',display:'flex',flexDirection:'column',overflow:'hidden',border:'1px solid #e5e7eb',borderRadius:16,boxShadow:'0 24px 70px rgba(15,23,42,.24)'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'20px 22px',background:'linear-gradient(135deg,#f8fafc 0%,#ffffff 72%)',borderBottom:'1px solid var(--line)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+                <div style={{width:44,height:44,borderRadius:13,background:'linear-gradient(135deg,var(--sage),#435437)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:700,flexShrink:0,boxShadow:'0 4px 10px rgba(91,107,78,.22)'}}>
                   {l.donor_name ? l.donor_name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) : '?'}
                 </div>
-                <div>
-                  <div style={{fontSize:15,fontWeight:600,color:'var(--ink)'}}>{l.donor_name || 'Donor'}</div>
-                  <div style={{fontSize:12,color:'var(--ink-soft)',marginTop:1}}>
-                    {!historyLoading && filteredHistory.length > 0 && (
-                      <><strong>{filteredHistory.length}</strong> donation{filteredHistory.length!==1?'s':''}</>
-                    )}
-                  </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--sage)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:3}}>Donor history</div>
+                  <div style={{fontSize:16,fontWeight:700,color:'var(--ink)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{l.donor_name || 'Donor'}</div>
+                  {!historyLoading && filteredHistory.length > 0 && (
+                    <div style={{fontSize:12,color:'var(--ink-soft)',marginTop:3,display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',minWidth:22,height:22,padding:'0 6px',borderRadius:7,background:'#e8efe5',color:'var(--sage)',fontWeight:700}}>{filteredHistory.length}</span>
+                      donation{filteredHistory.length!==1?'s':''}
+                    </div>
+                  )}
                 </div>
               </div>
-              <button onClick={()=>setHistoryOpen(false)} className="btn btn-icon" title="Close">
+              <button onClick={()=>setHistoryOpen(false)} title="Close donor history" aria-label="Close donor history" style={{width:34,height:34,border:'1px solid var(--line)',borderRadius:10,background:'#fff',color:'var(--ink-soft)',display:'inline-flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#f1f5f9';e.currentTarget.style.color='var(--ink)'}} onMouseOut={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.color='var(--ink-soft)'}}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
-            <div className="modal-body" style={{padding:20}}>
+            <div className="modal-body" style={{padding:'18px 22px',overflowY:'auto'}}>
               <div style={{marginBottom:16}}>
                 <select value={historyFilter} onChange={e=>setHistoryFilter(e.target.value)} style={{width:'100%',padding:'8px 12px',border:'1px solid var(--line)',borderRadius:'var(--radius)',fontSize:13,fontFamily:'inherit',outline:'none',background:'var(--card-bg)',cursor:'pointer'}}>
                   <option value="all">All Time</option>
@@ -655,8 +670,8 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:.5,marginBottom:10}}>Donations</div>
                   <div style={{display:'flex',flexDirection:'column'}}>
                     {filteredHistory.map((h,i)=>(
-                      <div key={h.log_id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:i<filteredHistory.length-1?'1px solid var(--line)':'none'}}>
-                        <div style={{width:6,height:6,borderRadius:'50%',background:'var(--ink-soft)',flexShrink:0,opacity:.4}} />
+                      <div key={h.log_id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 0',borderBottom:i<filteredHistory.length-1?'1px solid var(--line)':'none'}}>
+                        <div style={{width:6,height:6,borderRadius:'50%',background:'var(--sage)',flexShrink:0}} />
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:'flex',alignItems:'center',gap:6}}>
                             <span style={{fontSize:12,fontWeight:600,fontFamily:'monospace',color:'var(--ink)'}}>{h.receipt_no||'—'}</span>
@@ -664,13 +679,42 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                               {h.verified_at?new Date(h.verified_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}
                             </span>
                           </div>
-                          <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:1}}>
+                          <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>
                             {h.payment_mode||''}
                             {h.payment_from && <> · {h.payment_from}</>}
                             {h.agent_name && <> · {h.agent_name}</>}
                           </div>
                         </div>
-                        <div style={{fontSize:14,fontWeight:700,color:'var(--sage)',whiteSpace:'nowrap'}}>{currency(h.amount)}</div>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <div style={{fontSize:14,fontWeight:700,color:'var(--sage)',whiteSpace:'nowrap'}}>{currency(h.amount)}</div>
+                          {h.receipt_no && (
+                            <button
+                              onClick={()=>{
+                                const receiptData = {
+                                  receipt_no: h.receipt_no,
+                                  receipt_date: h.verified_at || h.created_at,
+                                  donor_name: l.donor_name,
+                                  amount: h.amount,
+                                  mode: h.payment_mode,
+                                  payment_id: h.upi_transaction_id,
+                                  bank_name: h.payment_from,
+                                  pan_number: l.donor_pan,
+                                  address: l.donor_address,
+                                  project_id: l.donor_project,
+                                };
+                                setReceipt(receiptData);
+                                setShowReceipt(true);
+                              }}
+                              title="View Receipt"
+                              style={{padding:'4px 8px',border:'1px solid var(--line)',borderRadius:'var(--radius-sm)',background:'var(--card-bg)',cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontSize:11,color:'var(--ink-soft)',transition:'all 0.15s'}}
+                              onMouseOver={e=>{e.currentTarget.style.background='var(--sage)';e.currentTarget.style.color='#fff';e.currentTarget.style.borderColor='var(--sage)'}}
+                              onMouseOut={e=>{e.currentTarget.style.background='var(--card-bg)';e.currentTarget.style.color='var(--ink-soft)';e.currentTarget.style.borderColor='var(--line)'}}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -678,11 +722,11 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               )}
             </div>
             {!historyLoading && filteredHistory.length > 0 && (
-              <div style={{padding:'14px 20px',borderTop:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{fontSize:12,color:'var(--ink-soft)'}}>Total donations</span>
-                <span style={{fontSize:15,fontWeight:700,color:'var(--sage)'}}>
+              <div style={{padding:'14px 20px',borderTop:'1px solid var(--line)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--bg)'}}>
+                <span style={{fontSize:12,color:'var(--ink-soft)',fontWeight:500}}>Total donations</span>
+                <span style={{fontSize:16,fontWeight:700,color:'var(--sage)'}}>
                   {currency(filteredHistory.reduce((sum,h)=>sum+Number(h.amount||0),0))}
-                  <span style={{fontSize:11,fontWeight:400,color:'var(--ink-soft)'}}> ({filteredHistory.length})</span>
+                  <span style={{fontSize:11,fontWeight:400,color:'var(--ink-soft)',marginLeft:4}}>({filteredHistory.length})</span>
                 </span>
               </div>
             )}
