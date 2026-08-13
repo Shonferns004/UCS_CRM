@@ -17,7 +17,7 @@ export default function Offboarding({ worker, onBack }) {
     setAction('deleted');
     try {
       await removeWorker(worker.id);
-      setDone(true);
+      onBack();
     } catch (e) {
       setErr(e.message);
       setBusy(false);

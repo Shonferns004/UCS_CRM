@@ -1275,6 +1275,9 @@
 .panel-accounts .entry-card:hover { box-shadow:0 6px 16px rgba(0,0,0,.08); transform:translateY(-1px); border-color:#d5dae2; }
 .panel-accounts .entry-card.is-selected { box-shadow:0 0 0 2px var(--sage); background:var(--bg); }
 .panel-accounts .entry-card.is-suspense { background:#fffaf5; }
+.panel-accounts .entry-card.is-match-auto { border-left:20px solid #16a34a; }
+.panel-accounts .entry-card.is-match-manual { border-left:20px solid #f59e0b; }
+.panel-accounts .entry-card.is-match-unmatched { border-left:20px solid #d1d5db; }
 .panel-accounts .entry-card.is-dim { opacity:.62; }
 .panel-accounts .ec-main { display:flex; align-items:center; gap:10px; min-width:0; }
 .panel-accounts .ec-avatar { width:34px; height:34px; border-radius:50%; background:#5B6B4E18; color:var(--sage); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; flex-shrink:0; }

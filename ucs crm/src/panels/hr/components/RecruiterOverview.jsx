@@ -18,6 +18,9 @@ const STATUS_COLORS = {
   wrong_number: '#9E3B2E', invalid: '#9E3B2E', not_interested: '#9E3B2E',
 };
 
+const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
+const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel', 'Riddhi Trivedi']);
+
 function AnimatedNum({ to, suffix = '' }) {
   const [v, setV] = useState(0);
   const ref = useRef(null);
@@ -187,7 +190,7 @@ export default function RecruiterOverview() {
       };
     });
 
-    const totalRecruiters = recruiters.length;
+    const totalRecruiters = recruiters.filter((r) => !HIDDEN.has(r.name)).length;
     const totalLeads = filteredLeads.length;
     const totalScheduled = filteredLeads.filter((l) => l.status === 'scheduled').length;
     const totalPending = filteredLeads.filter((l) => ['hold', 'followed_up', 'call_back', 'ringing', 'unreachable', 'busy', 'switched_off'].includes(l.status)).length;
@@ -248,8 +251,6 @@ export default function RecruiterOverview() {
   }, [recruiters]);
 
   const leaderboard = useMemo(() => {
-    const DISPLAY_NAME = { 'Rashmi Sahu': 'Bhumika Rai' };
-    const HIDDEN = new Set(['Jigna Patel', 'Pooja Patel']);
     return [...filteredRecruiters]
       .filter(r => !HIDDEN.has(r.name))
       .map(r => DISPLAY_NAME[r.name] ? { ...r, name: DISPLAY_NAME[r.name] } : r)
