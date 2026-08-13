@@ -1,4 +1,4 @@
-export const API_BASE = 'https://43-200-198-122.sslip.io/api'
+export const API_BASE = 'https://13-207-47-116.sslip.io/api'
 
 // Realtime socket URL (optional; defaults to API_BASE with /api stripped).
 // Can be overridden at build time via VITE_SOCKET_URL.
