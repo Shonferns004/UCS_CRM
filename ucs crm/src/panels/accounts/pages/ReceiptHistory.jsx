@@ -189,7 +189,7 @@ export default function ReceiptHistory() {
       setUploadProgress(100);
       setUploadStatus('');
 
-      const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api';
+      const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
       const rootUrl = apiBase.replace(/\/api\/?$/, '');
       setImportResult({
         message: `${totalImported} receipts imported${totalMatched > 0 ? `, ${totalMatched} linked to donors` : ''}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`,

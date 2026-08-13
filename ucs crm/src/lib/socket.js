@@ -5,7 +5,7 @@ let socket = null
 function getBaseUrl() {
   const override = import.meta.env.VITE_SOCKET_URL
   if (override) return override
-  const apiUrl = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
+  const apiUrl = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api'
   return apiUrl.replace(/\/api\/?$/, '')
 }
 
