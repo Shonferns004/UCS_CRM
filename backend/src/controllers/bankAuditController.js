@@ -393,8 +393,10 @@ export const addEntry = async (req, res) => {
         purpose: 'Bank Audit Entry',
         generated_by: req.user.id,
       };
-      receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
-      insertFields.receipt_no = receiptNo;
+      if (!isSuspense) {
+        receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
+        insertFields.receipt_no = receiptNo;
+      }
       const { data: receipt, error: rErr } = await db.from('receipts').insert(insertFields).select().single();
       if (rErr) throw rErr;
       receiptId = receipt.id;
