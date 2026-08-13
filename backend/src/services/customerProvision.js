@@ -21,7 +21,7 @@ import db from '../config/db.js';
 // S3 bucket + IAM user (with scoped bucket policy) + access keys.
 // ---------------------------------------------------------------------------
 
-const REGION = process.env.AWS_REGION || 'ap-northeast-2';
+const REGION = process.env.AWS_REGION || 'ap-south-1';
 const BUCKET_PREFIX = (process.env.CUSTOMER_BUCKET_PREFIX || 'ucs').toLowerCase().replace(/[^a-z0-9-]/g, '');
 const IAM_PREFIX = 'cust-';
 const DB_PREFIX = 'cust_';
