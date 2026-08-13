@@ -4,7 +4,7 @@ import { api } from '../../../api/auth';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://43-200-198-122.sslip.io/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
 function fmtTime(iso) {

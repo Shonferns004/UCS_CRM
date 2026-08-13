@@ -22,8 +22,8 @@ jobs:
 
       - name: Build
         env:
-          VITE_API_URL: https://13-207-47-116.sslip.io/api
-          VITE_SOCKET_URL: https://13-207-47-116.sslip.io
+          VITE_API_URL: https://api.beingsevak.org/api
+          VITE_SOCKET_URL: https://api.beingsevak.org
           VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
           VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
         run: |
