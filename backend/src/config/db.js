@@ -1135,7 +1135,7 @@ function getS3() {
   if (!process.env.S3_BUCKET) return null;
   if (_s3) return _s3;
   try {
-    const region = process.env.S3_REGION || process.env.AWS_REGION || 'ap-northeast-2';
+    const region = process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1';
     _s3 = { client: new S3Client({ region }), region, bucket: process.env.S3_BUCKET };
     return _s3;
   } catch {

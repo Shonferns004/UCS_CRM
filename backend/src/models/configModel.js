@@ -3,8 +3,8 @@ import db from '../config/db.js';
 const CONFIG_ROW_ID = 1;
 
 const DEFAULT_CONFIG = {
-  api_base_url: 'https://43-200-198-122.sslip.io/api',
-  socket_url: 'https://43-200-198-122.sslip.io',
+  api_base_url: 'https://13-207-47-116.sslip.io/api',
+  socket_url: 'https://13-207-47-116.sslip.io',
   minimum_version: '1.0.0',
   update_url: '',
   announcement: null,
