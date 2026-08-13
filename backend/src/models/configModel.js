@@ -3,8 +3,8 @@ import db from '../config/db.js';
 const CONFIG_ROW_ID = 1;
 
 const DEFAULT_CONFIG = {
-  api_base_url: 'https://13-207-47-116.sslip.io/api',
-  socket_url: 'https://13-207-47-116.sslip.io',
+  api_base_url: 'https://api.beingsevak.org/api',
+  socket_url: 'https://api.beingsevak.org',
   minimum_version: '1.0.0',
   update_url: '',
   announcement: null,
