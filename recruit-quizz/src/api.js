@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || 'https://43-200-198-122.sslip.io/api'
+const BASE = import.meta.env.VITE_API_URL || 'https://13-207-47-116.sslip.io/api'
 
 async function request(path, options = {}) {
   const headers = { ...options.headers }

@@ -1,7 +1,7 @@
 let apiBase = (() => {
   const override = new URLSearchParams(window.location.search).get('api');
   if (override) return override.replace(/\/+$/, '');
-  return window.location.protocol === 'file:' ? 'https://43-200-198-122.sslip.io' : '';
+  return window.location.protocol === 'file:' ? 'https://13-207-47-116.sslip.io' : '';
 })();
 let apiFallbackTried = false;
 
@@ -20,9 +20,9 @@ export async function api(path, opts) {
   try {
     return await attempt(apiBase);
   } catch (e) {
-    if (apiBase !== "https://43-200-198-122.sslip.io" && !apiFallbackTried) {
+    if (apiBase !== "https://13-207-47-116.sslip.io" && !apiFallbackTried) {
       apiFallbackTried = true;
-      apiBase = "https://43-200-198-122.sslip.io";
+      apiBase = "https://13-207-47-116.sslip.io";
       return await attempt(apiBase);
     }
     throw e;
