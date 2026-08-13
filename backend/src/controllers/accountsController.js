@@ -1131,7 +1131,8 @@ export const getReceiptList = async (req, res) => {
     const project = (req.query.project || '').trim();
     const link = (req.query.link === 'suspense' || req.query.link === 'unlinked')
       ? 'suspense'
-      : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors' : '');
+      : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors'
+      : (req.query.link === 'others' ? 'others' : ''));
     const isSuspense = link === 'suspense';
 
     // Cheap per-NGO aggregates + project options (unfiltered).
@@ -1163,6 +1164,9 @@ export const getReceiptList = async (req, res) => {
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR agent_name = '' OR agent_name = 'Suspense')`);
       where.push(`NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)`);
+    }
+    if (link === 'others') {
+      where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
