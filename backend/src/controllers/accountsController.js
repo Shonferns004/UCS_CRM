@@ -55,7 +55,7 @@ export const getLeadList = async (req, res) => {
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
-        .select('id, receipt_no, donor_id, donor_mobile, donor_name, bank_payer_name, log_id')
+        .select('id, receipt_no, donor_id, donor_mobile, donor_name, bank_payer_name, payment_id, mode, pan_number, log_id')
         .in('log_id', logIds);
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
@@ -100,7 +100,7 @@ export const getLeadList = async (req, res) => {
       amount: r.amount_collected,
       screenshot_url: r.payment_screenshot_url,
       accounts_status: r.accounts_status,
-      pan_number: r.pan_number,
+      pan_number: r.pan_number || receiptMap[r.id]?.pan_number || '',
       notes: r.notes,
       remark: r.remark,
       rejection_reason: r.rejection_reason,
@@ -122,10 +122,10 @@ export const getLeadList = async (req, res) => {
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
-      upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || null),
+      upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || receiptMap[r.id]?.payment_id || null),
       transaction_datetime: r.transaction_datetime || null,
-      payment_from: r.payment_from || null,
-      payment_mode: r.payment_mode || null,
+      payment_from: r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null,
+      payment_mode: r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
