@@ -214,6 +214,24 @@ export const listEntries = async (req, res) => {
       delete e.receipts;
     }
 
+    // An entry whose linked receipt was claimed by an FRO (receipts.log_id set,
+    // lead still pending) shows who made the claim on the entry card too, so
+    // bank-audited claims stay visible without needing a separate suspense card.
+    const entryLogIds = [...new Set((entries || []).map((e) => e.log_id).filter(Boolean))];
+    if (entryLogIds.length > 0) {
+      const { data: entryLogs, error: entryLogErr } = await db
+        .from('fro_donor_logs')
+        .select('id, accounts_status, workers!fro_donor_logs_fro_worker_id_fkey(name)')
+        .in('id', entryLogIds)
+        .eq('accounts_status', 'pending');
+      if (entryLogErr) throw entryLogErr;
+      const claimedByMap = {};
+      for (const l of entryLogs || []) claimedByMap[l.id] = l.workers?.name || null;
+      for (const e of entries || []) {
+        if (e.log_id && claimedByMap[e.log_id]) e.claimed_by = claimedByMap[e.log_id];
+      }
+    }
+
     // Enrich entries that have a suggested match with the lead's donor + FRO so
     // the UI can show who the entry matched against. `match_lead` carries the
     // full donor profile (same shape as the pending-lead picker) so the Edit
@@ -310,12 +328,20 @@ export const listEntries = async (req, res) => {
       // set, donor not resolved yet). It must stay visible in the audit so
       // Accounts can see the claim (and who made it) instead of only finding it
       // in Lead Verification. It leaves this set once the lead is verified.
-      const { data: claimedReceipts, error: claimedErr } = await db
+      // Bank-audited receipts are already shown as entries (with the claim pill
+      // on the entry card), so they are excluded here to avoid double listing.
+      const { data: bankRows, error: bankErr } = await db
+        .from('bank_audit_entries')
+        .select('receipt_id');
+      if (bankErr) throw bankErr;
+      const bankReceiptIds = [...new Set((bankRows || []).map((b) => b.receipt_id).filter(Boolean))];
+      let claimedQuery = db
         .from('receipts')
         .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, fro_donor_logs!receipts_log_id_fkey(id, accounts_status, fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name))')
         .not('log_id', 'is', null)
-        .is('donor_id', null)
-        .order('receipt_date', { ascending: false });
+        .is('donor_id', null);
+      if (bankReceiptIds.length > 0) claimedQuery = claimedQuery.not('id', 'in', bankReceiptIds);
+      const { data: claimedReceipts, error: claimedErr } = await claimedQuery.order('receipt_date', { ascending: false });
       if (claimedErr) throw claimedErr;
       const claimedRows = (claimedReceipts || [])
         .map((r) => {
@@ -712,13 +738,23 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
 
   const { data: receipt, error: rErr } = await db
     .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id')
     .eq('id', receiptId)
     .is('donor_id', null)
-    .is('log_id', null)
     .maybeSingle();
   if (rErr) throw rErr;
   if (!receipt) throw Object.assign(new Error('Suspense receipt not found'), { status: 404 });
+
+  // Claimed suspense (an FRO claim set receipts.log_id to a pending lead, donor
+  // not resolved yet): matching it to that same lead is a no-op success — the
+  // money is already attached. Matching it to a different lead would orphan the
+  // FRO's pending claim, so block that instead of reporting "not found".
+  if (receipt.log_id) {
+    if (String(receipt.log_id) === String(logId)) {
+      return { receipt, matched: true, already: true };
+    }
+    throw Object.assign(new Error('This suspense is already claimed — verify that claim in Lead Verification instead of re-matching'), { status: 409 });
+  }
 
   const log = await getClaimableLog(logId);
   if (!log) throw Object.assign(new Error('Selected lead not found'), { status: 404 });
