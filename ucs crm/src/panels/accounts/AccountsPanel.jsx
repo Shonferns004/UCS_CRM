@@ -7,6 +7,7 @@ import NotificationDrawer from '../../components/NotificationDrawer'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { useRealtime } from '../../hooks/useRealtime'
+import ToastContainer from '../../components/Toast'
 import LeadAudit from './pages/LeadAudit'
 import Donors from './pages/Donors'
 import ReceiptHistory from './pages/ReceiptHistory'
@@ -216,6 +217,7 @@ export default function AccountsPanel() {
           </Routes>
         </div>
       </div>
+      <ToastContainer />
     </div>
   )
 }
