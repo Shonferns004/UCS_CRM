@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { nextMatchNo, syncEntryToLead, getUnlinkedReceipts } from '../models/bankAuditModel.js';
+import { nextMatchNo, syncEntryToLead, getUnlinkedReceipts, enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 
 const MIN_SCORE = 75;
 const MARGIN = 10;
@@ -115,7 +115,7 @@ const linkSuspenseToLead = async (receipt, lead) => {
     address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
     email: donor.email || null,
     bank_name: donor.donors_bank_name || null,
-    mode: lead.payment_mode || donor.mop || 'Bank',
+    mode: lead.payment_mode || donor.mop || (receipt.mode || 'Bank'),
   };
   await db
     .from('receipts')
@@ -123,6 +123,9 @@ const linkSuspenseToLead = async (receipt, lead) => {
     .eq('id', receipt.id)
     .is('donor_id', null)
     .is('log_id', null);
+
+  try { await enrichDonorProfileFromReceipt(donor.id, receipt); }
+  catch (e) { console.error('Failed to enrich donor profile from suspense receipt:', e.message); }
 
   const { data: leadPay } = await db
     .from('fro_donor_logs')
@@ -134,7 +137,7 @@ const linkSuspenseToLead = async (receipt, lead) => {
     if (!leadPay.upi_transaction_id && receipt.payment_id) leadPatch.upi_transaction_id = receipt.payment_id;
     if (!leadPay.payment_from && receipt.donor_name) leadPatch.payment_from = receipt.donor_name;
     if (!leadPay.transaction_datetime && receipt.receipt_date) leadPatch.transaction_datetime = receipt.receipt_date;
-    if (!leadPay.payment_mode) leadPatch.payment_mode = receipt.payment_id ? 'UPI' : 'Bank Transfer';
+    if (!leadPay.payment_mode) leadPatch.payment_mode = receipt.mode || (receipt.payment_id ? 'UPI' : 'Bank Transfer');
   }
   if (Object.keys(leadPatch).length > 0) {
     await db.from('fro_donor_logs').update(leadPatch).eq('id', lead.id);
