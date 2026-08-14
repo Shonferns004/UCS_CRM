@@ -157,8 +157,6 @@ export const updateWorker = async (id, updates) => {
   return data;
 };
 
-import pg from 'pg';
-
 export const deleteWorker = async (id) => {
   const connStr = process.env.DATABASE_URL;
   const client = new pg.Client({
