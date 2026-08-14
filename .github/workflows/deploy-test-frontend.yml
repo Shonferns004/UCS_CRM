@@ -1,0 +1,92 @@
+name: Deploy Test Frontend (ucs crm)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'ucs crm/**'
+      - '.github/workflows/deploy-test-frontend.yml'
+
+jobs:
+  deploy-test-frontend:
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: 'ucs crm/package-lock.json'
+
+      - name: Build (test backend)
+        env:
+          VITE_API_URL: http://test-api.beingsevak.org/api
+          VITE_SOCKET_URL: http://test-api.beingsevak.org
+          VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
+          VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
+        run: |
+          cd "ucs crm"
+          npm ci
+          npm run build
+
+      - name: Ensure /var/www/crm-test exists
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 13.207.47.116
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            sudo mkdir -p /var/www/crm-test
+            sudo chown ec2-user:ec2-user /var/www/crm-test
+
+      - name: Deploy dist to EC2 (/var/www/crm-test)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 13.207.47.116
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "ucs crm/dist/*"
+          target: /var/www/crm-test
+          strip_components: 2
+
+      - name: nginx + certbot for test-crm.beingsevak.org
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 13.207.47.116
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            sudo tee /etc/nginx/conf.d/ucs-test-crm.conf >/dev/null <<'NGINX'
+            server {
+              listen 80;
+              server_name test-crm.beingsevak.org;
+              root /var/www/crm-test;
+              index index.html;
+
+              location / {
+                try_files $uri $uri/ /index.html;
+              }
+            }
+            NGINX
+
+            if command -v nginx >/dev/null 2>&1; then
+              sudo nginx -t
+              sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload
+            else
+              echo "WARNING: nginx not found on server - files deployed to /var/www/crm-test but not served"
+            fi
+
+            # Optional HTTPS: only if DNS already points test-crm.beingsevak.org here.
+            TARGET_IP=13.207.47.116
+            CURRENT_IP=$(dig +short test-crm.beingsevak.org A 2>/dev/null | grep -E '^[0-9]' | head -1 || true)
+            if [ "$CURRENT_IP" = "$TARGET_IP" ] && command -v certbot >/dev/null 2>&1; then
+              sudo certbot --nginx -d test-crm.beingsevak.org --non-interactive --agree-tos --redirect --keep-until-expiring >/dev/null 2>&1 \
+                && echo "HTTPS enabled for test-crm.beingsevak.org" \
+                || echo "WARNING: certbot failed - test-crm stays on http://"
+            else
+              echo "NOTE: DNS for test-crm.beingsevak.org not pointing here yet (or certbot missing) - serving http:// until you add the DNS record"
+            fi

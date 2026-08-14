@@ -1,0 +1,90 @@
+name: Deploy Test Backend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-test-backend.yml'
+
+jobs:
+  deploy-test-backend:
+    runs-on: ubuntu-latest
+    environment: aws
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy test backend to EC2 (port 5001, test schema)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 13.207.47.116
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/ec2-user/app
+            git fetch origin
+            git reset --hard origin/master
+            cd backend
+            npm ci
+            cd ..
+
+            # Recreate the test backend PM2 process on port 5001 pointing at the
+            # test DATABASE_URL (search_path=test clone). The value is read from
+            # backend/.env (TEST_DATABASE_URL, managed via env admin) so no
+            # GitHub secret is needed. dotenv never overrides an existing process
+            # env var, so DATABASE_URL here wins over .env.
+            TEST_DB_URL=$(grep '^TEST_DATABASE_URL=' backend/.env | head -1 | cut -d= -f2-)
+            if [ -z "$TEST_DB_URL" ]; then
+              echo "ERROR: TEST_DATABASE_URL not found in backend/.env"
+              exit 1
+            fi
+            pm2 delete backend-test >/dev/null 2>&1 || true
+            PORT=5001 DATABASE_URL="$TEST_DB_URL" \
+              pm2 start backend/src/index.js --name backend-test
+            pm2 save
+
+            # nginx site: test-api.beingsevak.org -> 127.0.0.1:5001
+            sudo tee /etc/nginx/conf.d/ucs-test-api.conf >/dev/null <<'NGINX'
+            server {
+              listen 80;
+              server_name test-api.beingsevak.org;
+              client_max_body_size 20m;
+
+              location / {
+                proxy_pass http://127.0.0.1:5001;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+              }
+            }
+            NGINX
+            if command -v nginx >/dev/null 2>&1; then
+              sudo nginx -t
+              sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload
+            else
+              echo "WARNING: nginx not found on server - test backend is up on 127.0.0.1:5001 but not exposed via test-api.beingsevak.org"
+            fi
+
+            # Optional HTTPS: only if DNS already points test-api.beingsevak.org here.
+            TARGET_IP=13.207.47.116
+            CURRENT_IP=$(dig +short test-api.beingsevak.org A 2>/dev/null | grep -E '^[0-9]' | head -1 || true)
+            if [ "$CURRENT_IP" = "$TARGET_IP" ] && command -v certbot >/dev/null 2>&1; then
+              sudo certbot --nginx -d test-api.beingsevak.org --non-interactive --agree-tos --redirect --keep-until-expiring >/dev/null 2>&1 \
+                && echo "HTTPS enabled for test-api.beingsevak.org" \
+                || echo "WARNING: certbot failed - test-api stays on http://"
+            else
+              echo "NOTE: DNS for test-api.beingsevak.org not pointing here yet (or certbot missing) - serving http:// until you add the DNS record"
+            fi
+
+            sleep 4
+            echo "--- health ---"
+            curl -s http://127.0.0.1:5001/api/health || true
+            echo ""
+            echo "--- pm2 ---"
+            pm2 jlist | node -e "const j=JSON.parse(require('fs').readFileSync(0));for(const p of j)console.log(p.name,p.pm2_env.status)" || pm2 list
