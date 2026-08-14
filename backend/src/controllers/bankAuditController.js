@@ -672,8 +672,22 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
 
   const log = await getClaimableLog(logId);
   if (!log) throw Object.assign(new Error('Selected lead not found'), { status: 404 });
+
+  // A lead may already hold an unclaimed link (an import or a previous match).
+  // Manual matching is allowed to take over: the old unclaimed receipt is
+  // unlinked and returns to the suspense pool. Auto-matched cards and credited
+  // receipts are left alone.
   if (log.existing_receipt_id && log.existing_receipt_id !== receiptId) {
-    throw Object.assign(new Error('Selected lead is already linked to a receipt'), { status: 409 });
+    const { data: existing, error: ee } = await db
+      .from('receipts')
+      .select('id, donor_id, log_id')
+      .eq('id', log.existing_receipt_id)
+      .maybeSingle();
+    if (ee) throw ee;
+    if (!existing || existing.donor_id) {
+      throw Object.assign(new Error('Selected lead is already linked to a credited receipt'), { status: 409 });
+    }
+    await db.from('receipts').update({ log_id: null }).eq('id', existing.id);
   }
 
   const donor = log.fro_assignments?.donor_profiles || {};
@@ -752,14 +766,19 @@ export const manualMatch = async (req, res) => {
 
     const { data: entry, error: entryErr } = await db
       .from('bank_audit_entries')
-      .select('id, status, match_status, matched_lead_log_id')
+      .select('id, status, match_status, match_source, matched_lead_log_id')
       .eq('id', id)
       .maybeSingle();
     if (entryErr) throw entryErr;
     if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
     if (entry.status === 'verified') return res.status(400).json({ message: 'This bank audit entry is already verified' });
     if (entry.match_status && String(entry.matched_lead_log_id) !== String(logId)) {
-      return res.status(409).json({ message: 'This bank audit entry is already matched to a lead' });
+      if (entry.match_source === 'auto' || entry.match_status === 'confirmed') {
+        const msg = entry.match_status === 'confirmed'
+          ? 'This bank audit entry is confirmed — leave it'
+          : 'This bank audit entry is auto-matched — leave it';
+        return res.status(409).json({ message: msg });
+      }
     }
 
     const result = await BankAudit.manualMatchEntry(id, logId, req.user.id);

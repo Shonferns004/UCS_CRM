@@ -167,11 +167,20 @@ export const findAutoMatches = async () => {
     .eq('accounts_status', 'pending');
   if (lErr) throw lErr;
 
+  // Never auto-link a second receipt onto a lead that already holds one.
+  const { data: existing, error: exErr } = await db
+    .from('receipts')
+    .select('log_id')
+    .not('log_id', 'is', null);
+  if (exErr) throw exErr;
+  const existingLogs = new Set((existing || []).map((r) => String(r.log_id)));
+  const autoLeads = (leads || []).filter((l) => !existingLogs.has(String(l.id)));
+
   const matched = [];
   for (const entry of entries || []) {
     let best = null;
     let second = null;
-    for (const lead of leads || []) {
+    for (const lead of autoLeads || []) {
       const res = scoreEntryLead(entry, lead);
       if (!best || res.score > best.score) {
         second = best;
@@ -200,7 +209,7 @@ export const findAutoMatches = async () => {
     };
     let best = null;
     let second = null;
-    for (const lead of leads || []) {
+    for (const lead of autoLeads || []) {
       const res = scoreEntryLead(pseudo, lead);
       if (!best || res.score > best.score) {
         second = best;
