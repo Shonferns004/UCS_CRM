@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useRec, LEAD_SOURCES, LEAD_STATUSES, NOT_CONNECTED_OPTIONS } from '../store';
+import { useState, useEffect } from 'react';
+import { useRec } from '../store';
 import { Plus, Users, Search, RefreshCw, Trash, X } from '../icons';
 import { Dropdown, cleanField } from './ui';
 import LeadDetail from './LeadDetail';
@@ -18,11 +18,84 @@ const getJobRole = (lead) => {
   return meta ? meta.value : null;
 };
 
-const statusPill = (s) => {
+const DEFAULT_JOB_ROLES = [
+  'Web Developer','Calling','Digital Marketing','HR','Graphic Designer','Content Writer',
+  'SEO Specialist','Sales Executive','Business Analyst','Data Entry','Accountant',
+  'Social Media Manager','Video Editor',
+].map(r => ({ value: r, label: r }));
+
+const DEFAULT_SOURCES = ['Walk-in','LinkedIn','Referral','Job Portal'].map(s => ({ value: s, label: s }));
+
+const DEFAULT_CONNECTED = [
+  { value: 'follow_up', label: 'Follow Up' },
+  { value: 'call_back', label: 'Call Back' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'not_interested', label: 'Not Interested' },
+];
+
+const DEFAULT_NOT_CONNECTED = [
+  { value: 'ringing', label: 'Ringing' },
+  { value: 'unreachable', label: 'Unreachable' },
+  { value: 'busy', label: 'Busy' },
+  { value: 'switched_off', label: 'Switched Off' },
+  { value: 'wrong_number', label: 'Wrong Number' },
+  { value: 'invalid', label: 'Invalid' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested' };
+
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+function useList(key, defaults) {
+  const [items, setItems] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return defaults;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(items)); } catch (e) {}
+  }, [key, items]);
+  return [items, setItems];
+}
+
+const statusPill = (s, labelMap) => {
   const m = { rejected:'pill-danger', hold:'pill-gold', scheduled:'pill-clay' };
-  const st = LEAD_STATUSES.find(st => st.value === s);
-  return <span className={`pill ${m[s] || 'pill-gray'}`}>{st ? st.label : s}</span>;
+  const label = s ? (labelMap[s] || s) : '—';
+  return <span className={`pill ${m[s] || 'pill-gray'}`}>{label}</span>;
 };
+
+function OptionsGroup({ title, items, onChange, valueMode, addPlaceholder }) {
+  const [text, setText] = useState('');
+  const update = (i, label) => onChange(items.map((it, idx) => idx === i ? (valueMode === 'label' ? { value: label, label } : { ...it, label }) : it));
+  const remove = (i) => onChange(items.filter((_, idx) => idx !== i));
+  const add = () => {
+    const t = text.trim();
+    if (!t) return;
+    onChange([...items, valueMode === 'label' ? { value: t, label: t } : { value: slug(t), label: t }]);
+    setText('');
+  };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 6 }}>{title}</div>
+      {items.map((it, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <input value={it.label} onChange={e => update(i, e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+          <button type="button" className="btn btn-icon" onClick={() => remove(i)} title="Remove" style={{ color: '#dc2626' }}><Trash width={13}/></button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <input value={text} onChange={e => setText(e.target.value)} placeholder={addPlaceholder || 'Add new…'} style={{ flex: 1, minWidth: 0 }} />
+        <button type="button" className="btn btn-sm" onClick={add}><Plus width={13}/> Add</button>
+      </div>
+    </div>
+  );
+}
 
 const formatDT = (ts) => {
   if (!ts) return '—';
@@ -70,6 +143,11 @@ export default function Leads() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [jobRoles, setJobRoles] = useList('rec_leads_jobRoles', DEFAULT_JOB_ROLES);
+  const [sources, setSources] = useList('rec_leads_sources', DEFAULT_SOURCES);
+  const [connectedOpts, setConnectedOpts] = useList('rec_leads_connectedOptions', DEFAULT_CONNECTED);
+  const [notConnectedOpts, setNotConnectedOpts] = useList('rec_leads_notConnectedOptions', DEFAULT_NOT_CONNECTED);
+  const [showOptions, setShowOptions] = useState(false);
 
   const handleNameChange = (val) => {
     if (/\d/.test(val)) { setNameError('Name cannot contain numbers'); setTimeout(() => setNameError(''), 3000); }
@@ -111,7 +189,7 @@ export default function Leads() {
     try {
       const finalSource = source === 'Other' ? (customSource.trim() || 'Other') : source;
       const finalStatus = connectionType === 'connected'
-        ? (connectedOption === 'follow_up' ? 'followed_up' : connectedOption === 'call_back' ? 'call_back' : connectedOption === 'schedule' ? 'scheduled' : connectedOption === 'not_interested' ? 'not_interested' : '')
+        ? (CONNECTED_STATUS_MAP[connectedOption] || connectedOption || '')
         : notConnectedOption;
       const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
       const notesArr = [...formNotes];
@@ -120,17 +198,12 @@ export default function Leads() {
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
       if (finalStatus === 'call_back' && callBackTime) payload.call_back_time = callBackTime;
       if (finalStatus === 'scheduled' && scheduledDate) payload.scheduled_date = scheduledDate;
-      if (dob) payload.scheduled_date = dob;
       await addLead(payload);
       setSuccessMsg('Lead created successfully.');
       setTimeout(() => setSuccessMsg(''), 3000);
       setLeadFilters(p => ({ ...p, status: '', source: '' }));
       setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
     } catch (err) { alert(err.message); }
-  };
-
-  const updateLeadStatus = async (id, newStatus) => {
-    await updateLead(id, { status: newStatus });
   };
 
   const handleSearch = () => {
@@ -142,7 +215,6 @@ export default function Leads() {
   };
 
   const age = calcAge(dob);
-  const myId = user?.id;
   const filteredLeads = leads.filter(l => {
     if (leadFilters.search) {
       const s = leadFilters.search.toLowerCase();
@@ -155,14 +227,52 @@ export default function Leads() {
 
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
-  const formValid = name.trim() && phone.trim() && dob && source && selectedJobRole;
+  const formValid = name.trim() && phone.trim() && source && selectedJobRole;
+
+  const jobRoleOptions = [{ value: '', label: 'Select a role' }, ...jobRoles, { value: 'Other', label: 'Other' }];
+  const sourceOptions = [...sources, { value: 'Other', label: 'Other' }];
+  const connectedOptions = [{ value: '', label: 'Select' }, ...connectedOpts];
+  const notConnectedOptions = [{ value: '', label: 'Select' }, ...notConnectedOpts];
+  const statusFilterOptions = [
+    { value: 'hold', label: 'Hold' },
+    ...connectedOpts.map(o => ({ value: CONNECTED_STATUS_MAP[o.value] || o.value, label: o.label })),
+    ...notConnectedOpts.map(o => ({ value: o.value, label: o.label })),
+  ];
+  const statusLabelMap = {
+    hold: 'Hold',
+    new: 'New',
+    contacted: 'Contacted',
+    screening: 'Screening',
+    shortlisted: 'Shortlisted',
+    interviewed: 'Interviewed',
+    offer_released: 'Offer Released',
+    offer_accepted: 'Offer Accepted',
+    onboarding: 'Onboarding',
+    on_hold: 'On Hold',
+    withdrawn: 'Withdrawn',
+    ...connectedOpts.reduce((acc, o) => { acc[CONNECTED_STATUS_MAP[o.value] || o.value] = o.label; return acc; }, {}),
+    ...notConnectedOpts.reduce((acc, o) => { acc[o.value] = o.label; return acc; }, {}),
+  };
+
+  const optionsPanel = (
+    <div className="card" style={{ marginTop: 12 }}>
+      <div className="card-head"><h4 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Manage options</h4></div>
+      <div className="card-pad">
+        <OptionsGroup title="Job roles" items={jobRoles} onChange={setJobRoles} valueMode="label" addPlaceholder="New role…" />
+        <OptionsGroup title="Sources" items={sources} onChange={setSources} valueMode="label" addPlaceholder="New source…" />
+        <OptionsGroup title="CONNECTED statuses" items={connectedOpts} onChange={setConnectedOpts} addPlaceholder="New status…" />
+        <OptionsGroup title="NOT CONNECTED statuses" items={notConnectedOpts} onChange={setNotConnectedOpts} addPlaceholder="New status…" />
+        <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>Changes are saved automatically and apply to the lead form and filters.</div>
+      </div>
+    </div>
+  );
 
 
   if (selectedLead) {
     return (
       <>
         <div className="card" style={{marginBottom:20}}>
-          <div className="card-head"><h3><Users width={18}/> Add new lead</h3></div>
+          <div className="card-head"><h3><Users width={18}/> Add new lead</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
           <form className="card-pad" onSubmit={handleSubmit}>
             <div className="form-row">
               <label className="field">Name
@@ -177,7 +287,7 @@ export default function Leads() {
                 <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
               </label>
               <label className="field">Source
-                <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
+                <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={sourceOptions} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
               </label>
             </div>
             <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
@@ -190,7 +300,7 @@ export default function Leads() {
                       CONNECTED
                     </label>
                     <div style={connectionType==='not_connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                      <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                      <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={connectedOptions} style={{width:'100%'}} />
                       {connectedOption === 'follow_up' && (
                         <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                           <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -217,23 +327,25 @@ export default function Leads() {
                       NOT CONNECTED
                     </label>
                     <div style={connectionType==='connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                      <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                      <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={notConnectedOptions} style={{width:'100%'}} />
                     </div>
                   </div>
                 </div>
                 <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
                   <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
-                  <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={[{value:'',label:'Select a role'},{value:'Web Developer',label:'Web Developer'},{value:'Calling',label:'Calling'},{value:'Digital Marketing',label:'Digital Marketing'},{value:'HR',label:'HR'},{value:'Graphic Designer',label:'Graphic Designer'},{value:'Content Writer',label:'Content Writer'},{value:'SEO Specialist',label:'SEO Specialist'},{value:'Sales Executive',label:'Sales Executive'},{value:'Business Analyst',label:'Business Analyst'},{value:'Data Entry',label:'Data Entry'},{value:'Accountant',label:'Accountant'},{value:'Social Media Manager',label:'Social Media Manager'},{value:'Video Editor',label:'Video Editor'},{value:'Other',label:'Other'}]} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                  <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={jobRoleOptions} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
                   {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
                   <button type="button" className="btn" onClick={()=>setSelectedLeadId(null)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" disabled={!formValid} style={!formValid ? {opacity:.5,cursor:'not-allowed'} : undefined}><Plus width={15}/> Create lead</button>
+                  <button type="submit" className="btn btn-primary" ><Plus width={15}/> Create lead</button>
                 </div>
               </div>
             </div>
           </form>
         </div>
+
+        {showOptions && optionsPanel}
 
         <LeadDetail lead={selectedLead} onBack={() => setSelectedLeadId(null)} />
       </>
@@ -243,7 +355,7 @@ export default function Leads() {
   return (
     <>
       <div className="card" style={{marginBottom:20}}>
-        <div className="card-head"><h3><Users width={18}/> Add new lead</h3></div>
+        <div className="card-head"><h3><Users width={18}/> Add new lead</h3><button type="button" className="btn btn-sm" onClick={()=>setShowOptions(p=>!p)}>{showOptions ? 'Hide options' : 'Manage options'}</button></div>
         <form className="card-pad" onSubmit={handleSubmit}>
           <div className="form-row">
             <label className="field">Name
@@ -258,7 +370,7 @@ export default function Leads() {
               <input type="date" value={dob} onChange={e=>setDob(e.target.value)} />
             </label>
             <label className="field">Source
-              <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={LEAD_SOURCES} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
+              <Dropdown value={source} onChange={e=>{setSource(e.target.value);if(e.target.value!=='Other')setCustomSource('')}} options={sourceOptions} customTrigger="Other" customValue={customSource} onCustomChange={setCustomSource} />
             </label>
           </div>
           <div className="card" style={{marginTop:12,border:'1.5px solid var(--line)',borderRadius:'var(--radius)'}}>
@@ -271,7 +383,7 @@ export default function Leads() {
                     CONNECTED
                   </label>
                   <div style={connectionType==='not_connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={[{value:'',label:'Select'},{value:'follow_up',label:'Follow Up'},{value:'call_back',label:'Call Back'},{value:'schedule',label:'Schedule'},{value:'not_interested',label:'Not Interested'}]} style={{width:'100%'}} />
+                    <Dropdown menuInset value={connectedOption} onChange={e=>{setConnectionType('connected');setConnectedOption(e.target.value);setNotConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('')}} options={connectedOptions} style={{width:'100%'}} />
                     {connectedOption === 'follow_up' && (
                       <div style={{display:'inline-flex',alignItems:'center',gap:8,marginTop:6}}>
                         <span style={{fontSize:13,fontWeight:500,color:'var(--ink)'}}>Follow Up</span>
@@ -298,22 +410,24 @@ export default function Leads() {
                     NOT CONNECTED
                   </label>
                   <div style={connectionType==='connected'?{opacity:.4,pointerEvents:'none'}:undefined}>
-                    <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={[{value:'',label:'Select'},...NOT_CONNECTED_OPTIONS]} style={{width:'100%'}} />
+                    <Dropdown menuInset value={notConnectedOption} onChange={e=>{setConnectionType('not_connected');setNotConnectedOption(e.target.value);setConnectedOption('');setFollowUpDateTime('');setCallBackTime('');setScheduledDate('');}} options={notConnectedOptions} style={{width:'100%'}} />
                   </div>
                 </div>
               </div>
               <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
                 <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
-                <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={[{value:'',label:'Select a role'},{value:'Web Developer',label:'Web Developer'},{value:'Calling',label:'Calling'},{value:'Digital Marketing',label:'Digital Marketing'},{value:'HR',label:'HR'},{value:'Graphic Designer',label:'Graphic Designer'},{value:'Content Writer',label:'Content Writer'},{value:'SEO Specialist',label:'SEO Specialist'},{value:'Sales Executive',label:'Sales Executive'},{value:'Business Analyst',label:'Business Analyst'},{value:'Data Entry',label:'Data Entry'},{value:'Accountant',label:'Accountant'},{value:'Social Media Manager',label:'Social Media Manager'},{value:'Video Editor',label:'Video Editor'},{value:'Other',label:'Other'}]} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={jobRoleOptions} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
                 {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
-                <button type="submit" className="btn btn-primary" disabled={!formValid} style={!formValid ? {opacity:.5,cursor:'not-allowed'} : undefined}><Plus width={15}/> Create lead</button>
+                <button type="submit" className="btn btn-primary" ><Plus width={15}/> Create lead</button>
               </div>
             </div>
           </div>
         </form>
       </div>
+
+      {showOptions && optionsPanel}
 
       <div className="tabs" style={{marginBottom:0}}>
         {TABS.map(t => {
@@ -345,9 +459,9 @@ export default function Leads() {
                 <button className="btn btn-sm" onClick={handleSearch}><Search width={14}/></button>
               </div>
               <Dropdown className="filter-select" value={leadFilters.status} onChange={e=>setLeadFilters(p=>({...p,status:e.target.value}))}
-                options={[{value:'',label:'All statuses'}, ...LEAD_STATUSES]} />
+                options={[{value:'',label:'All statuses'}, ...statusFilterOptions]} />
               <Dropdown className="filter-select" value={leadFilters.source} onChange={e=>setLeadFilters(p=>({...p,source:e.target.value}))}
-                options={[{value:'',label:'All sources'}, ...LEAD_SOURCES]} />
+                options={[{value:'',label:'All sources'}, ...sources]} />
             </div>
           </div>
           {leadsLoading ? (
@@ -364,7 +478,6 @@ export default function Leads() {
               </thead>
               <tbody>
                 {filteredLeads.map(l => {
-                  const isOwner = myId && l.created_by === myId;
                   let parsed = [];
                   try { parsed = JSON.parse(l.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
                   const displayAge = l.dob ? calcAge(l.dob) : l.age;
@@ -373,9 +486,7 @@ export default function Leads() {
                       <td style={{fontWeight:500}}>{l.name}</td>
                       <td style={{color:'var(--ink-soft)'}}>{l.phone || '—'}</td>
                       <td>{cleanField(l.source)}</td>
-                      <td>{isOwner ? (
-                        <Dropdown className="inline-select" value={cleanField(l.status)} onChange={e=>updateLeadStatus(l.id, e.target.value)} options={LEAD_STATUSES} />
-                      ) : statusPill(cleanField(l.status))}</td>
+                      <td>{statusPill(cleanField(l.status), statusLabelMap)}</td>
                       <td style={{color:'var(--ink-soft)'}}>{cleanField(getJobRole(l)) || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
                       <button className="btn btn-icon" onClick={() => setDeleteConfirm(l)} title="Delete" style={{color:'#dc2626'}}>

@@ -50,7 +50,7 @@ function Sidebar({ open, onClose }) {
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-mark">U</div>
-          <div><h1>UFS</h1><span>HR Panel</span></div>
+          <div><h1>UCS</h1><span>HR Panel</span></div>
         </div>
         <nav className="sidebar-nav">
           {NAV.map(n => { const Icon = n.icon;
@@ -146,7 +146,7 @@ function HRPageShell({ children }) {
           <button className="hamburger" onClick={() => setMenuOpen(true)}><span /><span /><span /></button>
           <div className="mtop-brand">
             <div className="brand-mark" style={{width:30,height:30,borderRadius:8,fontSize:14}}>U</div>
-            <span>UFS HR Panel</span>
+            <span>UCS HR Panel</span>
           </div>
         </div>
         <header className="topbar">

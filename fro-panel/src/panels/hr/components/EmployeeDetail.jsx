@@ -98,7 +98,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     let cancelled = false;
     Promise.all([
       fetchWorkerById(worker.id).catch((err) => { console.error('Error:', err.message); }),
-      fetchWorkerLetters(worker.id),
+      fetchWorkerLetters(worker.id).catch((err) => { console.error('Error:', err.message); return []; }),
       fetchWorkerSalaries(worker.id).catch(() => []),
       fetchWorkerAllocations(worker.id).catch(() => []),
       fetchWorkerLoans(worker.id).catch(() => []),
@@ -251,7 +251,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
   const now = new Date();
   const defaultMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const sortedSalaries = [...salaries].sort((a, b) => b.from_month.localeCompare(a.from_month));
+  const sortedSalaries = [...salaries].sort((a, b) => (b.from_month || '').localeCompare(a.from_month || ''));
 
   const effectiveMonthKey = viewingMonthKey || defaultMonthKey;
   const [yr, mo] = effectiveMonthKey.split('-').map(Number);
@@ -263,7 +263,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
   // Salary covering the viewing month
   const activeSalary = sortedSalaries.find(s =>
-    s.from_month.slice(0, 7) <= effectiveMonthKey &&
+    (s.from_month || '').slice(0, 7) <= effectiveMonthKey &&
     (!s.to_month || s.to_month.slice(0, 7) >= effectiveMonthKey)
   ) || sortedSalaries[0] || null;
   const salaryPaid = activeSalary?.paid_at;
@@ -275,7 +275,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const joinMonth = `${joinDate.getFullYear()}-${String(joinDate.getMonth() + 1).padStart(2, '0')}`;
   const joinedThisMonth = joinMonth === monthKey;
   const joinDayNum = joinDate.getDate();
-  const joinCutoff = data.created_at.slice(0, 10);
+  const joinCutoff = (data.created_at || '').slice(0, 10);
 
   // Compute absent dates — days with no attendance or explicitly absent
   const viewingToday = (yr === now.getFullYear() && mo === (now.getMonth() + 1))
@@ -450,7 +450,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const prevMonthDate = new Date(yr, mo - 2, 1);
   const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
   const prevSalaryRec = sortedSalaries.find(s =>
-    s.from_month.slice(0, 7) <= prevMonthKey &&
+    (s.from_month || '').slice(0, 7) <= prevMonthKey &&
     (!s.to_month || s.to_month.slice(0, 7) >= prevMonthKey)
   ) || (allMonthKeys.includes(prevMonthKey) ? activeSalary : null);
   let prevTotalDue = null;
@@ -462,7 +462,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     const pAtt = empAttendance.filter(a => a.date?.startsWith(prevMonthKey));
     const pJoinMonth = `${new Date(data.created_at).getFullYear()}-${String(new Date(data.created_at).getMonth() + 1).padStart(2, '0')}`;
     const pJoined = pJoinMonth === prevMonthKey;
-    const pJoinCutoff = data.created_at.slice(0, 10);
+    const pJoinCutoff = (data.created_at || '').slice(0, 10);
     const pAbsent = pAtt.filter(a => a.status === 'absent' && !pHolidays.has(a.date)).map(a => a.date);
     const pAvailable = pJoined ? (pDays - new Date(data.created_at).getDate() + 1) : pDays;
     const pPerDay = parseFloat(prevSalaryRec.salary) / pDays;
@@ -565,7 +565,7 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
             <SideField label="Phone" value={data.phone || '\u2014'} />
             <SideField label="Gender" value={data.gender || '\u2014'} />
             <SideField label="Date of Birth" value={data.dob || '\u2014'} />
-            <SideField label="Joined" value={new Date(data.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})} />
+            <SideField label="Joined" value={data.created_at ? new Date(data.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}) : '\u2014'} />
           </div>
           </div>
         </div>
