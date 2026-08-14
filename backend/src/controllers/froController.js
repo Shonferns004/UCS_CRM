@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { isPriyankShahAgent, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { isPriyankShahAgent, isBlankSuspenseValue, enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
@@ -821,7 +821,7 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
-      .select('id, donor_id, log_id, project_id, receipt_date, amount, donor_name')
+      .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, donor_email, bank_payer_name')
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
@@ -917,6 +917,17 @@ export const claimSuspenseReceipt = async (req, res) => {
       .maybeSingle();
     const claimedDonorName = resolvedDonor?.name || donorName || 'a donor';
 
+    // Pull the receipt's real money data onto the lead so the pending lead in
+    // Lead Verification is already filled: UPI txn id, MOP, sender, PAN. The
+    // FRO's explicit claim input always wins; the receipt fills the rest.
+    const effectiveUpi = ((upi_transaction_id || '').trim()) || receipt.payment_id || null;
+    const effectiveMode = (receipt.mode || '').trim() || null;
+    const effectiveFrom = (receipt.bank_payer_name || receipt.donor_name || '').trim() || null;
+    const effectivePan = (receipt.pan_number || '').trim() || null;
+
+    try { await enrichDonorProfileFromReceipt(donorId, receipt); }
+    catch (e) { console.error('Failed to enrich donor profile from suspense receipt:', e.message); }
+
     // Only allow claiming for a donor allotted to this FRO's station scope
     // (enforced for donors selected from the FRO's own donor search).
     if (explicitDonor) {
@@ -935,7 +946,11 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const txDateTime = transaction_datetime
       ? new Date(transaction_datetime).toISOString()
-      : (receipt.receipt_date ? new Date(receipt.receipt_date).toISOString() : null);
+      : (receipt.receipt_date
+          ? (receipt.receipt_time
+              ? new Date(`${receipt.receipt_date}T${receipt.receipt_time}`).toISOString()
+              : new Date(receipt.receipt_date).toISOString())
+          : null);
 
     // Dedupe: if this FRO already has an unresolved pending lead_done for the
     // same donor (e.g. they marked the lead done before, accounts could not
@@ -956,8 +971,11 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     if (existingPendingLead) {
       const leadUpdates = {};
-      if (upi_transaction_id) leadUpdates.upi_transaction_id = upi_transaction_id;
+      if (effectiveUpi) leadUpdates.upi_transaction_id = effectiveUpi;
       if (txDateTime) leadUpdates.transaction_datetime = txDateTime;
+      if (effectiveMode) leadUpdates.payment_mode = effectiveMode;
+      if (effectiveFrom) leadUpdates.payment_from = effectiveFrom;
+      if (effectivePan) leadUpdates.pan_number = effectivePan;
       if (Object.keys(leadUpdates).length > 0) {
         await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
       }
@@ -1033,7 +1051,10 @@ export const claimSuspenseReceipt = async (req, res) => {
         accounts_status: 'pending',
         payment_screenshot_url: screenshot_url || null,
         remark: notes || null,
-        upi_transaction_id: upi_transaction_id || null,
+        upi_transaction_id: effectiveUpi,
+        payment_mode: effectiveMode,
+        payment_from: effectiveFrom,
+        pan_number: effectivePan,
         transaction_datetime: txDateTime,
         created_by: workerId,
       })
@@ -1376,7 +1397,7 @@ export const getMyDonors = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_city: d.city || '',
         donor_address: d.address_1 || '',
-        donor_amount: d.amount || 0,
+        donor_amount: hasScopedSet.has(a.id) ? (d.amount || 0) : 0,
         donor_email: d.email || '',
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
@@ -1570,6 +1591,19 @@ export const getTransferredLeads = async (req, res) => {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s;
     }
 
+    const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
+    const scopedReceiptPairs = new Set();
+    if (donorIds.length > 0 && projectSet.length > 0) {
+      const { data: scopedReceipts } = await db
+        .from('receipts')
+        .select('donor_id, project_id')
+        .in('donor_id', donorIds)
+        .in('project_id', projectSet);
+      for (const r of scopedReceipts || []) {
+        scopedReceiptPairs.add(`${r.donor_id}|${(r.project_id || '').toLowerCase()}`);
+      }
+    }
+
     const result = [];
     const seen = new Set();
     for (const a of assignments || []) {
@@ -1579,6 +1613,8 @@ export const getTransferredLeads = async (req, res) => {
       if (seen.has(key)) continue;
       seen.add(key);
       const s = scheduleMap[a.id];
+      const pair = `${a.donor_id}|${a.ngos?.name ? a.ngos.name.toLowerCase() : ''}`;
+      const hasScoped = scopedReceiptPairs.has(pair);
       result.push({
         id: a.donor_id,
         donor_id: a.donor_id,
@@ -1590,14 +1626,14 @@ export const getTransferredLeads = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_city: d.city || '',
         donor_address: d.address_1 || '',
-        donor_amount: d.amount || 0,
+        donor_amount: hasScoped ? (d.amount || 0) : 0,
         donor_email: d.email || '',
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
         donor_dob: d.birth_date || '',
         donor_type: d.donor_type || '',
-        donation_count: d.donation_count || 0,
-        total_donated: d.total_amount || 0,
+        donation_count: hasScoped ? (d.donation_count || 0) : 0,
+        total_donated: hasScoped ? (d.total_amount || 0) : 0,
         status: a.status || 'pending',
         notes: a.notes || null,
         last_contacted_at: a.last_contacted_at || null,
@@ -2580,22 +2616,47 @@ export const getMonthlyDonors = async (req, res) => {
         .from('fro_assignments')
         .select('*, donor_profiles!inner(id, name, mobile_number, amount, total_amount, donation_count, city), ngos(name)')
         .in('station', stationNames)
-        .not('status', 'eq', 'reassigned')
-        .gte('donor_profiles.donation_count', 3),
+        .not('status', 'eq', 'reassigned'),
       myScope
     );
 
     if (error) throw error;
+    if (!assignments || assignments.length === 0) return res.json([]);
 
-    const { data: existingLogs } = await db
+    const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
+    const donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+
+    // Per-(donor, NGO) donation aggregates: a receipt only counts toward the
+    // exact NGO it was given to, so shared donors never see another NGO's money.
+    const scopedStats = new Map();
+    if (donorIds.length > 0 && projectSet.length > 0) {
+      const { data: scopedReceipts } = await chunkedInQuery(donorIds, chunk =>
+        db
+          .from('receipts')
+          .select('donor_id, project_id, amount')
+          .in('donor_id', chunk)
+          .in('project_id', projectSet)
+      );
+      for (const r of scopedReceipts || []) {
+        const statsKey = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
+        const cur = scopedStats.get(statsKey) || { count: 0, total: 0, max: 0 };
+        const amt = Number(r.amount) || 0;
+        cur.count += 1;
+        cur.total += amt;
+        if (amt > cur.max) cur.max = amt;
+        scopedStats.set(statsKey, cur);
+      }
+    }
+
+    const { data: existingDonations } = await db
       .from('fro_donor_logs')
       .select('donor_id')
-      .in('donor_id', [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))])
+      .in('donor_id', donorIds)
       .eq('action', 'donation')
       .gte('created_at', monthStart)
       .lte('created_at', monthEnd);
 
-    const alreadyDone = new Set((existingLogs || []).map(l => l.donor_id));
+    const alreadyDone = new Set((existingDonations || []).map(l => l.donor_id));
 
     const seen = new Set();
     const result = [];
@@ -2605,6 +2666,9 @@ export const getMonthlyDonors = async (req, res) => {
       seen.add(key);
       const d = a.donor_profiles;
       if (!d || alreadyDone.has(d.id)) continue;
+      const statsKey = `${d.id}|${a.ngos?.name ? a.ngos.name.toLowerCase() : ''}`;
+      const stats = scopedStats.get(statsKey);
+      if (!stats || stats.count < 3) continue;
       result.push({
         donor_id: d.id,
         ngo_id: a.ngo_id,
@@ -2612,9 +2676,9 @@ export const getMonthlyDonors = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         donor_city: d.city || '',
-        amount: d.amount || 0,
-        total_donated: d.total_amount || 0,
-        donation_count: d.donation_count || 0,
+        amount: stats.max || 0,
+        total_donated: stats.total || 0,
+        donation_count: stats.count || 0,
       });
     }
 
@@ -3024,7 +3088,7 @@ export const searchDonors = async (req, res) => {
           donor_name: d.name || 'Unknown',
           donor_mobile: d.mobile_number || '',
           donor_city: d.city || '',
-          donor_amount: d.amount || 0,
+          donor_amount: hasScoped ? (d.amount || 0) : 0,
           donor_email: d.email || '',
           donor_pan: d.pan_number || '',
           donor_project: d.project_supported || '',
