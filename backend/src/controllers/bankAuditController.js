@@ -272,20 +272,60 @@ export const listEntries = async (req, res) => {
     // leave the suspense set.
     const showSuspense = !status || status === 'unverified';
     if (showSuspense) {
-      const suspense = (await BankAudit.getUnlinkedReceipts()).filter((r) => !BankAudit.isPriyankShahAgent(r.agent_name));
-      if (suspense.length > 0) {
-        const currentMonth = currentMonthIST();
-        const requestedMonth = date_from ? date_from.slice(0, 7) : currentMonth;
-        const from = (date_from || '').slice(0, 10);
-        const to = (date_to || date_from || '').slice(0, 10);
-        const rows = suspense.filter((r) => {
-          const rd = (r.receipt_date || '').slice(0, 10);
-          if (!rd) return false;
-          if (!from) return rd.slice(0, 7) === requestedMonth;
-          return rd >= from && rd <= to;
-        });
+      const currentMonth = currentMonthIST();
+      const requestedMonth = date_from ? date_from.slice(0, 7) : currentMonth;
+      const from = (date_from || '').slice(0, 10);
+      const to = (date_to || date_from || '').slice(0, 10);
+      const inRange = (d) => {
+        const rd = (d || '').slice(0, 10);
+        if (!rd) return false;
+        if (!from) return rd.slice(0, 7) === requestedMonth;
+        return rd >= from && rd <= to;
+      };
 
-        const suspenseRows = rows.map((r) => ({
+      const suspense = (await BankAudit.getUnlinkedReceipts()).filter((r) => !BankAudit.isPriyankShahAgent(r.agent_name));
+      const rows = suspense.filter((r) => inRange(r.receipt_date));
+      const suspenseRows = rows.map((r) => ({
+        id: `suspense-${r.id}`,
+        kind: 'suspense',
+        receipt_id: r.id,
+        receipt_no: r.receipt_no,
+        project_id: r.project_id,
+        donor_mobile: r.donor_mobile,
+        transaction_date: r.receipt_date,
+        amount: r.amount,
+        payment_id: r.payment_id || null,
+        payer_name: r.donor_name,
+        agent_name: r.agent_name,
+        mode: r.mode || null,
+        bank_name: r.bank_name || null,
+        remarks: r.receipt_no ? `Suspense receipt ${r.receipt_no}` : 'Suspense receipt',
+        source_id: null,
+        bank_audit_sources: { name: 'Suspense Receipt' },
+        status: 'unverified',
+      }));
+      entries.push(...suspenseRows);
+
+      // Claimed suspense: an FRO linked this receipt to a pending lead (log_id
+      // set, donor not resolved yet). It must stay visible in the audit so
+      // Accounts can see the claim (and who made it) instead of only finding it
+      // in Lead Verification. It leaves this set once the lead is verified.
+      const { data: claimedReceipts, error: claimedErr } = await db
+        .from('receipts')
+        .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, fro_donor_logs!receipts_log_id_fkey(id, accounts_status, fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name))')
+        .not('log_id', 'is', null)
+        .is('donor_id', null)
+        .order('receipt_date', { ascending: false });
+      if (claimedErr) throw claimedErr;
+      const claimedRows = (claimedReceipts || [])
+        .map((r) => {
+          const log = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
+          if (!log || log.accounts_status !== 'pending') return null;
+          return { r, log };
+        })
+        .filter(Boolean)
+        .filter(({ r }) => inRange(r.receipt_date))
+        .map(({ r, log }) => ({
           id: `suspense-${r.id}`,
           kind: 'suspense',
           receipt_id: r.id,
@@ -299,13 +339,14 @@ export const listEntries = async (req, res) => {
           agent_name: r.agent_name,
           mode: r.mode || null,
           bank_name: r.bank_name || null,
+          log_id: r.log_id,
+          claimed_by: log.workers?.name || null,
           remarks: r.receipt_no ? `Suspense receipt ${r.receipt_no}` : 'Suspense receipt',
           source_id: null,
-          bank_audit_sources: { name: 'Suspense Receipt' },
+          bank_audit_sources: { name: 'Claimed Suspense' },
           status: 'unverified',
         }));
-        entries.push(...suspenseRows);
-      }
+      entries.push(...claimedRows);
     }
 
     return res.json(entries);
@@ -575,12 +616,13 @@ export const editSuspenseReceipt = async (req, res) => {
     if (payment_id !== undefined) updates.payment_id = payment_id;
     if (mode !== undefined) updates.mode = mode || null;
 
+    // Claimed suspense (log_id set via an FRO claim) can also be edited here —
+    // only receipts already resolved to a donor are off-limits.
     const { data, error } = await db
       .from('receipts')
       .update(updates)
       .eq('id', numId)
       .is('donor_id', null)
-      .is('log_id', null)
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, payment_id, project_id, agent_name, donor_id, log_id, created_at')
       .maybeSingle();
     if (error) throw error;
@@ -610,12 +652,12 @@ export const removeSuspenseReceipt = async (req, res) => {
 
     const { data: existing } = await db
       .from('receipts')
-      .select('id')
+      .select('id, log_id')
       .eq('id', numId)
       .is('donor_id', null)
-      .is('log_id', null)
       .maybeSingle();
     if (!existing) return res.status(404).json({ message: 'Suspense receipt not found' });
+    if (existing.log_id) return res.status(400).json({ message: 'Claimed suspense can\'t be deleted from audit; release the claim in Lead Verification first' });
 
     const { error } = await db.from('receipts').delete().eq('id', numId);
     if (error) throw error;
