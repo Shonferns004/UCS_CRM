@@ -8,6 +8,12 @@ on:
       - 'backend/**'
       - '.github/workflows/deploy-test-backend.yml'
 
+# Serialize with Deploy Backend: both SSH into the same EC2 dir and touch
+# node_modules / pm2, so running them concurrently corrupts the install.
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy-test-backend:
     runs-on: ubuntu-latest
@@ -26,8 +32,17 @@ jobs:
             cd /home/ec2-user/app
             git fetch origin
             git reset --hard origin/master
+            # Only reinstall when dependency files changed; npm ci wipes
+            # node_modules, and a concurrent/raced restart then boots against
+            # a half-removed install.
+            if git diff HEAD@{1} --name-only | grep -qE 'backend/(package.json|package-lock.json)'; then
+              cd backend && npm ci && cd ..
+            fi
+
+            # Sanity check: fail loudly rather than restart a backend whose
+            # node_modules is broken (boot would crash on ERR_MODULE_NOT_FOUND).
             cd backend
-            npm ci
+            node -e "require('@aws-sdk/client-s3'); require('pg')" || { echo "ERROR: node_modules broken (missing required modules)"; exit 1; }
             cd ..
 
             # Recreate the test backend PM2 process on port 5001 pointing at the
