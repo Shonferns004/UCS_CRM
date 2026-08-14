@@ -738,7 +738,7 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
 
   const { data: receipt, error: rErr } = await db
     .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, mode, pan_number, address, donor_email')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, mode, pan_number, address, email')
     .eq('id', receiptId)
     .is('donor_id', null)
     .maybeSingle();

@@ -822,6 +822,7 @@ export const undoLeadVerification = async (req, res) => {
     }
 
     const donorId = log.fro_assignments?.donor_id;
+    const assignmentId = log.fro_assignments?.id;
 
     // Bring the lead back to Lead Verification.
     const { error: revertError } = await db
@@ -829,6 +830,16 @@ export const undoLeadVerification = async (req, res) => {
       .update({ accounts_status: 'pending', verified_at: null, verified_by: null })
       .eq('id', logId);
     if (revertError) throw revertError;
+
+    // Reopen the assignment so the donor's status returns to pending.
+    if (assignmentId) {
+      try {
+        await db
+          .from('fro_assignments')
+          .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+          .eq('id', assignmentId);
+      } catch (err) { console.error('Failed to reopen assignment on undo:', err.message); }
+    }
 
     // Reverse the donor totals added during verification.
     if (donorId) {
