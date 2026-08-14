@@ -1187,7 +1187,6 @@ export const getReceiptList = async (req, res) => {
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))`);
       where.push(`(donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))`);
-      where.push(`NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)`);
     }
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
@@ -2637,7 +2636,6 @@ export const getSuspenseByNgo = async (req, res) => {
         AND (donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))
         AND lower(trim(COALESCE(agent_name, ''))) <> 'priyank shah'
         AND receipt_date >= $1 AND receipt_date <= $2
-        AND NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)
       GROUP BY project_id
       ORDER BY count(*) DESC
     `, [monthStart, monthEnd]);
