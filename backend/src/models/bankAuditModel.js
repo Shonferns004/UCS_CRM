@@ -39,14 +39,35 @@ export const getUnlinkedReceipts = async () => {
   return rows || [];
 };
 
-// Global receipt number sequence created by migration 064 (receipts_no_seq,
-// seeded at the current max + 1). nextval is atomic, so concurrent writes can
-// never receive the same number — the UNIQUE(project_id, receipt_no)
-// constraint backs this up. Numbers are drawn from one shared pool (no per-NGO
-// suffix); the UNIQUE constraint scopes them per NGO.
+// Global receipt number sequence created by migration 064 (receipts_no_seq).
+// nextval is atomic, so concurrent writes can never receive the same number —
+// the UNIQUE(project_id, receipt_no) constraint backs this up. Numbers are
+// drawn from one shared pool (no per-NGO suffix); the UNIQUE constraint scopes
+// them per NGO.
+//
+// Imported receipts carry their own (higher) receipt-book numbers, so the
+// sequence can lag behind numbers that already exist in the table. Assigning a
+// colliding number makes the UPDATE/INSERT fail on the UNIQUE constraint, so
+// skip any number already used and bump the sequence past the current max
+// before retrying.
 export const getNextReceiptNo = async (projectId) => {
-  const { rows } = await db._pool.query("SELECT nextval('receipts_no_seq') AS n");
-  return String(rows[0].n);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { rows } = await db._pool.query("SELECT nextval('receipts_no_seq') AS n");
+    const no = String(rows[0].n);
+    const { rows: used } = await db._pool.query(
+      'SELECT 1 FROM receipts WHERE receipt_no = $1 LIMIT 1',
+      [no]
+    );
+    if (used.length === 0) return no;
+    await db._pool.query(
+      `SELECT setval('receipts_no_seq',
+         GREATEST(
+           (SELECT last_value FROM receipts_no_seq),
+           (SELECT COALESCE(MAX(CASE WHEN receipt_no ~ '^[0-9]+$' THEN receipt_no::bigint END), 0) FROM receipts)
+         ), true)`
+    );
+  }
+  throw new Error('Could not allocate a unique receipt number after multiple attempts');
 };
 
 export const getSources = async () => {
