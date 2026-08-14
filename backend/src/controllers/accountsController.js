@@ -1690,9 +1690,10 @@ export const importReceipts = async (req, res) => {
 
     const seen = new Set();
     const uniqueParsed = parsed.filter(({ parsed }) => {
-      const key = parsed.receipt_no || `${parsed.donor_name}_${parsed.amount}_${parsed.receipt_date}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (!parsed.receipt_no) return true;
+      if (existingReceiptIds.has(parsed.receipt_no)) return false;
+      if (seen.has(parsed.receipt_no)) return false;
+      seen.add(parsed.receipt_no);
       return true;
     });
     const dupCount = parsed.length - uniqueParsed.length;
@@ -1782,82 +1783,19 @@ export const importReceipts = async (req, res) => {
       try {
         console.time('import-tx');
         const result = await db.transaction(async ({ from }) => {
-          const buildEnrichPatch = (row) => {
-            const patch = {};
-            if (row.agent_name) patch.agent_name = row.agent_name;
-            if (row.address) patch.address = row.address;
-            if (row.pan_number) patch.pan_number = row.pan_number;
-            if (row.email) patch.email = row.email;
-            if (row.mode) patch.mode = row.mode;
-            if (row.payment_id) patch.payment_id = row.payment_id;
-            if (row.bank_name) patch.bank_name = row.bank_name;
-            if (row.donor_name) patch.donor_name = row.donor_name;
-            if (row.donor_mobile) patch.donor_mobile = row.donor_mobile;
-            if (row.receipt_time) patch.receipt_time = row.receipt_time;
-            if (row.receipt_date) patch.receipt_date = row.receipt_date;
-            return patch;
-          };
-
-          // Numbered rows use replace-on-duplicate: if a receipt with the same
-          // (project_id, receipt_no) already exists, the old row (and any linked
-          // credit logs) is deleted so the fresh row can be inserted without
-          // colliding on the UNIQUE index. Duplicate numbers inside the batch
-          // keep only the last occurrence.
+          // Numbered rows are unique on receipt_no: the first occurrence in the
+          // batch wins, and any number already in the DB (same project_id) is
+          // skipped so the UNIQUE index is never violated. Unnumbered rows are
+          // always inserted — uniqueness applies only to receipt numbers.
           const toInsert = [];
-          const enrichUpdates = [];
-          const numberedById = new Map();
+          const seenNumbers = new Set();
           for (const { parsed: row } of parsed) {
-            if (row.receipt_no) numberedById.set(row.receipt_no, row);
-          }
-          for (const [receiptNo, row] of numberedById) {
-            if (existingReceiptIds.has(receiptNo)) {
-              const oldId = existingReceiptIds.get(receiptNo);
-              const { data: old } = await from('receipts').select('log_id').eq('id', oldId).maybeSingle();
-              const { error: delErr } = await from('receipts').delete().eq('id', oldId);
-              if (delErr) throw new Error(delErr.message);
-              if (old?.log_id) {
-                try { await from('notification_log').delete().in('fro_donor_log_id', [old.log_id]); } catch (e) { console.warn('notification_log cleanup skipped:', e.message); }
-                try { await from('rejected_lead_tickets').delete().in('fro_donor_log_id', [old.log_id]); } catch (e) { console.warn('rejected_lead_tickets cleanup skipped:', e.message); }
-                try { await from('fro_donor_logs').delete().eq('id', old.log_id); } catch (e) { console.warn('fro_donor_logs cleanup skipped:', e.message); }
-              }
+            if (row.receipt_no) {
+              if (existingReceiptIds.has(row.receipt_no) || seenNumbers.has(row.receipt_no)) continue;
+              seenNumbers.add(row.receipt_no);
             }
             toInsert.push(row);
           }
-
-          // Unnumbered rows have no number to dedupe on, so match them by
-          // natural key (donor name + amount + date) and update the existing
-          // receipt instead of failing on the unique index or duplicating it.
-          const natKey = (r) => `${(r.donor_name || '').trim().replace(/\s+/g, ' ').toLowerCase()}|${String(parseFloat(r.amount || 0))}|${r.receipt_date || ''}`;
-          const natKeyMatchById = new Map();
-          const naturalKeyMatched = [];
-          if (uniqueRows.some(r => !r.receipt_no)) {
-            const { rows: unnumberedExisting } = await db._pool.query(
-              `SELECT id, donor_name, amount, receipt_date, agent_name, donor_mobile, donor_id
-               FROM receipts
-               WHERE project_id = $1 AND (receipt_no IS NULL OR receipt_no = '')`, [batchProjectId]
-            );
-            for (const r of (unnumberedExisting || [])) {
-              const k = natKey(r);
-              if (!natKeyMatchById.has(k)) natKeyMatchById.set(k, r);
-            }
-            for (const row of uniqueRows) {
-              if (row.receipt_no) continue;
-              const existing = natKeyMatchById.get(natKey(row));
-              if (existing) {
-                naturalKeyMatched.push({ ...existing, ...row, id: existing.id, donor_id: existing.donor_id });
-                const patch = buildEnrichPatch(row);
-                if (Object.keys(patch).length > 0) enrichUpdates.push({ id: existing.id, patch });
-              } else {
-                toInsert.push(row);
-              }
-            }
-          }
-
-          const enrichTasks = enrichUpdates.map(({ id, patch }) => from('receipts').update(patch).eq('id', id));
-          await mapLimit(enrichTasks, MAX_QUERY_CONCURRENCY, async (q) => {
-            const { error } = await q;
-            if (error) throw new Error(error.message);
-          });
 
           let inserted = [];
           if (toInsert.length > 0) {
@@ -1876,9 +1814,9 @@ export const importReceipts = async (req, res) => {
           let withBank = 0;
           let receiptsByDonor = {};
           const matchedIds = new Set();
-          if (inserted.length > 0 || naturalKeyMatched.length > 0) {
+          if (inserted.length > 0) {
             receiptsByDonor = {};
-            const matchPool = [...inserted, ...naturalKeyMatched].filter(r => !r.donor_id);
+            const matchPool = inserted.filter(r => !r.donor_id);
             for (const receipt of matchPool) {
               const m = last10(receipt.donor_mobile);
               if (!/^\d{10}$/.test(m)) continue;
@@ -1983,7 +1921,7 @@ export const importReceipts = async (req, res) => {
             for (const id of info.ids) donorIdByReceiptId.set(id, parseInt(donorId, 10));
           }
 
-          const creditPool = [...inserted, ...naturalKeyMatched].filter(
+          const creditPool = inserted.filter(
             r => !isBlankSuspenseValue(r.agent_name) && parseFloat(r.amount || 0) > 0
           );
 
