@@ -1690,7 +1690,6 @@ export const importReceipts = async (req, res) => {
 
     const seen = new Set();
     const uniqueParsed = parsed.filter(({ parsed }) => {
-      if (parsed.receipt_no && existingReceiptIds.has(parsed.receipt_no)) return false;
       const key = parsed.receipt_no || `${parsed.donor_name}_${parsed.amount}_${parsed.receipt_date}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1783,23 +1782,6 @@ export const importReceipts = async (req, res) => {
       try {
         console.time('import-tx');
         const result = await db.transaction(async ({ from }) => {
-          // Retry-safe dedupe: anything already in the DB is skipped, so a
-          // re-upload (or a partial previous run) never creates duplicates.
-          // Scoped by NGO (project_id) so each NGO's own 1..n series is deduped
-          // against itself only.
-          const nos = uniqueRows.map(r => r.receipt_no).filter(Boolean);
-          const alreadyInserted = new Set();
-          if (nos.length > 0) {
-            const DEDUPE_BATCH = 1000;
-            for (let i = 0; i < nos.length; i += DEDUPE_BATCH) {
-              const { data: existing, error: dedupeErr } = await from('receipts')
-                .select('receipt_no')
-                .eq('project_id', batchProjectId)
-                .in('receipt_no', nos.slice(i, i + DEDUPE_BATCH));
-              if (dedupeErr) throw new Error(dedupeErr.message);
-              for (const r of (existing || [])) alreadyInserted.add(r.receipt_no);
-            }
-          }
           const buildEnrichPatch = (row) => {
             const patch = {};
             if (row.agent_name) patch.agent_name = row.agent_name;
@@ -1816,17 +1798,30 @@ export const importReceipts = async (req, res) => {
             return patch;
           };
 
-          // Numbered rows already in the DB are enriched (updated), never
-          // re-inserted.
+          // Numbered rows use replace-on-duplicate: if a receipt with the same
+          // (project_id, receipt_no) already exists, the old row (and any linked
+          // credit logs) is deleted so the fresh row can be inserted without
+          // colliding on the UNIQUE index. Duplicate numbers inside the batch
+          // keep only the last occurrence.
           const toInsert = [];
           const enrichUpdates = [];
+          const numberedById = new Map();
           for (const { parsed: row } of parsed) {
-            if (row.receipt_no && existingReceiptIds.has(row.receipt_no)) {
-              const patch = buildEnrichPatch(row);
-              if (Object.keys(patch).length > 0) enrichUpdates.push({ id: existingReceiptIds.get(row.receipt_no), patch });
-              continue;
+            if (row.receipt_no) numberedById.set(row.receipt_no, row);
+          }
+          for (const [receiptNo, row] of numberedById) {
+            if (existingReceiptIds.has(receiptNo)) {
+              const oldId = existingReceiptIds.get(receiptNo);
+              const { data: old } = await from('receipts').select('log_id').eq('id', oldId).maybeSingle();
+              const { error: delErr } = await from('receipts').delete().eq('id', oldId);
+              if (delErr) throw new Error(delErr.message);
+              if (old?.log_id) {
+                try { await from('notification_log').delete().in('fro_donor_log_id', [old.log_id]); } catch (e) { console.warn('notification_log cleanup skipped:', e.message); }
+                try { await from('rejected_lead_tickets').delete().in('fro_donor_log_id', [old.log_id]); } catch (e) { console.warn('rejected_lead_tickets cleanup skipped:', e.message); }
+                try { await from('fro_donor_logs').delete().eq('id', old.log_id); } catch (e) { console.warn('fro_donor_logs cleanup skipped:', e.message); }
+              }
             }
-            if (row.receipt_no && !alreadyInserted.has(row.receipt_no)) toInsert.push(row);
+            toInsert.push(row);
           }
 
           // Unnumbered rows have no number to dedupe on, so match them by
