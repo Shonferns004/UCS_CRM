@@ -53,6 +53,14 @@ export const getNextReceiptNo = async (projectId) => {
   return String(rows[0].n);
 };
 
+// Lower a project's receipt-number counter back to the highest number still
+// present (migration 069), so numbers freed by Go Back / Undo are reused
+// instead of being skipped over. Never raises the counter.
+export const cancelReceiptNo = async (projectId) => {
+  if (!projectId) return;
+  await db._pool.query('SELECT cancel_receipt_no($1)', [String(projectId)]);
+};
+
 // NGO name keywords -> canonical project code (receipts.project_id /
 // bank_audit_entries.project_id). Mirrors the FRO suspense aliases so a
 // donation assigned to any NGO resolves to the project code its receipts are
