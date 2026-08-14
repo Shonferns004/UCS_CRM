@@ -53,6 +53,34 @@ export const getNextReceiptNo = async (projectId) => {
   return String(rows[0].n);
 };
 
+// NGO name keywords -> canonical project code (receipts.project_id /
+// bank_audit_entries.project_id). Mirrors the FRO suspense aliases so a
+// donation assigned to any NGO resolves to the project code its receipts are
+// numbered under.
+const NGO_PROJECT_ALIASES = {
+  bsct: ['bsct', 'beingsevak', 'being sevak', 'sevak'],
+  mann: ['mann', 'manncar', 'mann care', 'manncare', 'maan'],
+  aflf: ['aflf', 'ashray', 'ashray life'],
+};
+
+// The canonical project code for a lead is the NGO it is assigned under
+// (fro_assignments.ngo_id -> ngos.name lowercased). That is authoritative,
+// unlike donor_profiles.project_supported which is often unset or stale — a
+// missing/wrong project_supported is exactly what made Ashray money take the
+// next number from the BSCT sequence. Returns null when the NGO cannot be
+// resolved so callers can fall back.
+export const projectCodeFromNgoId = async (ngoId) => {
+  if (ngoId === null || ngoId === undefined) return null;
+  const { data, error } = await db.from('ngos').select('name').eq('id', ngoId).maybeSingle();
+  if (error) throw error;
+  const name = data?.name ? String(data.name).trim().toLowerCase() : '';
+  if (!name) return null;
+  for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+    if (name === code || aliases.some((a) => name === a || name.includes(a))) return code;
+  }
+  return name;
+};
+
 export const getSources = async () => {
   const { data, error } = await db
     .from('bank_audit_sources')

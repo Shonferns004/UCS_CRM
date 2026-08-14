@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -163,7 +163,7 @@ export const verifyLead = async (req, res) => {
 
     const { data: log, error: logError } = await db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
       .single();
 
@@ -180,6 +180,16 @@ export const verifyLead = async (req, res) => {
     if (!assignmentId || !donorProfile) {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
+
+    // The NGO a lead is assigned under is the per-lead truth for which project
+    // (and therefore which receipt-number sequence) its money belongs to. The
+    // donor profile's project_supported is only a fallback — it is frequently
+    // unset, which would wrongly fall through to the 'bsct' default and give an
+    // Ashray receipt the next number from the BSCT sequence.
+    let project = donorProfile?.project_supported || 'bsct';
+    try {
+      project = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || project;
+    } catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
 
     // ── Manual bank-audit link path ─────────────────────────────────────────
     // Accounts can pick an unmatched bank audit entry next to the UPI id. That
@@ -310,7 +320,6 @@ export const verifyLead = async (req, res) => {
     let receipt = existing || null;
     if (!existing) {
       const donorName = donorProfile?.name || 'Unknown';
-      const project = donorProfile?.project_supported || 'bsct';
       const receiptNo = await getNextReceiptNo(project);
 
       receipt = await createReceipt({
@@ -344,7 +353,7 @@ export const verifyLead = async (req, res) => {
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
       };
       if (!existing.receipt_no) {
-        existing.receipt_no = await getNextReceiptNo(donorProfile?.project_supported || 'bsct');
+        existing.receipt_no = await getNextReceiptNo(existing.project_id || project);
         receiptPatch.receipt_no = existing.receipt_no;
       }
       const { error: linkReceiptErr } = await db.from('receipts').update(receiptPatch).eq('id', existing.id);
@@ -1101,6 +1110,8 @@ export const generateReceipt = async (req, res) => {
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
+          ngo_id,
+          ngos(name),
           donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name),
           workers!inner(id, name, login_id)
         )
@@ -1113,7 +1124,10 @@ export const generateReceipt = async (req, res) => {
     }
 
     const donorProfile = log.fro_assignments?.donor_profiles;
-    const project = donorProfile?.project_supported || 'bsct';
+    let project = donorProfile?.project_supported || 'bsct';
+    try {
+      project = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || project;
+    } catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
     const donorName = donorProfile?.name || 'Unknown';
 
     const receiptNo = await getNextReceiptNo(project);
