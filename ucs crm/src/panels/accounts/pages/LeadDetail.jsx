@@ -342,6 +342,14 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 {l.claimant_login && <span style={{color:'#9a3412'}}> ({l.claimant_login})</span>}
                 {l.created_at && <span> · {new Date(l.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span>}
               </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginTop:6}}>
+                {(l.original_payer || l.claimed_receipt?.bank_payer_name || l.claimed_receipt?.donor_name) && (
+                  <span style={{fontSize:12,color:'#7c2d12',background:'rgba(249,115,22,.14)',padding:'3px 9px',borderRadius:6}}>As per bank: <strong>{(l.original_payer || l.claimed_receipt?.bank_payer_name || l.claimed_receipt?.donor_name)}</strong></span>
+                )}
+                {l.received_source && (
+                  <span style={{fontSize:12,color:'#7c2d12',background:'rgba(249,115,22,.14)',padding:'3px 9px',borderRadius:6}}>Received from: <strong>{l.received_source}</strong></span>
+                )}
+              </div>
               <div style={{fontSize:11,color:'#9a3412',marginTop:4,opacity:0.8}}>Accounts verifies the bank audit entry to credit the claimant.</div>
             </div>
           </div>
