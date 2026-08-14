@@ -3,6 +3,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { TimePicker } from '../../fro/components/TimePicker';
 import { apiGet, apiPost } from '../api/auth';
+import { toast } from '../../../components/Toast';
 import { generateReceiptPDF } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
@@ -50,20 +51,6 @@ function buildDonor(receipt) {
   };
 }
 
-function ScreenshotImage({ src, onClick }) {
-  const [loaded, setLoaded] = useState(false);
-  return (
-    <div style={{ position:'relative', minHeight:120, background:'var(--bg)' }}>
-      {!loaded && (
-        <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite' }}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" strokeWidth="1.5" style={{opacity:.3}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        </div>
-      )}
-      <img src={src} alt="Payment screenshot" onLoad={() => setLoaded(true)} onClick={onClick} style={{width:'100%',display:loaded?'block':'none',cursor:'pointer'}} />
-    </div>
-  );
-}
-
 export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }) {
   const drawer = variant === 'drawer';
   const [lead, setLead] = useState(null);
@@ -71,7 +58,6 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [showScreenshot, setShowScreenshot] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -200,7 +186,8 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         payment_from:form.payment_from||null,payment_mode:form.payment_mode||'UPI',
       });
       if (res.receipt) setReceipt(res.receipt);
-      load();
+      if (onBack) onBack();
+      toast('Successfully verified', 'success');
     } catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
@@ -266,7 +253,6 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
             <div className="card"><div className="card-head"><h3>Payment & Transaction Details</h3></div><div className="card-pad"><div className="info-grid">{[1,2,3,4,5,6,7,8].map(i=><div key={i}><SkeletonLabel /><SkeletonField w={`${50+Math.random()*40}%`} /></div>)}</div></div></div>
             <div className="card"><div className="card-head"><h3>Donor Information</h3></div><div className="card-pad"><div className="info-grid">{[1,2,3,4,5,6,7,8,9,10].map(i=><div key={i}><SkeletonLabel /><SkeletonField w={`${50+Math.random()*40}%`} /></div>)}</div></div></div>
           </div>
-          {!drawer && <div><div className="card" style={{overflow:'hidden'}}><ScreenshotImage src={null} /></div></div>}
         </div>
       </div>
     );
@@ -468,35 +454,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
             </div>
           </div>
         </div>
-
-        {/* Screenshot Section */}
-        <div style={{marginTop:16}}>
-          <div style={{position:'sticky',top:16,background:'var(--card-bg)',borderRadius:14,border:'1px solid var(--line)',overflow:'hidden',boxShadow:'var(--shadow)'}}>
-            <div style={{padding:'14px 18px',background:'linear-gradient(135deg, var(--bg) 0%, var(--card-bg) 100%)',borderBottom:'1px solid var(--line)',display:'flex',alignItems:'center',gap:10}}>
-              <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg, #10b981 0%, #059669 100%)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-              </div>
-              <h3 style={{margin:0,fontSize:14,fontWeight:700,color:'var(--ink)'}}>Payment Proof</h3>
-            </div>
-            {l.screenshot_url ? (
-              <ScreenshotImage src={l.screenshot_url} onClick={()=>setShowScreenshot(true)} />
-            ) : (
-              <div style={{textAlign:'center',padding:'48px 24px',color:'var(--ink-soft)'}}>
-                <div style={{width:56,height:56,borderRadius:'50%',background:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{opacity:.4}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                </div>
-                <div style={{fontSize:13,fontWeight:500}}>No screenshot available</div>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
-
-      {showScreenshot && l.screenshot_url && (
-        <div className="modal-overlay" onClick={()=>setShowScreenshot(false)} style={{cursor:'zoom-out'}}>
-          <img src={l.screenshot_url} alt="Payment screenshot" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:8}} />
-        </div>
-      )}
 
       {receipt && donor && ReceiptComp && (
         <div style={{ position:'absolute',zIndex:-1,opacity:0,pointerEvents:'none' }}>
