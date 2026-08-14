@@ -738,7 +738,7 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
 
   const { data: receipt, error: rErr } = await db
     .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, mode, pan_number, address, donor_email')
     .eq('id', receiptId)
     .is('donor_id', null)
     .maybeSingle();
@@ -780,6 +780,9 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
   const worker = log.fro_assignments?.workers || {};
   if (!donor.id) throw Object.assign(new Error('Selected lead has no donor info'), { status: 400 });
 
+  try { await BankAudit.enrichDonorProfileFromReceipt(donor.id, receipt); }
+  catch (e) { console.error('Failed to enrich donor profile from suspense receipt:', e.message); }
+
   const matchNo = await BankAudit.nextMatchNo();
 
   const receiptPatch = {
@@ -813,7 +816,7 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
     if (!leadPay.upi_transaction_id && receipt.payment_id) patch.upi_transaction_id = receipt.payment_id;
     if (!leadPay.payment_from && receipt.donor_name) patch.payment_from = receipt.donor_name;
     if (!leadPay.transaction_datetime && receipt.receipt_date) patch.transaction_datetime = receipt.receipt_date;
-    if (!leadPay.payment_mode) patch.payment_mode = receipt.payment_id ? 'UPI' : 'Bank Transfer';
+    if (!leadPay.payment_mode) patch.payment_mode = receipt.mode || (receipt.payment_id ? 'UPI' : 'Bank Transfer');
   }
   if (Object.keys(patch).length > 0) {
     await db.from('fro_donor_logs').update(patch).eq('id', logId);

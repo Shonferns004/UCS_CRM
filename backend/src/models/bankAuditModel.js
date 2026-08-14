@@ -24,7 +24,8 @@ export const getUnlinkedReceipts = async () => {
   // must not also appear in the suspense pool.
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
-           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at
+           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
+           r.pan_number, r.address, r.donor_email
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
@@ -447,4 +448,42 @@ export const searchDonorsForSuspense = async (searchTerm, ngoIds) => {
     fro_name: froMap[d.id]?.name || null,
     fro_login: froMap[d.id]?.login_id || null,
   }));
+};
+
+// A field value counts as missing for the fill-if-empty rule when it is NULL,
+// empty, or the 'NA'/'Suspense' marker (case-insensitive, trimmed).
+const isEmptyValue = (value) => {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim();
+  if (s === '') return true;
+  const lower = s.toLowerCase();
+  return lower === 'na' || lower === 'suspense';
+};
+
+// Best-effort: copy a suspense receipt's donor details (PAN, address, email,
+// mobile, MOP) onto the donor profile, but only where the profile is missing
+// them — so the linked lead shows the money's real data (address, PAN card)
+// without ever overwriting already-known profile data. Used by the FRO claim,
+// auto-match, and manual suspense-match paths.
+export const enrichDonorProfileFromReceipt = async (donorId, receipt) => {
+  if (!donorId || !receipt) return;
+  const { data: profile, error } = await db
+    .from('donor_profiles')
+    .select('pan_number, address_1, address_2, email, mobile_number, mop')
+    .eq('id', donorId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!profile) return;
+
+  const patch = {};
+  if (isEmptyValue(profile.pan_number) && !isEmptyValue(receipt.pan_number)) patch.pan_number = String(receipt.pan_number).trim();
+  if (isEmptyValue(profile.address_1) && !isEmptyValue(receipt.address)) patch.address_1 = String(receipt.address).trim();
+  if (isEmptyValue(profile.email) && !isEmptyValue(receipt.donor_email)) patch.email = String(receipt.donor_email).trim();
+  if (isEmptyValue(profile.mobile_number) && !isEmptyValue(receipt.donor_mobile)) patch.mobile_number = String(receipt.donor_mobile).trim();
+  if (isEmptyValue(profile.mop) && !isEmptyValue(receipt.mode)) patch.mop = String(receipt.mode).trim();
+  if (Object.keys(patch).length === 0) return;
+
+  patch.updated_at = new Date().toISOString();
+  const { error: updErr } = await db.from('donor_profiles').update(patch).eq('id', donorId);
+  if (updErr) throw updErr;
 };
