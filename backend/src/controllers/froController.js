@@ -821,7 +821,7 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
-      .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, donor_email, bank_payer_name')
+      .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
