@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -714,7 +714,8 @@ export const goBackLead = async (req, res) => {
     }
 
     // Receipt handling: revert any linked bank audit entry, then either delete
-    // a verification-only receipt or release the money back to the pool.
+    // a verification-only receipt or release the money back to the pool. Either
+    // way the receipt number is cancelled so it can be reused.
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
       const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
@@ -733,6 +734,8 @@ export const goBackLead = async (req, res) => {
           match_status: null,
           match_score: null,
           matched_at: null,
+          receipt_id: null,
+          receipt_no: null,
           updated_at: new Date().toISOString(),
         }).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
@@ -745,6 +748,11 @@ export const goBackLead = async (req, res) => {
         try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
         catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
       }
+
+      // Free the cancelled number(s) so the next receipt continues from the
+      // last live number instead of skipping over them.
+      try { await cancelReceiptNo(receipt.project_id); }
+      catch (err) { console.error('Failed to cancel receipt number on go-back:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -867,15 +875,11 @@ export const undoLeadVerification = async (req, res) => {
       } catch (err) { console.error('Failed to reverse donor totals on undo:', err.message); }
     }
 
-    // Unlink the receipt from the donor/lead (kept, not deleted) and drop its
-    // number so it returns to the claim pool as a fresh, unnumbered receipt.
+    // Cancel the receipt: a verification-only receipt is deleted outright; a
+    // receipt tied to bank money is released back to the pool. Either way the
+    // number is freed so the next verification reuses it. The linked bank audit
+    // entry is sent back to Bank Audit (unverified, unlinked).
     const receipt = await findReceiptByLogId(logId);
-    if (receipt) {
-      try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
-      catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
-    }
-
-    // Send the linked bank audit entry back to Bank Audit (unverified).
     if (receipt) {
       const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
@@ -893,10 +897,22 @@ export const undoLeadVerification = async (req, res) => {
           match_status: null,
           match_score: null,
           matched_at: null,
+          receipt_id: null,
+          receipt_no: null,
           updated_at: new Date().toISOString(),
         }).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
       }
+
+      if (receipt.purpose === 'General Donation' && !entry && !receipt.sent) {
+        try { await db.from('receipts').delete().eq('id', receipt.id); }
+        catch (err) { console.error('Failed to delete receipt on undo:', err.message); }
+      } else {
+        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
+        catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
+      }
+      try { await cancelReceiptNo(receipt.project_id); }
+      catch (err) { console.error('Failed to cancel receipt number on undo:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
