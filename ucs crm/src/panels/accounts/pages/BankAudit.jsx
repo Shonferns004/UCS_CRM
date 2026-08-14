@@ -476,8 +476,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const fe=e.filter(en=>{
     if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
-    if(leadFilter&&leadFilter.amount!=null&&leadFilter.amount!==''&&Number(en.amount)!==Number(leadFilter.amount))return false;
-    if(leadFilter&&leadFilter.ngo&&!matchesNgo(en,leadFilter.ngo))return false;
     return true;
   });
   const getSrc=i=>{const s=sr.find(s=>s.id===i);return s?s.name:'Unknown'};
@@ -591,14 +589,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   return <div>
     {!embedded&&<div style={{marginBottom:16}}><AuditStatCards sources={sr} summary={su} loading={ld} suspenseNgo={snf} setSuspenseNgo={setSnf} combo={combo}/></div>}
-
-    {leadFilter&&(
-      <div style={{display:'flex',alignItems:'center',gap:8,background:'#f0f7ef',border:'1px solid #cfe3cb',borderRadius:10,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#5B6B4E',flexWrap:'wrap'}}>
-        <span style={{fontWeight:700,textTransform:'uppercase',letterSpacing:'.4px'}}>Filter</span>
-        <span style={{fontWeight:600,whiteSpace:'nowrap'}}>{'\u20B9'}{Number(leadFilter.amount||0).toLocaleString('en-IN')}</span>
-        {leadFilter.ngo&&<span style={{whiteSpace:'nowrap'}}>{'\u00B7'} {({bsct:'Being Sevak',mann:'Mann Care',aflf:'Ashray'})[leadFilter.ngo]||leadFilter.ngo}</span>}
-      </div>
-    )}
 
     <EntrySection
       loading={ld} entries={e} sources={sr} summary={su} error={er}

@@ -7,7 +7,7 @@
         </trust-anchors>
     </base-config>
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">43-200-198-122.sslip.io</domain>
+        <domain includeSubdomains="true">api.beingsevak.org</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

@@ -684,7 +684,7 @@ const requireCronAuth = (req, res, next) => {
       }
     });
 
-    app.post('/api/cron/generate-daily-codes', requireCronAuth, async (req, res) => {
+    app.post('/api/cron/generate-daily-codes', async (req, res) => {
       try {
         const { generateDailyCodes } = await import('./services/dailyCodeService.js');
         const result = await generateDailyCodes();

@@ -13,7 +13,6 @@ import { reverseTransfer } from '../models/froAssignmentModel.js';
 import emailConfig from '../config/emailConfig.js';
 import { pollEmailInbox } from './emailImporter.js';
 import { syncAllRazorpayAccounts } from './razorpayWebhook.js';
-import { generateDailyCodes } from './dailyCodeService.js';
 
 let lastNoticeCheck = new Date(0).toISOString();
 let lastAchievementCheck = new Date(0).toISOString();
@@ -389,9 +388,6 @@ function start() {
   if (!process.env.VERCEL) {
     cronJobs.push(cron.schedule('0 0 * * *', () => resetCycledDonors()));
     console.log('Scheduled: midnight check for 30-day donor follow-up cycle');
-
-    cronJobs.push(cron.schedule('0 0 * * *', () => generateDailyCodes().catch(() => {})));
-    console.log('Scheduled: midnight generation of daily QR codes');
   }
 
   cronJobs.push(cron.schedule('* * * * *', () => autoReportMissedSchedules()));
