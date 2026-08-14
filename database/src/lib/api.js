@@ -1,7 +1,7 @@
 let apiBase = (() => {
   const override = new URLSearchParams(window.location.search).get('api');
   if (override) return override.replace(/\/+$/, '');
-  return window.location.protocol === 'file:' ? 'https://13-207-47-116.sslip.io' : '';
+  return window.location.protocol === 'file:' ? 'https://api.beingsevak.org' : '';
 })();
 let apiFallbackTried = false;
 
