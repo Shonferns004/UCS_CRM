@@ -45,41 +45,26 @@ jobs:
               pm2 start backend/src/index.js --name backend-test
             pm2 save
 
-            # nginx site: test-api.beingsevak.org -> 127.0.0.1:5001
-            sudo tee /etc/nginx/conf.d/ucs-test-api.conf >/dev/null <<'NGINX'
-            server {
-              listen 80;
-              server_name test-api.beingsevak.org;
-              client_max_body_size 20m;
-
-              location / {
-                proxy_pass http://127.0.0.1:5001;
-                proxy_http_version 1.1;
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-                proxy_set_header Upgrade $http_upgrade;
-                proxy_set_header Connection "upgrade";
-              }
+            # Caddy site: test-api.beingsevak.org -> 127.0.0.1:5001
+            # The server uses Caddy (not nginx); Caddy auto-provisions HTTPS.
+            # Idempotent: drop any previously-appended block, then append fresh.
+            sudo cp /etc/caddy/Caddyfile /tmp/Caddyfile.bak
+            sudo sed -i '/# --- BEGIN test-api.beingsevak.org ---/,/# --- END test-api.beingsevak.org ---/d' /etc/caddy/Caddyfile
+            sudo tee -a /etc/caddy/Caddyfile >/dev/null <<'CADDY'
+            # --- BEGIN test-api.beingsevak.org ---
+            test-api.beingsevak.org {
+                reverse_proxy 127.0.0.1:5001
             }
-            NGINX
-            if command -v nginx >/dev/null 2>&1; then
-              sudo nginx -t
-              sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload
+            # --- END test-api.beingsevak.org ---
+            CADDY
+            if caddy validate --config /etc/caddy/Caddyfile >/tmp/caddyvalidate.log 2>&1; then
+              sudo systemctl reload caddy
+              echo "OK: caddy reloaded - test-api.beingsevak.org -> 127.0.0.1:5001"
             else
-              echo "WARNING: nginx not found on server - test backend is up on 127.0.0.1:5001 but not exposed via test-api.beingsevak.org"
-            fi
-
-            # Optional HTTPS: only if DNS already points test-api.beingsevak.org here.
-            TARGET_IP=13.207.47.116
-            CURRENT_IP=$(dig +short test-api.beingsevak.org A 2>/dev/null | grep -E '^[0-9]' | head -1 || true)
-            if [ "$CURRENT_IP" = "$TARGET_IP" ] && command -v certbot >/dev/null 2>&1; then
-              sudo certbot --nginx -d test-api.beingsevak.org --non-interactive --agree-tos --redirect --keep-until-expiring >/dev/null 2>&1 \
-                && echo "HTTPS enabled for test-api.beingsevak.org" \
-                || echo "WARNING: certbot failed - test-api stays on http://"
-            else
-              echo "NOTE: DNS for test-api.beingsevak.org not pointing here yet (or certbot missing) - serving http:// until you add the DNS record"
+              sudo cp /tmp/Caddyfile.bak /etc/caddy/Caddyfile
+              echo "ERROR: caddy config invalid - restored previous Caddyfile"
+              cat /tmp/caddyvalidate.log
+              exit 1
             fi
 
             sleep 4
