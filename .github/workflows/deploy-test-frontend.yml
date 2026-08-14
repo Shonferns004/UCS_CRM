@@ -23,8 +23,8 @@ jobs:
 
       - name: Build (test backend)
         env:
-          VITE_API_URL: http://test-api.beingsevak.org/api
-          VITE_SOCKET_URL: http://test-api.beingsevak.org
+          VITE_API_URL: https://test-api.beingsevak.org/api
+          VITE_SOCKET_URL: https://test-api.beingsevak.org
           VITE_WHATSAPP_MASTER_EMAIL: ${{ secrets.CRM_WHATSAPP_EMAIL }}
           VITE_WHATSAPP_MASTER_PASSWORD: ${{ secrets.CRM_WHATSAPP_PASSWORD }}
         run: |
@@ -52,7 +52,7 @@ jobs:
           target: /var/www/crm-test
           strip_components: 2
 
-      - name: nginx + certbot for test-crm.beingsevak.org
+      - name: Caddy site for test-crm.beingsevak.org
         uses: appleboy/ssh-action@v1
         with:
           host: 13.207.47.116
@@ -60,33 +60,26 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             set -e
-            sudo tee /etc/nginx/conf.d/ucs-test-crm.conf >/dev/null <<'NGINX'
-            server {
-              listen 80;
-              server_name test-crm.beingsevak.org;
-              root /var/www/crm-test;
-              index index.html;
-
-              location / {
-                try_files $uri $uri/ /index.html;
-              }
+            # The server uses Caddy (not nginx); Caddy auto-provisions HTTPS.
+            # Idempotent: drop any previously-appended block, then append fresh.
+            sudo cp /etc/caddy/Caddyfile /tmp/Caddyfile.bak
+            sudo sed -i '/# --- BEGIN test-crm.beingsevak.org ---/,/# --- END test-crm.beingsevak.org ---/d' /etc/caddy/Caddyfile
+            sudo tee -a /etc/caddy/Caddyfile >/dev/null <<'CADDY'
+            # --- BEGIN test-crm.beingsevak.org ---
+            test-crm.beingsevak.org {
+                root * /var/www/crm-test
+                encode gzip
+                try_files {path} /index.html
+                file_server
             }
-            NGINX
-
-            if command -v nginx >/dev/null 2>&1; then
-              sudo nginx -t
-              sudo systemctl reload nginx 2>/dev/null || sudo nginx -s reload
+            # --- END test-crm.beingsevak.org ---
+            CADDY
+            if caddy validate --config /etc/caddy/Caddyfile >/tmp/caddyvalidate.log 2>&1; then
+              sudo systemctl reload caddy
+              echo "OK: caddy reloaded - test-crm.beingsevak.org -> /var/www/crm-test"
             else
-              echo "WARNING: nginx not found on server - files deployed to /var/www/crm-test but not served"
-            fi
-
-            # Optional HTTPS: only if DNS already points test-crm.beingsevak.org here.
-            TARGET_IP=13.207.47.116
-            CURRENT_IP=$(dig +short test-crm.beingsevak.org A 2>/dev/null | grep -E '^[0-9]' | head -1 || true)
-            if [ "$CURRENT_IP" = "$TARGET_IP" ] && command -v certbot >/dev/null 2>&1; then
-              sudo certbot --nginx -d test-crm.beingsevak.org --non-interactive --agree-tos --redirect --keep-until-expiring >/dev/null 2>&1 \
-                && echo "HTTPS enabled for test-crm.beingsevak.org" \
-                || echo "WARNING: certbot failed - test-crm stays on http://"
-            else
-              echo "NOTE: DNS for test-crm.beingsevak.org not pointing here yet (or certbot missing) - serving http:// until you add the DNS record"
+              sudo cp /tmp/Caddyfile.bak /etc/caddy/Caddyfile
+              echo "ERROR: caddy config invalid - restored previous Caddyfile"
+              cat /tmp/caddyvalidate.log
+              exit 1
             fi
