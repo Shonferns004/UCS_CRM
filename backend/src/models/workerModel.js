@@ -1,3 +1,4 @@
+import pg from 'pg';
 import db from '../config/db.js';
 
 export const createWorker = async (workerData) => {
@@ -156,18 +157,26 @@ export const updateWorker = async (id, updates) => {
   return data;
 };
 
-export const deleteWorker = async (id) => {
-  const { error: convErr } = await db
-    .from('conversations')
-    .update({ assigned_agent_id: null })
-    .eq('assigned_agent_id', id);
-  if (convErr) throw convErr;
+import pg from 'pg';
 
-  const { error } = await db
-    .from('workers')
-    .delete()
-    .eq('id', id);
-  if (error) throw error;
+export const deleteWorker = async (id) => {
+  const connStr = process.env.DATABASE_URL;
+  const client = new pg.Client({
+    connectionString: connStr,
+    ssl: process.env.DATABASE_SSL !== 'false' ? { rejectUnauthorized: false } : false,
+  });
+  await client.connect();
+  try {
+    await client.query('DELETE FROM attendance_corrections WHERE worker_id = $1', [id]);
+    await client.query('DELETE FROM attendance WHERE worker_id = $1', [id]);
+    await client.query('DELETE FROM leaves WHERE worker_id = $1', [id]);
+    await client.query('DELETE FROM worker_loans WHERE worker_id = $1', [id]);
+    await client.query('DELETE FROM worker_ngo_allocations WHERE worker_id = $1', [id]);
+    await client.query('UPDATE conversations SET assigned_agent_id = NULL WHERE assigned_agent_id = $1', [id]);
+    await client.query('DELETE FROM workers WHERE id = $1', [id]);
+  } finally {
+    await client.end();
+  }
   return { message: 'Worker deleted successfully' };
 };
 

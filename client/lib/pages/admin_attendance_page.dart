@@ -457,8 +457,13 @@ class _AdminAttendancePageState extends State<AdminAttendancePage> {
     }
 
     var status = record['status']?.toString() ?? 'absent';
-    if (status == 'absent' || status.isEmpty) {
-      if (punchIn != null && punchOut != null) status = 'present';
+    if (punchIn != null && (status == 'absent' || status.isEmpty)) {
+      final lateMin = record['late_minutes'];
+      if (lateMin != null && (lateMin is int ? lateMin : (lateMin is num ? lateMin.toInt() : 0)) > 0) {
+        status = 'late';
+      } else {
+        status = 'present';
+      }
     }
 
     Color statusColor;

@@ -335,9 +335,24 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
   }
 
   Widget _recordCard(dynamic record, TextTheme tt, ColorScheme scheme) {
-    final status = record['status']?.toString() ?? 'absent';
+    var status = record['status']?.toString() ?? 'absent';
     final dateStr = record['date']?.toString() ?? '';
     final dt = DateTime.tryParse(dateStr);
+
+    final punchIn = _formatTime(record['punch_in_time']);
+    final punchOut = _formatTime(record['punch_out_time']);
+    final hours = _hoursWorked(record['punch_in_time'], record['punch_out_time']);
+    final hasId = record['id'] != null;
+    final lateMinutes = (record['late_minutes'] ?? 0) > 0 ? record['late_minutes'] : null;
+
+    if (punchIn != null && (status == 'absent' || status.isEmpty)) {
+      final lateMin = record['late_minutes'];
+      if (lateMin != null && (lateMin is int ? lateMin : (lateMin is num ? lateMin.toInt() : 0)) > 0) {
+        status = 'late';
+      } else {
+        status = 'present';
+      }
+    }
 
     Color statusColor;
     String statusLabel;
@@ -362,12 +377,6 @@ class _WorkerAttendanceDetailPageState extends State<WorkerAttendanceDetailPage>
         statusColor = const Color(0xFFdc2626);
         statusLabel = 'Absent';
     }
-
-    final punchIn = _formatTime(record['punch_in_time']);
-    final punchOut = _formatTime(record['punch_out_time']);
-    final hours = _hoursWorked(record['punch_in_time'], record['punch_out_time']);
-    final hasId = record['id'] != null;
-    final lateMinutes = (record['late_minutes'] ?? 0) > 0 ? record['late_minutes'] : null;
 
     return GestureDetector(
       onLongPress: hasId ? () => _confirmDelete(record) : null,
