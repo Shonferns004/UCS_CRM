@@ -50,11 +50,12 @@ export const getLeadList = async (req, res) => {
     const logIds = (data || []).map(r => r.id);
     const receiptMap = {};
     let entrySourceMap = {};
+    let entryPayerMap = {};
     const leadMatchMap = {};
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
-        .select('id, receipt_no, donor_id, donor_mobile, donor_name, log_id')
+        .select('id, receipt_no, donor_id, donor_mobile, donor_name, bank_payer_name, log_id')
         .in('log_id', logIds);
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
@@ -64,11 +65,13 @@ export const getLeadList = async (req, res) => {
         if (receiptIds.length) {
           const { data: linkedEntries } = await db
             .from('bank_audit_entries')
-            .select('receipt_id, source_id, bank_audit_sources(name)')
+            .select('receipt_id, source_id, payer_name, bank_audit_sources(name)')
             .in('receipt_id', receiptIds);
           entrySourceMap = {};
+          entryPayerMap = {};
           for (const en of (linkedEntries || [])) {
             if (en.receipt_id != null) entrySourceMap[en.receipt_id] = en.bank_audit_sources?.name || null;
+            if (en.receipt_id != null && en.payer_name) entryPayerMap[en.receipt_id] = en.payer_name;
           }
         }
       }
@@ -101,7 +104,8 @@ export const getLeadList = async (req, res) => {
       assignment_status: r.fro_assignments?.status || 'lead_done',
       donor_id: r.fro_assignments?.donor_id,
       donor_name: r.fro_assignments?.donor_profiles?.name || 'Unknown',
-      audit_name: receiptMap[r.id]?.donor_name || r.fro_assignments?.donor_profiles?.bank_donor_name || '',
+      original_payer: receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || entryPayerMap[receiptMap[r.id]?.id] || '',
+      audit_name: receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || entryPayerMap[receiptMap[r.id]?.id] || r.fro_assignments?.donor_profiles?.bank_donor_name || '',
       donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || receiptMap[r.id]?.donor_mobile || '',
       donor_city: r.fro_assignments?.donor_profiles?.city || '',
       donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',

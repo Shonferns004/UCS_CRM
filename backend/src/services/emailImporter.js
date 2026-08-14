@@ -30,11 +30,13 @@ const BANK_EMAIL_DOMAINS = [
   { domain: 'bankofindia.co.in', source: 'Bank of India' },
   { domain: 'centralbankofindia.co.in', source: 'Central Bank' },
   { domain: 'dbs.com', source: 'DBS Bank' },
-  { domain: 'gpay.com', source: 'GPay' },
-  { domain: 'googlepay', source: 'GPay' },
+  { domain: 'gpay.com', source: 'Google Pay' },
+  { domain: 'googlepay', source: 'Google Pay' },
   { domain: 'razorpay.com', source: 'Razorpay' },
   { domain: 'paytm.com', source: 'Paytm' },
   { domain: 'phonepe.com', source: 'PhonePe' },
+  { domain: 'payu.in', source: 'PayU Money' },
+  { domain: 'payumoney', source: 'PayU Money' },
 ];
 
 function detectSourceFromSender(emailFrom) {
@@ -50,14 +52,17 @@ function normalizeSourceName(name) {
   if (!name) return null;
   const n = name.toLowerCase().trim();
   const map = {
-    'gpay': 'GPay',
-    'google pay': 'GPay',
-    'googlepay': 'GPay',
-    'g-pay': 'GPay',
+    'gpay': 'Google Pay',
+    'google pay': 'Google Pay',
+    'googlepay': 'Google Pay',
+    'g-pay': 'Google Pay',
     'phonepe': 'PhonePe',
     'phone pe': 'PhonePe',
     'paytm': 'Paytm',
     'razorpay': 'Razorpay',
+    'payu': 'PayU Money',
+    'payu money': 'PayU Money',
+    'payumoney': 'PayU Money',
     'axis bank': 'Axis Bank',
     'axis': 'Axis Bank',
     'saraswat bank': 'Saraswat Bank',
@@ -287,7 +292,7 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySe
           if (!sourceName && senderSource) sourceName = senderSource;
 
           let sourceId = sourceName ? await getOrCreateSourceId(sources, sourceName) : null;
-          const paymentSource = sourceName || senderSource || 'GPay';
+          const paymentSource = sourceName || senderSource || 'Google Pay';
 
           const transactionDate = details.transaction_date
             ? details.transaction_date
