@@ -111,11 +111,13 @@ export default function Workers({ onSelect, onOffboard }) {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [dept, setDept] = useState(DEPTS?.[0] || '');
+  const [client, setClient] = useState('BSCT');
   const [err, setErr] = useState('');
   const [nameErr, setNameErr] = useState('');
   const [search, setSearch] = useState(load().search || '');
   const [roleFilter, setRoleFilter] = useState(load().roleFilter || '');
   const [statusFilter, setStatusFilter] = useState(load().statusFilter || 'active');
+  const [entityFilter, setEntityFilter] = useState('All');
   const [page, setPage] = useState(load().page || 1);
   const [created, setCreated] = useState(null);
   const [salaryMap, setSalaryMap] = useState({});
@@ -162,11 +164,18 @@ export default function Workers({ onSelect, onOffboard }) {
   }, [reload]);
 
   const roles = [...new Set(workers.map(w => (w.department || 'Team Member')).filter(Boolean))].sort();
+  const clientOf = (w) => {
+    if (!w.ngo_id) return 'Other';
+    const ngo = ngos.find(n => n.id === w.ngo_id);
+    const name = ngo ? (ngo.name || '').trim().toUpperCase() : '';
+    return ['BSCT','AFLF','MANN'].includes(name) ? name : 'Other';
+  };
   const filtered = workers.filter(w => {
     const role = w.department || 'Team Member';
     if (roleFilter && role !== roleFilter) return false;
     const empStatus = w.employment_status || 'active';
     if (statusFilter && statusFilter !== 'all' && empStatus !== statusFilter) return false;
+    if (entityFilter && entityFilter !== 'All' && clientOf(w) !== entityFilter) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return w.name.toLowerCase().includes(q) ||
@@ -177,6 +186,13 @@ export default function Workers({ onSelect, onOffboard }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const CLIENTS = ['BSCT', 'AFLF', 'MANN', 'Other'];
+  const CLIENT_COLORS = { BSCT: '#5B6B4E', AFLF: '#C08A2E', MANN: '#7A5C7E', Other: '#9aa0a6' };
+  const clientCounts = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
+  workers.forEach(w => { const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; });
+  const clientTotal = clientCounts.BSCT + clientCounts.AFLF + clientCounts.MANN + clientCounts.Other;
+  const clientPct = (c) => clientTotal ? Math.round((clientCounts[c] / clientTotal) * 100) : 0;
 
   const mountedSearch = useRef(false);
   useEffect(() => { if (!mountedSearch.current) { mountedSearch.current = true; return; } save({ search, page: 1 }); setPage(1); }, [search]);
@@ -195,9 +211,13 @@ export default function Workers({ onSelect, onOffboard }) {
     setCreated(null);
     try {
       const body = { name: name.trim(), department: dept };
+      const allocations = [];
       if (dept === 'NGO Admin' && selectedNgos.length > 0) {
-        body.allocations = selectedNgos.map(id => ({ ngo_id: id, salary_portion: 0 }));
+        allocations.push(...selectedNgos.map(id => ({ ngo_id: id, salary_portion: 0 })));
       }
+      const clientNgo = ngos.find(n => (n.name || '').trim().toUpperCase() === client);
+      if (clientNgo) allocations.push({ ngo_id: clientNgo.id, salary_portion: 0 });
+      if (allocations.length > 0) body.allocations = allocations;
       const res = await addWorker(body);
       setCreated(res.worker);
       setName('');
@@ -450,7 +470,27 @@ export default function Workers({ onSelect, onOffboard }) {
   return (
     <>
       <div className="card" style={{ marginBottom:20 }}>
-        <div className="card-head"><h3>Add a volunteer</h3></div>
+        <div className="card-head">
+          <h3>Add a volunteer</h3>
+          <div style={{ display:'flex', alignItems:'center', gap:'8px 16px', flexWrap:'wrap' }}>
+            <span style={{ fontSize:12, fontWeight:600 }}>Volunteers by NGO</span>
+            <div style={{ display:'flex', height:12, borderRadius:6, overflow:'hidden', background:'var(--line)', width:180 }}>
+              {CLIENTS.map(c => clientCounts[c] > 0 ? (
+                <div key={c} style={{ width: clientPct(c) + '%', background: CLIENT_COLORS[c], minWidth: 2 }}
+                  title={`${c}: ${clientCounts[c]} (${clientPct(c)}%)`} />
+              ) : null)}
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:'0 14px', fontSize:12 }}>
+              {CLIENTS.map(c => (
+                <span key={c} style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                  <span style={{ width:10, height:10, borderRadius:3, background: CLIENT_COLORS[c] }} />
+                  {c}: <strong>{clientCounts[c]}</strong> ({clientPct(c)}%)
+                </span>
+              ))}
+            </div>
+            {clientTotal === 0 && <span style={{ fontSize:12, color:'var(--ink-soft)' }}>No volunteers yet.</span>}
+          </div>
+        </div>
         <div className="card-pad">
           <div className="form-row">
             <label className="field">Full name
@@ -460,6 +500,9 @@ export default function Workers({ onSelect, onOffboard }) {
             </label>
             <label className="field">Team
               <Dropdown value={dept} onChange={e=>{ setDept(e.target.value); setSelectedNgos([]); }} options={DEPTS} />
+            </label>
+            <label className="field">Client
+              <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={['BSCT','AFLF','MANN','Other']} />
             </label>
           </div>
           {dept === 'NGO Admin' && ngos.length > 0 && (
@@ -508,6 +551,7 @@ export default function Workers({ onSelect, onOffboard }) {
             <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
             <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>
             <span className="sub">{filtered.length} total</span>
+            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All','BSCT','AFLF','MANN','Other']} />
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
               options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:r}))]} />
             <Dropdown className="status-filter" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
@@ -523,21 +567,22 @@ export default function Workers({ onSelect, onOffboard }) {
           </div>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>NGO</th><th>Emp ID</th><th>Joined</th><th>Salary</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} aria-hidden="true">
-                  <td>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <div className="sk" style={{ width:36, height:36, borderRadius:'50%', flexShrink:0 }} />
-                      <div>
-                        <div className="sk" style={{ width:120, height:14, marginBottom:6, borderRadius:4 }} />
-                        <div className="sk" style={{ width:70, height:11, borderRadius:4 }} />
+                    <td>
+                      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                        <div className="sk" style={{ width:36, height:36, borderRadius:'50%', flexShrink:0 }} />
+                        <div>
+                          <div className="sk" style={{ width:120, height:14, marginBottom:6, borderRadius:4 }} />
+                          <div className="sk" style={{ width:70, height:11, borderRadius:4 }} />
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td><div className="sk" style={{ width:70, height:12, borderRadius:4 }} /></td>
+                    </td>
+                    <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
+                    <td><div className="sk" style={{ width:70, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:80, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:60, height:12, borderRadius:4 }} /></td>
                   <td><div className="sk" style={{ width:52, height:18, borderRadius:10 }} /></td>
@@ -562,6 +607,9 @@ export default function Workers({ onSelect, onOffboard }) {
                           {isComplete(workerDetails[w.id] || w) && <Check size={16} style={{ color:'var(--sage)', flexShrink:0 }} title="All details filled" />}
                         </div>
                       </td>
+                      <td>
+                        <span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, fontWeight:600, display:'inline-block', background:'#eef1f5', color:'#374151' }}>{clientOf(w)}</span>
+                      </td>
                       <td style={{ color:'var(--ink-soft)', fontWeight:500 }}>{empId ? empId.replace(/\D/g, '') : '—'}</td>
                       <td style={{ color:'var(--ink-soft)' }}>{new Date(w.created_at).toLocaleDateString('en-GB',{month:'short',year:'numeric'})}</td>
                       <td>
@@ -585,7 +633,7 @@ export default function Workers({ onSelect, onOffboard }) {
                     </tr>
                   );
                 })}
-                {!filtered.length && <tr><td colSpan={5}><div className="empty">No volunteers found.</div></td></tr>}
+                {!filtered.length && <tr><td colSpan={6}><div className="empty">No volunteers found.</div></td></tr>}
               </>
             )}
           </tbody>
