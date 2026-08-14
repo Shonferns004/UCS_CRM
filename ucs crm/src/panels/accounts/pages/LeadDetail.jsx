@@ -156,7 +156,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       .then(ll => {
         if (ll && !hasInitRef.current) {
           const {date,time} = parseDatetime(ll.transaction_datetime);
-          setForm({ donor_name:ll.donor_name||'',donor_mobile:ll.donor_mobile||'',donor_city:ll.donor_city||'', donor_email:ll.donor_email||'',donor_address:ll.donor_address||'',donor_pan:ll.pan_number||ll.donor_pan||'', donor_dob:ll.donor_dob?new Date(ll.donor_dob):null, upi_transaction_id:ll.upi_transaction_id||'',transaction_date:date,transaction_time:time, payment_from:ll.payment_from||'',payment_mode:ll.payment_mode||'UPI' });
+          setForm({ donor_name:ll.donor_name||'',donor_mobile:ll.donor_mobile||'',donor_city:ll.donor_city||'', donor_email:ll.donor_email||'',donor_address:ll.donor_address||'',donor_pan:ll.donor_pan||ll.pan_number||'', donor_dob:ll.donor_dob?new Date(ll.donor_dob):null, upi_transaction_id:ll.upi_transaction_id||'',transaction_date:date,transaction_time:time, payment_from:ll.payment_from||'',payment_mode:ll.payment_mode||'UPI' });
           hasInitRef.current = true;
         }
       }).catch(()=>{})
