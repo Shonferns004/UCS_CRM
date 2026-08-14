@@ -1852,13 +1852,25 @@ export const importReceipts = async (req, res) => {
                   created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
                 }));
                 for (let i = 0; i < rows.length; i += 500) {
+                  const chunk = rows.slice(i, i + 500);
                   const { data: created, error } = await from('donor_profiles')
-                    .insert(rows.slice(i, i + 500))
+                    .upsert(chunk, { onConflict: 'mobile_number', ignoreDuplicates: true })
                     .select('id, mobile_number, total_amount, donation_count, last_donation_date');
                   if (error) throw new Error(error.message);
                   for (const d of (created || [])) {
                     const k = last10(d.mobile_number);
                     if (k) donorByMobile.set(k, d);
+                  }
+                  const chunkMobiles = [...new Set(chunk.map(c => c.mobile_number))];
+                  for (let j = 0; j < chunkMobiles.length; j += 100) {
+                    const { rows: existing } = await db._pool.query(
+                      `SELECT id, mobile_number, total_amount, donation_count, last_donation_date
+                       FROM donor_profiles WHERE mobile_number = ANY($1)`, [chunkMobiles.slice(j, j + 100)]
+                    );
+                    for (const d of (existing || [])) {
+                      const k = last10(d.mobile_number);
+                      if (k) donorByMobile.set(k, d);
+                    }
                   }
                 }
                 for (const receipt of matchPool) {
