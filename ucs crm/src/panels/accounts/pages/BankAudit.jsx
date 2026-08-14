@@ -400,6 +400,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
             {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
+            {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
             <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
             {e.agent_name&&e.agent_name!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
