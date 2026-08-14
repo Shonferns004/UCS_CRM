@@ -113,11 +113,15 @@ export const confirmMatchCredit = async (entryId, actorId) => {
     let receipt = null;
     const mode = log.payment_mode || donor.mop || (entry.payment_id ? 'UPI' : 'Bank');
     if (entry.receipt_id) {
+      const { data: existingRcpt } = await from('receipts').select('donor_name, bank_payer_name').eq('id', entry.receipt_id).maybeSingle();
+      const profileName = donor.name || null;
+      const oldPayerName = existingRcpt?.donor_name && existingRcpt.donor_name !== profileName ? existingRcpt.donor_name : entry.payer_name || null;
       const { data: updated } = await from('receipts').update({
         donor_id: donorId,
         log_id: log.id,
         project_id: donor.project_supported || entry.project_id || 'bsct',
         donor_name: donor.name || entry.payer_name || null,
+        bank_payer_name: existingRcpt?.bank_payer_name || oldPayerName || null,
         donor_mobile: donor.mobile_number || null,
         pan_number: donor.pan_number || entry.donor_pan || null,
         address: donorAddress || entry.donor_address_1 || null,

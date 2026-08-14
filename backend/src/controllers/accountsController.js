@@ -321,10 +321,13 @@ export const verifyLead = async (req, res) => {
     } else {
       // Receipt already exists (e.g. created for a bank audit entry or a suspense
       // claim). Link it to the verified donor and mark its bank audit entry done.
+      const profileName = donorProfile?.name;
+      const oldPayerName = existing.donor_name && existing.donor_name !== profileName ? existing.donor_name : null;
       const receiptPatch = {
         donor_id: donorId,
-        donor_name: donorProfile?.name || existing.donor_name || 'Unknown',
+        donor_name: profileName || existing.donor_name || 'Unknown',
         donor_mobile: donorProfile?.mobile_number || existing.donor_mobile || null,
+        bank_payer_name: existing.bank_payer_name || oldPayerName || null,
         bank_name: donorProfile?.donors_bank_name || null,
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
       };
@@ -1191,7 +1194,7 @@ export const getReceiptList = async (req, res) => {
     params.push(limit, (page - 1) * limit);
     const rowsRes = await db._pool.query(
       `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
-              receipt_date, receipt_time, mode, payment_id, bank_name, address, pan_number, email,
+              receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
               donor_id, agent_name, sent, sent_at, created_at
        FROM receipts ${whereSql}
        ORDER BY created_at DESC

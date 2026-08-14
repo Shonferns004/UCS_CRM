@@ -659,6 +659,9 @@ export default function ReceiptHistory() {
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
                       {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
                     </div>
+                    {r.bank_payer_name && (
+                      <div style={{ fontSize: 10, color: '#a3a3a3', marginTop: 1 }}>Payer: {r.bank_payer_name}</div>
+                    )}
                     <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                       Agent: {r.agent_name || r.fro_donor_logs?.workers?.name || 'Not assigned'}
                     </div>
