@@ -710,7 +710,7 @@ export const getSuspenseReceipts = async (req, res) => {
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
       .is('donor_id', null)
       .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.NA,agent_name.eq.na')
+      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.suspense,agent_name.eq.NA,agent_name.eq.na')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
@@ -724,17 +724,10 @@ export const getSuspenseReceipts = async (req, res) => {
       && isBlankSuspenseValue(r.donor_mobile)
     );
 
-    const receiptIds = filtered.map(r => r.id);
-    const bankReceiptSet = new Set();
-    if (receiptIds.length > 0) {
-      for (let i = 0; i < receiptIds.length; i += 1000) {
-        const { data: bankRows, error: bankErr } = await db
-          .from('bank_audit_entries').select('receipt_id').in('receipt_id', receiptIds.slice(i, i + 1000));
-        if (bankErr) throw bankErr;
-        for (const br of (bankRows || [])) bankReceiptSet.add(br.receipt_id);
-      }
-    }
-    const pool = filtered.filter(r => !bankReceiptSet.has(r.id));
+    // Bank-audited suspense is also claimable suspense: Accounts sees it as an
+    // entry in Bank Audit, and FROs must see the same receipt here so they can
+    // claim it. No bank-audit exclusion.
+    const pool = filtered;
 
     const poolIds = pool.map(r => r.id);
     let claims = [];
