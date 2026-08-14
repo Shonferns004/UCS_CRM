@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -55,7 +55,7 @@ export const getLeadList = async (req, res) => {
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
-        .select('id, receipt_no, donor_id, donor_mobile, donor_name, bank_payer_name, log_id')
+        .select('id, receipt_no, donor_id, donor_mobile, donor_name, bank_payer_name, payment_id, mode, pan_number, log_id')
         .in('log_id', logIds);
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
@@ -100,7 +100,7 @@ export const getLeadList = async (req, res) => {
       amount: r.amount_collected,
       screenshot_url: r.payment_screenshot_url,
       accounts_status: r.accounts_status,
-      pan_number: r.pan_number,
+      pan_number: r.pan_number || receiptMap[r.id]?.pan_number || '',
       notes: r.notes,
       remark: r.remark,
       rejection_reason: r.rejection_reason,
@@ -122,10 +122,10 @@ export const getLeadList = async (req, res) => {
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
-      upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || null),
+      upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || receiptMap[r.id]?.payment_id || null),
       transaction_datetime: r.transaction_datetime || null,
-      payment_from: r.payment_from || null,
-      payment_mode: r.payment_mode || null,
+      payment_from: r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null,
+      payment_mode: r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
@@ -163,7 +163,7 @@ export const verifyLead = async (req, res) => {
 
     const { data: log, error: logError } = await db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
       .single();
 
@@ -180,6 +180,16 @@ export const verifyLead = async (req, res) => {
     if (!assignmentId || !donorProfile) {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
+
+    // The NGO a lead is assigned under is the per-lead truth for which project
+    // (and therefore which receipt-number sequence) its money belongs to. The
+    // donor profile's project_supported is only a fallback — it is frequently
+    // unset, which would wrongly fall through to the 'bsct' default and give an
+    // Ashray receipt the next number from the BSCT sequence.
+    let project = donorProfile?.project_supported || 'bsct';
+    try {
+      project = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || project;
+    } catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
 
     // ── Manual bank-audit link path ─────────────────────────────────────────
     // Accounts can pick an unmatched bank audit entry next to the UPI id. That
@@ -310,7 +320,6 @@ export const verifyLead = async (req, res) => {
     let receipt = existing || null;
     if (!existing) {
       const donorName = donorProfile?.name || 'Unknown';
-      const project = donorProfile?.project_supported || 'bsct';
       const receiptNo = await getNextReceiptNo(project);
 
       receipt = await createReceipt({
@@ -344,7 +353,7 @@ export const verifyLead = async (req, res) => {
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
       };
       if (!existing.receipt_no) {
-        existing.receipt_no = await getNextReceiptNo(donorProfile?.project_supported || 'bsct');
+        existing.receipt_no = await getNextReceiptNo(existing.project_id || project);
         receiptPatch.receipt_no = existing.receipt_no;
       }
       const { error: linkReceiptErr } = await db.from('receipts').update(receiptPatch).eq('id', existing.id);
@@ -705,7 +714,8 @@ export const goBackLead = async (req, res) => {
     }
 
     // Receipt handling: revert any linked bank audit entry, then either delete
-    // a verification-only receipt or release the money back to the pool.
+    // a verification-only receipt or release the money back to the pool. Either
+    // way the receipt number is cancelled so it can be reused.
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
       const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
@@ -724,6 +734,8 @@ export const goBackLead = async (req, res) => {
           match_status: null,
           match_score: null,
           matched_at: null,
+          receipt_id: null,
+          receipt_no: null,
           updated_at: new Date().toISOString(),
         }).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
@@ -736,6 +748,11 @@ export const goBackLead = async (req, res) => {
         try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
         catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
       }
+
+      // Free the cancelled number(s) so the next receipt continues from the
+      // last live number instead of skipping over them.
+      try { await cancelReceiptNo(receipt.project_id); }
+      catch (err) { console.error('Failed to cancel receipt number on go-back:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -858,15 +875,11 @@ export const undoLeadVerification = async (req, res) => {
       } catch (err) { console.error('Failed to reverse donor totals on undo:', err.message); }
     }
 
-    // Unlink the receipt from the donor/lead (kept, not deleted) and drop its
-    // number so it returns to the claim pool as a fresh, unnumbered receipt.
+    // Cancel the receipt: a verification-only receipt is deleted outright; a
+    // receipt tied to bank money is released back to the pool. Either way the
+    // number is freed so the next verification reuses it. The linked bank audit
+    // entry is sent back to Bank Audit (unverified, unlinked).
     const receipt = await findReceiptByLogId(logId);
-    if (receipt) {
-      try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
-      catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
-    }
-
-    // Send the linked bank audit entry back to Bank Audit (unverified).
     if (receipt) {
       const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
@@ -884,10 +897,22 @@ export const undoLeadVerification = async (req, res) => {
           match_status: null,
           match_score: null,
           matched_at: null,
+          receipt_id: null,
+          receipt_no: null,
           updated_at: new Date().toISOString(),
         }).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
       }
+
+      if (receipt.purpose === 'General Donation' && !entry && !receipt.sent) {
+        try { await db.from('receipts').delete().eq('id', receipt.id); }
+        catch (err) { console.error('Failed to delete receipt on undo:', err.message); }
+      } else {
+        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
+        catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
+      }
+      try { await cancelReceiptNo(receipt.project_id); }
+      catch (err) { console.error('Failed to cancel receipt number on undo:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -1101,6 +1126,8 @@ export const generateReceipt = async (req, res) => {
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
+          ngo_id,
+          ngos(name),
           donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name),
           workers!inner(id, name, login_id)
         )
@@ -1113,7 +1140,10 @@ export const generateReceipt = async (req, res) => {
     }
 
     const donorProfile = log.fro_assignments?.donor_profiles;
-    const project = donorProfile?.project_supported || 'bsct';
+    let project = donorProfile?.project_supported || 'bsct';
+    try {
+      project = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || project;
+    } catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
     const donorName = donorProfile?.name || 'Unknown';
 
     const receiptNo = await getNextReceiptNo(project);
