@@ -2442,10 +2442,125 @@ const cleanupImportAutoCredits = async () => {
   return cleaned;
 };
 
+const recomputeDonorTotals = async (donorIds) => {
+  if (!donorIds || donorIds.length === 0) return 0;
+  const { rows } = await db._pool.query(`
+    SELECT donor_id::text AS donor_id,
+           COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
+           count(*)::int AS donation_count,
+           min(receipt_date)::date AS first_donation_date,
+           max(receipt_date)::date AS last_donation_date
+    FROM receipts
+    WHERE donor_id::text = ANY($1::text[])
+    GROUP BY donor_id
+  `, [donorIds.map(String)]);
+  const agg = new Map(rows.map(r => [r.donor_id, r]));
+  let updated = 0;
+  const BATCH = 100;
+  for (let i = 0; i < donorIds.length; i += BATCH) {
+    const chunk = donorIds.slice(i, i + BATCH);
+    const { data: donors } = await db.from('donor_profiles').select('id').in('id', chunk);
+    for (const d of (donors || [])) {
+      const a = agg.get(String(d.id));
+      const hasRemaining = a && a.donation_count > 0;
+      await db.from('donor_profiles').update({
+        total_amount: hasRemaining ? a.total_amount : 0,
+        donation_count: hasRemaining ? a.donation_count : 0,
+        first_donation_date: hasRemaining ? a.first_donation_date : null,
+        last_donation_date: hasRemaining ? a.last_donation_date : null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', d.id);
+      if (!hasRemaining) {
+        try {
+          await db.from('fro_assignments')
+            .update({ status: 'pending' })
+            .in('donor_id', [d.id])
+            .eq('status', 'donation_collected');
+        } catch (e) { console.warn('assignment reopen skipped:', e.message); }
+      }
+      updated++;
+    }
+  }
+  return updated;
+};
+
+const cleanupDayAutoCredits = async (from, to) => {
+  // Auto-credit logs store transaction_datetime = receipt date at session-midnight,
+  // so cast the column to date for a timezone-independent day match.
+  const nextDay = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  let cleaned = 0;
+  while (true) {
+    const { rows: logs } = await db._pool.query(`
+      SELECT id, assignment_id FROM fro_donor_logs
+      WHERE notes ILIKE 'Auto-credited from imported receipt%'
+        AND transaction_datetime::date >= $1 AND transaction_datetime::date < $2
+      LIMIT 1000
+    `, [from, nextDay]);
+    const rows = logs || [];
+    if (rows.length === 0) break;
+    const ids = rows.map(r => r.id);
+    const assignmentIds = [...new Set(rows.map(r => r.assignment_id).filter(Boolean))];
+    try { await db.from('notification_log').delete().in('fro_donor_log_id', ids); } catch (e) { console.warn('notification_log cleanup skipped:', e.message); }
+    const { data: deleted } = await db.from('fro_donor_logs').delete().in('id', ids).select('id');
+    cleaned += deleted?.length || 0;
+    if (assignmentIds.length > 0) {
+      const { error } = await db.from('fro_assignments')
+        .update({ status: 'pending', updated_at: new Date().toISOString() })
+        .in('id', assignmentIds)
+        .eq('status', 'donation_collected');
+      if (error) console.warn('assignment reopen skipped:', error.message);
+    }
+  }
+  return cleaned;
+};
+
+const clearReceiptsByDate = async (from, to) => {
+  let deleted = 0, deletedLogs = 0;
+  const affected = new Set();
+  while (true) {
+    const { data: rows } = await db
+      .from('receipts')
+      .select('id, log_id, donor_id')
+      .neq('id', 0)
+      .gte('receipt_date', from)
+      .lte('receipt_date', to)
+      .limit(1000);
+    const batchRows = rows || [];
+    if (batchRows.length === 0) break;
+    const ids = batchRows.map(r => r.id);
+    const { data: delRows } = await db
+      .from('receipts')
+      .delete()
+      .in('id', ids)
+      .select('id, log_id, donor_id');
+    const rowsOut = delRows || [];
+    deleted += rowsOut.length;
+    for (const r of rowsOut) if (r.donor_id) affected.add(r.donor_id);
+    deletedLogs += await deleteLinkedLogs(rowsOut.map(r => r.log_id).filter(Boolean));
+  }
+  const cleanedAutoCredits = await cleanupDayAutoCredits(from, to);
+  const recomputed = await recomputeDonorTotals([...affected]);
+  const { count } = await db
+    .from('receipts')
+    .select('*', { count: 'exact', head: true })
+    .gte('receipt_date', from)
+    .lte('receipt_date', to);
+  return { deleted, remaining: count || 0, recomputedDonors: recomputed, deletedLogs, cleanedAutoCredits };
+};
+
 export const clearReceipts = async (req, res) => {
   try {
     const batch = req.query.batch ? parseInt(req.query.batch) : null;
     const shouldReverse = req.query.reverse === '1';
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+
+    if (from) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return res.status(400).json({ message: 'from must be in YYYY-MM-DD format' });
+      if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) return res.status(400).json({ message: 'to must be in YYYY-MM-DD format' });
+      const result = await clearReceiptsByDate(from, to || from);
+      return res.json({ ...result, total: result.deleted + result.remaining });
+    }
 
     const reversed = batch ? (shouldReverse ? await reverseDonorTotals() : 0) : await reverseDonorTotals();
     const cleanedAutoCredits = (batch ? shouldReverse : true) ? await cleanupImportAutoCredits() : 0;
