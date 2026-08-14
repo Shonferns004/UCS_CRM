@@ -24,7 +24,7 @@ export const getUnlinkedReceipts = async () => {
   // must not also appear in the suspense pool.
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
-           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.created_at
+           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
@@ -90,7 +90,7 @@ export const deleteSource = async (id) => {
 export const getEntries = async (filters = {}) => {
   let query = db
     .from('bank_audit_entries')
-    .select('*, bank_audit_sources(name), receipts!receipt_id(id, receipt_no, log_id, donor_id, agent_name, donor_name, donor_mobile, fro_donor_logs!receipts_log_id_fkey(id, amount_collected))')
+    .select('*, bank_audit_sources(name), receipts!receipt_id(id, receipt_no, log_id, donor_id, agent_name, donor_name, donor_mobile, mode, bank_name, fro_donor_logs!receipts_log_id_fkey(id, amount_collected))')
     .order('transaction_date', { ascending: false })
     .order('payment_time', { ascending: false });
 
