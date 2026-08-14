@@ -805,6 +805,48 @@ export const claimSuspenseReceipt = async (req, res) => {
       return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
     }
 
+    // Best-effort real-donor resolution: when the FRO supplies a UPI
+    // transaction id, match it against collected leads (preferring this FRO's
+    // own) so the claim links to the canonical donor profile even when the
+    // bank spells the payer's name differently. No match is fine — the claim
+    // falls through to the normal pick/create below.
+    const claimUpiId = (upi_transaction_id || '').trim();
+    if (claimUpiId) {
+      let upiLogs = [];
+      try {
+        const { rows } = await db._pool.query(
+          `SELECT id, donor_id, fro_worker_id, transaction_datetime
+           FROM fro_donor_logs
+           WHERE upper(trim(upi_transaction_id)) = upper(trim($1))
+             AND donor_id IS NOT NULL
+           ORDER BY (fro_worker_id = $2) DESC, created_at DESC`,
+          [claimUpiId, workerId]
+        );
+        upiLogs = rows || [];
+      } catch (e) {
+        console.error('Suspense claim UPI donor lookup failed:', e.message);
+      }
+      if (upiLogs.length > 0) {
+        let matchLog = upiLogs[0];
+        if (transaction_datetime) {
+          const claimDate = new Date(transaction_datetime).toDateString();
+          const sameDay = upiLogs.find(l =>
+            l.transaction_datetime && new Date(l.transaction_datetime).toDateString() === claimDate
+          );
+          if (sameDay) matchLog = sameDay;
+        }
+        const { data: upiDonor } = await db
+          .from('donor_profiles')
+          .select('id, name')
+          .eq('id', matchLog.donor_id)
+          .maybeSingle();
+        if (upiDonor) {
+          donorId = upiDonor.id;
+          donorName = upiDonor.name;
+        }
+      }
+    }
+
     // Resolve the donor: prefer an explicit donor_id (selected from the FRO's
     // own donor search); otherwise resolve by name (create a profile if none
     // matches) so the claimed receipt and its pending lead can be linked.
@@ -836,6 +878,13 @@ export const claimSuspenseReceipt = async (req, res) => {
         donorId = createdDonor.id;
       }
     }
+
+    const { data: resolvedDonor } = await db
+      .from('donor_profiles')
+      .select('name')
+      .eq('id', donorId)
+      .maybeSingle();
+    const claimedDonorName = resolvedDonor?.name || donorName || 'a donor';
 
     // Only allow claiming for a donor allotted to this FRO's station scope
     // (enforced for donors selected from the FRO's own donor search).
@@ -890,13 +939,13 @@ export const claimSuspenseReceipt = async (req, res) => {
             worker_id: u.id,
             type: 'claim_requested',
             title: 'Suspense Claim',
-            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${receipt.donor_name || 'a donor'} — ready to verify.`,
+            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${claimedDonorName} — ready to verify.`,
             sent_at: new Date().toISOString(),
           });
         }
       } catch (e) { console.error('Claim notification error:', e.message); }
       findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
-      return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
+      return res.status(201).json({ message: `Claimed for ${claimedDonorName} — added to your existing pending lead`, log_id: existingPendingLead.id });
     }
 
     // Resolve the receipt's project_id to an ngo_id first — the assignment must
@@ -979,7 +1028,7 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
 
-    return res.status(201).json({ message: 'Claim submitted; it is now pending in Lead Verification', log_id: log.id });
+    return res.status(201).json({ message: `Claimed for ${claimedDonorName} — pending in Lead Verification`, log_id: log.id });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

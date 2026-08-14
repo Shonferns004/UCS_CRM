@@ -54,7 +54,7 @@ export const getLeadList = async (req, res) => {
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
-        .select('id, receipt_no, donor_id, donor_mobile, log_id')
+        .select('id, receipt_no, donor_id, donor_mobile, donor_name, log_id')
         .in('log_id', logIds);
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
@@ -101,6 +101,7 @@ export const getLeadList = async (req, res) => {
       assignment_status: r.fro_assignments?.status || 'lead_done',
       donor_id: r.fro_assignments?.donor_id,
       donor_name: r.fro_assignments?.donor_profiles?.name || 'Unknown',
+      audit_name: receiptMap[r.id]?.donor_name || r.fro_assignments?.donor_profiles?.bank_donor_name || '',
       donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || receiptMap[r.id]?.donor_mobile || '',
       donor_city: r.fro_assignments?.donor_profiles?.city || '',
       donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
