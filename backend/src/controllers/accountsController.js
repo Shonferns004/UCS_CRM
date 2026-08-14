@@ -323,6 +323,8 @@ export const verifyLead = async (req, res) => {
       // claim). Link it to the verified donor and mark its bank audit entry done.
       const receiptPatch = {
         donor_id: donorId,
+        donor_name: donorProfile?.name || existing.donor_name || 'Unknown',
+        donor_mobile: donorProfile?.mobile_number || existing.donor_mobile || null,
         bank_name: donorProfile?.donors_bank_name || null,
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
       };
