@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { getNextReceiptNo } from '../models/bankAuditModel.js';
+import { getNextReceiptNo, projectCodeFromNgoId } from '../models/bankAuditModel.js';
 import { findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from './fcmService.js';
 
@@ -33,7 +33,8 @@ export const confirmMatchCredit = async (entryId, actorId) => {
     .select(`
       id, amount_collected, action, disposition_detail, accounts_status, fro_worker_id, payment_mode,
       fro_assignments!inner(
-        id, fro_worker_id, donor_id,
+        id, fro_worker_id, donor_id, ngo_id,
+        ngos(name),
         donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name),
         workers!left(id, name)
       )
@@ -50,6 +51,14 @@ export const confirmMatchCredit = async (entryId, actorId) => {
 
   const logProcessed = log.accounts_status !== 'pending';
   const existingLogReceipt = logProcessed ? await findReceiptByLogId(log.id) : null;
+
+  // The NGO the matched lead is assigned under decides the receipt project and
+  // therefore the receipt-number sequence. donor_profiles.project_supported is
+  // often unset, and the 'bsct' default is what made Ashray money take the next
+  // number from the BSCT sequence.
+  let project = donor?.project_supported || entry.project_id || 'bsct';
+  try { project = await projectCodeFromNgoId(assignment?.ngo_id) || project; }
+  catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
 
   const amount = Number(entry.amount || 0);
   const now = new Date().toISOString();
@@ -113,13 +122,13 @@ export const confirmMatchCredit = async (entryId, actorId) => {
     let receipt = null;
     const mode = log.payment_mode || donor.mop || (entry.payment_id ? 'UPI' : 'Bank');
     if (entry.receipt_id) {
-      const { data: existingRcpt } = await from('receipts').select('donor_name, bank_payer_name').eq('id', entry.receipt_id).maybeSingle();
+      const { data: existingRcpt } = await from('receipts').select('donor_name, bank_payer_name, project_id').eq('id', entry.receipt_id).maybeSingle();
       const profileName = donor.name || null;
       const oldPayerName = existingRcpt?.donor_name && existingRcpt.donor_name !== profileName ? existingRcpt.donor_name : entry.payer_name || null;
       const { data: updated } = await from('receipts').update({
         donor_id: donorId,
         log_id: log.id,
-        project_id: donor.project_supported || entry.project_id || 'bsct',
+        project_id: existingRcpt?.project_id || project,
         donor_name: donor.name || entry.payer_name || null,
         bank_payer_name: existingRcpt?.bank_payer_name || oldPayerName || null,
         donor_mobile: donor.mobile_number || null,
@@ -135,7 +144,7 @@ export const confirmMatchCredit = async (entryId, actorId) => {
       if (updated.receipt_no) {
         receipt = updated;
       } else {
-        const receiptNo = await getNextReceiptNo(donor.project_supported || entry.project_id || 'bsct');
+        const receiptNo = await getNextReceiptNo(existingRcpt?.project_id || project);
         const { data: numbered } = await from('receipts').update({ receipt_no: receiptNo }).eq('id', entry.receipt_id).select().single();
         receipt = numbered;
       }
@@ -149,11 +158,11 @@ export const confirmMatchCredit = async (entryId, actorId) => {
       }).eq('id', existingLogReceipt.id).select().single();
       receipt = updated;
     } else {
-      const receiptNo = await getNextReceiptNo(donor.project_supported || entry.project_id || 'bsct');
+      const receiptNo = await getNextReceiptNo(project);
       const { data: created } = await from('receipts').insert({
         log_id: logProcessed ? null : log.id,
         receipt_no: receiptNo,
-        project_id: donor.project_supported || entry.project_id || 'bsct',
+        project_id: project,
         donor_name: donor.name || entry.payer_name || 'Unknown',
         donor_mobile: donor.mobile_number || null,
         pan_number: donor.pan_number || entry.donor_pan || null,

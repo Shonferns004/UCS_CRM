@@ -388,12 +388,6 @@ export const addEntry = async (req, res) => {
       return res.status(400).json({ message: 'Source, amount, and transaction date are required' });
     }
 
-    const ngo = project_id || 'bsct';
-
-    // When a lead log is picked, its donor + FRO become authoritative; the
-    // receipt is linked (log_id + donor_id) and the lead is verified. If the
-    // lead is already claimed (linked to a suspense receipt), reuse that
-    // receipt instead of creating a duplicate for the same money.
     const link = await resolveLogLink({ log_id, actorId: req.user.id });
 
     let receiptId = link?.existing_receipt_id || null;
@@ -403,6 +397,11 @@ export const addEntry = async (req, res) => {
     // the donor profile is the authoritative source for donor details (DB name,
     // not the text typed into the audit form).
     const pickedDonor = await fetchDonorProfile(donor_id);
+
+    // The receipt's project decides its number sequence. The linked receipt /
+    // picked donor win; the form value is next; never silently force 'bsct'
+    // (that is what gave Ashray money the next BSCT number).
+    const ngo = link?.receipt?.project_id || pickedDonor?.project_supported || project_id || 'bsct';
 
     // Donor-derived fields for the receipt + bank_audit_entries row. A linked
     // lead wins; a picked donor profile is next; otherwise fall back to the
@@ -789,7 +788,7 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
     ...donorProfileReceipt(donor),
     log_id: log.id,
     agent_name: worker?.name || null,
-    project_id: donor.project_supported || receipt.project_id || 'bsct',
+    project_id: receipt.project_id || donor.project_supported || 'bsct',
     mode: log.payment_mode || donor.mop || 'Bank',
   };
   if (!receiptPatch.donor_name) receiptPatch.donor_name = receipt.donor_name || null;
