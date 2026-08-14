@@ -649,6 +649,94 @@ export const listAvailableEntries = async (req, res) => {
   }
 };
 
+const SUSPENSE_PREFIX = 'suspense-';
+
+// Manually link a suspense receipt (money with no donor yet) to a lead WITHOUT
+// verifying it. The lead stays 'pending'; the admin later clicks Verify, and the
+// existing verifyLead flow claims the linked receipt (via log_id) and generates
+// it into receipts. Mirrors the entry manual-match semantics: matched now,
+// credited/verified later.
+const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
+  const receiptId = parseInt(rawId.slice(SUSPENSE_PREFIX.length), 10);
+  if (isNaN(receiptId)) throw Object.assign(new Error('Invalid suspense receipt id'), { status: 400 });
+
+  const { data: receipt, error: rErr } = await db
+    .from('receipts')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name')
+    .eq('id', receiptId)
+    .is('donor_id', null)
+    .is('log_id', null)
+    .maybeSingle();
+  if (rErr) throw rErr;
+  if (!receipt) throw Object.assign(new Error('Suspense receipt not found'), { status: 404 });
+
+  const log = await getClaimableLog(logId);
+  if (!log) throw Object.assign(new Error('Selected lead not found'), { status: 404 });
+  if (log.existing_receipt_id && log.existing_receipt_id !== receiptId) {
+    throw Object.assign(new Error('Selected lead is already linked to a receipt'), { status: 409 });
+  }
+
+  const donor = log.fro_assignments?.donor_profiles || {};
+  const worker = log.fro_assignments?.workers || {};
+  if (!donor.id) throw Object.assign(new Error('Selected lead has no donor info'), { status: 400 });
+
+  const matchNo = await BankAudit.nextMatchNo();
+
+  const receiptPatch = {
+    ...donorProfileReceipt(donor),
+    log_id: log.id,
+    agent_name: worker?.name || null,
+    project_id: donor.project_supported || receipt.project_id || 'bsct',
+    mode: log.payment_mode || donor.mop || 'Bank',
+  };
+  if (!receiptPatch.donor_name) receiptPatch.donor_name = receipt.donor_name || null;
+
+  const { data, error } = await db
+    .from('receipts')
+    .update(receiptPatch)
+    .eq('id', receiptId)
+    .is('donor_id', null)
+    .is('log_id', null)
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, payment_id, project_id, agent_name, donor_id, log_id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw Object.assign(new Error('Suspense receipt already claimed'), { status: 409 });
+
+  // Fill the lead's empty payment fields from the receipt (mirror of syncEntryToLead).
+  const { data: leadPay } = await db
+    .from('fro_donor_logs')
+    .select('upi_transaction_id, payment_from, transaction_datetime, payment_mode')
+    .eq('id', logId)
+    .maybeSingle();
+  const patch = {};
+  if (leadPay) {
+    if (!leadPay.upi_transaction_id && receipt.payment_id) patch.upi_transaction_id = receipt.payment_id;
+    if (!leadPay.payment_from && receipt.donor_name) patch.payment_from = receipt.donor_name;
+    if (!leadPay.transaction_datetime && receipt.receipt_date) patch.transaction_datetime = receipt.receipt_date;
+    if (!leadPay.payment_mode) patch.payment_mode = receipt.payment_id ? 'UPI' : 'Bank Transfer';
+  }
+  if (Object.keys(patch).length > 0) {
+    await db.from('fro_donor_logs').update(patch).eq('id', logId);
+  }
+
+  // Keep any linked bank_audit_entries row in sync (rare for pool suspense).
+  const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receiptId).maybeSingle();
+  if (entry) {
+    await db.from('bank_audit_entries').update({
+      matched_lead_log_id: logId,
+      match_status: 'matched',
+      match_source: 'manual',
+      matched_by: actorId,
+      match_no: matchNo,
+      matched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...donorProfileEntry(donor),
+    }).eq('id', entry.id);
+  }
+
+  return { receipt: data, match_no: matchNo, matched: true };
+};
+
 // Link an entry to a lead as a MANUAL match (no credit yet). The credit happens
 // later through the bank audit Confirm Match or the lead's verify action.
 export const manualMatch = async (req, res) => {
@@ -656,6 +744,11 @@ export const manualMatch = async (req, res) => {
     const { id } = req.params;
     const { log_id: logId } = req.body || {};
     if (!logId) return res.status(400).json({ message: 'log_id is required' });
+
+    if (String(id).startsWith(SUSPENSE_PREFIX)) {
+      const result = await manualMatchSuspense({ rawId: String(id), logId, actorId: req.user.id });
+      return res.json(result);
+    }
 
     const { data: entry, error: entryErr } = await db
       .from('bank_audit_entries')
@@ -672,7 +765,8 @@ export const manualMatch = async (req, res) => {
     const result = await BankAudit.manualMatchEntry(id, logId, req.user.id);
     return res.json(result);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    const status = error.status || 500;
+    return res.status(status).json({ message: error.message });
   }
 };
 
