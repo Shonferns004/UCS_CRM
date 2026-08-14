@@ -435,8 +435,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     setWr(merged);
   })}},[sa,se,wr.length]);
 
-  async function load(dt,stv,day){
-    const s=stv||srRef.current;setLd(true);setEr('');
+  async function load(dt,stv,day,silent){
+    const s=stv||srRef.current;if(!silent)setLd(true);setEr('');
     try{
       const p=new URLSearchParams();
       if(day){p.set('date_from',day);p.set('date_to',day)}
@@ -450,8 +450,11 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   }
   useEffect(()=>{load(sd,st,dd)},[sd,dd,st]);
   useEffect(()=>{onAmounts?.(e.map(x=>Number(x.amount)).filter(Number.isFinite))},[e,onAmounts]);
-  useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
-  useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
+  const rtTimerRef=useRef(null);
+  const rtLoad=()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current);rtTimerRef.current=setTimeout(()=>load(sd,srRef.current,dd,true),400)};
+  useEffect(()=>()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current)},[]);
+  useRealtime('bank_audit_entries',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
+  useRealtime('receipts',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
 
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],mann:['mann','manncar','mann care'],aflf:['aflf','ashray']};
   const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};
