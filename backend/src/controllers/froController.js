@@ -190,19 +190,26 @@ async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
   return allData;
 }
 
-// Fetches donation evidence scoped to a worker's own NGO assignments. Logs are
-// matched by assignment_id (fro_assignments.ngo_id already reflects the NGO)
-// and imported receipts by (donor_id, project_id) where project_id = the NGO
-// name lowercased. This prevents one shared donor_profiles row (same mobile
-// number under several NGOs) from leaking another NGO's receipts into the FRO's
-// views. Returns per-assignment/per-project sets keyed by assignment id and
-// "donor_id|project" so callers can build NGO-scoped flags and row totals.
-async function fetchScopedDonationEvidence({ assignmentIds, donorIds, projectSet, oneYearAgo, currentMonthStart }) {
+// Fetches donation evidence for the worker's assignments. Logs are matched by
+// assignment_id (fro_assignments.ngo_id already reflects the NGO the worker is
+// allocated to); imported receipts are matched by (donor_id, project_id) where
+// project_id = the NGO name lowercased — so a donation only counts toward the
+// exact NGO the FRO holds the donor in, never leaking across NGOs. The "current
+// period" flag is sized to the donor's frequency (monthly / quarterly /
+// half_yearly / yearly / one_time) and dated from the actual donation date
+// (transaction_datetime -> verified_at -> created_at), not the log's created_at.
+// Returns per-assignment sets (keyed by assignment id) plus per-(donor, project)
+// receipt sets so callers can build NGO-scoped flags and row totals.
+async function fetchScopedDonationEvidence({ assignments, donorIds, projectSet, oneYearAgo }) {
+  const assignmentIds = (assignments || []).map(a => a.id);
+  const assignmentDonorMap = new Map();
+  for (const a of assignments || []) assignmentDonorMap.set(a.id, a.donor_id);
+
   const logRows = (assignmentIds && assignmentIds.length > 0)
     ? await chunkedInQuery(assignmentIds, chunk => {
         let q = db
           .from('fro_donor_logs')
-          .select('assignment_id, accounts_status, action, disposition_detail, created_at')
+          .select('assignment_id, accounts_status, action, disposition_detail, created_at, transaction_datetime, verified_at')
           .in('assignment_id', chunk)
           .gte('created_at', oneYearAgo);
         return q;
@@ -219,13 +226,21 @@ async function fetchScopedDonationEvidence({ assignmentIds, donorIds, projectSet
       )
     : [];
 
+  const donorTypeMap = {};
+  if (donorIds && donorIds.length > 0) {
+    const profiles = await chunkedInQuery(donorIds, chunk =>
+      db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', chunk)
+    );
+    for (const p of profiles || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
+  }
+
   const activeAssignmentIds = new Set();
-  const monthDonatedAssignmentIds = new Set();
-  const monthVerifiedAssignmentIds = new Set();
+  const periodDonatedAssignmentIds = new Set();
+  const periodVerifiedAssignmentIds = new Set();
   const verifiedAssignmentIds = new Set();
 
   const sinceDate = new Date(oneYearAgo);
-  const monthDate = new Date(currentMonthStart);
+  const now = new Date();
 
   for (const l of logRows || []) {
     const isDonation = l.action === 'donation';
@@ -233,34 +248,57 @@ async function fetchScopedDonationEvidence({ assignmentIds, donorIds, projectSet
     if (!isDonation && !isLeadDoneVerified) continue;
     activeAssignmentIds.add(l.assignment_id);
     if (l.accounts_status === 'verified') verifiedAssignmentIds.add(l.assignment_id);
-    if (l.created_at && new Date(l.created_at) >= monthDate) {
-      monthDonatedAssignmentIds.add(l.assignment_id);
-      if (l.accounts_status === 'verified') monthVerifiedAssignmentIds.add(l.assignment_id);
+    const donorId = assignmentDonorMap.get(l.assignment_id);
+    const periodStart = periodStartForType(donorTypeMap[donorId] || '', now);
+    const donationDate = new Date(l.transaction_datetime || l.verified_at || l.created_at);
+    if (!isNaN(donationDate) && donationDate >= periodStart) {
+      periodDonatedAssignmentIds.add(l.assignment_id);
+      if (l.accounts_status === 'verified') periodVerifiedAssignmentIds.add(l.assignment_id);
     }
   }
 
   const receiptPairs = new Set();
   const receiptRecentPairs = new Set();
-  const receiptMonthPairs = new Set();
+  const receiptPeriodPairs = new Set();
   for (const r of receiptRows || []) {
     const key = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
     receiptPairs.add(key);
     if (r.receipt_date) {
       const d = new Date(r.receipt_date);
       if (d >= sinceDate) receiptRecentPairs.add(key);
-      if (d >= monthDate) receiptMonthPairs.add(key);
+      if (d >= periodStartForType(donorTypeMap[r.donor_id] || '', now)) receiptPeriodPairs.add(key);
     }
   }
 
   return {
     activeAssignmentIds,
-    monthDonatedAssignmentIds,
-    monthVerifiedAssignmentIds,
+    periodDonatedAssignmentIds,
+    periodVerifiedAssignmentIds,
     verifiedAssignmentIds,
     receiptPairs,
     receiptRecentPairs,
-    receiptMonthPairs,
+    receiptPeriodPairs,
   };
+}
+
+// Start of the current donation window for a donor's frequency. Defaults to the
+// current calendar month for monthly/unknown donors.
+function periodStartForType(type, now = new Date()) {
+  const t = (type || '').toLowerCase();
+  if (t === 'quarterly') {
+    const q = Math.floor(now.getMonth() / 3);
+    return new Date(now.getFullYear(), q * 3, 1, 0, 0, 0, 0);
+  }
+  if (t === 'half_yearly') {
+    return new Date(now.getFullYear(), now.getMonth() < 6 ? 0 : 6, 1, 0, 0, 0, 0);
+  }
+  if (t === 'yearly') {
+    return new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+  }
+  if (t === 'one_time') {
+    return new Date(2000, 0, 1, 0, 0, 0, 0);
+  }
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 }
 
 function getMonthRange(dateStr) {
@@ -1249,18 +1287,13 @@ export const getMyDonors = async (req, res) => {
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
 
-    const workerAssignmentIds = assignments.map(a => a.id);
     const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
     const evidence = await fetchScopedDonationEvidence({
-      assignmentIds: workerAssignmentIds,
+      assignments,
       donorIds: [...new Set(assignments.map(a => a.donor_id))],
       projectSet,
       oneYearAgo: oneYearAgo.toISOString(),
-      currentMonthStart: currentMonthStart.toISOString(),
     });
 
     let donorIds = [...new Set(assignments.map(a => a.donor_id))];
@@ -1290,8 +1323,8 @@ export const getMyDonors = async (req, res) => {
 
     // NGO-scoped flags: logs belong to the worker's assignments (which carry
     // the NGO) and receipts are matched by (donor_id, project_id) where
-    // project_id = the NGO name lowercased. A donor shared across NGOs never
-    // leaks another NGO's donations into this worker's list.
+    // project_id = the NGO name lowercased. A donation only counts toward the
+    // exact NGO the worker holds the donor in — never leaking across NGOs.
     const projectOf = a => (a.ngos?.name ? a.ngos.name.toLowerCase() : '');
     const activeSet = new Set();
     const monthDonatedSet = new Set();
@@ -1300,8 +1333,8 @@ export const getMyDonors = async (req, res) => {
     for (const a of assignments) {
       const pair = `${a.donor_id}|${projectOf(a)}`;
       if (evidence.activeAssignmentIds.has(a.id) || evidence.receiptRecentPairs.has(pair)) activeSet.add(a.id);
-      if (evidence.monthDonatedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair)) monthDonatedSet.add(a.id);
-      if (evidence.monthVerifiedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair)) monthVerifiedSet.add(a.id);
+      if (evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair)) monthDonatedSet.add(a.id);
+      if (evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair)) monthVerifiedSet.add(a.id);
       if (evidence.activeAssignmentIds.has(a.id) || evidence.receiptPairs.has(pair)) hasScopedSet.add(a.id);
     }
 
@@ -2641,7 +2674,7 @@ export const getDonorHistory = async (req, res) => {
       .maybeSingle();
 
     // Also fetch receipts linked directly via donor_id (imported receipts),
-    // scoped to the worker's NGO assignments (project_id = ngo name lowercase)
+    // scoped to the (donor, NGO) assignments the worker holds for this donor.
     let receipts = [];
     if (projectSet.length > 0) {
       const { data: scopedReceipts } = await db
@@ -2962,17 +2995,12 @@ export const searchDonors = async (req, res) => {
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
-    const scopedAssignIds = scopedAssignments.map(a => a.id);
     const projectSet = [...new Set(scopedAssignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
     const evidence = await fetchScopedDonationEvidence({
-      assignmentIds: scopedAssignIds,
+      assignments: scopedAssignments,
       donorIds: matchedIds,
       projectSet,
       oneYearAgo: oneYearAgo.toISOString(),
-      currentMonthStart: currentMonthStart.toISOString(),
     });
 
     const result = [];
@@ -3005,8 +3033,8 @@ export const searchDonors = async (req, res) => {
           donor_address: d.address_1 || '',
           donation_count: hasScoped ? (d.donation_count || 0) : 0,
           total_donated: hasScoped ? (d.total_amount || 0) : 0,
-          has_donated_current_month: evidence.monthDonatedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair),
-          has_verified_donation_current_month: evidence.monthVerifiedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair),
+          has_donated_current_month: evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
+          has_verified_donation_current_month: evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
           status: a.status || 'pending',
         });
       }
@@ -3066,7 +3094,7 @@ export const getFullDonorHistory = async (req, res) => {
     if (error) throw error;
 
     // Also fetch receipts linked directly via donor_id (imported receipts),
-    // scoped to the worker's NGO assignments (project_id = ngo name lowercase)
+    // scoped to the (donor, NGO) assignments the worker holds for this donor.
     let receipts = [];
     if (projectSet.length > 0) {
       const { data: scopedReceipts } = await db

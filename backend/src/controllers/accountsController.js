@@ -78,7 +78,7 @@ export const getLeadList = async (req, res) => {
 
       const { data: matchedEntries, error: matchErr } = await db
         .from('bank_audit_entries')
-        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, donor_pan, donor_address_1, donor_address_2')
         .in('matched_lead_log_id', logIds)
         .in('match_status', ['matched', 'confirmed']);
       if (!matchErr) {
@@ -90,7 +90,12 @@ export const getLeadList = async (req, res) => {
       }
     }
 
-    const result = (data || []).map(r => ({
+    const result = (data || []).map(r => {
+      const profile = r.fro_assignments?.donor_profiles || {};
+      const match = leadMatchMap[r.id] || null;
+      const profileAddr = [profile.address_1, profile.address_2].filter(Boolean).join(', ');
+      const matchAddr = match ? [match.donor_address_1, match.donor_address_2].filter(Boolean).join(', ') : '';
+      return {
       log_id: r.id,
       amount: r.amount_collected,
       screenshot_url: r.payment_screenshot_url,
@@ -108,15 +113,16 @@ export const getLeadList = async (req, res) => {
       audit_name: receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || entryPayerMap[receiptMap[r.id]?.id] || r.fro_assignments?.donor_profiles?.bank_donor_name || '',
       donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || receiptMap[r.id]?.donor_mobile || '',
       donor_city: r.fro_assignments?.donor_profiles?.city || '',
-      donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
-      donor_address: r.fro_assignments?.donor_profiles?.address_1 || '',
+      donor_pan: profile.pan_number || match?.donor_pan || r.pan_number || '',
+      donor_address: profileAddr || matchAddr || '',
+      donor_address_2: profile.address_2 || match?.donor_address_2 || '',
       donor_email: r.fro_assignments?.donor_profiles?.email || '',
       donor_bank_name: r.fro_assignments?.donor_profiles?.donors_bank_name || '',
       donor_project: (r.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : r.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : r.fro_assignments?.ngos?.name === 'MANN' ? 'mann' : r.fro_assignments?.donor_profiles?.project_supported) || '',
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
-      upi_transaction_id: r.upi_transaction_id || null,
+      upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || null),
       transaction_datetime: r.transaction_datetime || null,
       payment_from: r.payment_from || null,
       payment_mode: r.payment_mode || null,
@@ -128,16 +134,17 @@ export const getLeadList = async (req, res) => {
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
       received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
-      bank_match: leadMatchMap[r.id]
+      bank_match: match
         ? {
-            entry_id: leadMatchMap[r.id].id,
-            match_status: leadMatchMap[r.id].match_status,
-            match_source: leadMatchMap[r.id].match_source || 'auto',
-            match_no: leadMatchMap[r.id].match_no || null,
-            match_score: leadMatchMap[r.id].match_score || null,
+            entry_id: match.id,
+            match_status: match.match_status,
+            match_source: match.match_source || 'auto',
+            match_no: match.match_no || null,
+            match_score: match.match_score || null,
           }
         : null,
-    }));
+    };
+    });
 
     return res.json(result);
   } catch (error) {
@@ -726,7 +733,7 @@ export const goBackLead = async (req, res) => {
         try { await db.from('receipts').delete().eq('id', receipt.id); }
         catch (err) { console.error('Failed to delete verification receipt on go-back:', err.message); }
       } else {
-        try { await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id); }
+        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
         catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
       }
     }
@@ -840,10 +847,11 @@ export const undoLeadVerification = async (req, res) => {
       } catch (err) { console.error('Failed to reverse donor totals on undo:', err.message); }
     }
 
-    // Unlink the receipt from the donor/lead (kept, not deleted).
+    // Unlink the receipt from the donor/lead (kept, not deleted) and drop its
+    // number so it returns to the claim pool as a fresh, unnumbered receipt.
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
-      try { await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id); }
+      try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
       catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
     }
 
