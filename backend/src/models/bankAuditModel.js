@@ -25,7 +25,7 @@ export const getUnlinkedReceipts = async () => {
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
            r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
-           r.pan_number, r.address, r.donor_email
+           r.pan_number, r.address, r.email
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
@@ -478,7 +478,7 @@ export const enrichDonorProfileFromReceipt = async (donorId, receipt) => {
   const patch = {};
   if (isEmptyValue(profile.pan_number) && !isEmptyValue(receipt.pan_number)) patch.pan_number = String(receipt.pan_number).trim();
   if (isEmptyValue(profile.address_1) && !isEmptyValue(receipt.address)) patch.address_1 = String(receipt.address).trim();
-  if (isEmptyValue(profile.email) && !isEmptyValue(receipt.donor_email)) patch.email = String(receipt.donor_email).trim();
+  if (isEmptyValue(profile.email) && !isEmptyValue(receipt.email)) patch.email = String(receipt.email).trim();
   if (isEmptyValue(profile.mobile_number) && !isEmptyValue(receipt.donor_mobile)) patch.mobile_number = String(receipt.donor_mobile).trim();
   if (isEmptyValue(profile.mop) && !isEmptyValue(receipt.mode)) patch.mop = String(receipt.mode).trim();
   if (Object.keys(patch).length === 0) return;
