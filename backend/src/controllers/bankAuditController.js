@@ -194,6 +194,8 @@ export const listEntries = async (req, res) => {
         e.log_id = r.log_id || null;
         e.donor_id = r.donor_id || null;
         e.donor_name = r.donor_name || null;
+        e.mode = r.mode || null;
+        e.bank_name = r.bank_name || null;
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
@@ -295,6 +297,8 @@ export const listEntries = async (req, res) => {
           payment_id: r.payment_id || null,
           payer_name: r.donor_name,
           agent_name: r.agent_name,
+          mode: r.mode || null,
+          bank_name: r.bank_name || null,
           remarks: r.receipt_no ? `Suspense receipt ${r.receipt_no}` : 'Suspense receipt',
           source_id: null,
           bank_audit_sources: { name: 'Suspense Receipt' },
@@ -312,7 +316,7 @@ export const listEntries = async (req, res) => {
 
 export const addEntry = async (req, res) => {
   try {
-    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id } = req.body;
+    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id, mode } = req.body;
     if (!source_id || !amount || !transaction_date) {
       return res.status(400).json({ message: 'Source, amount, and transaction date are required' });
     }
@@ -368,6 +372,7 @@ export const addEntry = async (req, res) => {
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
         ...donorFields,
+        mode: req.body.mode || donorFields.mode || null,
         payment_id: payment_id || null,
         receipt_date: transaction_date,
         receipt_time: payment_time || null,
@@ -387,6 +392,7 @@ export const addEntry = async (req, res) => {
         donor_name: donorName || 'Unknown',
         agent_name: suspenseAgent,
         ...donorFields,
+        mode: req.body.mode || donorFields.mode || null,
         log_id: link?.receipt.log_id || null,
         amount,
         payment_id: payment_id || null,
@@ -430,7 +436,7 @@ export const addEntry = async (req, res) => {
 export const editEntry = async (req, res) => {
   try {
     const { id } = req.params;
-    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id } = req.body;
+    const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id, mode } = req.body;
     const updates = {};
     if (source_id !== undefined) updates.source_id = source_id;
     if (amount !== undefined) updates.amount = amount;
@@ -470,6 +476,7 @@ export const editEntry = async (req, res) => {
     if (existing.receipt_id) {
       const receiptUpdate = {};
       if (amount !== undefined) receiptUpdate.amount = amount;
+      if (mode !== undefined) receiptUpdate.mode = mode || null;
       if (link) {
         Object.assign(receiptUpdate, link.receipt);
         if (!receiptUpdate.project_id) receiptUpdate.project_id = project_id || 'bsct';
@@ -535,7 +542,7 @@ export const removeEntry = async (req, res) => {
 export const editSuspenseReceipt = async (req, res) => {
   try {
     const { id } = req.params;
-    const { donor_name, donor_mobile, amount, receipt_date, payment_id, project_id, agent_name, log_id } = req.body;
+    const { donor_name, donor_mobile, amount, receipt_date, payment_id, project_id, agent_name, log_id, mode } = req.body;
     const numId = parseInt(id, 10);
     if (isNaN(numId)) return res.status(400).json({ message: 'Invalid suspense receipt id' });
 
@@ -566,6 +573,7 @@ export const editSuspenseReceipt = async (req, res) => {
     if (amount !== undefined) updates.amount = amount;
     if (receipt_date !== undefined) updates.receipt_date = receipt_date;
     if (payment_id !== undefined) updates.payment_id = payment_id;
+    if (mode !== undefined) updates.mode = mode || null;
 
     const { data, error } = await db
       .from('receipts')

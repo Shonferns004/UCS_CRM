@@ -26,7 +26,7 @@ const IMPORT_FIELDS = {
   address: ['address', 'address1'],
   city: ['city'],
   payment_id: ['paymentid', 'paymentidno', 'transactionid', 'transactionno', 'utr'],
-  bank_name: ['bankname', 'donorbankname'],
+  bank_name: ['bankname', 'donorbankname', 'receivedbank', 'receivedbankname'],
   agent_name: ['fsename', 'agentname', 'agent', 'fro'],
 };
 
