@@ -110,7 +110,7 @@ const linkSuspenseToLead = async (receipt, lead) => {
     donor_name: donor.name || receipt.donor_name || null,
     donor_mobile: donor.mobile_number || null,
     agent_name: worker?.name || null,
-    project_id: donor.project_supported || receipt.project_id || 'bsct',
+    project_id: receipt.project_id || donor.project_supported || 'bsct',
     pan_number: donor.pan_number || null,
     address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
     email: donor.email || null,
