@@ -2023,7 +2023,7 @@ export const importReceipts = async (req, res) => {
                 // the DB) → create the donor under this FRO's donor list.
                 const mobile = cleanMobile(r.donor_mobile);
                 const { data: created, error: cErr } = await from('donor_profiles')
-                  .insert({
+                  .upsert({
                     name: r.donor_name || 'Unknown Donor',
                     mobile_number: mobile || r.donor_mobile || null,
                     project_supported: r.project_id,
@@ -2031,14 +2031,23 @@ export const importReceipts = async (req, res) => {
                     donation_count: 0,
                     created_at: nowIso,
                     updated_at: nowIso,
-                  })
-                  .select('id, mobile_number, total_amount, donation_count, last_donation_date')
-                  .single();
+                  }, { onConflict: 'mobile_number', ignoreDuplicates: true })
+                  .select('id, mobile_number, total_amount, donation_count, last_donation_date');
                 if (cErr) throw new Error(cErr.message);
-                donorId = created.id;
+                let donorRow = (created || [])[0] || null;
+                if (!donorRow && (mobile || r.donor_mobile)) {
+                  const mVal = mobile || r.donor_mobile;
+                  const { rows: existing } = await db._pool.query(
+                    `SELECT id, mobile_number, total_amount, donation_count, last_donation_date
+                     FROM donor_profiles WHERE mobile_number = $1`, [mVal]
+                  );
+                  donorRow = (existing || [])[0] || null;
+                }
+                if (!donorRow) throw new Error('Donor creation failed for receipt ' + (r.receipt_no || r.id));
+                donorId = donorRow.id;
                 matched++;
-                const m10 = last10(created.mobile_number);
-                if (/^\d{10}$/.test(m10) && !donorByMobile.has(m10)) donorByMobile.set(m10, created);
+                const m10 = last10(donorRow.mobile_number);
+                if (/^\d{10}$/.test(m10) && !donorByMobile.has(m10)) donorByMobile.set(m10, donorRow);
                 donorIdByReceiptId.set(r.id, donorId);
                 await from('receipts').update({ donor_id: donorId }).eq('id', r.id);
                 newDonorTotals.set(donorId, { amount: 0, count: 0, last: null });
