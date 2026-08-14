@@ -1906,7 +1906,11 @@ export const createDonorLogHandler = async (req, res) => {
       pan_number: pan_number || null,
       remark: remark || null,
       upi_transaction_id: upi_transaction_id || null,
-      transaction_datetime: transaction_datetime || null,
+      transaction_datetime: (() => {
+        if (!transaction_datetime) return null;
+        const d = new Date(transaction_datetime);
+        return isNaN(d.getTime()) ? null : d.toISOString();
+      })(),
       accounts_status: null,
       created_by: creditWorkerId,
     };

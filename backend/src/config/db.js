@@ -16,7 +16,10 @@ dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 // ---------------------------------------------------------------------------
 pg.types.setTypeParser(20, (v) => parseInt(v, 10));            // int8   -> number
 pg.types.setTypeParser(1700, (v) => parseFloat(v));            // numeric-> number
-pg.types.setTypeParser(1184, (v) => new Date(v).toISOString()); // timestamptz -> ISO string
+pg.types.setTypeParser(1184, (v) => {
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? v : d.toISOString(); // timestamptz -> ISO string (pass through invalid values like 'infinity')
+});
 pg.types.setTypeParser(1114, (v) => v);                        // timestamp -> raw string
 pg.types.setTypeParser(1082, (v) => v);                        // date -> string
 pg.types.setTypeParser(1083, (v) => v);                        // time -> string
