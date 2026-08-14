@@ -123,6 +123,9 @@ export default function ReceiptHistory() {
   const [deleteStatus, setDeleteStatus] = useState('');
   const [deleteProgress, setDeleteProgress] = useState(0);
   const [showCleanModal, setShowCleanModal] = useState(false);
+  const [cleanMode, setCleanMode] = useState('all');
+  const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [suspenseByNgo, setSuspenseByNgo] = useState(null);
   const [suspenseLoading, setSuspenseLoading] = useState(false);
   const fileRef = useRef(null);
@@ -233,6 +236,26 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
+  const handleCleanUpDate = async () => {
+    if (!cleanFrom) { alert('Please choose a date to delete'); return; }
+    const from = cleanFrom;
+    const to = cleanTo || cleanFrom;
+    if (to < from) { alert('"To" date must be on or after the "From" date'); return; }
+    if (!window.confirm(`Delete all receipts from ${from}${to !== from ? ` to ${to}` : ''}? This cannot be undone.`)) return;
+    setShowCleanModal(false);
+    setDeleting(true);
+    setDeleteStatus('Deleting receipts...');
+    setDeleteProgress(0);
+    try {
+      const res = await apiDelete(`/accounts/receipts?from=${from}${to !== from ? `&to=${to}` : ''}`);
+      const done = res?.deleted || 0;
+      setDeleteProgress(100);
+      setDeleteStatus(done > 0 ? `Deleted ${done} receipt${done !== 1 ? 's' : ''}` : 'No receipts found on this date');
+      setTimeout(() => { setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }, 1500);
+      load();
+    } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
+  };
+
   const fetchSuspenseByNgo = async () => {
     setSuspenseLoading(true);
     try {
@@ -337,7 +360,7 @@ export default function ReceiptHistory() {
         <div className="card-pad">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
-            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete all receipts">
+            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>
@@ -684,19 +707,59 @@ export default function ReceiptHistory() {
           <div className="modal-overlay" onClick={() => setShowCleanModal(false)} />
           <div className="modal" style={{ maxWidth: 400, width: '90%' }}>
             <div className="modal-header">
-              <h3>Delete all receipts?</h3>
+              <h3>Delete receipts</h3>
               <button className="btn btn-sm" onClick={() => setShowCleanModal(false)}>Cancel</button>
             </div>
-            <div className="modal-body" style={{ padding: 20, textAlign: 'center' }}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5" style={{ marginBottom: 12 }}>
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-              <p style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>This will permanently delete <strong>all {total} receipts</strong>.</p>
-              <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>Donor donation history (totals, dates, and collected status) will also be removed.</p>
-              <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>This action cannot be undone.</p>
+            <div className="modal-body" style={{ padding: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+                <button
+                  onClick={() => setCleanMode('all')}
+                  style={{
+                    padding: '12px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, lineHeight: 1.3,
+                    border: cleanMode === 'all' ? '2px solid #dc2626' : '1px solid #d1d5db',
+                    background: cleanMode === 'all' ? '#fef2f2' : '#fff', color: '#111827',
+                  }}>
+                  Delete ALL receipts
+                </button>
+                <button
+                  onClick={() => setCleanMode('date')}
+                  style={{
+                    padding: '12px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, lineHeight: 1.3,
+                    border: cleanMode === 'date' ? '2px solid #dc2626' : '1px solid #d1d5db',
+                    background: cleanMode === 'date' ? '#fef2f2' : '#fff', color: '#111827',
+                  }}>
+                  Delete by date
+                </button>
+              </div>
+
+              {cleanMode === 'date' && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  <label style={{ flex: 1, fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
+                    From
+                    <input type="date" value={cleanFrom} onChange={e => setCleanFrom(e.target.value)}
+                      style={{ width: '100%', marginTop: 4, padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }} />
+                  </label>
+                  <label style={{ flex: 1, fontSize: 11, color: '#6b7280', fontWeight: 600 }}>
+                    To
+                    <input type="date" value={cleanTo} onChange={e => setCleanTo(e.target.value)}
+                      style={{ width: '100%', marginTop: 4, padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }} />
+                  </label>
+                </div>
+              )}
+
+              <p style={{ fontSize: 13, color: '#374151', marginBottom: 4, textAlign: 'center' }}>
+                {cleanMode === 'all'
+                  ? <>This will permanently delete <strong>all {total} receipts</strong>.</>
+                  : <>This will permanently delete all receipts between <strong>{cleanFrom || '...'}</strong> and <strong>{cleanTo || cleanFrom || '...'}</strong>.</>}
+              </p>
+              <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4, textAlign: 'center' }}>Donor donation history (totals, dates, and collected status) for affected donors will also be removed.</p>
+              <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16, textAlign: 'center' }}>This action cannot be undone.</p>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} style={{ padding: '6px 16px' }}>Cancel</button>
-                <button className="btn btn-sm" onClick={handleCleanUp} style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 16px' }}>Delete All</button>
+                <button className="btn btn-sm" onClick={cleanMode === 'all' ? handleCleanUp : handleCleanUpDate}
+                  style={{ background: '#dc2626', color: '#fff', border: 'none', padding: '6px 16px' }}>
+                  {cleanMode === 'all' ? 'Delete All' : 'Delete'}
+                </button>
               </div>
             </div>
           </div>
