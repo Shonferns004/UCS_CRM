@@ -261,6 +261,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
   const listRef=useRef(null);
+  const clickRef=useRef(null);
   useEffect(()=>{if(listRef.current)listRef.current.scrollTop=0},[leadFilterKey]);
   const kw=sq.trim().toLowerCase();
   const searched=kw?filtered.filter(e=>
