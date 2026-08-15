@@ -16,7 +16,7 @@ const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
   receipt_date: ['receiptdate', 'recieptdate', 'donationdate', 'date', 'transactiondate', 'transdate'],
   receipt_time: ['time', 'receipttime', 'donationtime', 'transactiontime'],
-  donor_name: ['donorname', 'receiptname', 'name', 'callername'],
+  donor_name: ['donorname', 'receiptname', 'name'],
   donor_mobile: ['mobileno', 'mobile', 'mobilenumber', 'phone', 'phoneno', 'contactno'],
   amount: ['amount', 'donationamount', 'amt'],
   mode: ['mode', 'mop', 'paymentmode', 'modeofpayment'],
@@ -230,7 +230,7 @@ export default function ReceiptHistory() {
       const rows = prepareImportRows(sourceRows)
         .map(r => ({ receipt_no: String(r.receipt_no || '').trim(), donor_name: String(r.donor_name || '').trim() }))
         .filter(r => r.receipt_no && r.donor_name);
-      if (!rows || rows.length === 0) { alert('No rows with a Receipt No. and a donor name (Receipt Name) found'); return; }
+      if (!rows || rows.length === 0) { alert('No rows with a Receipt No. and a donor name (Receipt Name / Donor Name) found'); return; }
 
       const chunks = [];
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -458,7 +458,7 @@ export default function ReceiptHistory() {
                     <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
                   <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file to fix donor names</p>
-                  <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
+                  <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name or Donor Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
                 </>
               )}
             </div>
@@ -545,7 +545,7 @@ export default function ReceiptHistory() {
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donors Bank Name</span>
             </div>
             {namesMode && (
-              <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name</p>
+              <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name / Donor Name</p>
             )}
           </details>
         </div>
