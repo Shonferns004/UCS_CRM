@@ -46,6 +46,14 @@ export const getJobRole = (lead) => {
   return meta ? meta.value : '';
 }
 
+export const getLeadStage = (lead) => {
+  if (lead.stage) return lead.stage;
+  let notes = [];
+  try { notes = JSON.parse(lead.notes || '[]'); } catch (e) {}
+  const meta = notes.find(n => n.__meta === true && n.type === 'stage');
+  return meta ? meta.value : '';
+}
+
 export const CANDIDATE_STAGES = [
   'New','Contacted','Screening','Shortlisted','Interview Scheduled','Interviewed',
   'Selected','Offer Released','Offer Accepted','Onboarding',
@@ -95,6 +103,25 @@ export const STATUS_TO_STAGE = {
   switched_off: 'Contacted',
   wrong_number: 'Contacted',
   invalid: 'Contacted',
+}
+
+export const INTERVIEW_STATUSES = ['Scheduled','Confirmed','In Progress','Completed','Cancelled','Rescheduled','No Show']
+export const INTERVIEW_ROUNDS = ['HR Interview','Technical','Managerial','Final','Client','Other']
+export const INTERVIEW_MODES = ['Online','Offline','Phone']
+export const RECOMMENDATIONS = ['Select','Reject','Next Round','On Hold']
+export const REMINDER_OPTIONS = [
+  { value: 'none', label: 'No reminder' },
+  { value: '24h', label: '24 hours before' },
+  { value: '1h', label: '1 hour before' },
+]
+export const INTERVIEW_STATUS_COLOR = {
+  Scheduled: '#C08A2E',
+  Confirmed: '#3f7d4e',
+  'In Progress': '#4F6472',
+  Completed: '#3f7d4e',
+  Cancelled: '#B5603A',
+  Rescheduled: '#7A5C7E',
+  'No Show': '#B5603A',
 }
 
 export const EXPERIENCE_BUCKETS = [
@@ -175,7 +202,7 @@ export function RecProvider({ children }) {
       phone: l.phone || '—',
       email: l.email || profile.email || '—',
       role: getJobRole(l),
-      stage: STATUS_TO_STAGE[l.status] || 'Contacted',
+      stage: getLeadStage(l) || STATUS_TO_STAGE[l.status] || 'Contacted',
       status: l.status || '',
       score: 0,
       source: l.source || '—',
@@ -194,6 +221,17 @@ export function RecProvider({ children }) {
       _raw: l,
     }
   }), [leads])
+
+  const interviews = useMemo(() => {
+    const out = []
+    for (const c of candidates) {
+      for (const iv of (c.interviews || [])) {
+        if (!iv || !iv.id) continue
+        out.push({ ...iv, candidateId: c.id, candidateName: c.name, candidatePhone: c.phone, candidateEmail: c.email, jobRole: iv.jobRole || c.role || '—', _candidate: c })
+      }
+    }
+    return out.sort((a, b) => ((a.date || '') + ' ' + (a.startTime || '')).localeCompare((b.date || '') + ' ' + (b.startTime || '')))
+  }, [candidates])
 
   const fetchLeads = useCallback(async (silent) => {
     if (!token) return
@@ -273,6 +311,28 @@ export function RecProvider({ children }) {
     log(`Lead deleted \u2014 ${id}`)
   }, [log])
 
+  const setCandidateInterviews = useCallback(async (leadId, arr) => {
+    const lead = leads.find(l => l.id === leadId)
+    if (!lead) return
+    const notes = parseNotes(lead)
+    const kept = notes.filter(n => !n || !n.__meta || n.type !== 'interviews')
+    const next = (arr && arr.length) ? [...kept, { __meta: true, type: 'interviews', value: arr }] : kept
+    await updateLead(leadId, { notes: JSON.stringify(next) })
+  }, [leads, updateLead])
+
+  const saveInterview = useCallback(async (iv) => {
+    const lead = leads.find(l => l.id === iv.candidateId)
+    if (!lead) return
+    const list = getCandidateInterviews(lead)
+    const idx = list.findIndex(x => x && x.id === iv.id)
+    const next = idx >= 0 ? list.map((x, i) => i === idx ? iv : x) : [...list, iv]
+    await setCandidateInterviews(iv.candidateId, next)
+  }, [leads, setCandidateInterviews])
+
+  const updateCandidateStatus = useCallback(async (id, status) => {
+    await updateLead(id, { status })
+  }, [updateLead])
+
   const [leadStats, setLeadStats] = useState({ leads:0, today:0, onHold:0, conversion:0 })
   const fetchLeadStats = useCallback(async () => {
     if (!token) return
@@ -289,12 +349,13 @@ export function RecProvider({ children }) {
   }, [])
 
   const value = useMemo(() => ({
-    candidates, jobs, feed, log,
+    candidates, interviews, jobs, feed, log,
     addJob,
     leads, leadsLoading, leadFilters, setLeadFilters, leadStats,
     fetchLeads, refreshLeads, addLead, updateLead, deleteLead, fetchLeadStats, updateLeadFilters,
+    saveInterview, updateCandidateStatus,
     currentUser: user, user, STAGES,
-  }), [candidates, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, user, STAGES])
+  }), [candidates, interviews, jobs, feed, leads, leadsLoading, leadFilters, setLeadFilters, leadStats, user, STAGES])
 
   return <RecContext.Provider value={value}>{children}</RecContext.Provider>
 }

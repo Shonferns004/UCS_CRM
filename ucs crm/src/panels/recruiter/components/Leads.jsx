@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useRec } from '../store';
+import { useRec, CANDIDATE_STAGES } from '../store';
 import { Plus, Users, Search, RefreshCw, Trash, X } from '../icons';
 import { Dropdown, cleanField } from './ui';
 import LeadDetail from './LeadDetail';
@@ -133,6 +133,7 @@ export default function Leads() {
   const [noteText, setNoteText] = useState('');
   const [selectedJobRole, setSelectedJobRole] = useState('');
   const [customJobRole, setCustomJobRole] = useState('');
+  const [stage, setStage] = useState('');
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [searchInput, setSearchInput] = useState(leadFilters.search || '');
   const [tab, setTab] = useState('leads');
@@ -193,6 +194,7 @@ export default function Leads() {
         : notConnectedOption;
       const finalJobRole = selectedJobRole === 'Other' ? (customJobRole.trim() || 'Other') : selectedJobRole;
       const notesArr = [...formNotes];
+      if (stage) notesArr.unshift({ __meta: true, type: 'stage', value: stage });
       if (finalJobRole) notesArr.unshift({ __meta: true, type: 'job_role', value: finalJobRole });
       const payload = { name: name.trim(), phone, dob: dob || null, source: finalSource, status: finalStatus, notes: notesArr.length ? JSON.stringify(notesArr) : null, job_role: finalJobRole || null, created_by_name: user.name };
       if (finalStatus === 'followed_up' && followUpDateTime) payload.follow_up_date = followUpDateTime;
@@ -202,7 +204,7 @@ export default function Leads() {
       setSuccessMsg('Lead created successfully.');
       setTimeout(() => setSuccessMsg(''), 3000);
       setLeadFilters(p => ({ ...p, status: '', source: '' }));
-      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole('');
+      setName(''); setPhone(''); setDob(''); setSource('Walk-in'); setCustomSource(''); setConnectedOption(''); setNotConnectedOption(''); setConnectionType(''); setFollowUpDateTime(''); setCallBackTime(''); setScheduledDate(''); setFormNotes([]); setSelectedJobRole(''); setCustomJobRole(''); setStage('');
     } catch (err) { alert(err.message); }
   };
 
@@ -233,6 +235,7 @@ export default function Leads() {
   const sourceOptions = [...sources, { value: 'Other', label: 'Other' }];
   const connectedOptions = [{ value: '', label: 'Select' }, ...connectedOpts];
   const notConnectedOptions = [{ value: '', label: 'Select' }, ...notConnectedOpts];
+  const stageOptions = [{ value: '', label: 'Select a stage' }, ...CANDIDATE_STAGES.map(s => ({ value: s, label: s }))];
   const statusFilterOptions = [
     { value: 'hold', label: 'Hold' },
     ...connectedOpts.map(o => ({ value: CONNECTED_STATUS_MAP[o.value] || o.value, label: o.label })),
@@ -244,6 +247,7 @@ export default function Leads() {
     contacted: 'Contacted',
     screening: 'Screening',
     shortlisted: 'Shortlisted',
+    selected: 'Selected',
     interviewed: 'Interviewed',
     offer_released: 'Offer Released',
     offer_accepted: 'Offer Accepted',
@@ -332,8 +336,16 @@ export default function Leads() {
                   </div>
                 </div>
                 <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
-                  <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={jobRoleOptions} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                  <div style={{display:'flex',gap:16,alignItems:'flex-start'}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
+                      <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={jobRoleOptions} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>STAGE</div>
+                      <Dropdown menuInset value={stage} onChange={e=>setStage(e.target.value)} options={stageOptions} style={{width:'100%'}} />
+                    </div>
+                  </div>
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
                   {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
@@ -415,8 +427,16 @@ export default function Leads() {
                 </div>
               </div>
               <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--line)'}}>
-                <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
-                <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={jobRoleOptions} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                <div style={{display:'flex',gap:16,alignItems:'flex-start'}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>JOB DESCRIPTION *</div>
+                    <Dropdown menuInset value={selectedJobRole} onChange={e=>{setSelectedJobRole(e.target.value);if(e.target.value!=='Other')setCustomJobRole('')}} options={jobRoleOptions} customTrigger="Other" customValue={customJobRole} onCustomChange={setCustomJobRole} style={{width:'100%',maxWidth:280}} />
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',marginBottom:6}}>STAGE</div>
+                    <Dropdown menuInset value={stage} onChange={e=>setStage(e.target.value)} options={stageOptions} style={{width:'100%'}} />
+                  </div>
+                </div>
               </div>
               <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'flex-end',alignItems:'center'}}>
                 {formError && <span style={{fontSize:12,color:'#dc2626',marginRight:'auto'}}>{formError}</span>}
