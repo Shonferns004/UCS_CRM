@@ -141,22 +141,35 @@ function useTomorrowStr() {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
-function findNextDonorIndex(donors, currentId) {
+const workedDonorKey = (d) => `${d.id}:${d.ngo_id}`;
+const workedTodayKey = () => {
+  const d = new Date();
+  return `fro_worked_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const loadWorkedToday = () => {
+  try { return new Set(JSON.parse(sessionStorage.getItem(workedTodayKey()) || '[]')); } catch { return new Set(); }
+};
+const persistWorkedToday = (set) => {
+  try { sessionStorage.setItem(workedTodayKey(), JSON.stringify([...set])); } catch {}
+};
+
+function findNextDonorIndex(donors, currentId, workedToday = null) {
+  const isWorked = (d) => workedToday && workedToday.has(workedDonorKey(d));
   // Priority 1: scheduled/callback leads (pinned to the top of the stack)
   for (let i = 0; i < donors.length; i++) {
     if (SCHEDULE_TYPES.has(donors[i].status) && donors[i].id !== currentId) return i;
   }
-  // Priority 2: pending (no disposition yet), skip current donor
+  // Priority 2: pending (no disposition yet) — not-attempted first, skip current
   for (let i = 0; i < donors.length; i++) {
-    if (donors[i].status === 'pending' && donors[i].id !== currentId) return i;
+    if (donors[i].status === 'pending' && donors[i].id !== currentId && !isWorked(donors[i])) return i;
   }
-  // Priority 3: not connected, skip current
+  // Priority 3: not connected (not yet worked today), skip current
   for (let i = 0; i < donors.length; i++) {
-    if (NOT_CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId) return i;
+    if (NOT_CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
   }
-  // Priority 4: connected, skip current
+  // Priority 4: connected (not yet worked today), skip current
   for (let i = 0; i < donors.length; i++) {
-    if (CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId) return i;
+    if (CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
   }
   return 0;
 }
@@ -430,6 +443,13 @@ export default function MyDonors() {
   const indexRef = useRef(index);
   donorsRef.current = donors;
   indexRef.current = index;
+  const savingRef = useRef(false);
+  const workedTodayRef = useRef(loadWorkedToday());
+  const markWorkedToday = (d) => {
+    if (!d) return;
+    workedTodayRef.current.add(workedDonorKey(d));
+    persistWorkedToday(workedTodayRef.current);
+  };
   const loadMoreRef = useRef(null);
   loadMoreRef.current = loadMore;
 
@@ -671,6 +691,8 @@ export default function MyDonors() {
       setMessage({ type: 'error', text: 'Select donation date' });
       return;
     }
+    if (savingRef.current) return;
+    savingRef.current = true;
     setDonationSaving(true);
     setMessage(null);
     try {
@@ -681,6 +703,7 @@ export default function MyDonors() {
         notes: `Donation recorded (${donor.donor_type})`,
         ngo_id: donor.ngo_id,
       });
+      markWorkedToday(donor);
       setShowDonationPrompt(false);
       setDonationEntering(false);
       setDonationAmt('');
@@ -688,7 +711,7 @@ export default function MyDonors() {
       const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: 'donation_collected', is_new: false });
       setDonors(newDonors);
       const advance = () => {
-        const nextIdx = findNextDonorIndex(newDonors, donor.id);
+        const nextIdx = findNextDonorIndex(newDonors, donor.id, workedTodayRef.current);
         setIndex(nextIdx);
         const nextDonor = newDonors[nextIdx];
         if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
@@ -710,6 +733,7 @@ export default function MyDonors() {
       setMessage({ type: 'error', text: err.message });
     } finally {
       setDonationSaving(false);
+      savingRef.current = false;
     }
   };
 
@@ -865,6 +889,8 @@ export default function MyDonors() {
     if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (SCHEDULE_TIME_TYPES.has(selected) && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
     if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if (savingRef.current) return;
+    savingRef.current = true;
 
     setSaving(true); setMessage(null);
     try {
@@ -901,6 +927,7 @@ export default function MyDonors() {
       }
       await addDonorLog(donor.id, logData);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
+      markWorkedToday(donor);
 
       const newStatus = DISP_TO_STATUS[selected] || selected;
       const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: newStatus, is_new: false });
@@ -917,7 +944,7 @@ export default function MyDonors() {
         setReturnToDonor(null);
       } else {
         const advance = () => {
-          const nextIdx = findNextDonorIndex(newDonors, donor.id);
+          const nextIdx = findNextDonorIndex(newDonors, donor.id, workedTodayRef.current);
           setIndex(nextIdx);
           const nextDonor = newDonors[nextIdx];
           if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
@@ -938,7 +965,7 @@ export default function MyDonors() {
       clearFormState();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
-    } finally { setSaving(false); }
+    } finally { setSaving(false); savingRef.current = false; }
   };
 
   const handleSearch = (q) => {
@@ -1084,7 +1111,7 @@ export default function MyDonors() {
         return;
       }
     }
-    const nextIdx = findNextDonorIndex(donors, donor.id);
+    const nextIdx = findNextDonorIndex(donors, donor.id, workedTodayRef.current);
     if (nextIdx === index || !donors[nextIdx]) {
       setMessage({ type: 'error', text: 'No more donors' });
       return;

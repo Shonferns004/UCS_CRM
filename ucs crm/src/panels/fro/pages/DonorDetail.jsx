@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getDonorDetail, addDonorLog, uploadPaymentScreenshot } from '../api/donors';
 import { DatePicker } from '../components/ui';
 import { TimePicker } from '../components/TimePicker';
@@ -19,6 +19,7 @@ const isCollectionLog = (log) =>
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
 export default function DonorDetail({ assignmentId, donor, onBack, hideHeader }) {
+  const savingRef = useRef(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -127,6 +128,8 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
         return;
       }
     }
+    if (savingRef.current) return;
+    savingRef.current = true;
 
     setSaving(true);
     setMessage(null);
@@ -203,6 +206,7 @@ export default function DonorDetail({ assignmentId, donor, onBack, hideHeader })
     } finally {
       setSaving(false);
       setUploading(false);
+      savingRef.current = false;
     }
   };
 
