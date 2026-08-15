@@ -260,20 +260,24 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
+  const[stf,setStf]=useState('');
   const listRef=useRef(null);
   const clickRef=useRef(null);
   useEffect(()=>{if(listRef.current)listRef.current.scrollTop=0},[leadFilterKey]);
   const kw=sq.trim().toLowerCase();
-  const searched=kw?filtered.filter(e=>
+  // Pending = no match made yet and not claimed by an FRO; Claimed = an FRO has
+  // claimed the money (claimed_by set) but it is not resolved/confirmed yet.
+  const claimVisible=stf?filtered.filter(e=>stf==='pending'?(!e.match_status&&!e.claimed_by):(!!e.claimed_by)):filtered;
+  const searched=kw?claimVisible.filter(e=>
     [e.payer_name,e.donor_mobile,e.payment_id,e.check_id,e.receipt_no,e.amount,e.agent_name,e.transaction_date,e.bank_audit_sources?.name,getSrcName(e.source_id)]
       .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
-  ):filtered;
+  ):claimVisible;
   const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
   const amountVisible=amountFilter!==''&&amountFilter!=null?visible.filter(e=>Number(e.amount)===Number(amountFilter)):visible;
-  const suspenseCount=filtered.filter(e=>e.kind==='suspense').length;
+  const suspenseCount=claimVisible.filter(e=>e.kind==='suspense').length;
   const pageCount=Math.max(1,Math.ceil(amountVisible.length/PAGE_SIZE));
   const pageItems=amountVisible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
-  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq,amountFilter]);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq,amountFilter,stf]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
@@ -334,6 +338,11 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700,padding:'5px 11px',borderRadius:999,background:suspenseCount>0?'#FDE7DB':'#f3f4f6',color:suspenseCount>0?'#B5603A':'#9ca3af',whiteSpace:'nowrap'}}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
           {suspenseCount} Suspense
+        </span>
+        <span style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px',borderRadius:7,background:'#f3f4f6',flexWrap:'wrap'}}>
+          {[['','All'],['pending','Pending'],['claimed','Claimed']].map(([v,l])=>
+            <button key={v||'all'} onClick={()=>setStf(v)} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:6,border:'none',cursor:'pointer',background:stf===v?'#111827':'transparent',color:stf===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
+          )}
         </span>
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
