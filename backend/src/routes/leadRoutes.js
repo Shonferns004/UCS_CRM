@@ -14,6 +14,6 @@ router.get('/', leadReadWrite, listLeads);
 router.get('/:id', leadReadWrite, getLead);
 router.put('/:id', leadReadWrite, editLead);
 router.put('/:id/transfer', hrOrAbove, transferLeadOwner);
-router.delete('/:id', authenticateRole('super_admin', 'admin'), removeLead);
+router.delete('/:id', authenticateRole('super_admin', 'admin', 'recruiter'), removeLead);
 
 export default router;
