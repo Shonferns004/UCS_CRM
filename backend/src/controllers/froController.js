@@ -819,6 +819,69 @@ export const getSuspenseReceipts = async (req, res) => {
   }
 };
 
+// Search the FRO's own receipt history (any linked or past receipts in their
+// project scope) by donor name/mobile so the suspense claim modal can auto-fill
+// donor details even when the donor has no profile inside the FRO's station
+// scope. donor_id is intentionally left null: these rows are a fallback for
+// donors the normal in-scope search misses, and passing a linked id would hit
+// the "allotted donors only" guard on claim; the claim then resolves/creates
+// the profile through the normal name-based path.
+export const searchSuspenseDonors = async (req, res) => {
+  try {
+    const workerId = req.user.id;
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) return res.json([]);
+
+    const projectSet = await myProjectSet(workerId);
+    if (projectSet.length === 0) return res.json([]);
+
+    const term = `%${q.trim()}%`;
+    const { data: receipts, error } = await db
+      .from('receipts')
+      .select('id, donor_id, donor_name, donor_mobile, pan_number, address, email, project_id, receipt_date')
+      .in('project_id', projectSet)
+      .or(`donor_mobile.ilike.${term},donor_name.ilike.${term}`)
+      .order('receipt_date', { ascending: false })
+      .limit(25);
+    if (error) throw error;
+    if (!receipts || receipts.length === 0) return res.json([]);
+
+    // Resolve city from linked donor profiles for a richer auto-fill.
+    const linkedIds = [...new Set(receipts.map(r => r.donor_id).filter(Boolean))];
+    const cityById = {};
+    if (linkedIds.length > 0) {
+      const { data: profiles } = await db
+        .from('donor_profiles')
+        .select('id, city')
+        .in('id', linkedIds);
+      for (const p of (profiles || [])) cityById[p.id] = p.city;
+    }
+
+    const seen = new Set();
+    const result = [];
+    for (const r of receipts) {
+      const mobile = (r.donor_mobile || '').replace(/\D/g, '');
+      const key = r.donor_id ? `id:${r.donor_id}` : `mob:${mobile}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        donor_id: null,
+        donor_name: r.donor_name || '',
+        donor_mobile: r.donor_mobile || '',
+        donor_city: cityById[r.donor_id] || '',
+        donor_address: r.address || '',
+        donor_pan: r.pan_number || '',
+        donor_email: r.email || '',
+        project_id: r.project_id || '',
+        source: 'receipt',
+      });
+    }
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Best-effort: when an FRO claims a suspense receipt, write the donor details
 // they provided (prefilled from their donor pick, editable) onto the linked
 // bank_audit_entries row so the Accounts Bank Audit card shows them right after
@@ -1435,6 +1498,8 @@ export const getMyDonors = async (req, res) => {
       if (seen.has(key)) continue;
       seen.add(key);
       const s = scheduleMap[a.id];
+      const rawStatus = a.status || 'pending';
+      const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !monthDonatedSet.has(a.id);
       result.push({
         id: a.donor_id,
         donor_id: a.donor_id,
@@ -1461,7 +1526,7 @@ export const getMyDonors = async (req, res) => {
         has_donated_current_month: monthDonatedSet.has(a.id),
         has_verified_donation_current_month: monthVerifiedSet.has(a.id),
         is_active: activeSet.has(a.id),
-        status: a.status || 'pending',
+        status: staleDoneStatus ? 'pending' : rawStatus,
         notes: a.notes || null,
         last_contacted_at: a.last_contacted_at || null,
         next_follow_up: a.next_follow_up || null,
@@ -3085,6 +3150,9 @@ export const searchDonors = async (req, res) => {
         seen.add(key);
         const pair = `${a.donor_id}|${a.ngos?.name ? a.ngos.name.toLowerCase() : ''}`;
         const hasScoped = evidence.activeAssignmentIds.has(a.id) || evidence.receiptPairs.has(pair);
+        const donatedThisPeriod = evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair);
+        const rawStatus = a.status || 'pending';
+        const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !donatedThisPeriod;
         result.push({
           donor_id: d.id,
           ngo_id: a.ngo_id,
@@ -3104,9 +3172,9 @@ export const searchDonors = async (req, res) => {
           donor_address: d.address_1 || '',
           donation_count: hasScoped ? (d.donation_count || 0) : 0,
           total_donated: hasScoped ? (d.total_amount || 0) : 0,
-          has_donated_current_month: evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
+          has_donated_current_month: donatedThisPeriod,
           has_verified_donation_current_month: evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
-          status: a.status || 'pending',
+          status: staleDoneStatus ? 'pending' : rawStatus,
         });
       }
     }
