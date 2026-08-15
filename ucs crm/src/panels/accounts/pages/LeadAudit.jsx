@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
@@ -21,20 +21,6 @@ export default function LeadAudit() {
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
-  const leadScrollRef = useRef(null);
-  const auditScrollRef = useRef(null);
-  const syncingScroll = useRef(false);
-
-  const handleListScroll = (source, event) => {
-    if (syncingScroll.current) return;
-    const from = event.currentTarget;
-    const to = source === 'lead' ? auditScrollRef.current : leadScrollRef.current;
-    if (!to || from.scrollHeight <= from.clientHeight || to.scrollHeight <= to.clientHeight) return;
-    syncingScroll.current = true;
-    const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight);
-    to.scrollTop = ratio * (to.scrollHeight - to.clientHeight);
-    requestAnimationFrame(() => { syncingScroll.current = false; });
-  };
 
   const handleMatch = async () => {
     if (!selectedLead || !selectedEntry || matching) return;
@@ -90,11 +76,11 @@ export default function LeadAudit() {
       <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
         <div style={{ alignSelf: 'flex-start' }}>
           <SectionTitle>Lead Verification</SectionTitle>
-          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} listRef={leadScrollRef} onListScroll={e => handleListScroll('lead', e)} />
+          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} />
         </div>
         <div>
           <SectionTitle>Bank Audit</SectionTitle>
-          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} listRef={auditScrollRef} onListScroll={e => handleListScroll('audit', e)} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
+          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
         </div>
       </div>
 
