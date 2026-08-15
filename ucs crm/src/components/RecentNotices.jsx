@@ -100,26 +100,35 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
   if (loading) return null
 
   const cardStyle = {
-    background: '#fff',
-    border: '1px solid var(--line)',
+    background: 'var(--paper, #fff)',
+    border: '1px solid var(--line, #e2e8f0)',
     borderRadius: 14,
-    padding: '16px 18px',
+    padding: '18px 20px',
     boxShadow: '0 1px 2px rgba(30,77,59,0.04), 0 6px 18px -10px rgba(30,77,59,0.08)',
     ...containerStyle,
   }
 
+  const editBtn = {
+    background: editMode ? '#dcfce7' : '#f1f5f9',
+    border: 'none', cursor: 'pointer',
+    width: 30, height: 30, borderRadius: 8,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: editMode ? '#15803d' : '#64748b', transition: 'all .15s'
+  }
+
   return (
     <div style={cardStyle}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
-            width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
             background: 'linear-gradient(135deg, #16a34a 0%, #4ade80 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 6px rgba(22,163,74,0.25)',
           }}>
-            <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 15 }}>campaign</span>
+            <span className="material-symbols-outlined" style={{ color: '#fff', fontSize: 16 }}>campaign</span>
           </span>
-          <h3 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>{title}</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--ink, #0f172a)', letterSpacing: '-.01em' }}>{title}</h3>
           {notices.length > 0 && (
             <span style={{
               fontSize: 10, fontWeight: 700, color: '#15803d',
@@ -133,13 +142,7 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
           <button
             onClick={toggleEditMode}
             title={editMode ? 'Done editing' : 'Edit notices'}
-            style={{
-              background: editMode ? '#dcfce7' : '#f1f5f9',
-              border: 'none', cursor: 'pointer',
-              width: 28, height: 28, borderRadius: 8,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: editMode ? '#15803d' : '#64748b', transition: 'all .15s'
-            }}
+            style={editBtn}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{editMode ? 'check' : 'edit'}</span>
           </button>
@@ -149,19 +152,22 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
       {notices.length === 0 ? (
         <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, margin: '18px 0 6px' }}>No notices yet</p>
       ) : (
-        <div style={{ maxHeight: 230, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 2 }}>
           {notices.map((n, i) => (
             <div key={n.id || i} style={{
-              display: 'flex', gap: 10, padding: '10px 12px',
+              display: 'flex', gap: 10, padding: '11px 13px',
               borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7', alignItems: 'flex-start',
-              transition: 'border-color .15s, background .15s',
-            }}>
+              transition: 'border-color .15s, background .15s, box-shadow .15s',
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(30,77,59,0.06)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#eef2f7'; e.currentTarget.style.boxShadow = 'none' }}
+            >
               <div style={{
-                width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 9, flexShrink: 0,
                 background: i % 2 === 0 ? '#e8f5ee' : '#eff6ff',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <span className="material-symbols-outlined" style={{ color: i % 2 === 0 ? '#16a34a' : '#3b82f6', fontSize: 16 }}>
+                <span className="material-symbols-outlined" style={{ color: i % 2 === 0 ? '#16a34a' : '#3b82f6', fontSize: 17 }}>
                   {i % 2 === 0 ? 'notifications' : 'campaign'}
                 </span>
               </div>
@@ -169,15 +175,15 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                 {editMode ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <input value={editForms[n.id]?.title || ''} onChange={e => handleEditChange(n.id, 'title', e.target.value)}
-                      style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 8px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
+                      style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: 7, padding: '5px 9px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
                     />
                     <textarea value={editForms[n.id]?.content || ''} onChange={e => handleEditChange(n.id, 'content', e.target.value)} rows={2}
-                      style={{ fontSize: 11, color: '#475569', border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 8px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+                      style={{ fontSize: 11.5, color: '#475569', border: '1px solid #cbd5e1', borderRadius: 7, padding: '5px 9px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
                     />
                   </div>
                 ) : (
                   <>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', lineHeight: 1.35 }}>
                       {n.title}
                       {TARGET_LABELS[n.target_role] && (
                         <span style={{
@@ -189,11 +195,11 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                       )}
                     </div>
                     {n.content && (
-                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.45 }}>
+                      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 3, lineHeight: 1.5 }}>
                         {n.content.length > 120 ? n.content.slice(0, 120) + '\u2026' : n.content}
                       </div>
                     )}
-                    <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, marginTop: 5, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
                       {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''}
                       {n.created_by_name && (
@@ -211,8 +217,9 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                   style={{
                     background: savingId === n.id ? '#dcfce7' : '#16a34a',
                     border: 'none', cursor: savingId === n.id ? 'wait' : 'pointer',
-                    padding: '5px 10px', borderRadius: 6, flexShrink: 0, alignSelf: 'center',
-                    color: '#fff', fontSize: 10, fontWeight: 700, fontFamily: 'inherit'
+                    padding: '5px 11px', borderRadius: 7, flexShrink: 0, alignSelf: 'center',
+                    color: '#fff', fontSize: 10.5, fontWeight: 700, fontFamily: 'inherit',
+                    boxShadow: savingId === n.id ? 'none' : '0 2px 6px rgba(22,163,74,0.25)', transition: 'background .15s',
                   }}
                 >
                   {savingId === n.id ? 'Saving' : 'Save'}
@@ -223,13 +230,14 @@ export default function RecentNotices({ limit = 5, title = 'Recent Notices', con
                   disabled={deletingId === n.id}
                   title="Delete notice"
                   style={{
+                    width: 26, height: 26, padding: 0,
                     background: 'none', border: 'none', cursor: deletingId === n.id ? 'wait' : 'pointer',
-                    padding: 4, borderRadius: 6, flexShrink: 0, alignSelf: 'center',
+                    borderRadius: 7, flexShrink: 0, alignSelf: 'center',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#cbd5e1', transition: 'color .15s'
+                    color: '#cbd5e1', transition: 'all .15s'
                   }}
-                  onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                  onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = '#fef2f2' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent' }}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                     {deletingId === n.id ? 'hourglass_top' : 'delete'}
