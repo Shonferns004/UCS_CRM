@@ -11,6 +11,11 @@ import { generateReceiptPDF } from '../../accounts/services/pdfGenerator';
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 
+const isCollectionLog = (l) =>
+  l.action === 'donation' ||
+  l.disposition_detail === 'done' ||
+  (l.disposition_detail === 'lead_done' && l.accounts_status === 'verified');
+
 const PERIOD_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'today', label: 'Today' },
@@ -452,7 +457,7 @@ export default function Donors() {
                         </td>
                         <td style={{ fontWeight: 700, color: 'var(--sage)' }}>
                           ₹{Number(l.amount_collected || 0).toLocaleString('en-IN')}
-                          {l.fro_worker_name && (
+                          {isCollectionLog(l) && l.fro_worker_name && (
                             <div style={{ fontWeight: 400, color: 'var(--ink-soft)', fontSize: 9, marginTop: 1 }}>
                               by {l.fro_worker_name}
                             </div>
