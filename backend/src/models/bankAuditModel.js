@@ -24,7 +24,7 @@ export const getUnlinkedReceipts = async () => {
   // must not also appear in the suspense pool.
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
-           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
+           r.receipt_date, r.receipt_time, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
            r.pan_number, r.address, r.email
     FROM receipts r
     WHERE r.donor_id IS NULL
@@ -279,26 +279,17 @@ export const syncEntryToLead = async (entryId, logId) => {
 
   const patch = {};
 
-  if (!lead.upi_transaction_id && entry.payment_id) {
-    patch.upi_transaction_id = entry.payment_id;
-  }
-
-  if (!lead.payment_from && entry.payer_name) {
-    patch.payment_from = entry.payer_name;
-  }
-
-  if (!lead.transaction_datetime && entry.transaction_date) {
-    const dt = entry.payment_time
+  // The audit entry is the source of truth for the money's payment fields: when
+  // an entry is matched/claimed to a lead, its values always override the lead's
+  // (previously they only filled empty fields, so FRO-entered values won).
+  if (entry.payment_id) patch.upi_transaction_id = entry.payment_id;
+  if (entry.payer_name) patch.payment_from = entry.payer_name;
+  if (entry.transaction_date) {
+    patch.transaction_datetime = entry.payment_time
       ? `${entry.transaction_date}T${entry.payment_time}`
       : entry.transaction_date;
-    patch.transaction_datetime = dt;
   }
-
-  if (!lead.payment_mode) {
-    if (entry.payment_id) patch.payment_mode = 'UPI';
-    else if (entry.check_id) patch.payment_mode = 'Cheque';
-    else patch.payment_mode = 'Bank Transfer';
-  }
+  patch.payment_mode = entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer');
 
   if (Object.keys(patch).length > 0) {
     await db.from('fro_donor_logs').update(patch).eq('id', logId);
