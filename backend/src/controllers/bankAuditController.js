@@ -753,7 +753,7 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
 
   const { data: receipt, error: rErr } = await db
     .from('receipts')
-    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, mode, pan_number, address, email')
+    .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, payment_id, agent_name, log_id, mode, pan_number, address, email')
     .eq('id', receiptId)
     .is('donor_id', null)
     .maybeSingle();
@@ -820,7 +820,8 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
   if (error) throw error;
   if (!data) throw Object.assign(new Error('Suspense receipt already claimed'), { status: 409 });
 
-  // Fill the lead's empty payment fields from the receipt (mirror of syncEntryToLead).
+  // Override the lead's payment fields from the receipt (mirror of
+  // syncEntryToLead): the audit/receipt data always wins over the lead's.
   const { data: leadPay } = await db
     .from('fro_donor_logs')
     .select('upi_transaction_id, payment_from, transaction_datetime, payment_mode')
@@ -828,10 +829,14 @@ const manualMatchSuspense = async ({ rawId, logId, actorId }) => {
     .maybeSingle();
   const patch = {};
   if (leadPay) {
-    if (!leadPay.upi_transaction_id && receipt.payment_id) patch.upi_transaction_id = receipt.payment_id;
-    if (!leadPay.payment_from && receipt.donor_name) patch.payment_from = receipt.donor_name;
-    if (!leadPay.transaction_datetime && receipt.receipt_date) patch.transaction_datetime = receipt.receipt_date;
-    if (!leadPay.payment_mode) patch.payment_mode = receipt.mode || (receipt.payment_id ? 'UPI' : 'Bank Transfer');
+    if (receipt.payment_id) patch.upi_transaction_id = receipt.payment_id;
+    if (receipt.donor_name) patch.payment_from = receipt.donor_name;
+    if (receipt.receipt_date) {
+      patch.transaction_datetime = receipt.receipt_time
+        ? `${receipt.receipt_date}T${receipt.receipt_time}`
+        : receipt.receipt_date;
+    }
+    patch.payment_mode = receipt.mode || (receipt.payment_id ? 'UPI' : 'Bank Transfer');
   }
   if (Object.keys(patch).length > 0) {
     await db.from('fro_donor_logs').update(patch).eq('id', logId);
