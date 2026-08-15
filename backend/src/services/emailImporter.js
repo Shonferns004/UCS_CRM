@@ -298,6 +298,49 @@ async function pollSingleAccount(account, sources, fromDate, includeSeen, onlySe
             ? details.transaction_date
             : receivedAt ? receivedAt.slice(0, 10) : new Date().toISOString().slice(0, 10);
 
+          // Dedup: a UPI/payment reference is unique to one transaction. If the
+          // same reference already exists as a bank entry (a re-sent email) or
+          // as a receipt (uploaded money), creating another entry would double
+          // count it in the audit — skip and record the duplicate instead.
+          const paymentId = details.payment_id ? String(details.payment_id).trim() : null;
+          if (paymentId) {
+            let alreadyKnown = false;
+            try {
+              const { rows } = await db._pool.query(
+                `SELECT 1 FROM bank_audit_entries WHERE upper(trim(coalesce(payment_id, ''))) = upper($1) LIMIT 1`,
+                [paymentId]
+              );
+              if (rows?.length > 0) alreadyKnown = true;
+              else {
+                const { rows: rcpt } = await db._pool.query(
+                  `SELECT 1 FROM receipts WHERE upper(trim(coalesce(payment_id, ''))) = upper($1) LIMIT 1`,
+                  [paymentId]
+                );
+                if (rcpt?.length > 0) alreadyKnown = true;
+              }
+            } catch (e) { console.error('Email import dedup check failed:', e.message); }
+            if (alreadyKnown) {
+              await logImport({
+                email_message_id: messageId,
+                email_subject: emailSubject,
+                email_from: emailFrom,
+                received_at: receivedAt,
+                parsed_amount: details.amount,
+                parsed_payment_id: details.payment_id,
+                parsed_transaction_date: transactionDate,
+                parsed_source: paymentSource,
+                parsed_sender_name: details.sender_name,
+                status: 'duplicate',
+                seen: msgSeen,
+                raw_snippet: emailText.slice(0, 500),
+                account_id: account.id,
+                account_name: account.name,
+              });
+              skipped++;
+              continue;
+            }
+          }
+
           const entry = await createEntry({
             source_id: sourceId || 1,
             amount: details.amount,
