@@ -37,6 +37,7 @@ import {
   getReactivatedDonors,
   getSuspenseReceipts,
   claimSuspenseReceipt,
+  searchSuspenseDonors,
 } from '../controllers/froController.js';
 
 const router = Router();
@@ -107,6 +108,7 @@ router.get('/search-donors', searchDonors);
 
 router.get('/suspense', listFroSuspense);
 router.get('/suspense/search-dispositions', searchFroDispositions);
+router.get('/suspense/donor-search', searchSuspenseDonors);
 router.put('/suspense/:id/resolve', resolveSuspenseEntry);
 
 export default router;

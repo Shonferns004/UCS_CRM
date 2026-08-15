@@ -571,30 +571,69 @@ async function autoReturnTransfers() {
   }
 }
 
+// Start of the current donation window for a donor's frequency (mirrors
+// froController.periodStartForType). Defaults to the current calendar month for
+// monthly/unknown donors; one_time donors never reset (period starts in 2000).
+function periodStartForType(type, now = new Date()) {
+  const t = (type || '').toLowerCase();
+  if (t === 'quarterly') {
+    const q = Math.floor(now.getMonth() / 3);
+    return new Date(now.getFullYear(), q * 3, 1, 0, 0, 0, 0);
+  }
+  if (t === 'half_yearly') {
+    return new Date(now.getFullYear(), now.getMonth() < 6 ? 0 : 6, 1, 0, 0, 0, 0);
+  }
+  if (t === 'yearly') {
+    return new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+  }
+  if (t === 'one_time') {
+    return new Date(2000, 0, 1, 0, 0, 0, 0);
+  }
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+}
+
+// Rolls donation_collected/lead_done assignments back to pending once the
+// donor's next donation period begins without a new donation. The old logic
+// used a "30 days since last_contacted_at" heuristic, which kept stale
+// donation_collected statuses past the calendar-period boundary (e.g. a donor
+// who donated last month still showing donation_collected this month).
 async function resetCycledDonors() {
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const cutoff = thirtyDaysAgo.toISOString();
-
-    const { data: expired, error } = await db
+    const { data: cycled, error } = await db
       .from('fro_assignments')
-      .select('id, donor_id, fro_worker_id, ngo_id')
-      .in('status', ['donation_collected', 'lead_done'])
-      .lt('last_contacted_at', cutoff);
+      .select('id, donor_id, last_contacted_at')
+      .in('status', ['donation_collected', 'lead_done']);
 
     if (error) throw error;
-    if (!expired || expired.length === 0) return;
+    if (!cycled || cycled.length === 0) return;
 
-    const ids = expired.map(a => a.id);
+    const donorIds = [...new Set(cycled.map(a => a.donor_id).filter(Boolean))];
+    const { data: donors } = donorIds.length > 0
+      ? await db.from('donor_profiles').select('id, donor_type, donation_frequency, last_donation_date').in('id', donorIds)
+      : { data: [] };
+    const donorMap = {};
+    for (const d of donors || []) donorMap[d.id] = d;
+
+    const now = new Date();
+    const toReset = [];
+    for (const a of cycled) {
+      const d = donorMap[a.donor_id];
+      if (!d) continue;
+      const periodStart = periodStartForType(d.donor_type || d.donation_frequency || '', now);
+      const evidenceDate = d.last_donation_date || a.last_contacted_at;
+      if (evidenceDate && new Date(evidenceDate) < periodStart) toReset.push(a.id);
+    }
+
+    if (toReset.length === 0) return;
+
     const { error: updErr } = await db
       .from('fro_assignments')
       .update({ status: 'pending', updated_at: new Date().toISOString() })
-      .in('id', ids);
+      .in('id', toReset);
 
     if (updErr) throw updErr;
 
-    console.log(`[resetCycledDonors] Reset ${ids.length} donation_collected donors to pending for follow-up`);
+    console.log(`[resetCycledDonors] Reset ${toReset.length} donation_collected/lead_done donors to pending for follow-up`);
   } catch (error) {
     console.error('[resetCycledDonors] Error:', error.message);
   }
