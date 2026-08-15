@@ -1603,6 +1603,13 @@ export const getMyDonors = async (req, res) => {
       const s = scheduleMap[a.id];
       const rawStatus = a.status || 'pending';
       const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !monthDonatedSet.has(a.id);
+      // A donor who has already donated AND it is verified this month has nothing
+      // left to collect — drop them out of the workable (pending/not-connected)
+      // pool so they stop reappearing at the top of the FRO stack.
+      const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
+      const displayStatus = staleDoneStatus
+        ? 'pending'
+        : (monthVerifiedSet.has(a.id) && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
       result.push({
         id: a.donor_id,
         donor_id: a.donor_id,
@@ -3305,7 +3312,7 @@ export const searchDonors = async (req, res) => {
           total_donated: hasScoped ? (d.total_amount || 0) : 0,
           has_donated_current_month: donatedThisPeriod,
           has_verified_donation_current_month: evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
-          status: staleDoneStatus ? 'pending' : rawStatus,
+        status: displayStatus,
         });
       }
     }
