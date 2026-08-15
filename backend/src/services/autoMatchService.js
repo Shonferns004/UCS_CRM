@@ -1,5 +1,5 @@
 import db from '../config/db.js';
-import { nextMatchNo, syncEntryToLead, getUnlinkedReceipts } from '../models/bankAuditModel.js';
+import { nextMatchNo, syncEntryToLead, getUnlinkedReceipts, enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 
 const MIN_SCORE = 75;
 const MARGIN = 10;
@@ -110,12 +110,12 @@ const linkSuspenseToLead = async (receipt, lead) => {
     donor_name: donor.name || receipt.donor_name || null,
     donor_mobile: donor.mobile_number || null,
     agent_name: worker?.name || null,
-    project_id: donor.project_supported || receipt.project_id || 'bsct',
+    project_id: receipt.project_id || donor.project_supported || 'bsct',
     pan_number: donor.pan_number || null,
     address: [donor.address_1, donor.address_2].filter(Boolean).join(', ') || null,
     email: donor.email || null,
     bank_name: donor.donors_bank_name || null,
-    mode: lead.payment_mode || donor.mop || 'Bank',
+    mode: lead.payment_mode || donor.mop || (receipt.mode || 'Bank'),
   };
   await db
     .from('receipts')
@@ -124,6 +124,9 @@ const linkSuspenseToLead = async (receipt, lead) => {
     .is('donor_id', null)
     .is('log_id', null);
 
+  try { await enrichDonorProfileFromReceipt(donor.id, receipt); }
+  catch (e) { console.error('Failed to enrich donor profile from suspense receipt:', e.message); }
+
   const { data: leadPay } = await db
     .from('fro_donor_logs')
     .select('upi_transaction_id, payment_from, transaction_datetime, payment_mode')
@@ -131,10 +134,16 @@ const linkSuspenseToLead = async (receipt, lead) => {
     .maybeSingle();
   const leadPatch = {};
   if (leadPay) {
-    if (!leadPay.upi_transaction_id && receipt.payment_id) leadPatch.upi_transaction_id = receipt.payment_id;
-    if (!leadPay.payment_from && receipt.donor_name) leadPatch.payment_from = receipt.donor_name;
-    if (!leadPay.transaction_datetime && receipt.receipt_date) leadPatch.transaction_datetime = receipt.receipt_date;
-    if (!leadPay.payment_mode) leadPatch.payment_mode = receipt.payment_id ? 'UPI' : 'Bank Transfer';
+    // The audit/receipt data is the source of truth: it always overrides the
+    // lead's payment fields when a suspense receipt is auto-linked.
+    if (receipt.payment_id) leadPatch.upi_transaction_id = receipt.payment_id;
+    if (receipt.donor_name) leadPatch.payment_from = receipt.donor_name;
+    if (receipt.receipt_date) {
+      leadPatch.transaction_datetime = receipt.receipt_time
+        ? `${receipt.receipt_date}T${receipt.receipt_time}`
+        : receipt.receipt_date;
+    }
+    leadPatch.payment_mode = receipt.mode || (receipt.payment_id ? 'UPI' : 'Bank Transfer');
   }
   if (Object.keys(leadPatch).length > 0) {
     await db.from('fro_donor_logs').update(leadPatch).eq('id', lead.id);

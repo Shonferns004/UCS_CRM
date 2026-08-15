@@ -24,7 +24,8 @@ export const getUnlinkedReceipts = async () => {
   // must not also appear in the suspense pool.
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
-           r.receipt_date, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at
+           r.receipt_date, r.receipt_time, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
+           r.pan_number, r.address, r.email
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
@@ -39,35 +40,53 @@ export const getUnlinkedReceipts = async () => {
   return rows || [];
 };
 
-// Global receipt number sequence created by migration 064 (receipts_no_seq).
-// nextval is atomic, so concurrent writes can never receive the same number —
-// the UNIQUE(project_id, receipt_no) constraint backs this up. Numbers are
-// drawn from one shared pool (no per-NGO suffix); the UNIQUE constraint scopes
-// them per NGO.
-//
-// Imported receipts carry their own (higher) receipt-book numbers, so the
-// sequence can lag behind numbers that already exist in the table. Assigning a
-// colliding number makes the UPDATE/INSERT fail on the UNIQUE constraint, so
-// skip any number already used and bump the sequence past the current max
-// before retrying.
+// Per-NGO receipt numbers (migration 068). The next receipt number for an NGO
+// is the highest number already present for that NGO + 1, so numbering
+// continues where each NGO left off. The DB function next_receipt_no() locks
+// the per-NGO counter row, so concurrent requests for the same NGO never
+// receive the same number; the UNIQUE(project_id, receipt_no) constraint from
+// migration 064 is the backstop. Imported receipts carry their own (higher)
+// receipt-book numbers, so each allocation also skips past the current per-NGO
+// max to avoid colliding with them.
 export const getNextReceiptNo = async (projectId) => {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const { rows } = await db._pool.query("SELECT nextval('receipts_no_seq') AS n");
-    const no = String(rows[0].n);
-    const { rows: used } = await db._pool.query(
-      'SELECT 1 FROM receipts WHERE receipt_no = $1 LIMIT 1',
-      [no]
-    );
-    if (used.length === 0) return no;
-    await db._pool.query(
-      `SELECT setval('receipts_no_seq',
-         GREATEST(
-           (SELECT last_value FROM receipts_no_seq),
-           (SELECT COALESCE(MAX(CASE WHEN receipt_no ~ '^[0-9]+$' THEN receipt_no::bigint END), 0) FROM receipts)
-         ), true)`
-    );
+  const { rows } = await db._pool.query('SELECT next_receipt_no($1) AS n', [String(projectId)]);
+  return String(rows[0].n);
+};
+
+// Lower a project's receipt-number counter back to the highest number still
+// present (migration 069), so numbers freed by Go Back / Undo are reused
+// instead of being skipped over. Never raises the counter.
+export const cancelReceiptNo = async (projectId) => {
+  if (!projectId) return;
+  await db._pool.query('SELECT cancel_receipt_no($1)', [String(projectId)]);
+};
+
+// NGO name keywords -> canonical project code (receipts.project_id /
+// bank_audit_entries.project_id). Mirrors the FRO suspense aliases so a
+// donation assigned to any NGO resolves to the project code its receipts are
+// numbered under.
+const NGO_PROJECT_ALIASES = {
+  bsct: ['bsct', 'beingsevak', 'being sevak', 'sevak'],
+  mann: ['mann', 'manncar', 'mann care', 'manncare', 'maan'],
+  aflf: ['aflf', 'ashray', 'ashray life'],
+};
+
+// The canonical project code for a lead is the NGO it is assigned under
+// (fro_assignments.ngo_id -> ngos.name lowercased). That is authoritative,
+// unlike donor_profiles.project_supported which is often unset or stale — a
+// missing/wrong project_supported is exactly what made Ashray money take the
+// next number from the BSCT sequence. Returns null when the NGO cannot be
+// resolved so callers can fall back.
+export const projectCodeFromNgoId = async (ngoId) => {
+  if (ngoId === null || ngoId === undefined) return null;
+  const { data, error } = await db.from('ngos').select('name').eq('id', ngoId).maybeSingle();
+  if (error) throw error;
+  const name = data?.name ? String(data.name).trim().toLowerCase() : '';
+  if (!name) return null;
+  for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+    if (name === code || aliases.some((a) => name === a || name.includes(a))) return code;
   }
-  throw new Error('Could not allocate a unique receipt number after multiple attempts');
+  return name;
 };
 
 export const getSources = async () => {
@@ -260,26 +279,17 @@ export const syncEntryToLead = async (entryId, logId) => {
 
   const patch = {};
 
-  if (!lead.upi_transaction_id && entry.payment_id) {
-    patch.upi_transaction_id = entry.payment_id;
-  }
-
-  if (!lead.payment_from && entry.payer_name) {
-    patch.payment_from = entry.payer_name;
-  }
-
-  if (!lead.transaction_datetime && entry.transaction_date) {
-    const dt = entry.payment_time
+  // The audit entry is the source of truth for the money's payment fields: when
+  // an entry is matched/claimed to a lead, its values always override the lead's
+  // (previously they only filled empty fields, so FRO-entered values won).
+  if (entry.payment_id) patch.upi_transaction_id = entry.payment_id;
+  if (entry.payer_name) patch.payment_from = entry.payer_name;
+  if (entry.transaction_date) {
+    patch.transaction_datetime = entry.payment_time
       ? `${entry.transaction_date}T${entry.payment_time}`
       : entry.transaction_date;
-    patch.transaction_datetime = dt;
   }
-
-  if (!lead.payment_mode) {
-    if (entry.payment_id) patch.payment_mode = 'UPI';
-    else if (entry.check_id) patch.payment_mode = 'Cheque';
-    else patch.payment_mode = 'Bank Transfer';
-  }
+  patch.payment_mode = entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer');
 
   if (Object.keys(patch).length > 0) {
     await db.from('fro_donor_logs').update(patch).eq('id', logId);
@@ -465,4 +475,42 @@ export const searchDonorsForSuspense = async (searchTerm, ngoIds) => {
     fro_name: froMap[d.id]?.name || null,
     fro_login: froMap[d.id]?.login_id || null,
   }));
+};
+
+// A field value counts as missing for the fill-if-empty rule when it is NULL,
+// empty, or the 'NA'/'Suspense' marker (case-insensitive, trimmed).
+const isEmptyValue = (value) => {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim();
+  if (s === '') return true;
+  const lower = s.toLowerCase();
+  return lower === 'na' || lower === 'suspense';
+};
+
+// Best-effort: copy a suspense receipt's donor details (PAN, address, email,
+// mobile, MOP) onto the donor profile, but only where the profile is missing
+// them — so the linked lead shows the money's real data (address, PAN card)
+// without ever overwriting already-known profile data. Used by the FRO claim,
+// auto-match, and manual suspense-match paths.
+export const enrichDonorProfileFromReceipt = async (donorId, receipt) => {
+  if (!donorId || !receipt) return;
+  const { data: profile, error } = await db
+    .from('donor_profiles')
+    .select('pan_number, address_1, address_2, email, mobile_number, mop')
+    .eq('id', donorId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!profile) return;
+
+  const patch = {};
+  if (isEmptyValue(profile.pan_number) && !isEmptyValue(receipt.pan_number)) patch.pan_number = String(receipt.pan_number).trim();
+  if (isEmptyValue(profile.address_1) && !isEmptyValue(receipt.address)) patch.address_1 = String(receipt.address).trim();
+  if (isEmptyValue(profile.email) && !isEmptyValue(receipt.email)) patch.email = String(receipt.email).trim();
+  if (isEmptyValue(profile.mobile_number) && !isEmptyValue(receipt.donor_mobile)) patch.mobile_number = String(receipt.donor_mobile).trim();
+  if (isEmptyValue(profile.mop) && !isEmptyValue(receipt.mode)) patch.mop = String(receipt.mode).trim();
+  if (Object.keys(patch).length === 0) return;
+
+  patch.updated_at = new Date().toISOString();
+  const { error: updErr } = await db.from('donor_profiles').update(patch).eq('id', donorId);
+  if (updErr) throw updErr;
 };

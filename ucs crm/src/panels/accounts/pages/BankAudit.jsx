@@ -25,7 +25,7 @@ const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id ==
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
-const MODE_OPTIONS=['googlepay','razorpay','online','freecharge','others'];
+const MODE_OPTIONS=['Google Pay','razorpay','online','freecharge','PUM','others'];
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
@@ -260,20 +260,24 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
+  const[stf,setStf]=useState('');
   const listRef=useRef(null);
   const clickRef=useRef(null);
   useEffect(()=>{if(listRef.current)listRef.current.scrollTop=0},[leadFilterKey]);
   const kw=sq.trim().toLowerCase();
-  const searched=kw?filtered.filter(e=>
+  // Pending = no match made yet and not claimed by an FRO; Claimed = an FRO has
+  // claimed the money (claimed_by set) but it is not resolved/confirmed yet.
+  const claimVisible=stf?filtered.filter(e=>stf==='pending'?(!e.match_status&&!e.claimed_by):(!!e.claimed_by)):filtered;
+  const searched=kw?claimVisible.filter(e=>
     [e.payer_name,e.donor_mobile,e.payment_id,e.check_id,e.receipt_no,e.amount,e.agent_name,e.transaction_date,e.bank_audit_sources?.name,getSrcName(e.source_id)]
       .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
-  ):filtered;
+  ):claimVisible;
   const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
   const amountVisible=amountFilter!==''&&amountFilter!=null?visible.filter(e=>Number(e.amount)===Number(amountFilter)):visible;
-  const suspenseCount=filtered.filter(e=>e.kind==='suspense').length;
+  const suspenseCount=claimVisible.filter(e=>e.kind==='suspense').length;
   const pageCount=Math.max(1,Math.ceil(amountVisible.length/PAGE_SIZE));
   const pageItems=amountVisible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
-  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq,amountFilter]);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq,amountFilter,stf]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
@@ -334,6 +338,11 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700,padding:'5px 11px',borderRadius:999,background:suspenseCount>0?'#FDE7DB':'#f3f4f6',color:suspenseCount>0?'#B5603A':'#9ca3af',whiteSpace:'nowrap'}}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
           {suspenseCount} Suspense
+        </span>
+        <span style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px',borderRadius:7,background:'#f3f4f6',flexWrap:'wrap'}}>
+          {[['','All'],['pending','Pending'],['claimed','Claimed']].map(([v,l])=>
+            <button key={v||'all'} onClick={()=>setStf(v)} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:6,border:'none',cursor:'pointer',background:stf===v?'#111827':'transparent',color:stf===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
+          )}
         </span>
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
@@ -399,6 +408,8 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
             {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
+            {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
+            {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
             <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
             {e.agent_name&&e.agent_name!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
@@ -435,8 +446,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     setWr(merged);
   })}},[sa,se,wr.length]);
 
-  async function load(dt,stv,day){
-    const s=stv||srRef.current;setLd(true);setEr('');
+  async function load(dt,stv,day,silent){
+    const s=stv||srRef.current;if(!silent)setLd(true);setEr('');
     try{
       const p=new URLSearchParams();
       if(day){p.set('date_from',day);p.set('date_to',day)}
@@ -450,8 +461,11 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   }
   useEffect(()=>{load(sd,st,dd)},[sd,dd,st]);
   useEffect(()=>{onAmounts?.(e.map(x=>Number(x.amount)).filter(Number.isFinite))},[e,onAmounts]);
-  useRealtime('bank_audit_entries',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
-  useRealtime('receipts',{event:'*',onInsert:()=>load(sd,srRef.current,dd),onUpdate:()=>load(sd,srRef.current,dd),onDelete:()=>load(sd,srRef.current,dd)});
+  const rtTimerRef=useRef(null);
+  const rtLoad=()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current);rtTimerRef.current=setTimeout(()=>load(sd,srRef.current,dd,true),400)};
+  useEffect(()=>()=>{if(rtTimerRef.current)clearTimeout(rtTimerRef.current)},[]);
+  useRealtime('bank_audit_entries',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
+  useRealtime('receipts',{event:'*',onInsert:rtLoad,onUpdate:rtLoad,onDelete:rtLoad});
 
   const ngoKw={bsct:['bsct','beingsevak','being sevak','sevak'],mann:['mann','manncar','mann care'],aflf:['aflf','ashray']};
   const matchesNgo=(entry,code)=>{const src=(entry.bank_audit_sources?.name||'').toLowerCase();const rem=(entry.remarks||'').toLowerCase();const prj=(entry.project_id||'').toLowerCase();const kw=ngoKw[code]||[];return kw.some(k=>src.includes(k)||rem.includes(k)||prj.includes(k))};
@@ -559,24 +573,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </div>
       </FieldSection>
 
-      <FieldSection title="Agent & Lead Link">
-        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
-            <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-            <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
-          </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
-            <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&!isReceiptSuspense(seEntry)&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
-          </label>
-        </div>
-        {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
-          <div style={{marginTop:10,padding:'9px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
-            <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
-            <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
-          </div>}
-      </FieldSection>
-
       <FieldSection title="Additional Info">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
@@ -596,6 +592,24 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <input className="field-input" placeholder="Optional note..." value={fm.remarks} onChange={e=>setFm(p=>({...p,remarks:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
           </label>
         </div>
+      </FieldSection>
+
+      <FieldSection title="Agent & Lead Link">
+        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
+            <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
+            <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&!isReceiptSuspense(seEntry)&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
+          </label>
+        </div>
+        {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
+          <div style={{marginTop:10,padding:'9px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+            <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
+            <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
+          </div>}
       </FieldSection>
     </>
   );
