@@ -819,11 +819,44 @@ export const getSuspenseReceipts = async (req, res) => {
   }
 };
 
+// Best-effort: when an FRO claims a suspense receipt, write the donor details
+// they provided (prefilled from their donor pick, editable) onto the linked
+// bank_audit_entries row so the Accounts Bank Audit card shows them right after
+// the claim, before Accounts verifies. Never blocks the claim if the entry
+// lookup/write fails.
+const linkClaimDonorToAuditEntry = async (receiptId, donorId, details) => {
+  if (!receiptId || !donorId) return;
+  const fill = {};
+  const mobile = (details?.donor_mobile || '').trim();
+  const email = (details?.donor_email || '').trim();
+  const pan = (details?.donor_pan || '').trim();
+  const city = (details?.donor_city || '').trim();
+  const address = (details?.donor_address || '').trim();
+  if (mobile) fill.donor_mobile = mobile;
+  if (email) fill.donor_email = email;
+  if (pan) fill.donor_pan = pan;
+  if (city) fill.donor_city = city;
+  if (address) fill.donor_address_1 = address;
+  if (Object.keys(fill).length === 0) return;
+  fill.donor_id = donorId;
+  try {
+    const { data: entries } = await db
+      .from('bank_audit_entries')
+      .select('id')
+      .eq('receipt_id', receiptId);
+    for (const entry of (entries || [])) {
+      await db.from('bank_audit_entries').update(fill).eq('id', entry.id);
+    }
+  } catch (e) {
+    console.error('Link claim donor to audit entry failed:', e.message);
+  }
+};
+
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
     const receiptId = parseInt(req.params.receiptId, 10);
-    const { donor_id, donor_name, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
+    const { donor_id, donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
     if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
     let donorId = donor_id ? parseInt(donor_id, 10) : null;
     const explicitDonor = donorId !== null;
@@ -994,6 +1027,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       }
       const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
       if (updErr) throw updErr;
+      await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
       try {
         const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
         for (const u of (accounts || [])) {
@@ -1077,6 +1111,8 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
     if (updErr) throw updErr;
+
+    await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
