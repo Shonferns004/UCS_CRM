@@ -136,6 +136,10 @@ export async function searchDonorsByMobile(q) {
   return api(`/fro/search-donors?q=${encodeURIComponent(q)}`, { _prefix: 'ucs' })
 }
 
+export async function searchSuspenseDonors(q) {
+  return api(`/fro/suspense/donor-search?q=${encodeURIComponent(q)}`, { _prefix: 'ucs' })
+}
+
 export async function getFullDonorHistory(donorId, ngoId, unlockAll) {
   const params = new URLSearchParams();
   if (ngoId) params.set('ngo_id', ngoId);
