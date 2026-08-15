@@ -121,45 +121,11 @@ export const confirmMatchCredit = async (entryId, actorId) => {
 
     let receipt = null;
     const mode = log.payment_mode || donor.mop || (entry.payment_id ? 'UPI' : 'Bank');
-    if (entry.receipt_id) {
-      const { data: existingRcpt } = await from('receipts').select('donor_name, bank_payer_name, project_id').eq('id', entry.receipt_id).maybeSingle();
-      const profileName = donor.name || null;
-      const oldPayerName = existingRcpt?.donor_name && existingRcpt.donor_name !== profileName ? existingRcpt.donor_name : entry.payer_name || null;
-      const { data: updated } = await from('receipts').update({
-        donor_id: donorId,
-        log_id: log.id,
-        project_id: existingRcpt?.project_id || project,
-        donor_name: donor.name || entry.payer_name || null,
-        bank_payer_name: existingRcpt?.bank_payer_name || oldPayerName || null,
-        donor_mobile: donor.mobile_number || null,
-        pan_number: donor.pan_number || entry.donor_pan || null,
-        address: donorAddress || entry.donor_address_1 || null,
-        email: donor.email || entry.donor_email || null,
-        agent_name: workerName || entry.agent_name || null,
-        mode: mode || null,
-        payment_id: entry.payment_id || null,
-        receipt_time: entry.payment_time || null,
-        bank_name: bankName,
-      }).eq('id', entry.receipt_id).select().single();
-      if (updated.receipt_no) {
-        receipt = updated;
-      } else {
-        const receiptNo = await getNextReceiptNo(existingRcpt?.project_id || project);
-        const { data: numbered } = await from('receipts').update({ receipt_no: receiptNo }).eq('id', entry.receipt_id).select().single();
-        receipt = numbered;
-      }
-    } else if (existingLogReceipt) {
-      // Money already receipted + credited via the earlier lead verification.
-      await from('bank_audit_entries').update({ receipt_id: existingLogReceipt.id }).eq('id', entry.id);
-      const { data: updated } = await from('receipts').update({
-        donor_id: donorId,
-        bank_name: bankName,
-        address: donorAddress || null,
-      }).eq('id', existingLogReceipt.id).select().single();
-      receipt = updated;
-    } else {
+
+    // Fresh receipt for this money when no linked/existing receipt can be used.
+    const buildFreshReceipt = async () => {
       const receiptNo = await getNextReceiptNo(project);
-      const { data: created } = await from('receipts').insert({
+      const { data: created, error: insErr } = await from('receipts').insert({
         log_id: logProcessed ? null : log.id,
         receipt_no: receiptNo,
         project_id: project,
@@ -179,7 +145,68 @@ export const confirmMatchCredit = async (entryId, actorId) => {
         generated_by: actorId,
         donor_id: donorId,
       }).select().single();
-      receipt = created;
+      if (insErr) throw new Error(`Failed to create receipt for credited entry: ${insErr.message}`);
+      return created;
+    };
+
+    if (entry.receipt_id) {
+      // Reuse the entry's linked receipt (e.g. the suspense receipt the FRO
+      // claimed). The update can return data=null on no-match/error, which used
+      // to crash on `updated.receipt_no` — handle it defensively.
+      const { data: existingRcpt } = await from('receipts').select('donor_name, bank_payer_name, project_id, receipt_no').eq('id', entry.receipt_id).maybeSingle();
+      const profileName = donor.name || null;
+      const oldPayerName = existingRcpt?.donor_name && existingRcpt.donor_name !== profileName ? existingRcpt.donor_name : entry.payer_name || null;
+      const receiptPatch = {
+        donor_id: donorId,
+        log_id: log.id,
+        project_id: existingRcpt?.project_id || project,
+        donor_name: donor.name || entry.payer_name || 'Unknown',
+        bank_payer_name: existingRcpt?.bank_payer_name || oldPayerName || null,
+        donor_mobile: donor.mobile_number || null,
+        pan_number: donor.pan_number || entry.donor_pan || null,
+        address: donorAddress || entry.donor_address_1 || null,
+        email: donor.email || entry.donor_email || null,
+        agent_name: workerName || entry.agent_name || null,
+        mode: mode || null,
+        payment_id: entry.payment_id || null,
+        receipt_time: entry.payment_time || null,
+        bank_name: bankName,
+      };
+      const { data: updated, error: updErr } = await from('receipts').update(receiptPatch).eq('id', entry.receipt_id).select().single();
+      if (updErr || !updated) {
+        // Update failed (receipt deleted, constraint violation, ...). If the
+        // receipt is still there just reuse what we can; if it is truly gone,
+        // fall through and create a fresh receipt for this money.
+        const { data: reRead } = await from('receipts').select('*').eq('id', entry.receipt_id).maybeSingle();
+        if (reRead) {
+          const { data: reUpd, error: reErr } = await from('receipts').update(receiptPatch).eq('id', entry.receipt_id).select().single();
+          receipt = (!reErr && reUpd) ? reUpd : reRead;
+          console.error('Receipt update on credit failed, reused existing:', updErr?.message || 'no rows');
+        } else {
+          console.error('Linked receipt missing on credit, creating a fresh one:', updErr?.message || 'no rows');
+        }
+      } else {
+        receipt = updated;
+      }
+      if (receipt && !receipt.receipt_no) {
+        const receiptNo = await getNextReceiptNo(existingRcpt?.project_id || project);
+        const { data: numbered, error: numErr } = await from('receipts').update({ receipt_no: receiptNo }).eq('id', entry.receipt_id).select().single();
+        if (numErr) console.error('Failed to allocate receipt no on credit:', numErr.message);
+        receipt = numbered || receipt;
+      }
+      if (!receipt) receipt = await buildFreshReceipt();
+    } else if (existingLogReceipt) {
+      // Money already receipted + credited via the earlier lead verification.
+      await from('bank_audit_entries').update({ receipt_id: existingLogReceipt.id }).eq('id', entry.id);
+      const { data: updated, error: updErr } = await from('receipts').update({
+        donor_id: donorId,
+        bank_name: bankName,
+        address: donorAddress || null,
+      }).eq('id', existingLogReceipt.id).select().single();
+      if (updErr) console.error('Failed to patch existing log receipt on credit:', updErr.message);
+      receipt = updated || existingLogReceipt;
+    } else {
+      receipt = await buildFreshReceipt();
     }
 
     if (receipt?.id) {
