@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getDonorDetail, getDonorHistory, addDonorLog, uploadPaymentScreenshot } from '../api/donors';
 import { DatePicker } from './ui';
 import { TimePicker } from './TimePicker';
@@ -53,6 +53,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
   const [leadDob, setLeadDob] = useState('');
   const [projectName, setProjectName] = useState('');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [message, setMessage] = useState(null);
   const [upiTransactionId, setUpiTransactionId] = useState('');
   const [transactionDatetime, setTransactionDatetime] = useState('');
@@ -112,6 +113,8 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
     if (SCHEDULE_DATE_TYPES.has(selected) && (!scheduledDate || !scheduledTime)) { setMessage({ type: 'error', text: 'Select date & time' }); return; }
     if (SCHEDULE_TIME_TYPES.has(selected) && !callbackTime) { setMessage({ type: 'error', text: 'Select time for callback' }); return; }
     if ((selected === 'lead_done' || selected === 'done') && (!leadAmount || isNaN(leadAmount) || Number(leadAmount) <= 0)) { setMessage({ type: 'error', text: 'Enter a valid payment amount' }); return; }
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const logPayload = {
@@ -154,7 +157,7 @@ export default function DispositionModal({ donorId, ngoId, donorName, donorMobil
       onDone();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
-    } finally { setSaving(false); }
+    } finally { setSaving(false); savingRef.current = false; }
   };
 
   const handleDropdownChange = (detailId) => {

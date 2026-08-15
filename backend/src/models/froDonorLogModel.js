@@ -10,6 +10,34 @@ export const createDonorLog = async (data) => {
   return result;
 };
 
+// Find a same-day disposition log for the same assignment + worker + detail so
+// repeat saves (e.g. re-dialing a ringing/busy donor) refresh the existing row
+// instead of piling up identical timeline entries.
+export const findDispositionLogToday = async (assignmentId, workerId, detail, dayStart) => {
+  const { data, error } = await db
+    .from('fro_donor_logs')
+    .select('id')
+    .eq('assignment_id', assignmentId)
+    .eq('fro_worker_id', workerId)
+    .eq('action', 'disposition')
+    .eq('disposition_detail', detail)
+    .gte('created_at', dayStart)
+    .limit(1);
+  if (error) throw error;
+  return data && data.length > 0 ? data[0] : null;
+};
+
+export const updateDonorLog = async (id, updates) => {
+  const { data, error } = await db
+    .from('fro_donor_logs')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
 export const findLogsByAssignment = async (assignmentId) => {
   const { data, error } = await db
     .from('fro_donor_logs')

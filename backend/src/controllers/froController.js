@@ -15,6 +15,8 @@ import {
 import { getTargetByWorker } from '../models/froTargetModel.js';
 import {
   createDonorLog,
+  findDispositionLogToday,
+  updateDonorLog,
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
@@ -2085,7 +2087,35 @@ export const createDonorLogHandler = async (req, res) => {
       logData.accounts_status = 'pending';
     }
 
-    const log = await createDonorLog(logData);
+    // Same-day disposition dedup: re-saving the same detail (e.g. ringing, busy,
+    // not_possible) for the same assignment refreshes today's row instead of
+    // inserting a new timeline entry. Money events (done / lead_done) always insert.
+    const MONEY_DETAILS = new Set(['done', 'lead_done']);
+    let log;
+    if (action === 'disposition' && disposition_detail && !MONEY_DETAILS.has(disposition_detail)) {
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const existing = await findDispositionLogToday(assignment.id, creditWorkerId, disposition_detail, dayStart.toISOString());
+      if (existing) {
+        log = await updateDonorLog(existing.id, {
+          notes: logData.notes,
+          outcome: logData.outcome,
+          amount_collected: logData.amount_collected,
+          disposition_category: logData.disposition_category,
+          scheduled_at: logData.scheduled_at,
+          payment_screenshot_url: logData.payment_screenshot_url,
+          pan_number: logData.pan_number,
+          remark: logData.remark,
+          upi_transaction_id: logData.upi_transaction_id,
+          transaction_datetime: logData.transaction_datetime,
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        log = await createDonorLog(logData);
+      }
+    } else {
+      log = await createDonorLog(logData);
+    }
 
     // Update donor profile fields if provided
     const updateFields = {};
