@@ -157,7 +157,7 @@ function findNextDonorIndex(donors, currentId, workedToday = null) {
   const isWorked = (d) => workedToday && workedToday.has(workedDonorKey(d));
   // Priority 1: scheduled/callback leads (pinned to the top of the stack)
   for (let i = 0; i < donors.length; i++) {
-    if (SCHEDULE_TYPES.has(donors[i].status) && donors[i].id !== currentId) return i;
+    if (SCHEDULE_TYPES.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
   }
   // Priority 2: pending (no disposition yet) — not-attempted first, skip current
   for (let i = 0; i < donors.length; i++) {
