@@ -114,7 +114,7 @@ export default function ReceiptHistory() {
   const [importResult, setImportResult] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
-  const [namesMode, setNamesMode] = useState(false);
+  const [uploadMode, setUploadMode] = useState('receipts');
   const [namesImporting, setNamesImporting] = useState(false);
   const [namesResult, setNamesResult] = useState(null);
   const [namesUploadProgress, setNamesUploadProgress] = useState(0);
@@ -134,6 +134,7 @@ export default function ReceiptHistory() {
   const [suspenseLoading, setSuspenseLoading] = useState(false);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
+  const lastUpload = useRef(null);
   const CHUNK_SIZE = 100;
 
   const load = useCallback(() => {
@@ -155,26 +156,13 @@ export default function ReceiptHistory() {
       .finally(() => setLoading(false));
   }, [page, searchQuery, receiptTab]);
 
-  const handleFile = useCallback(async (file) => {
-    if (!file) return;
-    if (!ngoId) { alert('Please select the NGO for this upload first'); return; }
-    const name = file.name.toLowerCase();
-    if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
-      alert('Please upload a valid Excel/CSV file'); return;
-    }
+  const runImport = useCallback(async (rows, ngoIdForImport) => {
+    if (!rows || rows.length === 0) return;
     setImporting(true);
     setImportResult(null);
     setUploadProgress(0);
     setUploadStatus('Reading file...');
     try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
-      const sourceRows = wb.SheetNames
-        .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
-        .find(sheetRows => sheetRows.length > 0) || [];
-      const rows = prepareImportRows(sourceRows);
-      if (!rows || rows.length === 0) { alert('File is empty'); return; }
-
       const chunks = [];
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         chunks.push(rows.slice(i, i + CHUNK_SIZE));
@@ -182,14 +170,18 @@ export default function ReceiptHistory() {
 
       let totalImported = 0;
       let totalMatched = 0;
+      let totalUpgraded = 0;
+      let totalCreditedPending = 0;
       let totalFailed = 0;
       let failedFileUrl = null;
 
       for (let i = 0; i < chunks.length; i++) {
         setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
-        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i], ngo_id: ngoId }, 300000);
+        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i], ngo_id: ngoIdForImport }, 300000);
         totalImported += res.imported || 0;
         totalMatched += res.matchedDonors || 0;
+        totalUpgraded += res.upgraded || 0;
+        totalCreditedPending += res.creditedPending || 0;
         totalFailed += res.failedCount || 0;
         if (res.failedFile && !failedFileUrl) failedFileUrl = res.failedFile;
         setUploadProgress(Math.round(((i + 1) / chunks.length) * 100));
@@ -199,8 +191,13 @@ export default function ReceiptHistory() {
 
       const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
       const rootUrl = apiBase.replace(/\/api\/?$/, '');
+      const parts = [`${totalImported} receipts imported`];
+      if (totalUpgraded > 0) parts.push(`${totalUpgraded} suspense receipts credited from re-upload`);
+      if (totalCreditedPending > 0) parts.push(`${totalCreditedPending} pending claims auto-credited`);
+      if (totalMatched > 0) parts.push(`${totalMatched} linked to donors`);
+      if (totalFailed > 0) parts.push(`${totalFailed} failed`);
       setImportResult({
-        message: `${totalImported} receipts imported${totalMatched > 0 ? `, ${totalMatched} linked to donors` : ''}${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`,
+        message: parts.join(', '),
         imported: totalImported,
         matchedDonors: totalMatched,
         failedCount: totalFailed,
@@ -209,7 +206,35 @@ export default function ReceiptHistory() {
       load();
     } catch (err) { alert('Import failed: ' + err.message); }
     finally { setImporting(false); setUploadProgress(0); setUploadStatus(''); }
-  }, [ngoId, load]);
+  }, [load]);
+
+  const handleFile = useCallback(async (file) => {
+    if (!file) return;
+    if (!ngoId) { alert('Please select the NGO for this upload first'); return; }
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
+      alert('Please upload a valid Excel/CSV file'); return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const sourceRows = wb.SheetNames
+        .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
+        .find(sheetRows => sheetRows.length > 0) || [];
+      const rows = prepareImportRows(sourceRows);
+      if (!rows || rows.length === 0) { alert('File is empty'); return; }
+      lastUpload.current = { rows, ngo_id: ngoId };
+      await runImport(rows, ngoId);
+    } catch (err) { alert('Import failed: ' + err.message); }
+  }, [ngoId, runImport]);
+
+  const handleReupload = useCallback(() => {
+    if (!lastUpload.current) { alert('No previous upload to re-run. Upload a receipts file first.'); return; }
+    const { rows, ngo_id: lastNgoId } = lastUpload.current;
+    if (!rows || rows.length === 0) { alert('No previous upload to re-run.'); return; }
+    if (!window.confirm(`Re-run the last upload of ${rows.length} rows? Already-cleared suspense receipts are kept; suspense rows that now have an agent + mobile get auto-credited and pending claims on those receipt numbers leave Lead Verification.`)) return;
+    runImport(rows, lastNgoId || ngoId);
+  }, [ngoId, runImport]);
 
   const handleNamesFile = useCallback(async (file) => {
     if (!file) return;
@@ -406,10 +431,11 @@ export default function ReceiptHistory() {
         <div className="card-pad">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{namesMode ? 'Upload Names' : 'Upload Receipts'}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{uploadMode === 'names' ? 'Upload Names' : uploadMode === 'reupload' ? 'Reupload Receipts' : 'Upload Receipts'}</span>
               <div style={{ display: 'flex', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
-                <button onClick={() => setNamesMode(false)} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: namesMode ? '#fff' : '#5B6B4E', color: namesMode ? '#374151' : '#fff', fontWeight: 600 }}>Receipts</button>
-                <button onClick={() => setNamesMode(true)} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: namesMode ? '#5B6B4E' : '#fff', color: namesMode ? '#fff' : '#374151', fontWeight: 600 }}>Names</button>
+                <button onClick={() => setUploadMode('receipts')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'receipts' ? '#5B6B4E' : '#fff', color: uploadMode === 'receipts' ? '#fff' : '#374151', fontWeight: 600 }}>Receipts</button>
+                <button onClick={() => setUploadMode('names')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'names' ? '#5B6B4E' : '#fff', color: uploadMode === 'names' ? '#fff' : '#374151', fontWeight: 600 }}>Names</button>
+                <button onClick={() => setUploadMode('reupload')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'reupload' ? '#5B6B4E' : '#fff', color: uploadMode === 'reupload' ? '#fff' : '#374151', fontWeight: 600 }}>Reupload</button>
               </div>
             </div>
             <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
@@ -429,7 +455,7 @@ export default function ReceiptHistory() {
               ))}
             </select>
           </div>
-          {namesMode ? (
+          {uploadMode === 'names' ? (
             <div
               onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleNamesFile(f) }}
               onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -461,6 +487,27 @@ export default function ReceiptHistory() {
                   <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name or Donor Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
                 </>
               )}
+            </div>
+          ) : uploadMode === 'reupload' ? (
+            <div style={{ textAlign: 'center', padding: '12px 20px', border: '1px dashed #d1d5db', borderRadius: 12, background: '#f9fafb' }}>
+              <button
+                onClick={handleReupload}
+                disabled={importing || !lastUpload.current}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, background: lastUpload.current ? '#5B6B4E' : '#d1d5db', color: '#fff', border: 'none',
+                  cursor: lastUpload.current ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                {importing ? (
+                  <div style={{ width: 14, height: 14, border: '2px solid #e5e7eb', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                )}
+                Re-run last upload {lastUpload.current ? `(${lastUpload.current.rows.length} rows)` : ''}
+              </button>
+              <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 6, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>
+                Re-submits the last uploaded file without picking it again. Nothing is ever rolled back: suspense rows that now show an agent + mobile get auto-credited to the FRO and filed in the donor history, and pending claims on those receipt numbers leave Lead Verification.
+              </p>
             </div>
           ) : (
             <div
@@ -544,7 +591,7 @@ export default function ReceiptHistory() {
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Project Supported</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donors Bank Name</span>
             </div>
-            {namesMode && (
+            {uploadMode === 'names' && (
               <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name / Donor Name</p>
             )}
           </details>
