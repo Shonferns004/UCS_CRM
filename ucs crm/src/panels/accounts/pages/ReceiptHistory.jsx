@@ -16,7 +16,7 @@ const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
   receipt_date: ['receiptdate', 'recieptdate', 'donationdate', 'date', 'transactiondate', 'transdate'],
   receipt_time: ['time', 'receipttime', 'donationtime', 'transactiontime'],
-  donor_name: ['donorname', 'name', 'callername', 'receiptname'],
+  donor_name: ['donorname', 'receiptname', 'name', 'callername'],
   donor_mobile: ['mobileno', 'mobile', 'mobilenumber', 'phone', 'phoneno', 'contactno'],
   amount: ['amount', 'donationamount', 'amt'],
   mode: ['mode', 'mop', 'paymentmode', 'modeofpayment'],
@@ -114,6 +114,10 @@ export default function ReceiptHistory() {
   const [importResult, setImportResult] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [namesMode, setNamesMode] = useState(false);
+  const [namesImporting, setNamesImporting] = useState(false);
+  const [namesResult, setNamesResult] = useState(null);
+  const [namesUploadProgress, setNamesUploadProgress] = useState(0);
   const [ngoId, setNgoId] = useState('');
   const [ngoOptions, setNgoOptions] = useState([]);
   const [page, setPage] = useState(1);
@@ -129,6 +133,7 @@ export default function ReceiptHistory() {
   const [suspenseByNgo, setSuspenseByNgo] = useState(null);
   const [suspenseLoading, setSuspenseLoading] = useState(false);
   const fileRef = useRef(null);
+  const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
 
   const load = useCallback(() => {
@@ -204,6 +209,47 @@ export default function ReceiptHistory() {
       load();
     } catch (err) { alert('Import failed: ' + err.message); }
     finally { setImporting(false); setUploadProgress(0); setUploadStatus(''); }
+  }, [ngoId, load]);
+
+  const handleNamesFile = useCallback(async (file) => {
+    if (!file) return;
+    if (!ngoId) { alert('Please select the NGO for this upload first'); return; }
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) {
+      alert('Please upload a valid Excel/CSV file'); return;
+    }
+    setNamesImporting(true);
+    setNamesResult(null);
+    setNamesUploadProgress(0);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const sourceRows = wb.SheetNames
+        .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
+        .find(sheetRows => sheetRows.length > 0) || [];
+      const rows = prepareImportRows(sourceRows)
+        .map(r => ({ receipt_no: String(r.receipt_no || '').trim(), donor_name: String(r.donor_name || '').trim() }))
+        .filter(r => r.receipt_no && r.donor_name);
+      if (!rows || rows.length === 0) { alert('No rows with a Receipt No. and a donor name (Receipt Name) found'); return; }
+
+      const chunks = [];
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        chunks.push(rows.slice(i, i + CHUNK_SIZE));
+      }
+
+      let updated = 0;
+      let notFound = 0;
+      for (let i = 0; i < chunks.length; i++) {
+        setNamesUploadProgress(Math.round((i / chunks.length) * 100));
+        const res = await apiPost('/accounts/receipts/names-import', { rows: chunks[i], ngo_id: ngoId }, 300000);
+        updated += res.updated || 0;
+        notFound += res.notFound || 0;
+        setNamesUploadProgress(Math.round(((i + 1) / chunks.length) * 100));
+      }
+      setNamesResult({ message: `${updated} receipt${updated === 1 ? '' : 's'} updated${notFound > 0 ? `, ${notFound} receipt no. not found` : ''}` });
+      load();
+    } catch (err) { alert('Update failed: ' + err.message); }
+    finally { setNamesImporting(false); setNamesUploadProgress(0); }
   }, [ngoId, load]);
 
   const handleCleanUp = async () => {
@@ -359,7 +405,13 @@ export default function ReceiptHistory() {
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-pad">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{namesMode ? 'Upload Names' : 'Upload Receipts'}</span>
+              <div style={{ display: 'flex', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
+                <button onClick={() => setNamesMode(false)} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: namesMode ? '#fff' : '#5B6B4E', color: namesMode ? '#374151' : '#fff', fontWeight: 600 }}>Receipts</button>
+                <button onClick={() => setNamesMode(true)} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: namesMode ? '#5B6B4E' : '#fff', color: namesMode ? '#fff' : '#374151', fontWeight: 600 }}>Names</button>
+              </div>
+            </div>
             <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
@@ -377,38 +429,73 @@ export default function ReceiptHistory() {
               ))}
             </select>
           </div>
-          <div
-            onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onClick={() => fileRef.current?.click()}
-            style={{
-              border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
-              cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
-            }}
-          >
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
-            {importing ? (
-              <div style={{ padding: '8px 0' }}>
-                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                  <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#6b7280' }}>{uploadStatus || 'Importing...'}</span>
+          {namesMode ? (
+            <div
+              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleNamesFile(f) }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => namesFileRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? '#2563eb' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
+                cursor: 'pointer', background: dragOver ? '#eff6ff' : '#f9fafb', transition: 'all .2s',
+              }}
+            >
+              <input ref={namesFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleNamesFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
+              {namesImporting ? (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>Updating donor names...</span>
+                  </div>
+                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${namesUploadProgress}%`, height: '100%', background: '#2563eb', borderRadius: 3, transition: 'width .3s ease' }} />
+                  </div>
+                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{namesUploadProgress}%</p>
                 </div>
-                <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#5B6B4E', borderRadius: 3, transition: 'width .3s ease' }} />
+              ) : (
+                <>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
+                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file to fix donor names</p>
+                  <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div
+              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => fileRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
+                cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
+              }}
+            >
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
+              {importing ? (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>{uploadStatus || 'Importing...'}</span>
+                  </div>
+                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#5B6B4E', borderRadius: 3, transition: 'width .3s ease' }} />
+                  </div>
+                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{uploadProgress}%</p>
                 </div>
-                <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{uploadProgress}%</p>
-              </div>
-            ) : (
-              <>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
-                  <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file here</p>
-                <p style={{ fontSize: 10, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
-              </>
-            )}
-          </div>
+              ) : (
+                <>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
+                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file here</p>
+                  <p style={{ fontSize: 10, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
+                </>
+              )}
+            </div>
+          )}
           {deleting && (
             <div style={{ marginTop: 8, padding: '6px 0' }}>
               <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
@@ -433,6 +520,12 @@ export default function ReceiptHistory() {
               )}
             </div>
           )}
+          {namesResult && (
+            <div style={{ fontSize: 12, color: '#2563eb', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>{namesResult.message}</span>
+            </div>
+          )}
           <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Expected columns</summary>
             <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', justifyContent: 'center' }}>
@@ -451,6 +544,9 @@ export default function ReceiptHistory() {
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Project Supported</span>
               <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donors Bank Name</span>
             </div>
+            {namesMode && (
+              <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name</p>
+            )}
           </details>
         </div>
       </div>

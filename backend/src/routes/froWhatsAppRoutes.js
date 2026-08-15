@@ -33,10 +33,9 @@ const ALLOWED_ROLES = ['fro', 'worker', 'agent', 'admin', 'super_admin', 'master
 
 const requireWhatsApp = (req, res, next) => {
   const role = req.user?.role;
-  console.log('[froWhatsApp] role:', role, 'path:', req.path, 'user:', JSON.stringify(req.user));
   if (ALLOWED_ROLES.includes(role)) return next();
   if (req.user?.department && req.user.department.toLowerCase().trim() === 'fro') return next();
-  return res.status(403).json({ message: 'Access denied', debug_role: role, debug_user: req.user });
+  return res.status(403).json({ message: 'Access denied' });
 };
 
 router.get('/auto-login', whatsappAutoLogin);
