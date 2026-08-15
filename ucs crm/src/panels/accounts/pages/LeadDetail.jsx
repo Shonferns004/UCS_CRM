@@ -71,7 +71,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
 
-  const [form, setForm] = useState({ donor_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'',donor_dob:null, upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
+  const [form, setForm] = useState({ donor_name:'',donor_receipt_name:'',donor_mobile:'',donor_city:'',donor_email:'',donor_address:'',donor_pan:'',donor_dob:null, upi_transaction_id:'',transaction_date:null,transaction_time:'',payment_from:'', payment_mode:'UPI' });
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestRef = useRef(null);
@@ -174,11 +174,28 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   },[lead?.donor_mobile]);
   const setField = (key,val) => setForm(prev=>({...prev,[key]:val}));
 
+  useEffect(()=>{
+    if(!lead?.donor_mobile || lead?.accounts_status !== 'pending') return;
+    let cancelled = false;
+    apiGet('/accounts/receipts/by-mobile?mobile=' + encodeURIComponent(lead.donor_mobile))
+      .then(data => {
+        if (cancelled || !data) return;
+        setForm(prev => ({
+          ...prev,
+          donor_receipt_name: data.donor_name || prev.donor_receipt_name || '',
+          donor_address: data.address || prev.donor_address || '',
+          donor_pan: data.pan_number || prev.donor_pan || '',
+        }));
+      })
+      .catch(()=>{});
+    return ()=>{ cancelled = true; };
+  },[lead?.log_id, lead?.donor_mobile, lead?.accounts_status]);
+
   const handleVerify = async () => {
     if (!lead) return; setConfirmOpen(false); setSubmitting(true);
     try {
       const res = await apiPost(`/accounts/leads/${lead.log_id}/verify`, {
-        pan_number:form.donor_pan||null,donor_name:form.donor_name||null,donor_mobile:form.donor_mobile||null,
+        pan_number:form.donor_pan||null,donor_name:form.donor_name||null,donor_receipt_name:form.donor_receipt_name||null,donor_mobile:form.donor_mobile||null,
         donor_city:form.donor_city||null,donor_email:form.donor_email||null,donor_pan:form.donor_pan||null,
         donor_address:form.donor_address||null,donor_dob:form.donor_dob?form.donor_dob.toISOString():null,
         upi_transaction_id:form.upi_transaction_id||null,
@@ -407,6 +424,10 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Name</div>
                   {isPending?<input className="field-input" value={form.donor_name} onChange={e=>setField('donor_name',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{form.donor_name||'NA'}</div>}
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Donor Receipt Name</div>
+                  {isPending?<input className="field-input" value={form.donor_receipt_name} onChange={e=>setField('donor_receipt_name',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{form.donor_receipt_name||'NA'}</div>}
                 </div>
                 {l.audit_name && String(l.audit_name).trim().toLowerCase() !== String(l.donor_name || '').trim().toLowerCase() && (
                   <div style={{gridColumn:'1 / -1'}}>
