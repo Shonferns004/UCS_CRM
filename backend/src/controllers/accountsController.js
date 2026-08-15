@@ -1884,6 +1884,7 @@ export const importReceipts = async (req, res) => {
 
       try {
         console.time('import-tx');
+        let resultVerifyNotifications = [];
         const result = await db.transaction(async ({ from }) => {
           // Numbered rows are unique on receipt_no: the first occurrence in the
           // batch wins, and any number already in the DB (same project_id) is
@@ -1945,6 +1946,7 @@ export const importReceipts = async (req, res) => {
 
           if (verifyRows.length > 0) {
             const nowIso = new Date().toISOString();
+            const verifyNotifications = [];
             for (const { existing, parsed: row } of verifyRows) {
               const { data: lead, error: leadErr } = await from('fro_donor_logs')
                 .select('id, assignment_id, fro_worker_id, donor_id, amount_collected, accounts_status')
@@ -1953,7 +1955,7 @@ export const importReceipts = async (req, res) => {
               if (leadErr) throw new Error(leadErr.message);
               if (!lead || lead.accounts_status !== 'pending') continue;
               const effAmount = parseFloat(row.amount) || parseFloat(existing.amount) || parseFloat(lead.amount_collected) || 0;
-              await from('receipts').update({
+              const { error: rErr } = await from('receipts').update({
                 donor_name: row.donor_name || existing.donor_name || null,
                 donor_mobile: row.donor_mobile || existing.donor_mobile || null,
                 amount: effAmount,
@@ -1970,49 +1972,56 @@ export const importReceipts = async (req, res) => {
                 sent: true,
                 sent_at: nowIso,
               }).eq('id', existing.id);
-              await from('fro_donor_logs').update({
+              if (rErr) throw new Error(rErr.message);
+              const { error: lErr } = await from('fro_donor_logs').update({
                 accounts_status: 'verified',
-                verified_at: row.receipt_date ? `${row.receipt_date}T00:00:00` : nowIso,
+                verified_at: row.receipt_date || nowIso,
                 verified_by: req.user.id,
               }).eq('id', lead.id);
+              if (lErr) throw new Error(lErr.message);
               if (lead.assignment_id) {
-                await from('fro_assignments').update({ status: 'donation_collected', last_contacted_at: nowIso }).eq('id', lead.assignment_id);
+                const { error: aErr } = await from('fro_assignments').update({ status: 'donation_collected', last_contacted_at: nowIso }).eq('id', lead.assignment_id);
+                if (aErr) throw new Error(aErr.message);
               }
               if (lead.donor_id) {
-                const { data: donor } = await from('donor_profiles')
+                const { data: donor, error: dErr } = await from('donor_profiles')
                   .select('total_amount, donation_count')
                   .eq('id', lead.donor_id)
                   .maybeSingle();
+                if (dErr) throw new Error(dErr.message);
                 if (donor) {
-                  await from('donor_profiles').update({
+                  const { error: upErr } = await from('donor_profiles').update({
                     total_amount: Math.round(((donor.total_amount || 0) + effAmount) * 100) / 100,
                     donation_count: (donor.donation_count || 0) + 1,
                     updated_at: nowIso,
                   }).eq('id', lead.donor_id);
+                  if (upErr) throw new Error(upErr.message);
                 }
               }
-              await from('bank_audit_entries').update({
+              const { error: bErr } = await from('bank_audit_entries').update({
                 donor_id: lead.donor_id || null,
                 status: 'verified',
                 matched_at: nowIso,
                 updated_at: nowIso,
-                receipt_no: existing.receipt_no || null,
               }).eq('receipt_id', existing.id);
+              if (bErr) throw new Error(bErr.message);
               if (lead.fro_worker_id) {
-                try {
-                  const donorName = row.donor_name || existing.donor_name || 'a donor';
-                  await db.from('notification_log').insert({
-                    worker_id: lead.fro_worker_id,
-                    type: 'lead_verified',
-                    title: 'Lead Verified',
-                    body: `Your claim for ${donorName} (\u20B9${Number(effAmount).toLocaleString('en-IN')}) was verified from the re-uploaded receipts.`,
-                    fro_donor_log_id: String(lead.id),
-                    sent_at: nowIso,
-                  });
-                } catch (e) { console.error('Failed to create verified notification:', e.message); }
+                const donorName = row.donor_name || existing.donor_name || 'a donor';
+                verifyNotifications.push({
+                  worker_id: lead.fro_worker_id,
+                  type: 'lead_verified',
+                  title: 'Lead Verified',
+                  body: `Your claim for ${donorName} (\u20B9${Number(effAmount).toLocaleString('en-IN')}) was verified from the re-uploaded receipts.`,
+                  fro_donor_log_id: String(lead.id),
+                  sent_at: nowIso,
+                });
               }
               creditedPending++;
             }
+            // Best-effort verified-lead notifications are sent AFTER the
+            // transaction commits so a notification failure can never abort the
+            // import (and never leave the tx in the aborted 25P02 state).
+            resultVerifyNotifications = verifyNotifications;
           }
 
           let matched = 0;
@@ -2154,9 +2163,10 @@ export const importReceipts = async (req, res) => {
             // Workers for this NGO (via worker_ngo_allocations), falling back to
             // all active workers when no allocation rows exist, plus their
             // station mapping so created assignments land on the right station.
-            const { data: allocatedRows } = await from('worker_ngo_allocations')
+            const { data: allocatedRows, error: allocErr } = await from('worker_ngo_allocations')
               .select('worker_id')
               .eq('ngo_id', ngo_id);
+            if (allocErr) throw new Error(allocErr.message);
             let workerRows = [];
             if ((allocatedRows || []).length > 0) {
               const workerIds = [...new Set(allocatedRows.map(a => a.worker_id))];
@@ -2175,9 +2185,10 @@ export const importReceipts = async (req, res) => {
             }
             const activeWorkers = workerRows.filter(w => w.is_active !== false);
 
-            const { data: stationRows } = await from('fro_station_assignments')
+            const { data: stationRows, error: stErr } = await from('fro_station_assignments')
               .select('fro_worker_id, station')
               .eq('ngo_id', ngo_id);
+            if (stErr) throw new Error(stErr.message);
             const stationByWorker = {};
             for (const s of (stationRows || [])) {
               if (s.fro_worker_id && s.station && !stationByWorker[s.fro_worker_id]) {
@@ -2264,7 +2275,8 @@ export const importReceipts = async (req, res) => {
                 const m10 = last10(donorRow.mobile_number);
                 if (/^\d{10}$/.test(m10) && !donorByMobile.has(m10)) donorByMobile.set(m10, donorRow);
                 donorIdByReceiptId.set(r.id, donorId);
-                await from('receipts').update({ donor_id: donorId }).eq('id', r.id);
+                const { error: linkErr } = await from('receipts').update({ donor_id: donorId }).eq('id', r.id);
+                if (linkErr) throw new Error(linkErr.message);
                 newDonorTotals.set(donorId, { amount: 0, count: 0, last: null });
               }
 
@@ -2324,13 +2336,14 @@ export const importReceipts = async (req, res) => {
             // Donors created in this phase get their first donation rolled up.
             if (newDonorTotals.size > 0) {
               for (const [donorId, t] of newDonorTotals) {
-                await from('donor_profiles').update({
+                const { error: dtErr } = await from('donor_profiles').update({
                   total_amount: Math.round(t.amount * 100) / 100,
                   donation_count: t.count,
                   first_donation_date: t.last,
                   last_donation_date: t.last,
                   updated_at: nowIso,
                 }).eq('id', donorId);
+                if (dtErr) throw new Error(dtErr.message);
               }
             }
 
@@ -2360,6 +2373,29 @@ export const importReceipts = async (req, res) => {
         });
         console.timeEnd('import-tx');
         console.log(`Import OK: ${result.imported} rows, ${result.upgraded} re-upload credits, ${result.creditedPending} pending claims auto-credited, ${result.leadsCollected} leads credited`);
+
+        // Notify FROs whose pending claims were auto-verified from a re-upload —
+        // best effort, after the commit (a notification failure must never abort
+        // the import transaction).
+        for (const notif of resultVerifyNotifications) {
+          try {
+            let fcmLogged = false;
+            try {
+              const pushResult = await sendPushNotification(notif.worker_id, notif.title, notif.body, 'lead_verified', null);
+              fcmLogged = !!pushResult;
+            } catch (err) { console.error('FCM send error:', err.message); }
+            if (!fcmLogged) {
+              await db.from('notification_log').insert({
+                worker_id: notif.worker_id,
+                type: notif.type,
+                title: notif.title,
+                body: notif.body,
+                fro_donor_log_id: notif.fro_donor_log_id,
+                sent_at: notif.sent_at,
+              });
+            }
+          } catch (err) { console.error('Failed to create verified-lead notification:', err.message); }
+        }
 
         // Notify FROs (aggregated per worker) — best effort, after the commit.
         for (const [workerId, cred] of result.credits) {
