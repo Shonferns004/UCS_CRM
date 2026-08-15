@@ -11,6 +11,10 @@ export default function RightPanel({ open, onClose, title, subtitle, width = 640
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
+      // Ignore clicks inside portaled picker popovers (date/time/month pickers
+      // render into #root, outside this panel) so picking a value never closes
+      // the panel.
+      if (e.target && e.target.closest && e.target.closest('[data-mdp],[data-mtp],[data-mmi]')) return;
       if (panelRef.current && !panelRef.current.contains(e.target)) onClose();
     };
     document.addEventListener('mousedown', handler);
