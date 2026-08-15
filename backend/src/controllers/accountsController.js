@@ -157,7 +157,7 @@ export const verifyLead = async (req, res) => {
     const { logId } = req.params;
     const {
       pan_number, notes,
-      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, donor_dob,
+      donor_name, donor_receipt_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, donor_dob,
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
@@ -319,7 +319,7 @@ export const verifyLead = async (req, res) => {
     const existing = await findReceiptByLogId(logId);
     let receipt = existing || null;
     if (!existing) {
-      const donorName = donorProfile?.name || 'Unknown';
+      const donorName = donor_receipt_name || donorProfile?.name || 'Unknown';
       const receiptNo = await getNextReceiptNo(project);
 
       receipt = await createReceipt({
@@ -346,7 +346,7 @@ export const verifyLead = async (req, res) => {
       const oldPayerName = existing.donor_name && existing.donor_name !== profileName ? existing.donor_name : null;
       const receiptPatch = {
         donor_id: donorId,
-        donor_name: profileName || existing.donor_name || 'Unknown',
+        donor_name: donor_receipt_name || profileName || existing.donor_name || 'Unknown',
         donor_mobile: donorProfile?.mobile_number || existing.donor_mobile || null,
         bank_payer_name: existing.bank_payer_name || oldPayerName || null,
         bank_name: donorProfile?.donors_bank_name || null,
@@ -2671,6 +2671,26 @@ export const importReceiptNames = async (req, res) => {
   } catch (e) {
     console.error('importReceiptNames error:', e.message);
     return res.status(500).json({ message: 'Failed to update donor names: ' + e.message });
+  }
+};
+
+export const getReceiptByMobile = async (req, res) => {
+  try {
+    const mobile = String(req.query.mobile || '').replace(/\D/g, '').slice(-10);
+    if (!/^\d{10}$/.test(mobile)) {
+      return res.status(400).json({ message: 'A valid mobile number is required' });
+    }
+    const { rows } = await db._pool.query(
+      `SELECT donor_name, address, pan_number, donor_mobile, donor_id, receipt_no, receipt_date
+       FROM receipts
+       WHERE right(regexp_replace(donor_mobile, '[^0-9]', '', 'g'), 10) = $1
+       ORDER BY receipt_date DESC NULLS LAST, id DESC
+       LIMIT 1`,
+      [mobile]
+    );
+    return res.json(rows[0] || null);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 };
 
