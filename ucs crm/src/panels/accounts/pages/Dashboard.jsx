@@ -50,7 +50,7 @@ export function LeadStatCards({ stats, loading }) {
   );
 }
 
-export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView, amountFilter = '', listRef, onListScroll, onAmounts }) {
+export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLead, globalNgo, onView, amountFilter = '', dateFilter = '', listRef, onListScroll, onAmounts }) {
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -123,6 +123,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
     let result = leads;
     if (ngoActive) result = result.filter(l => l.donor_project === ngoActive);
     if (amountFilter !== '' && amountFilter != null) result = result.filter(l => Number(l.amount) === Number(amountFilter));
+    if (dateFilter) result = result.filter(l => String(l.transaction_datetime || l.created_at || '').slice(0, 10) === dateFilter);
     if (!searchQuery.trim()) return result;
     const q = searchQuery.toLowerCase();
     return result.filter(l =>
@@ -131,12 +132,12 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       (l.agent_name || '').toLowerCase().includes(q) ||
       String(l.amount || '').toLowerCase().includes(q)
     );
-  }, [leads, searchQuery, ngoActive, amountFilter]);
+  }, [leads, searchQuery, ngoActive, amountFilter, dateFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((leadPage - 1) * PAGE_SIZE, leadPage * PAGE_SIZE);
 
-  useEffect(() => { setLeadPage(1); }, [searchQuery, ngoActive, statusFilter, amountFilter]);
+  useEffect(() => { setLeadPage(1); }, [searchQuery, ngoActive, statusFilter, amountFilter, dateFilter]);
   useEffect(() => { if (leadPage > pageCount) setLeadPage(pageCount); }, [pageCount, leadPage]);
 
   const exportExcel = () => {
