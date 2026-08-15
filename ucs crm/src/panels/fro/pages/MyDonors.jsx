@@ -1116,6 +1116,7 @@ export default function MyDonors() {
       setMessage({ type: 'error', text: 'No more donors' });
       return;
     }
+    markWorkedToday(donor);
     if (donor && nextIdx < index) setResumeTo({ id: donor.id, ngo_id: donor.ngo_id });
     setIndex(nextIdx);
     saveProgress(dataTab, donors[nextIdx].id, nextIdx);
