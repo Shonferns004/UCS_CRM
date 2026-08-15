@@ -1736,7 +1736,7 @@ export const importReceipts = async (req, res) => {
         const batch = incomingNos.slice(i, i + 100);
         const { data: existing } = await db
           .from('receipts')
-          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date')
+          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email')
           .eq('project_id', batchProjectId)
           .in('receipt_no', batch);
         for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r);
@@ -1757,38 +1757,40 @@ export const importReceipts = async (req, res) => {
       }
     }
 
-    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
-    const poolYear = istNow.getUTCFullYear();
-    const poolMonth = String(istNow.getUTCMonth() + 1).padStart(2, '0');
-    const poolMonthStart = `${poolYear}-${poolMonth}-01`;
-    const poolLastDay = new Date(Date.UTC(poolYear, istNow.getUTCMonth() + 1, 0)).getUTCDate();
-    const poolMonthEnd = `${poolYear}-${poolMonth}-${String(poolLastDay).padStart(2, '0')}`;
-
-    const isInSuspensePool = (r) =>
-      !r.donor_id && !r.log_id
-      && isBlankSuspenseValue(r.agent_name) && isBlankSuspenseValue(r.donor_mobile)
-      && String(r.agent_name || '').trim().toLowerCase() !== 'priyank shah'
-      && r.receipt_date && r.receipt_date >= poolMonthStart && r.receipt_date <= poolMonthEnd
-      && !bankAudited.has(r.id);
-
-    // A numbered row whose existing copy left the suspense pool (was matched,
-    // credited or bank-audited) is restored into the pool when the file row is
-    // still a truly-suspense row — the copy is unlinked, its audit/log links are
-    // dropped and its fields refreshed from the file so the pool matches the
-    // upload. Otherwise the number is skipped and the existing copy wins.
-    const restoreRows = [];
-    const restoreSeen = new Set();
+    // A receipt number already on file is never re-inserted (UNIQUE). What
+    // happens to the existing copy depends on the new file row and the copy's
+    // current state — re-uploading is always non-destructive:
+    //   • copy cleared (claimed / linked / bank-audited) → kept as-is, never
+    //     rolled back and never double-credited;
+    //   • copy still pure suspense + the file row is now identified (agent or
+    //     mobile present) → the existing receipt is updated in place and
+    //     auto-credited to the FRO / donor history;
+    //   • copy claimed (log_id → pending lead) + the file row has an agent →
+    //     the pending lead is auto-verified and leaves Lead Verification;
+    //   • otherwise → the existing copy wins, nothing changes.
+    const upgradeRows = [];
+    const verifyRows = [];
+    const upgradeSeen = new Set();
+    const verifySeen = new Set();
     const seen = new Set();
     const uniqueParsed = parsed.filter(({ parsed }) => {
       if (!parsed.receipt_no) return true;
       const existing = existingReceiptIds.get(parsed.receipt_no);
       if (existing) {
-        if (!isInSuspensePool(existing)
-            && isBlankSuspenseValue(parsed.agent_name)
-            && isBlankSuspenseValue(parsed.donor_mobile)
-            && !restoreSeen.has(parsed.receipt_no)) {
-          restoreSeen.add(parsed.receipt_no);
-          restoreRows.push({ existing, parsed });
+        const fileIsSuspense = isBlankSuspenseValue(parsed.agent_name) && isBlankSuspenseValue(parsed.donor_mobile);
+        if (!fileIsSuspense) {
+          const key = `${existing.id}|${parsed.receipt_no}`;
+          if (existing.log_id) {
+            if (!verifySeen.has(key)) {
+              verifySeen.add(key);
+              verifyRows.push({ existing, parsed });
+            }
+          } else if (!existing.donor_id && !bankAudited.has(existing.id)) {
+            if (!upgradeSeen.has(key)) {
+              upgradeSeen.add(key);
+              upgradeRows.push({ existing, parsed });
+            }
+          }
         }
         return false; // number already on file — never re-insert (UNIQUE)
       }
@@ -1796,7 +1798,7 @@ export const importReceipts = async (req, res) => {
       seen.add(parsed.receipt_no);
       return true;
     });
-    const dupCount = parsed.length - uniqueParsed.length - restoreRows.length;
+    const dupCount = parsed.length - uniqueParsed.length - upgradeRows.length - verifyRows.length;
 
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
@@ -1910,34 +1912,14 @@ export const importReceipts = async (req, res) => {
             inserted = insertedChunks.flat();
           }
 
-          // Restore numbered suspense rows whose existing copy left the pool
-          // (was matched, credited or bank-audited) back into this month's
-          // suspense pool. All done inside the same atomic transaction.
-          let restored = 0;
-          const affectedDonors = new Set();
-          if (restoreRows.length > 0) {
-            for (const { existing, parsed: row } of restoreRows) {
-              if (existing.log_id) {
-                const { data: logRows } = await from('fro_donor_logs')
-                  .select('id, assignment_id')
-                  .eq('id', existing.log_id);
-                const logs = (logRows || []).filter(l => l.id);
-                const logIds = logs.map(l => l.id);
-                const assignmentIds = [...new Set(logs.map(l => l.assignment_id).filter(Boolean))];
-                if (logIds.length > 0) {
-                  for (const table of ['notification_log', 'rejected_lead_tickets']) {
-                    try { await from(table).delete().in('fro_donor_log_id', logIds); } catch (_) { /* column may not exist */ }
-                  }
-                  await from('fro_donor_logs').delete().in('id', logIds);
-                }
-                if (assignmentIds.length > 0) {
-                  await from('fro_assignments').update({ status: 'pending', updated_at: new Date().toISOString() })
-                    .in('id', assignmentIds)
-                    .eq('status', 'donation_collected');
-                }
-              }
-              if (existing.donor_id) affectedDonors.add(existing.donor_id);
-              try { await from('bank_audit_entries').delete().eq('receipt_id', existing.id); } catch (_) { /* no receipt_id column */ }
+          // Re-uploading never rolls back. Suspense rows that are now identified
+          // in the file (agent/mobile) get their existing receipt updated in
+          // place; rows with a pending claim get that pending lead auto-verified
+          // so it leaves Lead Verification. All inside the same transaction.
+          let upgraded = 0;
+          let creditedPending = 0;
+          if (upgradeRows.length > 0) {
+            for (const { existing, parsed: row } of upgradeRows) {
               const { error: upErr } = await from('receipts').update({
                 donor_name: row.donor_name,
                 donor_mobile: row.donor_mobile,
@@ -1955,11 +1937,81 @@ export const importReceipts = async (req, res) => {
                 agent_name: row.agent_name,
                 sent: true,
                 sent_at: new Date().toISOString(),
-                donor_id: null,
-                log_id: null,
               }).eq('id', existing.id);
               if (upErr) throw new Error(upErr.message);
-              restored++;
+              upgraded++;
+            }
+          }
+
+          if (verifyRows.length > 0) {
+            const nowIso = new Date().toISOString();
+            for (const { existing, parsed: row } of verifyRows) {
+              const { data: lead, error: leadErr } = await from('fro_donor_logs')
+                .select('id, assignment_id, fro_worker_id, donor_id, amount_collected, accounts_status')
+                .eq('id', existing.log_id)
+                .maybeSingle();
+              if (leadErr) throw new Error(leadErr.message);
+              if (!lead || lead.accounts_status !== 'pending') continue;
+              const effAmount = parseFloat(row.amount) || parseFloat(existing.amount) || parseFloat(lead.amount_collected) || 0;
+              await from('receipts').update({
+                donor_name: row.donor_name || existing.donor_name || null,
+                donor_mobile: row.donor_mobile || existing.donor_mobile || null,
+                amount: effAmount,
+                pan_number: row.pan_number || existing.pan_number,
+                address: row.address || existing.address,
+                mode: row.mode || existing.mode,
+                purpose: row.purpose || existing.purpose,
+                receipt_date: row.receipt_date || existing.receipt_date,
+                receipt_time: row.receipt_time || existing.receipt_time,
+                payment_id: row.payment_id || existing.payment_id,
+                bank_name: row.bank_name || existing.bank_name,
+                agent_name: row.agent_name || existing.agent_name,
+                email: row.email || existing.email,
+                sent: true,
+                sent_at: nowIso,
+              }).eq('id', existing.id);
+              await from('fro_donor_logs').update({
+                accounts_status: 'verified',
+                verified_at: row.receipt_date ? `${row.receipt_date}T00:00:00` : nowIso,
+                verified_by: req.user.id,
+              }).eq('id', lead.id);
+              if (lead.assignment_id) {
+                await from('fro_assignments').update({ status: 'donation_collected', last_contacted_at: nowIso }).eq('id', lead.assignment_id);
+              }
+              if (lead.donor_id) {
+                const { data: donor } = await from('donor_profiles')
+                  .select('total_amount, donation_count')
+                  .eq('id', lead.donor_id)
+                  .maybeSingle();
+                if (donor) {
+                  await from('donor_profiles').update({
+                    total_amount: Math.round(((donor.total_amount || 0) + effAmount) * 100) / 100,
+                    donation_count: (donor.donation_count || 0) + 1,
+                    updated_at: nowIso,
+                  }).eq('id', lead.donor_id);
+                }
+              }
+              await from('bank_audit_entries').update({
+                donor_id: lead.donor_id || null,
+                status: 'verified',
+                matched_at: nowIso,
+                updated_at: nowIso,
+                receipt_no: existing.receipt_no || null,
+              }).eq('receipt_id', existing.id);
+              if (lead.fro_worker_id) {
+                try {
+                  const donorName = row.donor_name || existing.donor_name || 'a donor';
+                  await db.from('notification_log').insert({
+                    worker_id: lead.fro_worker_id,
+                    type: 'lead_verified',
+                    title: 'Lead Verified',
+                    body: `Your claim for ${donorName} (\u20B9${Number(effAmount).toLocaleString('en-IN')}) was verified from the re-uploaded receipts.`,
+                    fro_donor_log_id: String(lead.id),
+                    sent_at: nowIso,
+                  });
+                } catch (e) { console.error('Failed to create verified notification:', e.message); }
+              }
+              creditedPending++;
             }
           }
 
@@ -1967,9 +2019,13 @@ export const importReceipts = async (req, res) => {
           let withBank = 0;
           let receiptsByDonor = {};
           const matchedIds = new Set();
-          if (inserted.length > 0) {
+          const processRows = [
+            ...inserted,
+            ...upgradeRows.map(({ existing, parsed: row }) => ({ id: existing.id, ...row })),
+          ];
+          if (processRows.length > 0) {
             receiptsByDonor = {};
-            const matchPool = inserted.filter(r => !r.donor_id);
+            const matchPool = processRows.filter(r => !r.donor_id);
             for (const receipt of matchPool) {
               const m = last10(receipt.donor_mobile);
               if (!/^\d{10}$/.test(m)) continue;
@@ -2047,7 +2103,7 @@ export const importReceipts = async (req, res) => {
               }
             }
 
-            withBank = inserted.filter(r => r.bank_name && r.bank_name !== 'NA').length;
+            withBank = processRows.filter(r => r.bank_name && r.bank_name !== 'NA').length;
           }
 
           // Link receipts to donors and roll up donor totals. A failed
@@ -2080,13 +2136,15 @@ export const importReceipts = async (req, res) => {
           // receipts still get their history entry (their date keeps them out of
           // the current month's collected). Truly-suspense receipts (agent AND
           // mobile both missing) are skipped here and stay in the suspense pool.
+          // Newly inserted rows and re-uploaded suspense→identified upgrades both
+          // flow through here, so the credit + donor history is written once.
           const nowIso = new Date().toISOString();
           const donorIdByReceiptId = new Map();
           for (const [donorId, info] of Object.entries(receiptsByDonor)) {
             for (const id of info.ids) donorIdByReceiptId.set(id, parseInt(donorId, 10));
           }
 
-          const creditPool = inserted.filter(
+          const creditPool = processRows.filter(
             r => !isBlankSuspenseValue(r.agent_name) && parseFloat(r.amount || 0) > 0
           );
 
@@ -2298,30 +2356,10 @@ export const importReceipts = async (req, res) => {
             }
           }
 
-          // Recompute totals for donors we just unlinked during restore. Runs
-          // last so it supersedes any match/credit totals from this import.
-          if (affectedDonors.size > 0) {
-            for (const donorId of affectedDonors) {
-              const { rows: donorReceipts } = await db._pool.query(
-                `SELECT COALESCE(sum(amount), 0)::float8 AS total_amount,
-                        count(*)::int AS donation_count,
-                        max(receipt_date) AS last_donation_date
-                 FROM receipts WHERE donor_id = $1`, [donorId]
-              );
-              const s = (donorReceipts || [])[0] || { total_amount: 0, donation_count: 0, last_donation_date: null };
-              await from('donor_profiles').update({
-                total_amount: Math.round((s.total_amount || 0) * 100) / 100,
-                donation_count: s.donation_count || 0,
-                last_donation_date: s.last_donation_date || null,
-                updated_at: new Date().toISOString(),
-              }).eq('id', donorId);
-            }
-          }
-
-          return { imported: inserted.length, restored, matched, withBank, leadsCollected, credits };
+          return { imported: inserted.length, upgraded, creditedPending, matched, withBank, leadsCollected, credits };
         });
         console.timeEnd('import-tx');
-        console.log(`Import OK: ${result.imported} rows, ${result.matched} matched, ${result.leadsCollected} leads credited`);
+        console.log(`Import OK: ${result.imported} rows, ${result.upgraded} re-upload credits, ${result.creditedPending} pending claims auto-credited, ${result.leadsCollected} leads credited`);
 
         // Notify FROs (aggregated per worker) — best effort, after the commit.
         for (const [workerId, cred] of result.credits) {
@@ -2349,9 +2387,10 @@ export const importReceipts = async (req, res) => {
         try { if (manifestPath) fs.unlinkSync(manifestPath); } catch (_) { /* best effort */ }
 
         return res.status(201).json({
-          message: `${result.imported} receipts imported${result.restored > 0 ? `, ${result.restored} suspense receipts restored` : ''}${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}${result.leadsCollected > 0 ? `, ${result.leadsCollected} leads credited to FROs` : ''}`,
+          message: `${result.imported} receipts imported${result.upgraded > 0 ? `, ${result.upgraded} suspense receipts credited from re-upload` : ''}${result.creditedPending > 0 ? `, ${result.creditedPending} pending claims auto-credited` : ''}${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}${result.leadsCollected > 0 ? `, ${result.leadsCollected} leads credited to FROs` : ''}`,
           imported: result.imported,
-          restored: result.restored,
+          upgraded: result.upgraded,
+          creditedPending: result.creditedPending,
           withBank: result.withBank,
           matchedDonors: result.matched,
           leads_collected: result.leadsCollected,

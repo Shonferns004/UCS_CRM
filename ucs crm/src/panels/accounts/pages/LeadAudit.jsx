@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
 import { apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
@@ -14,33 +14,13 @@ export default function LeadAudit() {
   const [audit, setAudit] = useState({ sources: [], summary: {}, combo: null, loading: true });
   const [globalNgo, setGlobalNgo] = useState('');
   const [amountFilter, setAmountFilter] = useState('');
-  const [amounts, setAmounts] = useState([]);
+  const [dateFilter, setDateFilter] = useState('');
   const [suspenseCardNgo, setSuspenseCardNgo] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
-  const leadScrollRef = useRef(null);
-  const auditScrollRef = useRef(null);
-  const syncingScroll = useRef(false);
-
-  const handleListScroll = (source, event) => {
-    if (syncingScroll.current) return;
-    const from = event.currentTarget;
-    const to = source === 'lead' ? auditScrollRef.current : leadScrollRef.current;
-    if (!to || from.scrollHeight <= from.clientHeight || to.scrollHeight <= to.clientHeight) return;
-    syncingScroll.current = true;
-    const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight);
-    to.scrollTop = ratio * (to.scrollHeight - to.clientHeight);
-    requestAnimationFrame(() => { syncingScroll.current = false; });
-  };
-
-  const updateAmounts = useCallback((values) => setAmounts(prev => {
-    const next = Array.from(new Set([...prev, ...values])).sort((a, b) => a - b);
-    return next.length === prev.length && next.every((value, index) => value === prev[index]) ? prev : next;
-  }), []);
-  const amountOptions = useMemo(() => amounts, [amounts]);
 
   const handleMatch = async () => {
     if (!selectedLead || !selectedEntry || matching) return;
@@ -84,21 +64,23 @@ export default function LeadAudit() {
           <option value="mann">Mann Care</option>
           <option value="aflf">Ashray</option>
         </select>
+        <span className="lead-audit-filter-key">Date</span>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} aria-label="Filter by date" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }} />
+          {dateFilter && <button onClick={() => setDateFilter('')} title="Clear date" aria-label="Clear date" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', display: 'inline-flex', alignItems: 'center', padding: 0, flexShrink: 0 }}><X size={14} strokeWidth={2.5} /></button>}
+        </div>
         <span className="lead-audit-filter-key">Amount</span>
-        <select value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}>
-          <option value="">All amounts</option>
-          {amountOptions.map(amount => <option key={amount} value={amount}>{currency(amount)}</option>)}
-        </select>
+        <input type="number" min="0" step="any" placeholder="All amounts" value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600, width: 96 }} />
         <span className="lead-audit-filter-help">Filters both Lead Verification and Bank Audit</span>
       </div>
       <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
         <div style={{ alignSelf: 'flex-start' }}>
           <SectionTitle>Lead Verification</SectionTitle>
-          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} listRef={leadScrollRef} onListScroll={e => handleListScroll('lead', e)} onAmounts={updateAmounts} />
+          <Dashboard embedded selectedLogId={selectedLead?.log_id} onSelectLead={l => { setSelectedLead(l); setSelectedEntry(null); }} onView={setDetailView} globalNgo={globalNgo} amountFilter={amountFilter} dateFilter={dateFilter} />
         </div>
         <div>
           <SectionTitle>Bank Audit</SectionTitle>
-          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} listRef={auditScrollRef} onListScroll={e => handleListScroll('audit', e)} onAmounts={updateAmounts} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
+          <BankAudit embedded onSummary={setAudit} selectedEntryId={selectedEntry?.id} onSelectEntry={setSelectedEntry} selectionEnabled={!!selectedLead} onView={setEntryDetailView} globalNgo={globalNgo} suspenseNgo={suspenseCardNgo} amountFilter={amountFilter} dateFilter={dateFilter} leadFilter={selectedLead ? { log_id: selectedLead.log_id, amount: selectedLead.amount, ngo: selectedLead.donor_project || '' } : null} />
         </div>
       </div>
 

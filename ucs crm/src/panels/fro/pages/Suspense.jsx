@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Inbox, Search, ChevronRight, Phone } from 'lucide-react';
-import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile } from '../api/donors';
+import { getSuspenseReceipts, claimSuspenseReceipt, searchDonorsByMobile, searchSuspenseDonors } from '../api/donors';
 import { useRealtime } from '../../../hooks/useRealtime';
 import { SkeletonTable } from '../../../components/Skeleton';
 
@@ -107,8 +107,30 @@ export default function FroSuspense() {
     claimTimer.current = setTimeout(async () => {
       setClaimSearching(true);
       try {
-        const res = await searchDonorsByMobile(q.trim());
-        setClaimResults(Array.isArray(res) ? res : []);
+        const [profileRes, receiptRes] = await Promise.all([
+          searchDonorsByMobile(q.trim()).catch(() => []),
+          searchSuspenseDonors(q.trim()).catch(() => []),
+        ]);
+        const profileList = Array.isArray(profileRes) ? profileRes : [];
+        const receiptList = Array.isArray(receiptRes) ? receiptRes : [];
+        const merged = [];
+        const seenById = new Set();
+        const seenByMobile = new Set();
+        for (const d of profileList) {
+          merged.push(d);
+          if (d.donor_id) seenById.add(String(d.donor_id));
+          const m = (d.donor_mobile || '').replace(/\D/g, '');
+          if (m) seenByMobile.add(m);
+        }
+        for (const d of receiptList) {
+          if (d.donor_id && seenById.has(String(d.donor_id))) continue;
+          const m = (d.donor_mobile || '').replace(/\D/g, '');
+          if (m && seenByMobile.has(m)) continue;
+          merged.push(d);
+          if (d.donor_id) seenById.add(String(d.donor_id));
+          if (m) seenByMobile.add(m);
+        }
+        setClaimResults(merged);
       } catch (err) {
         setClaimResults([]);
       } finally {
