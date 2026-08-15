@@ -26,6 +26,11 @@ const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 const DISP_TO_STATUS = { office_visit_scheduled: 'scheduled', program_visit_scheduled: 'scheduled' };
 
+const isCollectionLog = (log) =>
+  log.action === 'donation' ||
+  log.disposition_detail === 'done' ||
+  (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
+
 const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
 const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : (DISPOSITION_ORDER[s] ?? 99) + 1);
 function filterAndSortDonors(list) {
@@ -1689,6 +1694,9 @@ export default function MyDonors() {
                           </div>
                           {isThisMonth(logDate(log)) && (log.remark || log.notes) && <div className="tl-note">{log.remark || log.notes}</div>}
                           {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
+                          {isCollectionLog(log) && log.fro_worker_name && (
+                            <div className="tl-note" style={{ color: 'var(--ink-soft)', fontSize: 9 }}>Collected by {log.fro_worker_name}</div>
+                          )}
                           {log.disposition_detail === 'lead_done' && (
                             <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--md-tertiary-fixed, #e0e7ff)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>
                               {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
