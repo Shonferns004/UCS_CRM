@@ -6,6 +6,8 @@ import { SkeletonTable } from '../../../components/Skeleton';
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
+const fieldStyle = { width: '100%', padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' };
+
 const CLAIM_BADGES = {
   pending: { text: 'Claimed · Pending', color: '#b45309', bg: '#fef3c7' },
   verified: { text: 'Claim Verified', color: '#166534', bg: '#dcfce7' },
@@ -37,6 +39,12 @@ export default function FroSuspense() {
   const [claimError, setClaimError] = useState('');
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [claimDName, setClaimDName] = useState('');
+  const [claimDMobile, setClaimDMobile] = useState('');
+  const [claimDCity, setClaimDCity] = useState('');
+  const [claimDAddress, setClaimDAddress] = useState('');
+  const [claimDPan, setClaimDPan] = useState('');
+  const [claimDEmail, setClaimDEmail] = useState('');
 
   const load = async () => {
     try {
@@ -83,6 +91,12 @@ export default function FroSuspense() {
     setClaimNotes('');
     setClaimError('');
     setClaimSuccess(false);
+    setClaimDName('');
+    setClaimDMobile('');
+    setClaimDCity('');
+    setClaimDAddress('');
+    setClaimDPan('');
+    setClaimDEmail('');
     setShowClaimModal(true);
   };
 
@@ -113,6 +127,12 @@ export default function FroSuspense() {
       if (claimDate) txDatetime = claimTime ? `${claimDate}T${claimTime}` : claimDate;
       await claimSuspenseReceipt(claimReceipt.id, {
         donor_id: claimDonor.donor_id,
+        donor_name: claimDName.trim() || undefined,
+        donor_mobile: claimDMobile.trim() || undefined,
+        donor_city: claimDCity.trim() || undefined,
+        donor_email: claimDEmail.trim() || undefined,
+        donor_pan: claimDPan.trim() || undefined,
+        donor_address: claimDAddress.trim() || undefined,
         upi_transaction_id: (claimUpi || '').trim() || undefined,
         transaction_datetime: txDatetime || undefined,
         notes: claimNotes.trim() || undefined,
@@ -315,7 +335,7 @@ export default function FroSuspense() {
                             </div>
                           </div>
                         </div>
-                        <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]) }}
+                        <button onClick={() => { setClaimDonor(null); setClaimSearch(''); setClaimResults([]); setClaimDName(''); setClaimDMobile(''); setClaimDCity(''); setClaimDAddress(''); setClaimDPan(''); setClaimDEmail('') }}
                           style={{ border: 'none', background: 'rgba(0,0,0,.05)', width: 28, height: 28, borderRadius: '50%', fontSize: 18, cursor: 'pointer', color: 'var(--ink-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                       </div>
                     ) : (
@@ -340,7 +360,7 @@ export default function FroSuspense() {
                         {!claimSearching && claimResults.length > 0 && (
                           <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 180, overflowY: 'auto', background: 'var(--card-bg)' }}>
                             {claimResults.map((d, i) => (
-                              <div key={d.donor_id} onClick={() => { setClaimDonor(d); setClaimResults([]) }}
+                              <div key={d.donor_id} onClick={() => { setClaimDonor(d); setClaimResults([]); setClaimDName(d.donor_name || ''); setClaimDMobile(d.donor_mobile || ''); setClaimDCity(d.donor_city || ''); setClaimDAddress(d.donor_address || ''); setClaimDPan(d.donor_pan || ''); setClaimDEmail(d.donor_email || '') }}
                                 style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: i < claimResults.length - 1 ? '1px solid var(--line)' : 'none', display: 'flex', alignItems: 'center', gap: 10, transition: 'background .1s' }}
                                 onMouseOver={e => e.currentTarget.style.background = 'var(--bg)'}
                                 onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
@@ -364,6 +384,29 @@ export default function FroSuspense() {
                       </>
                     )}
                   </div>
+
+                  {/* Donor Details — editable, prefilled from the selected donor,
+                      written onto the Accounts audit entry with the claim */}
+                  {claimDonor && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+                        Donor Details
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 'normal', marginLeft: 6, color: 'var(--ink-soft)' }}>— editable, shown on the Accounts audit entry</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <input value={claimDName} onChange={e => setClaimDName(e.target.value)} placeholder="Full name" style={{ ...fieldStyle, flex: 1.4 }} />
+                          <input value={claimDMobile} onChange={e => setClaimDMobile(e.target.value)} placeholder="Mobile number" style={{ ...fieldStyle, flex: 1 }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <input value={claimDCity} onChange={e => setClaimDCity(e.target.value)} placeholder="City" style={{ ...fieldStyle, flex: 1 }} />
+                          <input value={claimDPan} onChange={e => setClaimDPan(e.target.value)} placeholder="PAN (ABCDE1234F)" style={{ ...fieldStyle, flex: 1 }} />
+                        </div>
+                        <input value={claimDAddress} onChange={e => setClaimDAddress(e.target.value)} placeholder="Address" style={fieldStyle} />
+                        <input value={claimDEmail} onChange={e => setClaimDEmail(e.target.value)} placeholder="Email" style={fieldStyle} />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Optional Details */}
                   <div style={{ marginBottom: 20 }}>

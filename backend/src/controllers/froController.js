@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { isPriyankShahAgent, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { isPriyankShahAgent, isBlankSuspenseValue, enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
@@ -137,6 +137,20 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   return retry;
 }
 
+// Scope guard: does this FRO hold an active assignment for the donor? Used to
+// block IDOR reads/writes on donors outside the worker's assigned scope.
+async function getFroAssignment(donorId, workerId, ngoId) {
+  let query = db
+    .from('fro_assignments')
+    .select('id, ngo_id')
+    .eq('donor_id', donorId)
+    .eq('fro_worker_id', workerId)
+    .not('status', 'eq', 'reassigned');
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data } = await query.maybeSingle();
+  return data || null;
+}
+
 async function getMyStationNames(workerId) {
   const { data: stationAssigns, error } = await db
     .from('fro_station_assignments')
@@ -190,19 +204,26 @@ async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
   return allData;
 }
 
-// Fetches donation evidence scoped to a worker's own NGO assignments. Logs are
-// matched by assignment_id (fro_assignments.ngo_id already reflects the NGO)
-// and imported receipts by (donor_id, project_id) where project_id = the NGO
-// name lowercased. This prevents one shared donor_profiles row (same mobile
-// number under several NGOs) from leaking another NGO's receipts into the FRO's
-// views. Returns per-assignment/per-project sets keyed by assignment id and
-// "donor_id|project" so callers can build NGO-scoped flags and row totals.
-async function fetchScopedDonationEvidence({ assignmentIds, donorIds, projectSet, oneYearAgo, currentMonthStart }) {
+// Fetches donation evidence for the worker's assignments. Logs are matched by
+// assignment_id (fro_assignments.ngo_id already reflects the NGO the worker is
+// allocated to); imported receipts are matched by (donor_id, project_id) where
+// project_id = the NGO name lowercased — so a donation only counts toward the
+// exact NGO the FRO holds the donor in, never leaking across NGOs. The "current
+// period" flag is sized to the donor's frequency (monthly / quarterly /
+// half_yearly / yearly / one_time) and dated from the actual donation date
+// (transaction_datetime -> verified_at -> created_at), not the log's created_at.
+// Returns per-assignment sets (keyed by assignment id) plus per-(donor, project)
+// receipt sets so callers can build NGO-scoped flags and row totals.
+async function fetchScopedDonationEvidence({ assignments, donorIds, projectSet, oneYearAgo }) {
+  const assignmentIds = (assignments || []).map(a => a.id);
+  const assignmentDonorMap = new Map();
+  for (const a of assignments || []) assignmentDonorMap.set(a.id, a.donor_id);
+
   const logRows = (assignmentIds && assignmentIds.length > 0)
     ? await chunkedInQuery(assignmentIds, chunk => {
         let q = db
           .from('fro_donor_logs')
-          .select('assignment_id, accounts_status, action, disposition_detail, created_at')
+          .select('assignment_id, accounts_status, action, disposition_detail, created_at, transaction_datetime, verified_at')
           .in('assignment_id', chunk)
           .gte('created_at', oneYearAgo);
         return q;
@@ -219,13 +240,21 @@ async function fetchScopedDonationEvidence({ assignmentIds, donorIds, projectSet
       )
     : [];
 
+  const donorTypeMap = {};
+  if (donorIds && donorIds.length > 0) {
+    const profiles = await chunkedInQuery(donorIds, chunk =>
+      db.from('donor_profiles').select('id, donor_type, donation_frequency').in('id', chunk)
+    );
+    for (const p of profiles || []) donorTypeMap[p.id] = p.donor_type || p.donation_frequency || '';
+  }
+
   const activeAssignmentIds = new Set();
-  const monthDonatedAssignmentIds = new Set();
-  const monthVerifiedAssignmentIds = new Set();
+  const periodDonatedAssignmentIds = new Set();
+  const periodVerifiedAssignmentIds = new Set();
   const verifiedAssignmentIds = new Set();
 
   const sinceDate = new Date(oneYearAgo);
-  const monthDate = new Date(currentMonthStart);
+  const now = new Date();
 
   for (const l of logRows || []) {
     const isDonation = l.action === 'donation';
@@ -233,34 +262,57 @@ async function fetchScopedDonationEvidence({ assignmentIds, donorIds, projectSet
     if (!isDonation && !isLeadDoneVerified) continue;
     activeAssignmentIds.add(l.assignment_id);
     if (l.accounts_status === 'verified') verifiedAssignmentIds.add(l.assignment_id);
-    if (l.created_at && new Date(l.created_at) >= monthDate) {
-      monthDonatedAssignmentIds.add(l.assignment_id);
-      if (l.accounts_status === 'verified') monthVerifiedAssignmentIds.add(l.assignment_id);
+    const donorId = assignmentDonorMap.get(l.assignment_id);
+    const periodStart = periodStartForType(donorTypeMap[donorId] || '', now);
+    const donationDate = new Date(l.transaction_datetime || l.verified_at || l.created_at);
+    if (!isNaN(donationDate) && donationDate >= periodStart) {
+      periodDonatedAssignmentIds.add(l.assignment_id);
+      if (l.accounts_status === 'verified') periodVerifiedAssignmentIds.add(l.assignment_id);
     }
   }
 
   const receiptPairs = new Set();
   const receiptRecentPairs = new Set();
-  const receiptMonthPairs = new Set();
+  const receiptPeriodPairs = new Set();
   for (const r of receiptRows || []) {
     const key = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
     receiptPairs.add(key);
     if (r.receipt_date) {
       const d = new Date(r.receipt_date);
       if (d >= sinceDate) receiptRecentPairs.add(key);
-      if (d >= monthDate) receiptMonthPairs.add(key);
+      if (d >= periodStartForType(donorTypeMap[r.donor_id] || '', now)) receiptPeriodPairs.add(key);
     }
   }
 
   return {
     activeAssignmentIds,
-    monthDonatedAssignmentIds,
-    monthVerifiedAssignmentIds,
+    periodDonatedAssignmentIds,
+    periodVerifiedAssignmentIds,
     verifiedAssignmentIds,
     receiptPairs,
     receiptRecentPairs,
-    receiptMonthPairs,
+    receiptPeriodPairs,
   };
+}
+
+// Start of the current donation window for a donor's frequency. Defaults to the
+// current calendar month for monthly/unknown donors.
+function periodStartForType(type, now = new Date()) {
+  const t = (type || '').toLowerCase();
+  if (t === 'quarterly') {
+    const q = Math.floor(now.getMonth() / 3);
+    return new Date(now.getFullYear(), q * 3, 1, 0, 0, 0, 0);
+  }
+  if (t === 'half_yearly') {
+    return new Date(now.getFullYear(), now.getMonth() < 6 ? 0 : 6, 1, 0, 0, 0, 0);
+  }
+  if (t === 'yearly') {
+    return new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+  }
+  if (t === 'one_time') {
+    return new Date(2000, 0, 1, 0, 0, 0, 0);
+  }
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 }
 
 function getMonthRange(dateStr) {
@@ -350,9 +402,9 @@ export const getDashboard = async (req, res) => {
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
     const now = new Date();
-    const utcNow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59)).toISOString();
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+    const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
     const monthStr = now.toISOString().slice(0, 7) + '-01';
 
     const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
@@ -375,16 +427,15 @@ export const getDashboard = async (req, res) => {
 
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
-    const nowUtc = new Date();
-    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
+    const todayStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
 
     const verifiedMonth = await getVerifiedCollection(workerId, monthStart, monthEnd);
     const unverifiedMonth = await getUnverifiedCollection(workerId, monthStart, monthEnd);
     const verifiedToday = await getVerifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
     const unverifiedToday = await getUnverifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
 
-    const fyYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
+    const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
 
     const [
@@ -710,7 +761,7 @@ export const getSuspenseReceipts = async (req, res) => {
       .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
       .is('donor_id', null)
       .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.NA,agent_name.eq.na')
+      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.suspense,agent_name.eq.NA,agent_name.eq.na')
       .gte('receipt_date', monthStart)
       .lte('receipt_date', monthEnd)
       .in('project_id', projectSet)
@@ -724,17 +775,10 @@ export const getSuspenseReceipts = async (req, res) => {
       && isBlankSuspenseValue(r.donor_mobile)
     );
 
-    const receiptIds = filtered.map(r => r.id);
-    const bankReceiptSet = new Set();
-    if (receiptIds.length > 0) {
-      for (let i = 0; i < receiptIds.length; i += 1000) {
-        const { data: bankRows, error: bankErr } = await db
-          .from('bank_audit_entries').select('receipt_id').in('receipt_id', receiptIds.slice(i, i + 1000));
-        if (bankErr) throw bankErr;
-        for (const br of (bankRows || [])) bankReceiptSet.add(br.receipt_id);
-      }
-    }
-    const pool = filtered.filter(r => !bankReceiptSet.has(r.id));
+    // Bank-audited suspense is also claimable suspense: Accounts sees it as an
+    // entry in Bank Audit, and FROs must see the same receipt here so they can
+    // claim it. No bank-audit exclusion.
+    const pool = filtered;
 
     const poolIds = pool.map(r => r.id);
     let claims = [];
@@ -775,11 +819,44 @@ export const getSuspenseReceipts = async (req, res) => {
   }
 };
 
+// Best-effort: when an FRO claims a suspense receipt, write the donor details
+// they provided (prefilled from their donor pick, editable) onto the linked
+// bank_audit_entries row so the Accounts Bank Audit card shows them right after
+// the claim, before Accounts verifies. Never blocks the claim if the entry
+// lookup/write fails.
+const linkClaimDonorToAuditEntry = async (receiptId, donorId, details) => {
+  if (!receiptId || !donorId) return;
+  const fill = {};
+  const mobile = (details?.donor_mobile || '').trim();
+  const email = (details?.donor_email || '').trim();
+  const pan = (details?.donor_pan || '').trim();
+  const city = (details?.donor_city || '').trim();
+  const address = (details?.donor_address || '').trim();
+  if (mobile) fill.donor_mobile = mobile;
+  if (email) fill.donor_email = email;
+  if (pan) fill.donor_pan = pan;
+  if (city) fill.donor_city = city;
+  if (address) fill.donor_address_1 = address;
+  if (Object.keys(fill).length === 0) return;
+  fill.donor_id = donorId;
+  try {
+    const { data: entries } = await db
+      .from('bank_audit_entries')
+      .select('id')
+      .eq('receipt_id', receiptId);
+    for (const entry of (entries || [])) {
+      await db.from('bank_audit_entries').update(fill).eq('id', entry.id);
+    }
+  } catch (e) {
+    console.error('Link claim donor to audit entry failed:', e.message);
+  }
+};
+
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
     const receiptId = parseInt(req.params.receiptId, 10);
-    const { donor_id, donor_name, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
+    const { donor_id, donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
     if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
     let donorId = donor_id ? parseInt(donor_id, 10) : null;
     const explicitDonor = donorId !== null;
@@ -790,7 +867,7 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
-      .select('id, donor_id, log_id, project_id, receipt_date, amount, donor_name')
+      .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
@@ -803,6 +880,48 @@ export const claimSuspenseReceipt = async (req, res) => {
     const { monthStart, month } = currentMonthBoundsIST();
     if (!receipt.receipt_date || receipt.receipt_date.slice(0, 7) !== month) {
       return res.status(400).json({ message: 'Claims are only allowed for this month\'s suspense receipts' });
+    }
+
+    // Best-effort real-donor resolution: when the FRO supplies a UPI
+    // transaction id, match it against collected leads (preferring this FRO's
+    // own) so the claim links to the canonical donor profile even when the
+    // bank spells the payer's name differently. No match is fine — the claim
+    // falls through to the normal pick/create below.
+    const claimUpiId = (upi_transaction_id || '').trim();
+    if (claimUpiId) {
+      let upiLogs = [];
+      try {
+        const { rows } = await db._pool.query(
+          `SELECT id, donor_id, fro_worker_id, transaction_datetime
+           FROM fro_donor_logs
+           WHERE upper(trim(upi_transaction_id)) = upper(trim($1))
+             AND donor_id IS NOT NULL
+           ORDER BY (fro_worker_id = $2) DESC, created_at DESC`,
+          [claimUpiId, workerId]
+        );
+        upiLogs = rows || [];
+      } catch (e) {
+        console.error('Suspense claim UPI donor lookup failed:', e.message);
+      }
+      if (upiLogs.length > 0) {
+        let matchLog = upiLogs[0];
+        if (transaction_datetime) {
+          const claimDate = new Date(transaction_datetime).toDateString();
+          const sameDay = upiLogs.find(l =>
+            l.transaction_datetime && new Date(l.transaction_datetime).toDateString() === claimDate
+          );
+          if (sameDay) matchLog = sameDay;
+        }
+        const { data: upiDonor } = await db
+          .from('donor_profiles')
+          .select('id, name')
+          .eq('id', matchLog.donor_id)
+          .maybeSingle();
+        if (upiDonor) {
+          donorId = upiDonor.id;
+          donorName = upiDonor.name;
+        }
+      }
     }
 
     // Resolve the donor: prefer an explicit donor_id (selected from the FRO's
@@ -837,6 +956,24 @@ export const claimSuspenseReceipt = async (req, res) => {
       }
     }
 
+    const { data: resolvedDonor } = await db
+      .from('donor_profiles')
+      .select('name')
+      .eq('id', donorId)
+      .maybeSingle();
+    const claimedDonorName = resolvedDonor?.name || donorName || 'a donor';
+
+    // Pull the receipt's real money data onto the lead so the pending lead in
+    // Lead Verification is already filled: UPI txn id, MOP, sender, PAN. The
+    // FRO's explicit claim input always wins; the receipt fills the rest.
+    const effectiveUpi = ((upi_transaction_id || '').trim()) || receipt.payment_id || null;
+    const effectiveMode = (receipt.mode || '').trim() || null;
+    const effectiveFrom = (receipt.bank_payer_name || receipt.donor_name || '').trim() || null;
+    const effectivePan = (receipt.pan_number || '').trim() || null;
+
+    try { await enrichDonorProfileFromReceipt(donorId, receipt); }
+    catch (e) { console.error('Failed to enrich donor profile from suspense receipt:', e.message); }
+
     // Only allow claiming for a donor allotted to this FRO's station scope
     // (enforced for donors selected from the FRO's own donor search).
     if (explicitDonor) {
@@ -855,7 +992,11 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const txDateTime = transaction_datetime
       ? new Date(transaction_datetime).toISOString()
-      : (receipt.receipt_date ? new Date(receipt.receipt_date).toISOString() : null);
+      : (receipt.receipt_date
+          ? (receipt.receipt_time
+              ? new Date(`${receipt.receipt_date}T${receipt.receipt_time}`).toISOString()
+              : new Date(receipt.receipt_date).toISOString())
+          : null);
 
     // Dedupe: if this FRO already has an unresolved pending lead_done for the
     // same donor (e.g. they marked the lead done before, accounts could not
@@ -876,13 +1017,17 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     if (existingPendingLead) {
       const leadUpdates = {};
-      if (upi_transaction_id) leadUpdates.upi_transaction_id = upi_transaction_id;
+      if (effectiveUpi) leadUpdates.upi_transaction_id = effectiveUpi;
       if (txDateTime) leadUpdates.transaction_datetime = txDateTime;
+      if (effectiveMode) leadUpdates.payment_mode = effectiveMode;
+      if (effectiveFrom) leadUpdates.payment_from = effectiveFrom;
+      if (effectivePan) leadUpdates.pan_number = effectivePan;
       if (Object.keys(leadUpdates).length > 0) {
         await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
       }
       const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
       if (updErr) throw updErr;
+      await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
       try {
         const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
         for (const u of (accounts || [])) {
@@ -890,13 +1035,13 @@ export const claimSuspenseReceipt = async (req, res) => {
             worker_id: u.id,
             type: 'claim_requested',
             title: 'Suspense Claim',
-            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${receipt.donor_name || 'a donor'} — ready to verify.`,
+            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${claimedDonorName} — ready to verify.`,
             sent_at: new Date().toISOString(),
           });
         }
       } catch (e) { console.error('Claim notification error:', e.message); }
       findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
-      return res.status(201).json({ message: 'Claimed — added to your existing pending lead for this donor', log_id: existingPendingLead.id });
+      return res.status(201).json({ message: `Claimed for ${claimedDonorName} — added to your existing pending lead`, log_id: existingPendingLead.id });
     }
 
     // Resolve the receipt's project_id to an ngo_id first — the assignment must
@@ -953,7 +1098,10 @@ export const claimSuspenseReceipt = async (req, res) => {
         accounts_status: 'pending',
         payment_screenshot_url: screenshot_url || null,
         remark: notes || null,
-        upi_transaction_id: upi_transaction_id || null,
+        upi_transaction_id: effectiveUpi,
+        payment_mode: effectiveMode,
+        payment_from: effectiveFrom,
+        pan_number: effectivePan,
         transaction_datetime: txDateTime,
         created_by: workerId,
       })
@@ -963,6 +1111,8 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
     if (updErr) throw updErr;
+
+    await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
@@ -979,7 +1129,7 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
 
-    return res.status(201).json({ message: 'Claim submitted; it is now pending in Lead Verification', log_id: log.id });
+    return res.status(201).json({ message: `Claimed for ${claimedDonorName} — pending in Lead Verification`, log_id: log.id });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -1207,18 +1357,13 @@ export const getMyDonors = async (req, res) => {
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
 
-    const workerAssignmentIds = assignments.map(a => a.id);
     const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
     const evidence = await fetchScopedDonationEvidence({
-      assignmentIds: workerAssignmentIds,
+      assignments,
       donorIds: [...new Set(assignments.map(a => a.donor_id))],
       projectSet,
       oneYearAgo: oneYearAgo.toISOString(),
-      currentMonthStart: currentMonthStart.toISOString(),
     });
 
     let donorIds = [...new Set(assignments.map(a => a.donor_id))];
@@ -1248,8 +1393,8 @@ export const getMyDonors = async (req, res) => {
 
     // NGO-scoped flags: logs belong to the worker's assignments (which carry
     // the NGO) and receipts are matched by (donor_id, project_id) where
-    // project_id = the NGO name lowercased. A donor shared across NGOs never
-    // leaks another NGO's donations into this worker's list.
+    // project_id = the NGO name lowercased. A donation only counts toward the
+    // exact NGO the worker holds the donor in — never leaking across NGOs.
     const projectOf = a => (a.ngos?.name ? a.ngos.name.toLowerCase() : '');
     const activeSet = new Set();
     const monthDonatedSet = new Set();
@@ -1258,8 +1403,8 @@ export const getMyDonors = async (req, res) => {
     for (const a of assignments) {
       const pair = `${a.donor_id}|${projectOf(a)}`;
       if (evidence.activeAssignmentIds.has(a.id) || evidence.receiptRecentPairs.has(pair)) activeSet.add(a.id);
-      if (evidence.monthDonatedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair)) monthDonatedSet.add(a.id);
-      if (evidence.monthVerifiedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair)) monthVerifiedSet.add(a.id);
+      if (evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair)) monthDonatedSet.add(a.id);
+      if (evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair)) monthVerifiedSet.add(a.id);
       if (evidence.activeAssignmentIds.has(a.id) || evidence.receiptPairs.has(pair)) hasScopedSet.add(a.id);
     }
 
@@ -1301,7 +1446,7 @@ export const getMyDonors = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_city: d.city || '',
         donor_address: d.address_1 || '',
-        donor_amount: d.amount || 0,
+        donor_amount: hasScopedSet.has(a.id) ? (d.amount || 0) : 0,
         donor_email: d.email || '',
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
@@ -1495,6 +1640,19 @@ export const getTransferredLeads = async (req, res) => {
       if (!scheduleMap[s.assignment_id]) scheduleMap[s.assignment_id] = s;
     }
 
+    const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
+    const scopedReceiptPairs = new Set();
+    if (donorIds.length > 0 && projectSet.length > 0) {
+      const { data: scopedReceipts } = await db
+        .from('receipts')
+        .select('donor_id, project_id')
+        .in('donor_id', donorIds)
+        .in('project_id', projectSet);
+      for (const r of scopedReceipts || []) {
+        scopedReceiptPairs.add(`${r.donor_id}|${(r.project_id || '').toLowerCase()}`);
+      }
+    }
+
     const result = [];
     const seen = new Set();
     for (const a of assignments || []) {
@@ -1504,6 +1662,8 @@ export const getTransferredLeads = async (req, res) => {
       if (seen.has(key)) continue;
       seen.add(key);
       const s = scheduleMap[a.id];
+      const pair = `${a.donor_id}|${a.ngos?.name ? a.ngos.name.toLowerCase() : ''}`;
+      const hasScoped = scopedReceiptPairs.has(pair);
       result.push({
         id: a.donor_id,
         donor_id: a.donor_id,
@@ -1515,14 +1675,14 @@ export const getTransferredLeads = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_city: d.city || '',
         donor_address: d.address_1 || '',
-        donor_amount: d.amount || 0,
+        donor_amount: hasScoped ? (d.amount || 0) : 0,
         donor_email: d.email || '',
         donor_pan: d.pan_number || '',
         donor_project: d.project_supported || '',
         donor_dob: d.birth_date || '',
         donor_type: d.donor_type || '',
-        donation_count: d.donation_count || 0,
-        total_donated: d.total_amount || 0,
+        donation_count: hasScoped ? (d.donation_count || 0) : 0,
+        total_donated: hasScoped ? (d.total_amount || 0) : 0,
         status: a.status || 'pending',
         notes: a.notes || null,
         last_contacted_at: a.last_contacted_at || null,
@@ -1583,11 +1743,14 @@ export const updateDonorType = async (req, res) => {
   try {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
-    const { donor_type } = req.body;
+    const { donor_type, ngo_id } = req.body;
     const validTypes = ['monthly', 'quarterly', 'half_yearly', 'yearly', 'one_time'];
     if (!donor_type || !validTypes.includes(donor_type)) {
       return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly, one_time' });
     }
+
+    const assignment = await getFroAssignment(donorId, req.user.id, ngo_id);
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
 
     const { data, error } = await db
       .from('donor_profiles')
@@ -1759,7 +1922,11 @@ export const createDonorLogHandler = async (req, res) => {
       pan_number: pan_number || null,
       remark: remark || null,
       upi_transaction_id: upi_transaction_id || null,
-      transaction_datetime: transaction_datetime || null,
+      transaction_datetime: (() => {
+        if (!transaction_datetime) return null;
+        const d = new Date(transaction_datetime);
+        return isNaN(d.getTime()) ? null : d.toISOString();
+      })(),
       accounts_status: null,
       created_by: creditWorkerId,
     };
@@ -2124,55 +2291,6 @@ export const getMyStations = async (req, res) => {
   }
 };
 
-export const debugMyStations = async (req, res) => {
-  try {
-    const workerId = req.user.id;
-
-    const { data: stations, error: stErr } = await db
-      .from('fro_station_assignments')
-      .select('station, ngo_id')
-      .eq('fro_worker_id', workerId);
-    if (stErr) throw stErr;
-
-    const { data: froAsgn } = await db
-      .from('fro_assignments')
-      .select('id, donor_id, status, ngo_id, station')
-      .eq('fro_worker_id', workerId)
-      .not('station', 'is', null)
-      .not('status', 'eq', 'reassigned');
-
-    const donorIds = [...new Set((froAsgn || []).map(a => a.donor_id))];
-    const { data: donors, error: dErr } = donorIds.length > 0
-      ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
-      : { data: [] };
-    if (dErr) throw dErr;
-
-    const froAsgnByDonor = {};
-    for (const a of froAsgn || []) {
-      if (!froAsgnByDonor[a.donor_id]) froAsgnByDonor[a.donor_id] = [];
-      froAsgnByDonor[a.donor_id].push(a);
-    }
-
-    return res.json({
-      worker_id: workerId,
-      station_count: stations.length,
-      stations: stations.map(s => s.station),
-      station_rows: stations,
-      donor_count: (donors || []).length,
-      fro_assignments_count: (froAsgn || []).length,
-      donor_detail: (donors || []).slice(0, 10).map(d => ({
-        id: d.id,
-        name: d.name,
-        mobile: d.mobile_number,
-        assignments: froAsgnByDonor[d.id] || [],
-      })),
-    });
-  } catch (error) {
-    console.error('debugMyStations error:', error.message);
-    return res.status(500).json({ message: error.message });
-  }
-};
-
 export const getFroScheduled = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -2505,22 +2623,47 @@ export const getMonthlyDonors = async (req, res) => {
         .from('fro_assignments')
         .select('*, donor_profiles!inner(id, name, mobile_number, amount, total_amount, donation_count, city), ngos(name)')
         .in('station', stationNames)
-        .not('status', 'eq', 'reassigned')
-        .gte('donor_profiles.donation_count', 3),
+        .not('status', 'eq', 'reassigned'),
       myScope
     );
 
     if (error) throw error;
+    if (!assignments || assignments.length === 0) return res.json([]);
 
-    const { data: existingLogs } = await db
+    const projectSet = [...new Set(assignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
+    const donorIds = [...new Set(assignments.map(a => a.donor_id).filter(Boolean))];
+
+    // Per-(donor, NGO) donation aggregates: a receipt only counts toward the
+    // exact NGO it was given to, so shared donors never see another NGO's money.
+    const scopedStats = new Map();
+    if (donorIds.length > 0 && projectSet.length > 0) {
+      const { data: scopedReceipts } = await chunkedInQuery(donorIds, chunk =>
+        db
+          .from('receipts')
+          .select('donor_id, project_id, amount')
+          .in('donor_id', chunk)
+          .in('project_id', projectSet)
+      );
+      for (const r of scopedReceipts || []) {
+        const statsKey = `${r.donor_id}|${(r.project_id || '').toLowerCase()}`;
+        const cur = scopedStats.get(statsKey) || { count: 0, total: 0, max: 0 };
+        const amt = Number(r.amount) || 0;
+        cur.count += 1;
+        cur.total += amt;
+        if (amt > cur.max) cur.max = amt;
+        scopedStats.set(statsKey, cur);
+      }
+    }
+
+    const { data: existingDonations } = await db
       .from('fro_donor_logs')
       .select('donor_id')
-      .in('donor_id', [...new Set((assignments || []).map(a => a.donor_id).filter(Boolean))])
+      .in('donor_id', donorIds)
       .eq('action', 'donation')
       .gte('created_at', monthStart)
       .lte('created_at', monthEnd);
 
-    const alreadyDone = new Set((existingLogs || []).map(l => l.donor_id));
+    const alreadyDone = new Set((existingDonations || []).map(l => l.donor_id));
 
     const seen = new Set();
     const result = [];
@@ -2530,6 +2673,9 @@ export const getMonthlyDonors = async (req, res) => {
       seen.add(key);
       const d = a.donor_profiles;
       if (!d || alreadyDone.has(d.id)) continue;
+      const statsKey = `${d.id}|${a.ngos?.name ? a.ngos.name.toLowerCase() : ''}`;
+      const stats = scopedStats.get(statsKey);
+      if (!stats || stats.count < 3) continue;
       result.push({
         donor_id: d.id,
         ngo_id: a.ngo_id,
@@ -2537,9 +2683,9 @@ export const getMonthlyDonors = async (req, res) => {
         donor_name: d.name || 'Unknown',
         donor_mobile: d.mobile_number || '',
         donor_city: d.city || '',
-        amount: d.amount || 0,
-        total_donated: d.total_amount || 0,
-        donation_count: d.donation_count || 0,
+        amount: stats.max || 0,
+        total_donated: stats.total || 0,
+        donation_count: stats.count || 0,
       });
     }
 
@@ -2599,7 +2745,7 @@ export const getDonorHistory = async (req, res) => {
       .maybeSingle();
 
     // Also fetch receipts linked directly via donor_id (imported receipts),
-    // scoped to the worker's NGO assignments (project_id = ngo name lowercase)
+    // scoped to the (donor, NGO) assignments the worker holds for this donor.
     let receipts = [];
     if (projectSet.length > 0) {
       const { data: scopedReceipts } = await db
@@ -2920,17 +3066,12 @@ export const searchDonors = async (req, res) => {
 
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
-    const scopedAssignIds = scopedAssignments.map(a => a.id);
     const projectSet = [...new Set(scopedAssignments.map(a => (a.ngos?.name ? a.ngos.name.toLowerCase() : null)).filter(Boolean))];
     const evidence = await fetchScopedDonationEvidence({
-      assignmentIds: scopedAssignIds,
+      assignments: scopedAssignments,
       donorIds: matchedIds,
       projectSet,
       oneYearAgo: oneYearAgo.toISOString(),
-      currentMonthStart: currentMonthStart.toISOString(),
     });
 
     const result = [];
@@ -2954,7 +3095,7 @@ export const searchDonors = async (req, res) => {
           donor_name: d.name || 'Unknown',
           donor_mobile: d.mobile_number || '',
           donor_city: d.city || '',
-          donor_amount: d.amount || 0,
+          donor_amount: hasScoped ? (d.amount || 0) : 0,
           donor_email: d.email || '',
           donor_pan: d.pan_number || '',
           donor_project: d.project_supported || '',
@@ -2963,8 +3104,8 @@ export const searchDonors = async (req, res) => {
           donor_address: d.address_1 || '',
           donation_count: hasScoped ? (d.donation_count || 0) : 0,
           total_donated: hasScoped ? (d.total_amount || 0) : 0,
-          has_donated_current_month: evidence.monthDonatedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair),
-          has_verified_donation_current_month: evidence.monthVerifiedAssignmentIds.has(a.id) || evidence.receiptMonthPairs.has(pair),
+          has_donated_current_month: evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
+          has_verified_donation_current_month: evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
           status: a.status || 'pending',
         });
       }
@@ -3024,7 +3165,7 @@ export const getFullDonorHistory = async (req, res) => {
     if (error) throw error;
 
     // Also fetch receipts linked directly via donor_id (imported receipts),
-    // scoped to the worker's NGO assignments (project_id = ngo name lowercase)
+    // scoped to the (donor, NGO) assignments the worker holds for this donor.
     let receipts = [];
     if (projectSet.length > 0) {
       const { data: scopedReceipts } = await db
@@ -3063,11 +3204,13 @@ export const updateDonorFrequency = async (req, res) => {
   try {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
-    const { frequency } = req.body;
+    const { frequency, ngo_id } = req.body;
     const allowed = ['monthly', 'quarterly', 'yearly', 'one_time'];
     if (!frequency || !allowed.includes(frequency)) {
       return res.status(400).json({ message: `Frequency must be one of: ${allowed.join(', ')}` });
     }
+    const assignment = await getFroAssignment(donorId, req.user.id, ngo_id);
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
     const { data, error } = await db
       .from('donor_profiles')
       .update({ donation_frequency: frequency })
@@ -3219,6 +3362,9 @@ export const getDonorReceipts = async (req, res) => {
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const ngoId = req.query.ngo_id;
     if (!ngoId) return res.status(400).json({ message: 'ngo_id is required' });
+
+    const assignment = await getFroAssignment(donorId, req.user.id, ngoId);
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
 
     const { data: ngo } = await db
       .from('ngos')

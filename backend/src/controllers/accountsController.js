@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -50,11 +50,12 @@ export const getLeadList = async (req, res) => {
     const logIds = (data || []).map(r => r.id);
     const receiptMap = {};
     let entrySourceMap = {};
+    let entryPayerMap = {};
     const leadMatchMap = {};
     if (logIds.length) {
       const { data: claimedReceipts, error: receiptErr } = await db
         .from('receipts')
-        .select('id, receipt_no, donor_id, donor_mobile, log_id')
+        .select('id, receipt_no, donor_id, donor_mobile, donor_name, bank_payer_name, payment_id, mode, pan_number, log_id')
         .in('log_id', logIds);
       if (!receiptErr) {
         for (const rc of (claimedReceipts || [])) {
@@ -64,18 +65,20 @@ export const getLeadList = async (req, res) => {
         if (receiptIds.length) {
           const { data: linkedEntries } = await db
             .from('bank_audit_entries')
-            .select('receipt_id, source_id, bank_audit_sources(name)')
+            .select('receipt_id, source_id, payer_name, bank_audit_sources(name)')
             .in('receipt_id', receiptIds);
           entrySourceMap = {};
+          entryPayerMap = {};
           for (const en of (linkedEntries || [])) {
             if (en.receipt_id != null) entrySourceMap[en.receipt_id] = en.bank_audit_sources?.name || null;
+            if (en.receipt_id != null && en.payer_name) entryPayerMap[en.receipt_id] = en.payer_name;
           }
         }
       }
 
       const { data: matchedEntries, error: matchErr } = await db
         .from('bank_audit_entries')
-        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, donor_pan, donor_address_1, donor_address_2')
         .in('matched_lead_log_id', logIds)
         .in('match_status', ['matched', 'confirmed']);
       if (!matchErr) {
@@ -87,12 +90,17 @@ export const getLeadList = async (req, res) => {
       }
     }
 
-    const result = (data || []).map(r => ({
+    const result = (data || []).map(r => {
+      const profile = r.fro_assignments?.donor_profiles || {};
+      const match = leadMatchMap[r.id] || null;
+      const profileAddr = [profile.address_1, profile.address_2].filter(Boolean).join(', ');
+      const matchAddr = match ? [match.donor_address_1, match.donor_address_2].filter(Boolean).join(', ') : '';
+      return {
       log_id: r.id,
       amount: r.amount_collected,
       screenshot_url: r.payment_screenshot_url,
       accounts_status: r.accounts_status,
-      pan_number: r.pan_number,
+      pan_number: r.pan_number || receiptMap[r.id]?.pan_number || '',
       notes: r.notes,
       remark: r.remark,
       rejection_reason: r.rejection_reason,
@@ -101,20 +109,23 @@ export const getLeadList = async (req, res) => {
       assignment_status: r.fro_assignments?.status || 'lead_done',
       donor_id: r.fro_assignments?.donor_id,
       donor_name: r.fro_assignments?.donor_profiles?.name || 'Unknown',
+      original_payer: receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || entryPayerMap[receiptMap[r.id]?.id] || '',
+      audit_name: receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || entryPayerMap[receiptMap[r.id]?.id] || r.fro_assignments?.donor_profiles?.bank_donor_name || '',
       donor_mobile: r.fro_assignments?.donor_profiles?.mobile_number || receiptMap[r.id]?.donor_mobile || '',
       donor_city: r.fro_assignments?.donor_profiles?.city || '',
-      donor_pan: r.fro_assignments?.donor_profiles?.pan_number || '',
-      donor_address: r.fro_assignments?.donor_profiles?.address_1 || '',
+      donor_pan: profile.pan_number || match?.donor_pan || r.pan_number || '',
+      donor_address: profileAddr || matchAddr || '',
+      donor_address_2: profile.address_2 || match?.donor_address_2 || '',
       donor_email: r.fro_assignments?.donor_profiles?.email || '',
       donor_bank_name: r.fro_assignments?.donor_profiles?.donors_bank_name || '',
       donor_project: (r.fro_assignments?.ngos?.name === 'BSCT' ? 'bsct' : r.fro_assignments?.ngos?.name === 'AFLF' ? 'aflf' : r.fro_assignments?.ngos?.name === 'MANN' ? 'mann' : r.fro_assignments?.donor_profiles?.project_supported) || '',
       donor_dob: r.fro_assignments?.donor_profiles?.birth_date || '',
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
-      upi_transaction_id: r.upi_transaction_id || null,
+      upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || receiptMap[r.id]?.payment_id || null),
       transaction_datetime: r.transaction_datetime || null,
-      payment_from: r.payment_from || null,
-      payment_mode: r.payment_mode || null,
+      payment_from: r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null,
+      payment_mode: r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
@@ -123,16 +134,17 @@ export const getLeadList = async (req, res) => {
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
       received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
-      bank_match: leadMatchMap[r.id]
+      bank_match: match
         ? {
-            entry_id: leadMatchMap[r.id].id,
-            match_status: leadMatchMap[r.id].match_status,
-            match_source: leadMatchMap[r.id].match_source || 'auto',
-            match_no: leadMatchMap[r.id].match_no || null,
-            match_score: leadMatchMap[r.id].match_score || null,
+            entry_id: match.id,
+            match_status: match.match_status,
+            match_source: match.match_source || 'auto',
+            match_no: match.match_no || null,
+            match_score: match.match_score || null,
           }
         : null,
-    }));
+    };
+    });
 
     return res.json(result);
   } catch (error) {
@@ -145,13 +157,13 @@ export const verifyLead = async (req, res) => {
     const { logId } = req.params;
     const {
       pan_number, notes,
-      donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, donor_dob,
+      donor_name, donor_receipt_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, donor_dob,
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
     const { data: log, error: logError } = await db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
       .single();
 
@@ -168,6 +180,16 @@ export const verifyLead = async (req, res) => {
     if (!assignmentId || !donorProfile) {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
+
+    // The NGO a lead is assigned under is the per-lead truth for which project
+    // (and therefore which receipt-number sequence) its money belongs to. The
+    // donor profile's project_supported is only a fallback — it is frequently
+    // unset, which would wrongly fall through to the 'bsct' default and give an
+    // Ashray receipt the next number from the BSCT sequence.
+    let project = donorProfile?.project_supported || 'bsct';
+    try {
+      project = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || project;
+    } catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
 
     // ── Manual bank-audit link path ─────────────────────────────────────────
     // Accounts can pick an unmatched bank audit entry next to the UPI id. That
@@ -297,8 +319,7 @@ export const verifyLead = async (req, res) => {
     const existing = await findReceiptByLogId(logId);
     let receipt = existing || null;
     if (!existing) {
-      const donorName = donorProfile?.name || 'Unknown';
-      const project = donorProfile?.project_supported || 'bsct';
+      const donorName = donor_receipt_name || donorProfile?.name || 'Unknown';
       const receiptNo = await getNextReceiptNo(project);
 
       receipt = await createReceipt({
@@ -325,14 +346,14 @@ export const verifyLead = async (req, res) => {
       const oldPayerName = existing.donor_name && existing.donor_name !== profileName ? existing.donor_name : null;
       const receiptPatch = {
         donor_id: donorId,
-        donor_name: profileName || existing.donor_name || 'Unknown',
+        donor_name: donor_receipt_name || profileName || existing.donor_name || 'Unknown',
         donor_mobile: donorProfile?.mobile_number || existing.donor_mobile || null,
         bank_payer_name: existing.bank_payer_name || oldPayerName || null,
         bank_name: donorProfile?.donors_bank_name || null,
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
       };
       if (!existing.receipt_no) {
-        existing.receipt_no = await getNextReceiptNo(donorProfile?.project_supported || 'bsct');
+        existing.receipt_no = await getNextReceiptNo(existing.project_id || project);
         receiptPatch.receipt_no = existing.receipt_no;
       }
       const { error: linkReceiptErr } = await db.from('receipts').update(receiptPatch).eq('id', existing.id);
@@ -693,7 +714,8 @@ export const goBackLead = async (req, res) => {
     }
 
     // Receipt handling: revert any linked bank audit entry, then either delete
-    // a verification-only receipt or release the money back to the pool.
+    // a verification-only receipt or release the money back to the pool. Either
+    // way the receipt number is cancelled so it can be reused.
     const receipt = await findReceiptByLogId(logId);
     if (receipt) {
       const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
@@ -712,6 +734,8 @@ export const goBackLead = async (req, res) => {
           match_status: null,
           match_score: null,
           matched_at: null,
+          receipt_id: null,
+          receipt_no: null,
           updated_at: new Date().toISOString(),
         }).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
@@ -721,9 +745,14 @@ export const goBackLead = async (req, res) => {
         try { await db.from('receipts').delete().eq('id', receipt.id); }
         catch (err) { console.error('Failed to delete verification receipt on go-back:', err.message); }
       } else {
-        try { await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id); }
+        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
         catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
       }
+
+      // Free the cancelled number(s) so the next receipt continues from the
+      // last live number instead of skipping over them.
+      try { await cancelReceiptNo(receipt.project_id); }
+      catch (err) { console.error('Failed to cancel receipt number on go-back:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -810,6 +839,7 @@ export const undoLeadVerification = async (req, res) => {
     }
 
     const donorId = log.fro_assignments?.donor_id;
+    const assignmentId = log.fro_assignments?.id;
 
     // Bring the lead back to Lead Verification.
     const { error: revertError } = await db
@@ -817,6 +847,16 @@ export const undoLeadVerification = async (req, res) => {
       .update({ accounts_status: 'pending', verified_at: null, verified_by: null })
       .eq('id', logId);
     if (revertError) throw revertError;
+
+    // Reopen the assignment so the donor's status returns to pending.
+    if (assignmentId) {
+      try {
+        await db
+          .from('fro_assignments')
+          .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
+          .eq('id', assignmentId);
+      } catch (err) { console.error('Failed to reopen assignment on undo:', err.message); }
+    }
 
     // Reverse the donor totals added during verification.
     if (donorId) {
@@ -835,14 +875,11 @@ export const undoLeadVerification = async (req, res) => {
       } catch (err) { console.error('Failed to reverse donor totals on undo:', err.message); }
     }
 
-    // Unlink the receipt from the donor/lead (kept, not deleted).
+    // Cancel the receipt: a verification-only receipt is deleted outright; a
+    // receipt tied to bank money is released back to the pool. Either way the
+    // number is freed so the next verification reuses it. The linked bank audit
+    // entry is sent back to Bank Audit (unverified, unlinked).
     const receipt = await findReceiptByLogId(logId);
-    if (receipt) {
-      try { await db.from('receipts').update({ log_id: null, donor_id: null }).eq('id', receipt.id); }
-      catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
-    }
-
-    // Send the linked bank audit entry back to Bank Audit (unverified).
     if (receipt) {
       const { data: entry } = await db.from('bank_audit_entries').select('id').eq('receipt_id', receipt.id).maybeSingle();
       if (entry) {
@@ -860,10 +897,22 @@ export const undoLeadVerification = async (req, res) => {
           match_status: null,
           match_score: null,
           matched_at: null,
+          receipt_id: null,
+          receipt_no: null,
           updated_at: new Date().toISOString(),
         }).eq('id', entry.id);
         if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
       }
+
+      if (receipt.purpose === 'General Donation' && !entry && !receipt.sent) {
+        try { await db.from('receipts').delete().eq('id', receipt.id); }
+        catch (err) { console.error('Failed to delete receipt on undo:', err.message); }
+      } else {
+        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
+        catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
+      }
+      try { await cancelReceiptNo(receipt.project_id); }
+      catch (err) { console.error('Failed to cancel receipt number on undo:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -1077,6 +1126,8 @@ export const generateReceipt = async (req, res) => {
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
+          ngo_id,
+          ngos(name),
           donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name),
           workers!inner(id, name, login_id)
         )
@@ -1089,7 +1140,10 @@ export const generateReceipt = async (req, res) => {
     }
 
     const donorProfile = log.fro_assignments?.donor_profiles;
-    const project = donorProfile?.project_supported || 'bsct';
+    let project = donorProfile?.project_supported || 'bsct';
+    try {
+      project = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || project;
+    } catch (err) { console.error('Failed to resolve project from assignment NGO:', err.message); }
     const donorName = donorProfile?.name || 'Unknown';
 
     const receiptNo = await getNextReceiptNo(project);
@@ -1182,7 +1236,6 @@ export const getReceiptList = async (req, res) => {
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))`);
       where.push(`(donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))`);
-      where.push(`NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)`);
     }
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
@@ -1673,7 +1726,9 @@ export const importReceipts = async (req, res) => {
     for (const p of parsed) p.parsed.project_id = batchProjectId;
 
     // Duplicate check against DB (batched at 100). Scoped by NGO so each NGO's
-    // own receipt-number series (1..n) never collides with another NGO's.
+    // own receipt-number series (1..n) never collides with another NGO's. Each
+    // existing copy's pool-relevant fields are kept so re-uploads can decide
+    // whether to skip the number or restore its receipt to the suspense pool.
     const incomingNos = [...new Set(parsed.map(p => p.parsed.receipt_no).filter(Boolean))];
     const existingReceiptIds = new Map();
     if (incomingNos.length > 0) {
@@ -1681,22 +1736,67 @@ export const importReceipts = async (req, res) => {
         const batch = incomingNos.slice(i, i + 100);
         const { data: existing } = await db
           .from('receipts')
-          .select('id, receipt_no')
+          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date')
           .eq('project_id', batchProjectId)
           .in('receipt_no', batch);
-        for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r.id);
+        for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r);
       }
     }
 
+    // Existing copies referenced by a bank-audit entry are out of the suspense
+    // pool even when otherwise unlinked.
+    const existingIds = [...existingReceiptIds.values()].map(r => r.id);
+    const bankAudited = new Set();
+    if (existingIds.length > 0) {
+      for (let i = 0; i < existingIds.length; i += 100) {
+        const { rows } = await db._pool.query(
+          `SELECT DISTINCT receipt_id FROM bank_audit_entries WHERE receipt_id = ANY($1)`,
+          [existingIds.slice(i, i + 100)]
+        );
+        for (const b of (rows || [])) bankAudited.add(b.receipt_id);
+      }
+    }
+
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const poolYear = istNow.getUTCFullYear();
+    const poolMonth = String(istNow.getUTCMonth() + 1).padStart(2, '0');
+    const poolMonthStart = `${poolYear}-${poolMonth}-01`;
+    const poolLastDay = new Date(Date.UTC(poolYear, istNow.getUTCMonth() + 1, 0)).getUTCDate();
+    const poolMonthEnd = `${poolYear}-${poolMonth}-${String(poolLastDay).padStart(2, '0')}`;
+
+    const isInSuspensePool = (r) =>
+      !r.donor_id && !r.log_id
+      && isBlankSuspenseValue(r.agent_name) && isBlankSuspenseValue(r.donor_mobile)
+      && String(r.agent_name || '').trim().toLowerCase() !== 'priyank shah'
+      && r.receipt_date && r.receipt_date >= poolMonthStart && r.receipt_date <= poolMonthEnd
+      && !bankAudited.has(r.id);
+
+    // A numbered row whose existing copy left the suspense pool (was matched,
+    // credited or bank-audited) is restored into the pool when the file row is
+    // still a truly-suspense row — the copy is unlinked, its audit/log links are
+    // dropped and its fields refreshed from the file so the pool matches the
+    // upload. Otherwise the number is skipped and the existing copy wins.
+    const restoreRows = [];
+    const restoreSeen = new Set();
     const seen = new Set();
     const uniqueParsed = parsed.filter(({ parsed }) => {
       if (!parsed.receipt_no) return true;
-      if (existingReceiptIds.has(parsed.receipt_no)) return false;
+      const existing = existingReceiptIds.get(parsed.receipt_no);
+      if (existing) {
+        if (!isInSuspensePool(existing)
+            && isBlankSuspenseValue(parsed.agent_name)
+            && isBlankSuspenseValue(parsed.donor_mobile)
+            && !restoreSeen.has(parsed.receipt_no)) {
+          restoreSeen.add(parsed.receipt_no);
+          restoreRows.push({ existing, parsed });
+        }
+        return false; // number already on file — never re-insert (UNIQUE)
+      }
       if (seen.has(parsed.receipt_no)) return false;
       seen.add(parsed.receipt_no);
       return true;
     });
-    const dupCount = parsed.length - uniqueParsed.length;
+    const dupCount = parsed.length - uniqueParsed.length - restoreRows.length;
 
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
@@ -1808,6 +1908,59 @@ export const importReceipts = async (req, res) => {
               return data || [];
             });
             inserted = insertedChunks.flat();
+          }
+
+          // Restore numbered suspense rows whose existing copy left the pool
+          // (was matched, credited or bank-audited) back into this month's
+          // suspense pool. All done inside the same atomic transaction.
+          let restored = 0;
+          const affectedDonors = new Set();
+          if (restoreRows.length > 0) {
+            for (const { existing, parsed: row } of restoreRows) {
+              if (existing.log_id) {
+                const { data: logRows } = await from('fro_donor_logs')
+                  .select('id, assignment_id')
+                  .eq('id', existing.log_id);
+                const logs = (logRows || []).filter(l => l.id);
+                const logIds = logs.map(l => l.id);
+                const assignmentIds = [...new Set(logs.map(l => l.assignment_id).filter(Boolean))];
+                if (logIds.length > 0) {
+                  for (const table of ['notification_log', 'rejected_lead_tickets']) {
+                    try { await from(table).delete().in('fro_donor_log_id', logIds); } catch (_) { /* column may not exist */ }
+                  }
+                  await from('fro_donor_logs').delete().in('id', logIds);
+                }
+                if (assignmentIds.length > 0) {
+                  await from('fro_assignments').update({ status: 'pending', updated_at: new Date().toISOString() })
+                    .in('id', assignmentIds)
+                    .eq('status', 'donation_collected');
+                }
+              }
+              if (existing.donor_id) affectedDonors.add(existing.donor_id);
+              try { await from('bank_audit_entries').delete().eq('receipt_id', existing.id); } catch (_) { /* no receipt_id column */ }
+              const { error: upErr } = await from('receipts').update({
+                donor_name: row.donor_name,
+                donor_mobile: row.donor_mobile,
+                amount: row.amount,
+                pan_number: row.pan_number,
+                address: row.address,
+                mode: row.mode,
+                purpose: row.purpose,
+                receipt_date: row.receipt_date,
+                receipt_time: row.receipt_time,
+                generated_by: row.generated_by,
+                email: row.email,
+                payment_id: row.payment_id,
+                bank_name: row.bank_name,
+                agent_name: row.agent_name,
+                sent: true,
+                sent_at: new Date().toISOString(),
+                donor_id: null,
+                log_id: null,
+              }).eq('id', existing.id);
+              if (upErr) throw new Error(upErr.message);
+              restored++;
+            }
           }
 
           let matched = 0;
@@ -2020,12 +2173,17 @@ export const importReceipts = async (req, res) => {
               let donorId = donorIdByReceiptId.get(r.id) || null;
               if (!donorId) {
                 // Agent present but no donor yet (mobile missing / number not in
-                // the DB) → create the donor under this FRO's donor list.
+                // the DB) → create the donor under this FRO's donor list. Only
+                // when the row carries a usable mobile number: donor_profiles.
+                // mobile_number is NOT NULL, so a blank number can't be stored
+                // and there is nothing to credit against — skip instead of
+                // aborting the whole import.
                 const mobile = cleanMobile(r.donor_mobile);
+                if (!mobile) continue;
                 const { data: created, error: cErr } = await from('donor_profiles')
                   .upsert({
                     name: r.donor_name || 'Unknown Donor',
-                    mobile_number: mobile || r.donor_mobile || null,
+                    mobile_number: mobile,
                     project_supported: r.project_id,
                     total_amount: 0,
                     donation_count: 0,
@@ -2035,15 +2193,14 @@ export const importReceipts = async (req, res) => {
                   .select('id, mobile_number, total_amount, donation_count, last_donation_date');
                 if (cErr) throw new Error(cErr.message);
                 let donorRow = (created || [])[0] || null;
-                if (!donorRow && (mobile || r.donor_mobile)) {
-                  const mVal = mobile || r.donor_mobile;
+                if (!donorRow) {
                   const { rows: existing } = await db._pool.query(
                     `SELECT id, mobile_number, total_amount, donation_count, last_donation_date
-                     FROM donor_profiles WHERE mobile_number = $1`, [mVal]
+                     FROM donor_profiles WHERE mobile_number = $1`, [mobile]
                   );
                   donorRow = (existing || [])[0] || null;
                 }
-                if (!donorRow) throw new Error('Donor creation failed for receipt ' + (r.receipt_no || r.id));
+                if (!donorRow) continue; // still no donor → keep the receipt uncredited
                 donorId = donorRow.id;
                 matched++;
                 const m10 = last10(donorRow.mobile_number);
@@ -2141,7 +2298,27 @@ export const importReceipts = async (req, res) => {
             }
           }
 
-          return { imported: inserted.length, matched, withBank, leadsCollected, credits };
+          // Recompute totals for donors we just unlinked during restore. Runs
+          // last so it supersedes any match/credit totals from this import.
+          if (affectedDonors.size > 0) {
+            for (const donorId of affectedDonors) {
+              const { rows: donorReceipts } = await db._pool.query(
+                `SELECT COALESCE(sum(amount), 0)::float8 AS total_amount,
+                        count(*)::int AS donation_count,
+                        max(receipt_date) AS last_donation_date
+                 FROM receipts WHERE donor_id = $1`, [donorId]
+              );
+              const s = (donorReceipts || [])[0] || { total_amount: 0, donation_count: 0, last_donation_date: null };
+              await from('donor_profiles').update({
+                total_amount: Math.round((s.total_amount || 0) * 100) / 100,
+                donation_count: s.donation_count || 0,
+                last_donation_date: s.last_donation_date || null,
+                updated_at: new Date().toISOString(),
+              }).eq('id', donorId);
+            }
+          }
+
+          return { imported: inserted.length, restored, matched, withBank, leadsCollected, credits };
         });
         console.timeEnd('import-tx');
         console.log(`Import OK: ${result.imported} rows, ${result.matched} matched, ${result.leadsCollected} leads credited`);
@@ -2172,8 +2349,9 @@ export const importReceipts = async (req, res) => {
         try { if (manifestPath) fs.unlinkSync(manifestPath); } catch (_) { /* best effort */ }
 
         return res.status(201).json({
-          message: `${result.imported} receipts imported${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}${result.leadsCollected > 0 ? `, ${result.leadsCollected} leads credited to FROs` : ''}`,
+          message: `${result.imported} receipts imported${result.restored > 0 ? `, ${result.restored} suspense receipts restored` : ''}${dupCount > 0 ? `, ${dupCount} duplicates skipped` : ''}${result.matched > 0 ? `, ${result.matched} linked to donors` : ''}${result.leadsCollected > 0 ? `, ${result.leadsCollected} leads credited to FROs` : ''}`,
           imported: result.imported,
+          restored: result.restored,
           withBank: result.withBank,
           matchedDonors: result.matched,
           leads_collected: result.leadsCollected,
@@ -2316,10 +2494,219 @@ const cleanupImportAutoCredits = async () => {
   return cleaned;
 };
 
+const recomputeDonorTotals = async (donorIds) => {
+  if (!donorIds || donorIds.length === 0) return 0;
+  const { rows } = await db._pool.query(`
+    SELECT donor_id::text AS donor_id,
+           COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
+           count(*)::int AS donation_count,
+           min(receipt_date)::date AS first_donation_date,
+           max(receipt_date)::date AS last_donation_date
+    FROM receipts
+    WHERE donor_id::text = ANY($1::text[])
+    GROUP BY donor_id
+  `, [donorIds.map(String)]);
+  const agg = new Map(rows.map(r => [r.donor_id, r]));
+  let updated = 0;
+  const BATCH = 100;
+  for (let i = 0; i < donorIds.length; i += BATCH) {
+    const chunk = donorIds.slice(i, i + BATCH);
+    const { data: donors } = await db.from('donor_profiles').select('id').in('id', chunk);
+    for (const d of (donors || [])) {
+      const a = agg.get(String(d.id));
+      const hasRemaining = a && a.donation_count > 0;
+      await db.from('donor_profiles').update({
+        total_amount: hasRemaining ? a.total_amount : 0,
+        donation_count: hasRemaining ? a.donation_count : 0,
+        first_donation_date: hasRemaining ? a.first_donation_date : null,
+        last_donation_date: hasRemaining ? a.last_donation_date : null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', d.id);
+      if (!hasRemaining) {
+        try {
+          await db.from('fro_assignments')
+            .update({ status: 'pending' })
+            .in('donor_id', [d.id])
+            .eq('status', 'donation_collected');
+        } catch (e) { console.warn('assignment reopen skipped:', e.message); }
+      }
+      updated++;
+    }
+  }
+  return updated;
+};
+
+const cleanupDayAutoCredits = async (from, to) => {
+  // Auto-credit logs store transaction_datetime = receipt date at session-midnight,
+  // so cast the column to date for a timezone-independent day match.
+  const nextDay = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  let cleaned = 0;
+  while (true) {
+    const { rows: logs } = await db._pool.query(`
+      SELECT id, assignment_id FROM fro_donor_logs
+      WHERE notes ILIKE 'Auto-credited from imported receipt%'
+        AND transaction_datetime::date >= $1 AND transaction_datetime::date < $2
+      LIMIT 1000
+    `, [from, nextDay]);
+    const rows = logs || [];
+    if (rows.length === 0) break;
+    const ids = rows.map(r => r.id);
+    const assignmentIds = [...new Set(rows.map(r => r.assignment_id).filter(Boolean))];
+    try { await db.from('notification_log').delete().in('fro_donor_log_id', ids); } catch (e) { console.warn('notification_log cleanup skipped:', e.message); }
+    const { data: deleted } = await db.from('fro_donor_logs').delete().in('id', ids).select('id');
+    cleaned += deleted?.length || 0;
+    if (assignmentIds.length > 0) {
+      const { error } = await db.from('fro_assignments')
+        .update({ status: 'pending', updated_at: new Date().toISOString() })
+        .in('id', assignmentIds)
+        .eq('status', 'donation_collected');
+      if (error) console.warn('assignment reopen skipped:', error.message);
+    }
+  }
+  return cleaned;
+};
+
+const clearReceiptsByDate = async (from, to) => {
+  let deleted = 0, deletedLogs = 0;
+  const affected = new Set();
+  while (true) {
+    const { data: rows } = await db
+      .from('receipts')
+      .select('id, log_id, donor_id')
+      .neq('id', 0)
+      .gte('receipt_date', from)
+      .lte('receipt_date', to)
+      .limit(1000);
+    const batchRows = rows || [];
+    if (batchRows.length === 0) break;
+    const ids = batchRows.map(r => r.id);
+    const { data: delRows } = await db
+      .from('receipts')
+      .delete()
+      .in('id', ids)
+      .select('id, log_id, donor_id');
+    const rowsOut = delRows || [];
+    deleted += rowsOut.length;
+    for (const r of rowsOut) if (r.donor_id) affected.add(r.donor_id);
+    deletedLogs += await deleteLinkedLogs(rowsOut.map(r => r.log_id).filter(Boolean));
+  }
+  const cleanedAutoCredits = await cleanupDayAutoCredits(from, to);
+  const recomputed = await recomputeDonorTotals([...affected]);
+  const { count } = await db
+    .from('receipts')
+    .select('*', { count: 'exact', head: true })
+    .gte('receipt_date', from)
+    .lte('receipt_date', to);
+  return { deleted, remaining: count || 0, recomputedDonors: recomputed, deletedLogs, cleanedAutoCredits };
+};
+
+export const importReceiptNames = async (req, res) => {
+  try {
+    const { rows, ngo_id } = req.body;
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No name rows provided' });
+    }
+    if (!ngo_id) {
+      return res.status(400).json({ message: 'Please select the NGO this upload belongs to' });
+    }
+    const { data: ngoRow, error: ngoErr } = await db
+      .from('ngos')
+      .select('id, name, is_active')
+      .eq('id', ngo_id)
+      .single();
+    if (ngoErr || !ngoRow || !ngoRow.is_active) {
+      return res.status(400).json({ message: 'Selected NGO is invalid or inactive' });
+    }
+    const batchProjectId = ngoRow.name.toLowerCase();
+
+    const byNo = new Map();
+    for (const r of rows) {
+      const no = String(r.receipt_no ?? '').trim();
+      const name = String(r.donor_name ?? '').trim();
+      if (!no || !name) continue;
+      byNo.set(no, name);
+    }
+    const skipped = rows.length - byNo.size;
+    const receiptNos = [...byNo.keys()];
+
+    const receiptsByNo = new Map();
+    if (receiptNos.length > 0) {
+      for (let i = 0; i < receiptNos.length; i += 100) {
+        const batch = receiptNos.slice(i, i + 100);
+        const { data, error } = await db
+          .from('receipts')
+          .select('id, receipt_no, donor_id')
+          .eq('project_id', batchProjectId)
+          .in('receipt_no', batch);
+        if (error) throw new Error(error.message);
+        for (const r of (data || [])) receiptsByNo.set(String(r.receipt_no).trim(), r);
+      }
+    }
+
+    const donorNameById = new Map();
+    const updateQueries = [];
+    for (const [no, name] of byNo) {
+      const receipt = receiptsByNo.get(no);
+      if (!receipt) continue;
+      updateQueries.push(db.from('receipts').update({ donor_name: name }).eq('id', receipt.id));
+      if (receipt.donor_id) donorNameById.set(parseInt(receipt.donor_id), name);
+    }
+    for (const q of updateQueries) {
+      const { error } = await q;
+      if (error) throw new Error(error.message);
+    }
+
+    for (const [donorId, name] of donorNameById) {
+      const { error } = await db.from('donor_profiles')
+        .update({ name, updated_at: new Date().toISOString() })
+        .eq('id', donorId);
+      if (error) throw new Error(error.message);
+    }
+
+    return res.json({
+      updated: updateQueries.length,
+      notFound: receiptNos.length - updateQueries.length,
+      skipped,
+    });
+  } catch (e) {
+    console.error('importReceiptNames error:', e.message);
+    return res.status(500).json({ message: 'Failed to update donor names: ' + e.message });
+  }
+};
+
+export const getReceiptByMobile = async (req, res) => {
+  try {
+    const mobile = String(req.query.mobile || '').replace(/\D/g, '').slice(-10);
+    if (!/^\d{10}$/.test(mobile)) {
+      return res.status(400).json({ message: 'A valid mobile number is required' });
+    }
+    const { rows } = await db._pool.query(
+      `SELECT donor_name, address, pan_number, donor_mobile, donor_id, receipt_no, receipt_date
+       FROM receipts
+       WHERE right(regexp_replace(donor_mobile, '[^0-9]', '', 'g'), 10) = $1
+       ORDER BY receipt_date DESC NULLS LAST, id DESC
+       LIMIT 1`,
+      [mobile]
+    );
+    return res.json(rows[0] || null);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const clearReceipts = async (req, res) => {
   try {
     const batch = req.query.batch ? parseInt(req.query.batch) : null;
     const shouldReverse = req.query.reverse === '1';
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+
+    if (from) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return res.status(400).json({ message: 'from must be in YYYY-MM-DD format' });
+      if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) return res.status(400).json({ message: 'to must be in YYYY-MM-DD format' });
+      const result = await clearReceiptsByDate(from, to || from);
+      return res.json({ ...result, total: result.deleted + result.remaining });
+    }
 
     const reversed = batch ? (shouldReverse ? await reverseDonorTotals() : 0) : await reverseDonorTotals();
     const cleanedAutoCredits = (batch ? shouldReverse : true) ? await cleanupImportAutoCredits() : 0;
@@ -2392,7 +2779,6 @@ export const getSuspenseByNgo = async (req, res) => {
         AND (donor_mobile IS NULL OR trim(donor_mobile) = '' OR lower(trim(donor_mobile)) IN ('na', 'suspense'))
         AND lower(trim(COALESCE(agent_name, ''))) <> 'priyank shah'
         AND receipt_date >= $1 AND receipt_date <= $2
-        AND NOT EXISTS (SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = receipts.id)
       GROUP BY project_id
       ORDER BY count(*) DESC
     `, [monthStart, monthEnd]);

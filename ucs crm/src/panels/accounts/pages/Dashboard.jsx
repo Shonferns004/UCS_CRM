@@ -323,6 +323,9 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                   <div className="ec-primary">
                     <div className="ec-title">{l.donor_name}</div>
                     <div className="ec-sub">{l.donor_mobile || '\u2014'}</div>
+                    {l.audit_name && String(l.audit_name).trim().toLowerCase() !== String(l.donor_name || '').trim().toLowerCase() && (
+                      <div className="ec-sub" style={{ fontSize: 10, color: 'var(--ink-soft)', opacity: .8 }}>as per bank: {l.audit_name}</div>
+                    )}
                   </div>
                   <div className="ec-amount">{currency(l.amount)}</div>
                   <svg className="ec-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>

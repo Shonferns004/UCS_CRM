@@ -6,6 +6,12 @@ on:
     paths:
       - 'backend/**'
 
+# Serialize with Deploy Test Backend: both SSH into the same EC2 dir and touch
+# node_modules / pm2, so running them concurrently corrupts the install.
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -24,4 +30,11 @@ jobs:
             if git diff HEAD@{1} --name-only | grep -qE 'backend/(package.json|package-lock.json)'; then
               cd backend && npm ci && cd ..
             fi
+
+            # Sanity check: fail loudly rather than restart a backend whose
+            # node_modules is broken (boot would crash on ERR_MODULE_NOT_FOUND).
+            cd backend
+            node -e "require('@aws-sdk/client-s3'); require('pg')" || { echo "ERROR: node_modules broken (missing required modules)"; exit 1; }
+            cd ..
+
             pm2 restart backend --update-env
