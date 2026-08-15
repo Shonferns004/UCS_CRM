@@ -24,6 +24,8 @@ const PROJECTS = [
 ];
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
+const DISP_TO_STATUS = { office_visit_scheduled: 'scheduled', program_visit_scheduled: 'scheduled' };
+
 const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
 const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : (DISPOSITION_ORDER[s] ?? 99) + 1);
 function filterAndSortDonors(list) {
@@ -60,6 +62,20 @@ function dedupConcat(existing, incoming) {
 
 function mergeDonorPages(existing, incoming) {
   return filterAndSortDonors(dedupConcat(existing, incoming));
+}
+
+function listsEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (donorRowKey(a[i]) !== donorRowKey(b[i])) return false;
+  }
+  return true;
+}
+
+function applyDonorPatch(list, donorId, ngoId, patch) {
+  return filterAndSortDonors(list.map(d =>
+    d.id === donorId && d.ngo_id === ngoId ? { ...d, ...patch } : d
+  ));
 }
 
 function DonationDoneStamp({ donor }) {
@@ -358,10 +374,21 @@ export default function MyDonors() {
   };
 
   const reloadDonors = useCallback(() => {
+    const current = donorsRef.current[indexRef.current];
+    const currentId = current?.id;
+    const currentNgo = current?.ngo_id;
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
-      setDonors(filterAndSortDonors(loaded));
+      const fresh = filterAndSortDonors(loaded);
       nextOffsetRef.current = loaded.length;
+      const prev = donorsRef.current;
+      const tail = prev.slice(PAGE_SIZE);
+      const merged = filterAndSortDonors(dedupConcat(fresh, tail));
+      if (currentId != null) {
+        const newIdx = merged.findIndex(d => d.id === currentId && d.ngo_id === currentNgo);
+        if (newIdx >= 0 && indexRef.current !== newIdx) setIndex(newIdx);
+      }
+      if (!listsEqual(prev, merged)) setDonors(merged);
       setTotal(rTotal);
     }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation, selectedNgo]);
@@ -394,6 +421,10 @@ export default function MyDonors() {
   };
 
   const nextOffsetRef = useRef(0);
+  const donorsRef = useRef(donors);
+  const indexRef = useRef(index);
+  donorsRef.current = donors;
+  indexRef.current = index;
   const loadMoreRef = useRef(null);
   loadMoreRef.current = loadMore;
 
@@ -430,7 +461,19 @@ export default function MyDonors() {
   };
 
 
-  useRealtime('fro_assignments', { event: 'INSERT', onInsert: () => debouncedReload() });
+  const isInsertInCurrentView = (row) => {
+    if (!row) return false;
+    if (row.status === 'reassigned') return false;
+    if (row.batch_type && row.batch_type !== (dataTab === 'old' ? 'old_data' : 'new_data')) return false;
+    if (selectedStation !== 'all' && row.station !== selectedStation) return false;
+    if (selectedNgo && row.ngo_id && row.ngo_id !== selectedNgo) return false;
+    return true;
+  };
+
+  useRealtime('fro_assignments', {
+    event: 'INSERT',
+    onInsert: (row) => { if (isInsertInCurrentView(row)) debouncedReload(); },
+  });
 
   const saveProgress = useCallback((tab, donorId, donorIndex) => {
     if (!donorId) return;
@@ -637,11 +680,8 @@ export default function MyDonors() {
       setDonationEntering(false);
       setDonationAmt('');
       setMessage({ type: 'success', text: 'Donation recorded' });
-      const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-      const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
-      const newDonors = filterAndSortDonors(loaded);
+      const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: 'donation_collected', is_new: false });
       setDonors(newDonors);
-      setTotal(rTotal);
       const advance = () => {
         const nextIdx = findNextDonorIndex(newDonors, donor.id);
         setIndex(nextIdx);
@@ -857,13 +897,12 @@ export default function MyDonors() {
       await addDonorLog(donor.id, logData);
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
 
+      const newStatus = DISP_TO_STATUS[selected] || selected;
+      const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: newStatus, is_new: false });
+      setDonors(newDonors);
+
       if (returnToDonor) {
         setResumeTo(null);
-        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-        const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
-        const newDonors = filterAndSortDonors(loaded);
-        setDonors(newDonors);
-        setTotal(rTotal);
         const returnIdx = newDonors.findIndex(d => d.id === returnToDonor.id && d.ngo_id === returnToDonor.ngo_id);
         if (returnIdx >= 0) {
           setIndex(returnIdx);
@@ -872,11 +911,6 @@ export default function MyDonors() {
         }
         setReturnToDonor(null);
       } else {
-        const refreshed = await getMyDonors(null, null, stationOpts(dataTab, selectedStation));
-        const { donors: loaded, total: rTotal } = normalizeDonorResponse(refreshed);
-        const newDonors = filterAndSortDonors(loaded);
-        setDonors(newDonors);
-        setTotal(rTotal);
         const advance = () => {
           const nextIdx = findNextDonorIndex(newDonors, donor.id);
           setIndex(nextIdx);
@@ -1655,9 +1689,6 @@ export default function MyDonors() {
                           </div>
                           {isThisMonth(logDate(log)) && (log.remark || log.notes) && <div className="tl-note">{log.remark || log.notes}</div>}
                           {log.amount_collected != null && <div className="tl-note" style={{ color: 'var(--sage)', fontWeight: 600 }}>₹{Number(log.amount_collected).toLocaleString('en-IN')}</div>}
-                          {log.fro_worker_name && (
-                            <div className="tl-note" style={{ color: 'var(--ink-soft)', fontSize: 9 }}>Collected by {log.fro_worker_name}</div>
-                          )}
                           {log.disposition_detail === 'lead_done' && (
                             <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--md-tertiary-fixed, #e0e7ff)', padding: '1px 4px', borderRadius: 2, textTransform: 'uppercase', display: 'inline-block', marginTop: 1 }}>
                               {log.accounts_status === 'verified' ? 'Verified' : log.accounts_status === 'rejected' ? 'Rejected' : 'Pending'}
