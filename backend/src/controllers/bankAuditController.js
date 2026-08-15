@@ -478,8 +478,8 @@ export const addEntry = async (req, res) => {
         receipt_time: payment_time || null,
       };
       const { data: updatedReceipt, error: rErr } = await db.from('receipts').update(receiptFields).eq('id', receiptId).select('id, receipt_no').single();
-      if (rErr) throw rErr;
-      if (updatedReceipt.receipt_no) {
+      if (rErr && !updatedReceipt) throw new Error(`Failed to update linked receipt ${receiptId}: ${rErr.message}`);
+      if (updatedReceipt?.receipt_no) {
         receiptNo = updatedReceipt.receipt_no;
       } else {
         receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
