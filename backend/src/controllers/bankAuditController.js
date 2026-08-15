@@ -317,8 +317,26 @@ export const listEntries = async (req, res) => {
         return rd >= from && rd <= to;
       };
 
+      // The same money can arrive twice — once as an email-imported bank entry
+      // and once as an uploaded receipt. Once either half is shown on the audit
+      // page, the other half must not be listed again, so the same transaction
+      // never appears twice (this also collapses any historical duplicates).
+      const shownPaymentIds = new Set();
+      for (const e of entries || []) {
+        const pid = String(e.payment_id || '').trim();
+        if (pid) shownPaymentIds.add(pid.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+      }
+      const alreadyShown = (r) => {
+        const pid = String(r.payment_id || '').trim();
+        if (!pid) return false;
+        const k = pid.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (shownPaymentIds.has(k)) return true;
+        shownPaymentIds.add(k);
+        return false;
+      };
+
       const suspense = (await BankAudit.getUnlinkedReceipts()).filter((r) => !BankAudit.isPriyankShahAgent(r.agent_name));
-      const rows = suspense.filter((r) => inRange(r.receipt_date));
+      const rows = suspense.filter((r) => inRange(r.receipt_date) && !alreadyShown(r));
       const suspenseRows = rows.map((r) => ({
         id: `suspense-${r.id}`,
         kind: 'suspense',
@@ -366,7 +384,7 @@ export const listEntries = async (req, res) => {
           return { r, log };
         })
         .filter(Boolean)
-        .filter(({ r }) => inRange(r.receipt_date))
+        .filter(({ r }) => inRange(r.receipt_date) && !alreadyShown(r))
         .map(({ r, log }) => ({
           id: `suspense-${r.id}`,
           kind: 'suspense',
