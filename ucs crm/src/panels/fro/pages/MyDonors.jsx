@@ -35,7 +35,7 @@ const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
 const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : (DISPOSITION_ORDER[s] ?? 99) + 1);
 function filterAndSortDonors(list) {
   return list
-    .filter(d => !HIDDEN_STATUSES.has(d.status))
+    .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)
     .sort((a, b) => rankStatus(a.status) - rankStatus(b.status));
 }
 
