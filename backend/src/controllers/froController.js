@@ -915,6 +915,71 @@ const linkClaimDonorToAuditEntry = async (receiptId, donorId, details) => {
   }
 };
 
+// Find the bank audit entry that represents the same money as a claimed
+// suspense receipt (matched by payment id, falling back to receipt_id). The
+// entry — not the FRO's claim input or the receipt's own fields — is the
+// source of truth for the money's UPI id and transaction date, so its values
+// drive the pending lead created by the claim.
+const findClaimAuditEntry = async (receipt) => {
+  if (!receipt?.id) return null;
+  const paymentId = String(receipt.payment_id || '').trim();
+  try {
+    if (paymentId) {
+      const { rows } = await db._pool.query(
+        `SELECT * FROM bank_audit_entries
+         WHERE upper(trim(coalesce(payment_id, ''))) = upper($1)
+         ORDER BY (status = 'verified') ASC, (matched_lead_log_id IS NOT NULL) ASC, id ASC
+         LIMIT 1`,
+        [paymentId]
+      );
+      if (rows?.[0]) return rows[0];
+    }
+    const { data } = await db
+      .from('bank_audit_entries')
+      .select('*')
+      .eq('receipt_id', receipt.id)
+      .order('id', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return data || null;
+  } catch (e) {
+    console.error('Suspense claim audit entry lookup failed:', e.message);
+    return null;
+  }
+};
+
+// Link the claimed money's audit entry to the pending lead so the audit shows
+// the money once (with the claim pill) instead of a separate unlinked entry.
+// Never relinks an entry that is already verified or matched to a different
+// lead; never blocks the claim if the link fails.
+const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId) => {
+  if (!entry?.id) return;
+  if (entry.status === 'verified') return;
+  if (entry.matched_lead_log_id != null && String(entry.matched_lead_log_id) !== String(logId)) return;
+
+  const patch = {
+    receipt_id: receiptId,
+    matched_lead_log_id: logId,
+    match_status: 'matched',
+    match_source: 'manual',
+    matched_by: workerId,
+    matched_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    donor_id: donorId || entry.donor_id || null,
+  };
+  if (!entry.match_no) {
+    try {
+      const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+      patch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
+    } catch (e) { console.error('Match no allocation failed:', e.message); }
+  }
+  try {
+    await db.from('bank_audit_entries').update(patch).eq('id', entry.id);
+  } catch (e) {
+    console.error('Suspense claim audit entry link failed:', e.message);
+  }
+};
+
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
@@ -1061,6 +1126,24 @@ export const claimSuspenseReceipt = async (req, res) => {
               : new Date(receipt.receipt_date).toISOString())
           : null);
 
+    // The bank audit entry for this money is the source of truth for the lead's
+    // UPI id and transaction date: whatever the FRO typed or the receipt
+    // carries, the audit entry's values win. The entry is also linked to the
+    // claim so the audit shows this money once (with the claim) instead of a
+    // separate unlinked entry.
+    const auditEntry = await findClaimAuditEntry(receipt);
+    const auditUpi = auditEntry?.payment_id ? String(auditEntry.payment_id).trim() : null;
+    const auditFrom = auditEntry?.payer_name ? String(auditEntry.payer_name).trim() : null;
+    const auditMode = auditEntry?.payment_id ? 'UPI' : (auditEntry?.check_id ? 'Cheque' : 'Bank Transfer');
+    const auditTxn = auditEntry?.transaction_date
+      ? (auditEntry.payment_time ? `${auditEntry.transaction_date}T${auditEntry.payment_time}` : auditEntry.transaction_date)
+      : null;
+
+    const finalUpi = auditUpi || effectiveUpi;
+    const finalFrom = auditFrom || effectiveFrom;
+    const finalMode = auditMode || effectiveMode;
+    const finalTxn = auditTxn || txDateTime;
+
     // Dedupe: if this FRO already has an unresolved pending lead_done for the
     // same donor (e.g. they marked the lead done before, accounts could not
     // match it because the money was sitting in suspense), attach the claimed
@@ -1080,10 +1163,10 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     if (existingPendingLead) {
       const leadUpdates = {};
-      if (effectiveUpi) leadUpdates.upi_transaction_id = effectiveUpi;
-      if (txDateTime) leadUpdates.transaction_datetime = txDateTime;
-      if (effectiveMode) leadUpdates.payment_mode = effectiveMode;
-      if (effectiveFrom) leadUpdates.payment_from = effectiveFrom;
+      if (finalUpi) leadUpdates.upi_transaction_id = finalUpi;
+      if (finalTxn) leadUpdates.transaction_datetime = finalTxn;
+      if (finalMode) leadUpdates.payment_mode = finalMode;
+      if (finalFrom) leadUpdates.payment_from = finalFrom;
       if (effectivePan) leadUpdates.pan_number = effectivePan;
       if (Object.keys(leadUpdates).length > 0) {
         await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
@@ -1091,6 +1174,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
       if (updErr) throw updErr;
       await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
+      await linkClaimAuditEntry(auditEntry, receiptId, existingPendingLead.id, workerId, donorId);
       try {
         const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
         for (const u of (accounts || [])) {
@@ -1161,11 +1245,11 @@ export const claimSuspenseReceipt = async (req, res) => {
         accounts_status: 'pending',
         payment_screenshot_url: screenshot_url || null,
         remark: notes || null,
-        upi_transaction_id: effectiveUpi,
-        payment_mode: effectiveMode,
-        payment_from: effectiveFrom,
+        upi_transaction_id: finalUpi,
+        payment_mode: finalMode,
+        payment_from: finalFrom,
         pan_number: effectivePan,
-        transaction_datetime: txDateTime,
+        transaction_datetime: finalTxn,
         created_by: workerId,
       })
       .select()
@@ -1176,6 +1260,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     if (updErr) throw updErr;
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
+    await linkClaimAuditEntry(auditEntry, receiptId, log.id, workerId, donorId);
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);

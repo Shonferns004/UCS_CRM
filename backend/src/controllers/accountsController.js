@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, verifyEntry, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -266,65 +266,31 @@ export const verifyLead = async (req, res) => {
       return res.status(200).json({ ...credit, message: 'Lead verified and bank audit entry credited' });
     }
 
-    const logUpdate = {
-      accounts_status: 'verified',
-      verified_at: new Date().toISOString(),
-      verified_by: req.user.id,
-      pan_number: pan_number || log.pan_number || null,
-      notes: notes || log.notes || null,
-    };
-    if (upi_transaction_id !== undefined) logUpdate.upi_transaction_id = upi_transaction_id || null;
-    if (transaction_datetime !== undefined) logUpdate.transaction_datetime = transaction_datetime || null;
-    if (payment_from !== undefined) logUpdate.payment_from = payment_from || null;
-
-    const { error: updateLogError } = await db
-      .from('fro_donor_logs')
-      .update(logUpdate)
-      .eq('id', logId);
-
-    if (updateLogError) throw updateLogError;
-
-    const { error: updateAsgnError } = await db
-      .from('fro_assignments')
-      .update({
-        status: 'donation_collected',
-        last_contacted_at: new Date().toISOString(),
-      })
-      .eq('id', assignmentId);
-
-    if (updateAsgnError) throw updateAsgnError;
-
     const donorId = log.fro_assignments?.donor_id;
-    if (donorId) {
-      const donorUpdate = { updated_at: new Date().toISOString() };
-      if (donor_name !== undefined) donorUpdate.name = donor_name || null;
-      if (donor_mobile !== undefined) donorUpdate.mobile_number = donor_mobile || null;
-      if (donor_city !== undefined) donorUpdate.city = donor_city || null;
-      if (donor_email !== undefined) donorUpdate.email = donor_email || null;
-      if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
-      if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
-      if (donor_dob !== undefined) donorUpdate.birth_date = donor_dob || null;
-      try {
-        const { data: donor } = await db
-          .from('donor_profiles')
-          .select('total_amount, donation_count')
-          .eq('id', donorId)
-          .single();
-        donorUpdate.total_amount = (donor?.total_amount || 0) + (log.amount_collected || 0);
-        donorUpdate.donation_count = (donor?.donation_count || 0) + 1;
-        await db.from('donor_profiles').update(donorUpdate).eq('id', donorId);
-      } catch (err) { console.error('Failed to update donor totals:', err); }
-    }
 
+    // Apply the Accounts-entered lead edits immediately (these never change the
+    // lead's accounts_status, so a later failure keeps the lead pending and
+    // visible in Lead Verification).
+    const logPatch = { pan_number: pan_number || log.pan_number || null, notes: notes || log.notes || null };
+    if (upi_transaction_id !== undefined) logPatch.upi_transaction_id = upi_transaction_id || null;
+    if (transaction_datetime !== undefined) logPatch.transaction_datetime = transaction_datetime || null;
+    if (payment_from !== undefined) logPatch.payment_from = payment_from || null;
+    if (payment_mode !== undefined) logPatch.payment_mode = payment_mode || null;
+    const { error: patchLogError } = await db
+      .from('fro_donor_logs')
+      .update(logPatch)
+      .eq('id', logId);
+    if (patchLogError) throw patchLogError;
+
+    // Create or link the receipt BEFORE the lead is marked verified: if any of
+    // this fails the lead stays pending (still in Lead Verification, retryable)
+    // instead of vanishing. The verified flag is written only at the very end.
     const existing = await findReceiptByLogId(logId);
     let receipt = existing || null;
     if (!existing) {
       const donorName = donor_receipt_name || donorProfile?.name || 'Unknown';
-      const receiptNo = await getNextReceiptNo(project);
-
-      receipt = await createReceipt({
+      const receiptData = {
         log_id: parseInt(logId),
-        receipt_no: receiptNo,
         project_id: project,
         donor_name: donorName,
         donor_mobile: donorProfile?.mobile_number || null,
@@ -337,8 +303,25 @@ export const verifyLead = async (req, res) => {
         purpose: 'General Donation',
         generated_by: req.user.id,
         donor_id: donorId,
-        receipt_date: transaction_datetime || log.transaction_datetime || log.verified_at || new Date().toISOString(),
-      });
+        receipt_date: transaction_datetime || log.transaction_datetime || new Date().toISOString(),
+      };
+      // A receipt-number collision (UNIQUE project_id + receipt_no) can happen
+      // when the counter fell behind the numbers already on file; the counter
+      // advances on every allocation, so retry with a fresh number instead of
+      // failing the verify.
+      let receiptNo = await getNextReceiptNo(project);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          receipt = await createReceipt({ ...receiptData, receipt_no: receiptNo });
+          break;
+        } catch (createErr) {
+          const msg = String(createErr?.message || createErr || '');
+          const isDup = createErr?.code === '23505' || /duplicate key/i.test(msg);
+          if (!isDup || attempt === 2) throw createErr;
+          receiptNo = await getNextReceiptNo(project);
+          console.error(`Receipt number collision on verify (attempt ${attempt + 1}), retrying:`, msg);
+        }
+      }
     } else {
       // Receipt already exists (e.g. created for a bank audit entry or a suspense
       // claim). Link it to the verified donor and mark its bank audit entry done.
@@ -358,14 +341,97 @@ export const verifyLead = async (req, res) => {
       }
       const { error: linkReceiptErr } = await db.from('receipts').update(receiptPatch).eq('id', existing.id);
       if (linkReceiptErr) throw new Error(`Failed to link existing receipt to donor: ${linkReceiptErr.message}`);
-      const { error: entryErr } = await db.from('bank_audit_entries').update({
-        donor_id: donorId,
-        status: 'verified',
-        matched_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        receipt_no: existing.receipt_no || null,
-      }).eq('receipt_id', existing.id);
-      if (entryErr) throw new Error(`Failed to mark bank audit entry verified: ${entryErr.message}`);
+      try {
+        await db.from('bank_audit_entries').update({
+          donor_id: donorId,
+          status: 'verified',
+          matched_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          receipt_no: existing.receipt_no || null,
+        }).eq('receipt_id', existing.id);
+      } catch (err) { console.error('Failed to mark bank audit entry verified:', err.message); }
+    }
+
+    // Settle the bank audit entry for this money (linked to the receipt, or
+    // matching the lead's UPI transaction id) so it leaves the audit fully
+    // credited (status verified, linked to the lead + receipt) instead of a
+    // bare "verified" row.
+    try {
+      let bankEntry = null;
+      try {
+        const { data } = await db.from('bank_audit_entries').select('*').eq('receipt_id', receipt.id).maybeSingle();
+        bankEntry = data || null;
+      } catch (err) { console.error('Failed to find entry by receipt:', err.message); }
+      if (!bankEntry && upi_transaction_id) {
+        try { bankEntry = await getEntryByPaymentId(upi_transaction_id); }
+        catch (err) { console.error('Failed to find entry by payment id:', err.message); }
+      }
+      if (bankEntry && bankEntry.status !== 'verified') {
+        const settlePatch = {
+          status: 'verified',
+          donor_id: donorId,
+          matched_lead_log_id: logId,
+          match_status: 'confirmed',
+          matched_by: req.user.id,
+          matched_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          receipt_id: receipt.id,
+          receipt_no: receipt.receipt_no || null,
+        };
+        if (!bankEntry.match_no) {
+          try {
+            const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+            settlePatch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
+          } catch (err) { console.error('Match no allocation failed:', err.message); }
+        }
+        await db.from('bank_audit_entries').update(settlePatch).eq('id', bankEntry.id);
+      }
+    } catch (err) { console.error('Failed to settle bank audit entry on verify:', err.message); }
+
+    // Everything the receipt depends on has succeeded — only now mark the lead
+    // verified (this is what removes it from Lead Verification) and credit the
+    // donor + assignment.
+    const now = new Date().toISOString();
+    const { error: updateLogError } = await db
+      .from('fro_donor_logs')
+      .update({
+        accounts_status: 'verified',
+        verified_at: now,
+        verified_by: req.user.id,
+      })
+      .eq('id', logId);
+
+    if (updateLogError) throw updateLogError;
+
+    const { error: updateAsgnError } = await db
+      .from('fro_assignments')
+      .update({
+        status: 'donation_collected',
+        last_contacted_at: now,
+      })
+      .eq('id', assignmentId);
+
+    if (updateAsgnError) throw updateAsgnError;
+
+    if (donorId) {
+      const donorUpdate = { updated_at: now };
+      if (donor_name !== undefined) donorUpdate.name = donor_name || null;
+      if (donor_mobile !== undefined) donorUpdate.mobile_number = donor_mobile || null;
+      if (donor_city !== undefined) donorUpdate.city = donor_city || null;
+      if (donor_email !== undefined) donorUpdate.email = donor_email || null;
+      if (donor_pan !== undefined || pan_number) donorUpdate.pan_number = pan_number || donor_pan || null;
+      if (donor_address !== undefined) donorUpdate.address_1 = donor_address || null;
+      if (donor_dob !== undefined) donorUpdate.birth_date = donor_dob || null;
+      try {
+        const { data: donor } = await db
+          .from('donor_profiles')
+          .select('total_amount, donation_count')
+          .eq('id', donorId)
+          .single();
+        donorUpdate.total_amount = (donor?.total_amount || 0) + (log.amount_collected || 0);
+        donorUpdate.donation_count = (donor?.donation_count || 0) + 1;
+        await db.from('donor_profiles').update(donorUpdate).eq('id', donorId);
+      } catch (err) { console.error('Failed to update donor totals:', err); }
     }
 
     // Notify FRO that their lead was verified (FCM + notification_log)
@@ -392,16 +458,6 @@ export const verifyLead = async (req, res) => {
           });
         }
       } catch (err) { console.error('Failed to create verified notification:', err.message); }
-    }
-
-    // Auto-verify matching bank audit entry if UPI transaction ID matches
-    if (upi_transaction_id) {
-      try {
-        const bankEntry = await getEntryByPaymentId(upi_transaction_id);
-        if (bankEntry) {
-          await verifyEntry(bankEntry.id);
-        }
-      } catch (err) { console.error('Failed to auto-verify bank audit entry:', err.message); }
     }
 
     return res.json({ message: 'Lead verified, receipt generated', receipt });
