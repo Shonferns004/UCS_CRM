@@ -134,7 +134,6 @@ export default function ReceiptHistory() {
   const [suspenseLoading, setSuspenseLoading] = useState(false);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
-  const lastUpload = useRef(null);
   const CHUNK_SIZE = 100;
 
   const load = useCallback(() => {
@@ -223,17 +222,8 @@ export default function ReceiptHistory() {
         .find(sheetRows => sheetRows.length > 0) || [];
       const rows = prepareImportRows(sourceRows);
       if (!rows || rows.length === 0) { alert('File is empty'); return; }
-      lastUpload.current = { rows, ngo_id: ngoId };
       await runImport(rows, ngoId);
     } catch (err) { alert('Import failed: ' + err.message); }
-  }, [ngoId, runImport]);
-
-  const handleReupload = useCallback(() => {
-    if (!lastUpload.current) { alert('No previous upload to re-run. Upload a receipts file first.'); return; }
-    const { rows, ngo_id: lastNgoId } = lastUpload.current;
-    if (!rows || rows.length === 0) { alert('No previous upload to re-run.'); return; }
-    if (!window.confirm(`Re-run the last upload of ${rows.length} rows? Already-cleared suspense receipts are kept; suspense rows that now have an agent + mobile get auto-credited and pending claims on those receipt numbers leave Lead Verification.`)) return;
-    runImport(rows, lastNgoId || ngoId);
   }, [ngoId, runImport]);
 
   const handleNamesFile = useCallback(async (file) => {
@@ -487,27 +477,6 @@ export default function ReceiptHistory() {
                   <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name or Donor Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
                 </>
               )}
-            </div>
-          ) : uploadMode === 'reupload' ? (
-            <div style={{ textAlign: 'center', padding: '12px 20px', border: '1px dashed #d1d5db', borderRadius: 12, background: '#f9fafb' }}>
-              <button
-                onClick={handleReupload}
-                disabled={importing || !lastUpload.current}
-                style={{
-                  padding: '9px 18px', borderRadius: 8, background: lastUpload.current ? '#5B6B4E' : '#d1d5db', color: '#fff', border: 'none',
-                  cursor: lastUpload.current ? 'pointer' : 'not-allowed', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8,
-                }}
-              >
-                {importing ? (
-                  <div style={{ width: 14, height: 14, border: '2px solid #e5e7eb', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-                )}
-                Re-run last upload {lastUpload.current ? `(${lastUpload.current.rows.length} rows)` : ''}
-              </button>
-              <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 6, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>
-                Re-submits the last uploaded file without picking it again. Nothing is ever rolled back: suspense rows that now show an agent + mobile get auto-credited to the FRO and filed in the donor history, and pending claims on those receipt numbers leave Lead Verification.
-              </p>
             </div>
           ) : (
             <div
