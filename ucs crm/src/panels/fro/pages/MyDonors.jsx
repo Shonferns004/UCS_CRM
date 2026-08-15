@@ -39,6 +39,29 @@ function normalizeDonorResponse(r) {
   return { donors: r?.donors || [], total: r?.total ?? (r?.donors?.length || 0) };
 }
 
+const donorRowKey = (d) => {
+  if (d == null) return `n:${Math.random()}`;
+  if (d.assignment_id != null) return `a:${d.assignment_id}`;
+  return `d:${d.donor_id}-${d.ngo_id}`;
+};
+
+function dedupConcat(existing, incoming) {
+  const seen = new Set(existing.map(donorRowKey));
+  const merged = existing.slice();
+  for (const d of incoming || []) {
+    const k = donorRowKey(d);
+    if (!seen.has(k)) {
+      seen.add(k);
+      merged.push(d);
+    }
+  }
+  return merged;
+}
+
+function mergeDonorPages(existing, incoming) {
+  return filterAndSortDonors(dedupConcat(existing, incoming));
+}
+
 function DonationDoneStamp({ donor }) {
   const monthLabel = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
   const type = donor.donor_type;
@@ -199,6 +222,7 @@ export default function MyDonors() {
         }
         setDonors(sortedDonors);
         setTotal(rTotal);
+        nextOffsetRef.current = loaded.length;
         setMessage(null);
         let restored = false;
 
@@ -207,25 +231,29 @@ export default function MyDonors() {
           const { donorId } = pendingSelectRef.current;
           pendingSelectRef.current = null;
           let accumulated = sortedDonors;
-          let found = accumulated.findIndex(d => d.id === donorId);
+          let filteredList = sortedDonors;
+          let found = filteredList.findIndex(d => d.id === donorId);
           if (found < 0) {
             for (let guard = 0; guard < 100; guard++) {
               if (accumulated.length >= rTotal) break;
               const moreR = await getMyDonors(null, null, { ...stationOpts(tab, selectedStation), offset: accumulated.length });
               const { donors: more, total: moreTotal } = normalizeDonorResponse(moreR);
               if (more.length === 0) break;
-              accumulated = filterAndSortDonors([...accumulated, ...more]);
+              accumulated = dedupConcat(accumulated, more);
+              filteredList = filterAndSortDonors(accumulated);
               if (moreTotal) setTotal(moreTotal);
-              found = accumulated.findIndex(d => d.id === donorId);
+              found = filteredList.findIndex(d => d.id === donorId);
               if (found >= 0) break;
             }
           }
           if (found >= 0) {
-            setDonors(accumulated);
+            setDonors(filteredList);
+            nextOffsetRef.current = accumulated.length;
             setIndex(found);
             restored = true;
           } else {
-            setDonors(accumulated);
+            setDonors(filteredList);
+            nextOffsetRef.current = accumulated.length;
             setMessage({ type: 'error', text: 'This donor exists but isn\u2019t in your active list (already marked done). Open via Donor Detail or contact admin.' });
           }
         }
@@ -333,6 +361,7 @@ export default function MyDonors() {
     getMyDonors(null, null, stationOpts(dataTab, selectedStation)).then(r => {
       const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
       setDonors(filterAndSortDonors(loaded));
+      nextOffsetRef.current = loaded.length;
       setTotal(rTotal);
     }).catch((err) => { console.error('API error:', err.message); });
   }, [dataTab, selectedStation, selectedNgo]);
@@ -346,13 +375,15 @@ export default function MyDonors() {
     if (loadingMore || donors.length >= (total || donors.length)) return;
     setLoadingMore(true);
     try {
-      const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset: donors.length });
+      const start = nextOffsetRef.current;
+      const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset: start });
       const { donors: more, total: rTotal } = normalizeDonorResponse(r);
       if (more.length === 0) {
         setTotal(donors.length);
         return;
       }
-      setDonors(prev => filterAndSortDonors([...prev, ...more]));
+      nextOffsetRef.current = start + more.length;
+      setDonors(prev => mergeDonorPages(prev, more));
       setTotal(rTotal);
     } catch (err) {
       console.error('loadMore error:', err.message);
@@ -362,6 +393,7 @@ export default function MyDonors() {
     }
   };
 
+  const nextOffsetRef = useRef(0);
   const loadMoreRef = useRef(null);
   loadMoreRef.current = loadMore;
 
@@ -373,23 +405,27 @@ export default function MyDonors() {
 
   const jumpToDonor = async (donorId, ngoId) => {
     let accumulated = donors;
-    let offset = accumulated.length;
+    let filteredList = donors;
+    let offset = nextOffsetRef.current;
     for (let guard = 0; guard < 100; guard++) {
       if (offset >= (total || offset)) break;
       const r = await getMyDonors(null, null, { ...stationOpts(dataTab, selectedStation), offset });
       const { donors: more, total: rTotal } = normalizeDonorResponse(r);
       if (more.length === 0) break;
-      accumulated = filterAndSortDonors([...accumulated, ...more]);
+      accumulated = dedupConcat(accumulated, more);
+      filteredList = filterAndSortDonors(accumulated);
       offset = accumulated.length;
       setTotal(rTotal);
-      const found = accumulated.findIndex(d => d.id === donorId && (!ngoId || d.ngo_id === ngoId));
+      const found = filteredList.findIndex(d => d.id === donorId && (!ngoId || d.ngo_id === ngoId));
       if (found >= 0) {
-        setDonors(accumulated);
+        setDonors(filteredList);
+        nextOffsetRef.current = accumulated.length;
         setIndex(found);
         return true;
       }
     }
-    setDonors(accumulated);
+    setDonors(filteredList);
+    nextOffsetRef.current = accumulated.length;
     return false;
   };
 
