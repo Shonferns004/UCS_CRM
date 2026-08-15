@@ -62,6 +62,7 @@ import configRoutes from './routes/configRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
 import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
+import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -193,6 +194,7 @@ app.use('/api/config', configRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/envadmin', envAdminRoutes);
 app.use('/api/temp-cleanup', tempCleanupRoutes);
+app.use('/api/ngo-allocations', ngoAllocationRoutes);
 
 import multer from 'multer';
 const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });

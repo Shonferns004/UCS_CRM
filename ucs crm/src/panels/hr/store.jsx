@@ -20,6 +20,11 @@ export function useHR() {
     fetchPendingTickets, fetchAllTickets, fetchTicketCount, verifyTicket, rejectTicket,
     generateQR, fetchQRCodes, removeQRCode,
     fetchSettings, updateSettings,
+    fetchNgoSalarySummary, fetchNgoAllocationSettings, saveNgoAllocationSettings, fetchNgoSummaryList,
+    fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations,
+    fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc,
+    fetchPayments, createPayment, updatePaymentStatus,
+    fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport,
   }
 }
 
@@ -109,6 +114,37 @@ export const fetchQRCodes = () => apiGet('/qr');
 export const removeQRCode = (id) => apiDelete('/qr/' + id);
 export const fetchSettings = () => apiGet('/settings');
 export const updateSettings = (settings) => apiPut('/settings', settings);
+export const fetchNgoSalarySummary = () => apiGet('/ngo-allocations/summary');
+export const fetchNgoAllocationSettings = () => apiGet('/ngo-allocations/settings');
+export const saveNgoAllocationSettings = (allocations) => apiPut('/ngo-allocations/settings', { allocations });
+export const fetchNgoSummaryList = () => apiGet('/ngos/summary');
+export const fetchWorkerPeopleAllocations = (workerId) => apiGet('/ngo-allocations/workers/' + workerId + '/people');
+export const saveWorkerPeopleAllocations = (workerId, allocations) => apiPut('/ngo-allocations/workers/' + workerId + '/people', { allocations });
+export const fetchWorkerSalaryAlloc = (workerId, month) => apiGet('/ngo-allocations/workers/' + workerId + '/salary' + (month ? '?month=' + month : ''));
+export const saveWorkerSalaryAlloc = (workerId, allocations, month) => apiPut('/ngo-allocations/workers/' + workerId + '/salary' + (month ? '?month=' + month : ''), { allocations, month });
+export const generateWorkerSalaryAlloc = (workerId, month) => apiPost('/ngo-allocations/workers/' + workerId + '/salary/generate' + (month ? '?month=' + month : ''));
+export const fetchPayments = (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.month) params.set('month', filters.month);
+  if (filters.ngo_id) params.set('ngo_id', filters.ngo_id);
+  if (filters.worker_id) params.set('worker_id', filters.worker_id);
+  if (filters.status) params.set('status', filters.status);
+  const q = params.toString();
+  return apiGet('/ngo-allocations/payments' + (q ? '?' + q : ''));
+};
+export const createPayment = (data) => apiPost('/ngo-allocations/payments', data);
+export const updatePaymentStatus = (id, status) => apiPut('/ngo-allocations/payments/' + id + '/status', { status });
+export const fetchNgoSalaryReport = (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.month) params.set('month', filters.month);
+  if (filters.ngo_id) params.set('ngo_id', filters.ngo_id);
+  if (filters.worker_id) params.set('worker_id', filters.worker_id);
+  if (filters.status) params.set('status', filters.status);
+  const q = params.toString();
+  return apiGet('/ngo-allocations/report/ngo-salary' + (q ? '?' + q : ''));
+};
+export const fetchEmployeeReport = (workerId) => apiGet('/ngo-allocations/report/employee/' + workerId);
+export const fetchNgoReport = (ngoId, month) => apiGet('/ngo-allocations/report/ngo/' + ngoId + (month ? '?month=' + month : ''));
 export const fetchLoans = () => apiGet('/loans');
 export const fetchPendingLoans = () => apiGet('/loans/pending');
 export const decideLoan = (id, status, monthly_deduction, hr_remark) => apiPut('/loans/' + id + '/decide', { status: status === 'approved' ? 'approved' : 'rejected', monthly_deduction, hr_remark });
