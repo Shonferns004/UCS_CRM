@@ -920,17 +920,19 @@ const linkClaimDonorToAuditEntry = async (receiptId, donorId, details) => {
 // entry — not the FRO's claim input or the receipt's own fields — is the
 // source of truth for the money's UPI id and transaction date, so its values
 // drive the pending lead created by the claim.
-const findClaimAuditEntry = async (receipt) => {
+const findClaimAuditEntry = async (receipt, claimUpiId = '') => {
   if (!receipt?.id) return null;
   const paymentId = String(receipt.payment_id || '').trim();
+  const typedUpi = String(claimUpiId || '').trim();
   try {
-    if (paymentId) {
+    if (paymentId || typedUpi) {
+      const key = paymentId || typedUpi;
       const { rows } = await db._pool.query(
         `SELECT * FROM bank_audit_entries
          WHERE upper(trim(coalesce(payment_id, ''))) = upper($1)
          ORDER BY (status = 'verified') ASC, (matched_lead_log_id IS NOT NULL) ASC, id ASC
          LIMIT 1`,
-        [paymentId]
+        [key]
       );
       if (rows?.[0]) return rows[0];
     }
@@ -1130,19 +1132,33 @@ export const claimSuspenseReceipt = async (req, res) => {
     // UPI id and transaction date: whatever the FRO typed or the receipt
     // carries, the audit entry's values win. The entry is also linked to the
     // claim so the audit shows this money once (with the claim) instead of a
-    // separate unlinked entry.
-    const auditEntry = await findClaimAuditEntry(receipt);
+    // separate unlinked entry. The FRO-typed UPI id is part of the lookup so
+    // the entry is found even when the receipt has no payment_id/receipt_id.
+    const auditEntry = await findClaimAuditEntry(receipt, claimUpiId);
     const auditUpi = auditEntry?.payment_id ? String(auditEntry.payment_id).trim() : null;
     const auditFrom = auditEntry?.payer_name ? String(auditEntry.payer_name).trim() : null;
     const auditMode = auditEntry?.payment_id ? 'UPI' : (auditEntry?.check_id ? 'Cheque' : 'Bank Transfer');
     const auditTxn = auditEntry?.transaction_date
-      ? (auditEntry.payment_time ? `${auditEntry.transaction_date}T${auditEntry.payment_time}` : auditEntry.transaction_date)
+      ? (() => {
+          const d = String(auditEntry.transaction_date);
+          const datePart = d.includes('T') ? d.slice(0, 10) : d;
+          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}` : datePart;
+        })()
       : null;
 
     const finalUpi = auditUpi || effectiveUpi;
     const finalFrom = auditFrom || effectiveFrom;
     const finalMode = auditMode || effectiveMode;
     const finalTxn = auditTxn || txDateTime;
+
+    // Make the receipt's own payment_id point at the audit entry's id so the
+    // receipt <-> entry link is durable for future lookups.
+    if (auditUpi && !receipt.payment_id) {
+      try {
+        await db.from('receipts').update({ payment_id: auditUpi }).eq('id', receipt.id);
+        receipt.payment_id = auditUpi;
+      } catch (e) { console.error('Failed to backfill receipt payment id from audit entry:', e.message); }
+    }
 
     // Dedupe: if this FRO already has an unresolved pending lead_done for the
     // same donor (e.g. they marked the lead done before, accounts could not
