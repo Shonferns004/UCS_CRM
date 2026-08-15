@@ -12,7 +12,18 @@ import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
+const SHORT_NGO_LABELS = { mann: 'Mann Care', aflf: 'Ashray', bsct: 'Being Sevak' };
 const PAYMENT_MODES = ['UPI', 'Cash', 'Bank Transfer', 'Cheque', 'NEFT'];
+
+function resolveNgo(projectId) {
+  const p = (projectId || '').toLowerCase().trim();
+  if (!p) return null;
+  if (PROJECT_LABELS[p] || SHORT_NGO_LABELS[p]) return { code: p, label: PROJECT_LABELS[p] || SHORT_NGO_LABELS[p] };
+  for (const [code, aliases] of Object.entries({ bsct: ['beingsevak', 'being sevak', 'sevak', 'bsct'], mann: ['manncar', 'mann care', 'manncare', 'maan', 'mann'], aflf: ['ashray', 'ashray life', 'aflf'] })) {
+    if (aliases.some(a => p === a || p.includes(a))) return { code, label: PROJECT_LABELS[code] || SHORT_NGO_LABELS[code] };
+  }
+  return { code: null, label: p };
+}
 
 function getTemplateId(projectId) { return DB_TO_TEMPLATE[projectId] || 'beingsevak'; }
 
@@ -311,6 +322,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
         <button className="back-btn" onClick={onBack}>{'\u2190'}</button>
         <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>Lead Details</div></div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {resolveNgo(l.donor_project)?.label && <span className="pill" style={{background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}} title={`NGO: ${resolveNgo(l.donor_project).label}`}>{resolveNgo(l.donor_project).label}</span>}
           {isVerified && <span className="pill pill-green">Verified</span>}
           {l.accounts_status==='rejected' && <span className="pill pill-red" title={l.rejection_reason||''}>Rejected</span>}
         </div>
