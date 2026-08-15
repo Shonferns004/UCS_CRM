@@ -221,14 +221,30 @@ export const listEntries = async (req, res) => {
     if (entryLogIds.length > 0) {
       const { data: entryLogs, error: entryLogErr } = await db
         .from('fro_donor_logs')
-        .select('id, accounts_status, workers!fro_donor_logs_fro_worker_id_fkey(name)')
+        .select(`
+          id, accounts_status,
+          workers!fro_donor_logs_fro_worker_id_fkey(name),
+          fro_assignments!inner(
+            donor_profiles!inner(name, mobile_number)
+          )
+        `)
         .in('id', entryLogIds)
         .eq('accounts_status', 'pending');
       if (entryLogErr) throw entryLogErr;
       const claimedByMap = {};
-      for (const l of entryLogs || []) claimedByMap[l.id] = l.workers?.name || null;
+      const claimedDonorMap = {};
+      for (const l of entryLogs || []) {
+        claimedByMap[l.id] = l.workers?.name || null;
+        const donor = l.fro_assignments?.donor_profiles;
+        claimedDonorMap[l.id] = donor ? { name: donor.name || null, mobile: donor.mobile_number || null } : null;
+      }
       for (const e of entries || []) {
         if (e.log_id && claimedByMap[e.log_id]) e.claimed_by = claimedByMap[e.log_id];
+        const cd = e.log_id ? claimedDonorMap[e.log_id] : null;
+        if (cd) {
+          e.claimed_donor_name = cd.name;
+          e.claimed_donor_mobile = cd.mobile;
+        }
       }
     }
 
