@@ -2600,6 +2600,80 @@ const clearReceiptsByDate = async (from, to) => {
   return { deleted, remaining: count || 0, recomputedDonors: recomputed, deletedLogs, cleanedAutoCredits };
 };
 
+export const importReceiptNames = async (req, res) => {
+  try {
+    const { rows, ngo_id } = req.body;
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No name rows provided' });
+    }
+    if (!ngo_id) {
+      return res.status(400).json({ message: 'Please select the NGO this upload belongs to' });
+    }
+    const { data: ngoRow, error: ngoErr } = await db
+      .from('ngos')
+      .select('id, name, is_active')
+      .eq('id', ngo_id)
+      .single();
+    if (ngoErr || !ngoRow || !ngoRow.is_active) {
+      return res.status(400).json({ message: 'Selected NGO is invalid or inactive' });
+    }
+    const batchProjectId = ngoRow.name.toLowerCase();
+
+    const byNo = new Map();
+    for (const r of rows) {
+      const no = String(r.receipt_no ?? '').trim();
+      const name = String(r.donor_name ?? '').trim();
+      if (!no || !name) continue;
+      byNo.set(no, name);
+    }
+    const skipped = rows.length - byNo.size;
+    const receiptNos = [...byNo.keys()];
+
+    const receiptsByNo = new Map();
+    if (receiptNos.length > 0) {
+      for (let i = 0; i < receiptNos.length; i += 100) {
+        const batch = receiptNos.slice(i, i + 100);
+        const { data, error } = await db
+          .from('receipts')
+          .select('id, receipt_no, donor_id')
+          .eq('project_id', batchProjectId)
+          .in('receipt_no', batch);
+        if (error) throw new Error(error.message);
+        for (const r of (data || [])) receiptsByNo.set(String(r.receipt_no).trim(), r);
+      }
+    }
+
+    const donorNameById = new Map();
+    const updateQueries = [];
+    for (const [no, name] of byNo) {
+      const receipt = receiptsByNo.get(no);
+      if (!receipt) continue;
+      updateQueries.push(db.from('receipts').update({ donor_name: name }).eq('id', receipt.id));
+      if (receipt.donor_id) donorNameById.set(parseInt(receipt.donor_id), name);
+    }
+    for (const q of updateQueries) {
+      const { error } = await q;
+      if (error) throw new Error(error.message);
+    }
+
+    for (const [donorId, name] of donorNameById) {
+      const { error } = await db.from('donor_profiles')
+        .update({ name, updated_at: new Date().toISOString() })
+        .eq('id', donorId);
+      if (error) throw new Error(error.message);
+    }
+
+    return res.json({
+      updated: updateQueries.length,
+      notFound: receiptNos.length - updateQueries.length,
+      skipped,
+    });
+  } catch (e) {
+    console.error('importReceiptNames error:', e.message);
+    return res.status(500).json({ message: 'Failed to update donor names: ' + e.message });
+  }
+};
+
 export const clearReceipts = async (req, res) => {
   try {
     const batch = req.query.batch ? parseInt(req.query.batch) : null;

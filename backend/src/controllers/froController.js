@@ -137,6 +137,20 @@ async function findOrCreateAssignment(donorId, workerId, ngoId) {
   return retry;
 }
 
+// Scope guard: does this FRO hold an active assignment for the donor? Used to
+// block IDOR reads/writes on donors outside the worker's assigned scope.
+async function getFroAssignment(donorId, workerId, ngoId) {
+  let query = db
+    .from('fro_assignments')
+    .select('id, ngo_id')
+    .eq('donor_id', donorId)
+    .eq('fro_worker_id', workerId)
+    .not('status', 'eq', 'reassigned');
+  if (ngoId) query = query.eq('ngo_id', ngoId);
+  const { data } = await query.maybeSingle();
+  return data || null;
+}
+
 async function getMyStationNames(workerId) {
   const { data: stationAssigns, error } = await db
     .from('fro_station_assignments')
@@ -388,9 +402,9 @@ export const getDashboard = async (req, res) => {
     const currentSalary = salary ? parseFloat(salary.salary) : 0;
 
     const now = new Date();
-    const utcNow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59)).toISOString();
+    const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+    const monthStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+    const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
     const monthStr = now.toISOString().slice(0, 7) + '-01';
 
     const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
@@ -413,16 +427,15 @@ export const getDashboard = async (req, res) => {
 
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
-    const nowUtc = new Date();
-    const todayStart = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 0, 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), 23, 59, 59, 999));
+    const todayStart = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate(), 23, 59, 59, 999));
 
     const verifiedMonth = await getVerifiedCollection(workerId, monthStart, monthEnd);
     const unverifiedMonth = await getUnverifiedCollection(workerId, monthStart, monthEnd);
     const verifiedToday = await getVerifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
     const unverifiedToday = await getUnverifiedCollection(workerId, todayStart.toISOString(), todayEnd.toISOString());
 
-    const fyYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
+    const fyYear = istNow.getUTCMonth() < 3 ? istNow.getUTCFullYear() - 1 : istNow.getUTCFullYear();
     const fyStart = new Date(fyYear, 3, 1);
 
     const [
@@ -1694,11 +1707,14 @@ export const updateDonorType = async (req, res) => {
   try {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
-    const { donor_type } = req.body;
+    const { donor_type, ngo_id } = req.body;
     const validTypes = ['monthly', 'quarterly', 'half_yearly', 'yearly', 'one_time'];
     if (!donor_type || !validTypes.includes(donor_type)) {
       return res.status(400).json({ message: 'donor_type must be one of: monthly, quarterly, yearly, one_time' });
     }
+
+    const assignment = await getFroAssignment(donorId, req.user.id, ngo_id);
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
 
     const { data, error } = await db
       .from('donor_profiles')
@@ -2235,55 +2251,6 @@ export const getMyStations = async (req, res) => {
       ngo_name: s.ngos?.name || null,
     })));
   } catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
-};
-
-export const debugMyStations = async (req, res) => {
-  try {
-    const workerId = req.user.id;
-
-    const { data: stations, error: stErr } = await db
-      .from('fro_station_assignments')
-      .select('station, ngo_id')
-      .eq('fro_worker_id', workerId);
-    if (stErr) throw stErr;
-
-    const { data: froAsgn } = await db
-      .from('fro_assignments')
-      .select('id, donor_id, status, ngo_id, station')
-      .eq('fro_worker_id', workerId)
-      .not('station', 'is', null)
-      .not('status', 'eq', 'reassigned');
-
-    const donorIds = [...new Set((froAsgn || []).map(a => a.donor_id))];
-    const { data: donors, error: dErr } = donorIds.length > 0
-      ? await db.from('donor_profiles').select('id, name, mobile_number').in('id', donorIds)
-      : { data: [] };
-    if (dErr) throw dErr;
-
-    const froAsgnByDonor = {};
-    for (const a of froAsgn || []) {
-      if (!froAsgnByDonor[a.donor_id]) froAsgnByDonor[a.donor_id] = [];
-      froAsgnByDonor[a.donor_id].push(a);
-    }
-
-    return res.json({
-      worker_id: workerId,
-      station_count: stations.length,
-      stations: stations.map(s => s.station),
-      station_rows: stations,
-      donor_count: (donors || []).length,
-      fro_assignments_count: (froAsgn || []).length,
-      donor_detail: (donors || []).slice(0, 10).map(d => ({
-        id: d.id,
-        name: d.name,
-        mobile: d.mobile_number,
-        assignments: froAsgnByDonor[d.id] || [],
-      })),
-    });
-  } catch (error) {
-    console.error('debugMyStations error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -3201,11 +3168,13 @@ export const updateDonorFrequency = async (req, res) => {
   try {
     const donorId = parseInt(req.params.id, 10);
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
-    const { frequency } = req.body;
+    const { frequency, ngo_id } = req.body;
     const allowed = ['monthly', 'quarterly', 'yearly', 'one_time'];
     if (!frequency || !allowed.includes(frequency)) {
       return res.status(400).json({ message: `Frequency must be one of: ${allowed.join(', ')}` });
     }
+    const assignment = await getFroAssignment(donorId, req.user.id, ngo_id);
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
     const { data, error } = await db
       .from('donor_profiles')
       .update({ donation_frequency: frequency })
@@ -3357,6 +3326,9 @@ export const getDonorReceipts = async (req, res) => {
     if (isNaN(donorId)) return res.status(400).json({ message: 'Invalid donor ID' });
     const ngoId = req.query.ngo_id;
     if (!ngoId) return res.status(400).json({ message: 'ngo_id is required' });
+
+    const assignment = await getFroAssignment(donorId, req.user.id, ngoId);
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
 
     const { data: ngo } = await db
       .from('ngos')
