@@ -1144,7 +1144,9 @@ export const claimSuspenseReceipt = async (req, res) => {
       ? (() => {
           const d = String(auditEntry.transaction_date);
           const datePart = d.includes('T') ? d.slice(0, 10) : d;
-          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}` : datePart;
+          // Bank payment times are IST wall-clock; persist with the explicit
+          // offset so the stored timestamptz is the correct instant.
+          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}+05:30` : `${datePart}T00:00:00+05:30`;
         })()
       : null;
 
