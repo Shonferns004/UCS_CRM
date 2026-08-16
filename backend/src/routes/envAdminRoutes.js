@@ -115,6 +115,48 @@ router.get('/projects', async (req, res) => {
   }
 });
 
+// Read every project's .env in one call (for the "View All" screen).
+router.get('/all', async (req, res) => {
+  try {
+    const entries = await fs.readdir(PROJECTS_ROOT, { withFileTypes: true });
+    const projects = [];
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue;
+      const dir = path.join(PROJECTS_ROOT, e.name);
+      const envPath = path.join(dir, '.env');
+      const lines = await readEnvLines(envPath);
+      if (!lines.length) continue;
+      const comparable = dir === SELF_DIR;
+      const vars = [];
+      for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+        if (m) {
+          const deployed = comparable
+            ? normalizeFileValue(m[2]) === (process.env[m[1]] ?? null)
+            : null;
+          const running = comparable ? process.env[m[1]] ?? null : null;
+          vars.push({ key: m[1], value: m[2], line: i + 1, deployed, running });
+        }
+      }
+      let mtime = null;
+      try { mtime = (await fs.stat(envPath)).mtime.toISOString(); } catch {}
+      projects.push({
+        name: e.name,
+        envPath: envPath.replace(PROJECTS_ROOT, '.'),
+        comparable,
+        needsRestart: comparable ? vars.some((v) => !v.deployed) : null,
+        mtime,
+        vars,
+        raw: lines.join('\n'),
+      });
+    }
+    projects.sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ root: PROJECTS_ROOT, projects });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Read the .env of a project as key/value pairs.
 router.get('/projects/:name/env', async (req, res) => {
   try {
