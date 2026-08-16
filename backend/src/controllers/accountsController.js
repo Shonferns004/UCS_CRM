@@ -78,7 +78,7 @@ export const getLeadList = async (req, res) => {
 
       const { data: matchedEntries, error: matchErr } = await db
         .from('bank_audit_entries')
-        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, donor_pan, donor_address_1, donor_address_2')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2')
         .in('matched_lead_log_id', logIds)
         .in('match_status', ['matched', 'confirmed']);
       if (!matchErr) {
@@ -95,6 +95,20 @@ export const getLeadList = async (req, res) => {
       const match = leadMatchMap[r.id] || null;
       const profileAddr = [profile.address_1, profile.address_2].filter(Boolean).join(', ');
       const matchAddr = match ? [match.donor_address_1, match.donor_address_2].filter(Boolean).join(', ') : '';
+      // The linked bank audit entry is the source of truth for the money
+      // details shown on the pending lead: its payment id, txn time, payer, and
+      // mode override what was stored at claim time (works for already-claimed
+      // leads too, not just new claims).
+      const matchTxn = match?.transaction_date
+        ? (() => {
+            const d = String(match.transaction_date);
+            const datePart = d.includes('T') ? d.slice(0, 10) : d;
+            // Bank payment times are IST wall-clock; send with the explicit
+            // offset so it displays as the bank's time regardless of browser tz.
+            return match.payment_time ? `${datePart}T${match.payment_time}+05:30` : `${datePart}T00:00:00+05:30`;
+          })()
+        : null;
+      const matchMode = (match?.payment_id || match?.check_id) ? (match.payment_id ? 'UPI' : 'Cheque') : null;
       return {
       log_id: r.id,
       amount: r.amount_collected,
@@ -123,9 +137,9 @@ export const getLeadList = async (req, res) => {
       donation_count: r.fro_assignments?.donor_profiles?.donation_count || 0,
       total_donated: r.fro_assignments?.donor_profiles?.total_amount || 0,
       upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || receiptMap[r.id]?.payment_id || null),
-      transaction_datetime: r.transaction_datetime || null,
-      payment_from: r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null,
-      payment_mode: r.payment_mode || receiptMap[r.id]?.mode || null,
+      transaction_datetime: matchTxn || r.transaction_datetime || null,
+      payment_from: (match && match.payer_name) ? match.payer_name : (r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null),
+      payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
       agent_name: r.fro_assignments?.workers?.name || 'Unknown',
