@@ -285,9 +285,13 @@ export const syncEntryToLead = async (entryId, logId) => {
   if (entry.payment_id) patch.upi_transaction_id = entry.payment_id;
   if (entry.payer_name) patch.payment_from = entry.payer_name;
   if (entry.transaction_date) {
+    const d = String(entry.transaction_date);
+    const datePart = d.includes('T') ? d.slice(0, 10) : d;
+    // Bank payment times are IST wall-clock; persist with the explicit offset
+    // so the stored timestamptz is the correct instant.
     patch.transaction_datetime = entry.payment_time
-      ? `${entry.transaction_date}T${entry.payment_time}`
-      : entry.transaction_date;
+      ? `${datePart}T${entry.payment_time}+05:30`
+      : `${datePart}T00:00:00+05:30`;
   }
   patch.payment_mode = entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer');
 
