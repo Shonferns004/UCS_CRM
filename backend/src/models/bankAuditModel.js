@@ -61,6 +61,37 @@ export const cancelReceiptNo = async (projectId) => {
   await db._pool.query('SELECT cancel_receipt_no($1)', [String(projectId)]);
 };
 
+// Read-only receipt-number readout per NGO: the last receipt number issued and
+// the next number that will be issued. Mirrors next_receipt_no()'s arithmetic
+// (GREATEST(counter, per-NGO max) + 1) WITHOUT advancing the counter, so simply
+// viewing the numbers never burns a receipt number. Projects with no receipts
+// report last_no = 0 / next_no = 1.
+export const getReceiptNumbers = async (projectIds = ['bsct', 'mann', 'aflf']) => {
+  const { rows } = await db._pool.query(
+    `SELECT project_id,
+            COALESCE(MAX(CASE WHEN receipt_no ~ '^[0-9]+$' THEN receipt_no::bigint END), 0) AS max_no
+     FROM receipts
+     WHERE project_id = ANY($1)
+     GROUP BY project_id`,
+    [projectIds]
+  );
+
+  const { rows: counters } = await db._pool.query(
+    `SELECT project_id, last_no
+     FROM receipt_no_counters
+     WHERE project_id = ANY($1)`,
+    [projectIds]
+  );
+
+  const maxByProject = new Map(rows.map((r) => [r.project_id, Number(r.max_no) || 0]));
+  const counterByProject = new Map(counters.map((c) => [c.project_id, Number(c.last_no) || 0]));
+
+  return projectIds.map((projectId) => {
+    const last = Math.max(maxByProject.get(projectId) || 0, counterByProject.get(projectId) || 0);
+    return { project_id: projectId, last_no: last, next_no: last + 1 };
+  });
+};
+
 // NGO name keywords -> canonical project code (receipts.project_id /
 // bank_audit_entries.project_id). Mirrors the FRO suspense aliases so a
 // donation assigned to any NGO resolves to the project code its receipts are
