@@ -229,6 +229,7 @@
   <div class="spacer"></div>
   <button id="tokenBtn">Token</button>
   <button id="restartBtn" class="danger">Restart backend</button>
+  <button id="viewAllBtn">View All</button>
   <button id="refreshBtn">Refresh</button>
 </header>
 
@@ -239,9 +240,18 @@
     <div id="pm2Wrap" style="margin-top:14px"></div>
   </section>
 
-  <section>
+  <section id="projectsSection">
     <h2>Projects</h2>
     <div class="grid" id="projectsGrid"></div>
+  </section>
+
+  <section id="allEnvSection" style="display:none">
+    <div class="row" style="margin-bottom:14px">
+      <h2 style="margin:0">All Env Files</h2>
+      <div class="spacer"></div>
+      <button id="downloadAllBtn">Download all .env</button>
+    </div>
+    <div id="allEnvList"></div>
   </section>
 </main>
 
@@ -282,6 +292,8 @@
   var currentVars = [];
   var lastSystem = null;
   var lastEnvData = null;
+  var lastAllData = null;
+  var allEnvActive = false;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -440,6 +452,107 @@
     });
   }
 
+  // ---- view all env files -------------------------------------------------
+  function toggleAllEnv() {
+    allEnvActive = !allEnvActive;
+    $('viewAllBtn').textContent = allEnvActive ? 'Projects' : 'View All';
+    $('projectsSection').style.display = allEnvActive ? 'none' : '';
+    $('allEnvSection').style.display = allEnvActive ? '' : 'none';
+    if (allEnvActive) loadAllEnvs();
+    else loadProjects();
+  }
+
+  function loadAllEnvs() {
+    var list = $('allEnvList');
+    list.innerHTML = '<div class="empty">Loading…</div>';
+    api('/api/envadmin/all').then(function (d) {
+      lastAllData = d;
+      renderAllEnvs(d.projects || []);
+    }).catch(function (e) {
+      list.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+      toast(e.message, 'err');
+    });
+  }
+
+  function renderAllEnvs(projects) {
+    var list = $('allEnvList');
+    if (!projects.length) {
+      list.innerHTML = '<div class="empty">No .env files found</div>';
+      return;
+    }
+    list.innerHTML = projects.map(function (p) {
+      var badge = p.comparable
+        ? (p.needsRestart
+            ? '<span class="badge warn">needs restart</span>'
+            : '<span class="badge yes">deployed</span>')
+        : '';
+      var mtime = p.mtime ? new Date(p.mtime).toLocaleString() : '—';
+      var rows = p.vars.map(function (v) {
+        var dot = v.deployed == null
+          ? ''
+          : (v.deployed
+              ? '<span class="dot ok" title="live in running process"></span>'
+              : '<span class="dot" title="changed — restart to deploy"></span>');
+        return '<div class="vrow" data-project="' + esc(p.name) + '" data-key="' + esc(v.key) + '">' +
+          '<div class="key mono">' + dot + ' ' + esc(v.key) + '</div>' +
+          '<div class="val" data-revealed="0" title="' + esc(v.value) + '">' + esc(maskValue(v.value)) + '</div>' +
+          '<div class="actions">' +
+          '<button data-act="toggle">' + (v.value.length <= 8 ? 'show' : 'reveal') + '</button>' +
+          '<button data-act="copy">copy</button>' +
+          '</div></div>';
+      }).join('') || '<div class="empty">No variables</div>';
+      return '<div class="project" data-name="' + esc(p.name) + '">' +
+        '<div class="row"><div class="name">' + esc(p.name) + '</div>' + badge + '<div class="spacer"></div>' +
+        '<button data-all="edit">Edit</button>' +
+        '<button data-all="download">Download .env</button></div>' +
+        '<div class="meta">' + esc(p.envPath || '') + ' · modified ' + esc(mtime) + '</div>' +
+        rows +
+        '</div>';
+    }).join('');
+
+    list.querySelectorAll('.vrow').forEach(function (row) {
+      var pname = row.getAttribute('data-project');
+      var key = row.getAttribute('data-key');
+      var project = projects.find(function (x) { return x.name === pname; });
+      var v = project && project.vars.find(function (x) { return x.key === key; });
+      if (!v) return;
+      var valEl = row.querySelector('.val');
+      row.querySelector('[data-act="toggle"]').addEventListener('click', function () {
+        var revealed = valEl.getAttribute('data-revealed') === '1';
+        if (revealed) { valEl.textContent = maskValue(v.value); valEl.setAttribute('data-revealed', '0'); }
+        else { valEl.textContent = v.value; valEl.setAttribute('data-revealed', '1'); }
+      });
+      row.querySelector('[data-act="copy"]').addEventListener('click', function () {
+        (navigator.clipboard ? navigator.clipboard.writeText(v.value) : Promise.reject())
+          .then(function () { toast('Copied ' + key, 'ok'); })
+          .catch(function () {
+            var ta = document.createElement('textarea');
+            ta.value = v.value;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            toast('Copied ' + key, 'ok');
+          });
+      });
+    });
+
+    list.querySelectorAll('[data-all]').forEach(function (b) {
+      var pn = b.closest('.project').getAttribute('data-name');
+      var project = projects.find(function (x) { return x.name === pn; });
+      if (!project) return;
+      var act = b.getAttribute('data-all');
+      b.addEventListener('click', function () {
+        if (act === 'edit') {
+          openProject(pn);
+        } else if (act === 'download') {
+          download(pn + '.env', project.raw);
+          toast('Downloaded ' + pn + '.env', 'ok');
+        }
+      });
+    });
+  }
+
   // ---- env dialog ---------------------------------------------------------
   function openProject(name) {
     currentProject = name;
@@ -594,7 +707,7 @@
     var btn = $('restartBtn');
     btn.disabled = false;
     btn.textContent = 'Restart backend';
-    loadProjects();
+    if (allEnvActive) loadAllEnvs(); else loadProjects();
     if (s) {
       lastSystem = s;
       renderSystem(s);
@@ -666,7 +779,21 @@
 
   $('refreshBtn').addEventListener('click', function () {
     loadSystem();
-    loadProjects();
+    if (allEnvActive) loadAllEnvs(); else loadProjects();
+  });
+
+  $('viewAllBtn').addEventListener('click', toggleAllEnv);
+
+  $('downloadAllBtn').addEventListener('click', function () {
+    if (!lastAllData || !lastAllData.projects || !lastAllData.projects.length) {
+      toast('Nothing loaded yet', 'err');
+      return;
+    }
+    var text = lastAllData.projects.map(function (p) {
+      return '# === ' + p.name + ' (' + p.envPath + ') ===\n' + (p.raw || '');
+    }).join('\n\n');
+    download('all-env.txt', text);
+    toast('Downloaded all .env files', 'ok');
   });
 
   $('restartBtn').addEventListener('click', restartBackend);
