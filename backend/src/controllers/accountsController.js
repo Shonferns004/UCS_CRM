@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -2897,6 +2897,17 @@ export const getReceiptCount = async (req, res) => {
       .from('receipts')
       .select('*', { count: 'exact', head: true });
     return res.json({ count: count || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Last issued + next upcoming receipt number per NGO. Read-only — never calls
+// next_receipt_no() so viewing the numbers doesn't consume any receipt numbers.
+export const getReceiptNumbers = async (req, res) => {
+  try {
+    const numbers = await modelGetReceiptNumbers();
+    return res.json(numbers);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

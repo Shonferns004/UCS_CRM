@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link2, Loader2, X } from 'lucide-react';
-import { apiPost } from '../api/auth';
+import { apiGet, apiPost } from '../api/auth';
 import Dashboard from './Dashboard';
 import BankAudit, { AuditStatCards } from './BankAudit';
 
@@ -9,6 +9,8 @@ function SectionTitle({ children }) {
 }
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '';
+
+const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
 
 export default function LeadAudit() {
   const [audit, setAudit] = useState({ sources: [], summary: {}, combo: null, loading: true });
@@ -21,6 +23,17 @@ export default function LeadAudit() {
   const [detailView, setDetailView] = useState(null);
   const [entryDetailView, setEntryDetailView] = useState(null);
   const [matching, setMatching] = useState(false);
+  const [receiptNums, setReceiptNums] = useState(null);
+
+  // Last issued + next upcoming receipt number per NGO. Read-only; refetched
+  // whenever the bank-audit data changes (e.g. after a new receipt is created).
+  useEffect(() => {
+    let cancelled = false;
+    apiGet('/accounts/receipts/numbers')
+      .then(d => { if (!cancelled) setReceiptNums(d || []); })
+      .catch(() => { if (!cancelled) setReceiptNums([]); });
+    return () => { cancelled = true; };
+  }, [audit]);
 
   const handleMatch = async () => {
     if (!selectedLead || !selectedEntry || matching) return;
@@ -73,6 +86,22 @@ export default function LeadAudit() {
         <input type="number" min="0" step="any" placeholder="All amounts" value={amountFilter} onChange={e => setAmountFilter(e.target.value)} aria-label="Filter by amount" style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600, width: 96 }} />
         <span className="lead-audit-filter-help">Filters both Lead Verification and Bank Audit</span>
       </div>
+      {receiptNums && receiptNums.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, borderRadius: 10 }}>
+          <div className="filter-bar" style={{ gap: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', whiteSpace: 'nowrap' }}>Receipt Numbers</span>
+            {receiptNums.map(n => (
+              <span key={n.project_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 7, background: '#f9fafb', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>
+                <span style={{ color: '#374151' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+                <span style={{ color: '#9ca3af' }}>Last</span>
+                <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums' }}>{n.last_no || '\u2014'}</span>
+                <span style={{ color: '#9ca3af' }}>Next</span>
+                <span style={{ color: 'var(--sage)', fontVariantNumeric: 'tabular-nums' }}>{n.next_no || '\u2014'}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>
         <div style={{ alignSelf: 'flex-start' }}>
           <SectionTitle>Lead Verification</SectionTitle>
