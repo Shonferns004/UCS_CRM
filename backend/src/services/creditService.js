@@ -28,7 +28,7 @@ export const confirmMatchCredit = async (entryId, actorId) => {
   }
 
   const logId = entry.matched_lead_log_id;
-  const { data: log, error: lErr } = await db
+  const { data: logs, error: lErr } = await db
     .from('fro_donor_logs')
     .select(`
       id, amount_collected, action, disposition_detail, accounts_status, fro_worker_id, payment_mode,
@@ -40,9 +40,10 @@ export const confirmMatchCredit = async (entryId, actorId) => {
       )
     `)
     .eq('id', logId)
-    .maybeSingle();
+    .limit(1);
   if (lErr) throw lErr;
-  if (!log) return { error: 404, message: 'Matched lead not found' };
+  if (!logs || logs.length === 0) return { error: 404, message: 'Matched lead not found' };
+  const log = logs[0];
 
   const assignment = log.fro_assignments;
   const donor = assignment?.donor_profiles;
