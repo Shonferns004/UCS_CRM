@@ -196,6 +196,10 @@ app.use('/api/quiz', quizRoutes);
 app.use('/api/envadmin', envAdminRoutes);
 app.use('/api/temp-cleanup', tempCleanupRoutes);
 
+app.get('/api/deploy-test', (req, res) => {
+  res.json({ status: 'ok', deployed: true, timestamp: new Date().toISOString(), commit: 'shon2-deploy-test' });
+});
+
 import multer from 'multer';
 const uploadApi = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const ALLOWED_MIME_TYPES = [
