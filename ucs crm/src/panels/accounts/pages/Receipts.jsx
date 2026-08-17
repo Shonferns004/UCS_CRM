@@ -13,7 +13,7 @@ import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
 
 const NGO_MAP = {
-  bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en_US' },
+  bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
   mann: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
   aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'aflf_receipt', metaLang: 'en' },
 }
