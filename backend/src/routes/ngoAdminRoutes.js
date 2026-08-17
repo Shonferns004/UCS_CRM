@@ -46,6 +46,7 @@ import {
   getDonorsByStation,
   getNewData,
   distributeNewData,
+  cleanupNewData,
   getDataOverview,
   getAlerts,
   acknowledgeAlert,
@@ -116,6 +117,7 @@ router.post('/transfers/:id/return-early', returnTransferEarly);
 router.get('/new-data', getNewData);
 router.get('/data-overview', getDataOverview);
 router.post('/new-data/distribute', distributeNewData);
+router.post('/new-data/cleanup', cleanupNewData);
 
 router.get('/alerts', getAlerts);
 router.put('/alerts/:id/acknowledge', acknowledgeAlert);

@@ -2007,6 +2007,69 @@ export const distributeNewData = async (req, res) => {
   }
 };
 
+export const cleanupNewData = async (req, res) => {
+  try {
+    let access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    const { ngo_id: filterNgoId } = req.body;
+    if (filterNgoId) {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
+    }
+    if (ngoEntries.length === 0) {
+      return res.json({ message: 'No NGO assigned to your account', deleted: 0 });
+    }
+
+    let totalDeleted = 0;
+    const messages = [];
+
+    for (const { ngoName } of ngoEntries) {
+      // Only delete undistributed records (status is null or pending)
+      let ngoDeleted = 0;
+
+      // Delete where status IS NULL
+      const r1 = await db
+        .from('new_data')
+        .delete({ count: 'exact' })
+        .eq('ngo', ngoName)
+        .is('status', null);
+      if (r1.error) {
+        messages.push(`Error (null) for ${ngoName}: ${r1.error.message}`);
+      } else {
+        ngoDeleted += r1.count || 0;
+      }
+
+      // Delete where status = 'pending'
+      const r2 = await db
+        .from('new_data')
+        .delete({ count: 'exact' })
+        .eq('ngo', ngoName)
+        .eq('status', 'pending');
+      if (r2.error) {
+        messages.push(`Error (pending) for ${ngoName}: ${r2.error.message}`);
+      } else {
+        ngoDeleted += r2.count || 0;
+      }
+
+      if (ngoDeleted > 0 || (!r1.error && !r2.error)) {
+        totalDeleted += ngoDeleted;
+        messages.push(`${ngoDeleted} undistributed records deleted (${ngoName})`);
+      }
+    }
+
+    return res.json({
+      message: messages.join('; ') || 'No data to cleanup',
+      deleted: totalDeleted,
+    });
+  } catch (error) {
+    console.error('cleanupNewData ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getAlerts = async (req, res) => {
   try {
     const ngoIds = await getUserNgoIds(req.user);
@@ -3342,13 +3405,15 @@ export const getFroSummary = async (req, res) => {
 };
 
 const DEFAULT_STATION_NAMES = ['ND-1','ND-2','ND-3','ND-4','ND-5','ND-6','ND-7','ND-8','DH-1','DH-2','DH-3','DH-4','DH-5','DH-6','DH-7','DH-8','DH-9','DH-10','DH-11','DH-12','DH-13','DH-14'];
+const FRESH_STATION_NAMES = Array.from({ length: 23 }, (_, i) => `FD-${i + 1}`);
 const STATION_NAMES = process.env.STATION_NAMES
   ? process.env.STATION_NAMES.split(',').map(s => s.trim())
   : DEFAULT_STATION_NAMES;
 
 export const seedStations = async (req, res) => {
   try {
-    const { ngo_id } = req.body || {};
+    const { ngo_id, fresh } = req.body || {};
+    const stationList = fresh ? FRESH_STATION_NAMES : STATION_NAMES;
 
     let ngoEntries;
     if (ngo_id) {
@@ -3372,7 +3437,7 @@ export const seedStations = async (req, res) => {
     const results = [];
     for (const { ngoId, ngoName } of ngoEntries) {
       let created = 0;
-      for (const station of STATION_NAMES) {
+      for (const station of stationList) {
         const existing = await getStationAssignmentByNgoAndStation(ngoId, station);
         if (!existing) {
           await createStation(ngoId, station, req.user.id);
