@@ -1424,8 +1424,10 @@ export default function MyDonors() {
           })()}
           {/* Station Tabs */}
           {(() => {
-            const filteredStations = stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station);
-            if (filteredStations.length <= 1) return null;
+            const allAssignedStations = stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station);
+            const stationsWithData = [...new Set(donors.filter(d => d.station).map(d => d.station))];
+            const filteredStations = allAssignedStations.filter(s => stationsWithData.includes(s));
+            if (filteredStations.length === 0) return null;
             return (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
               <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedStation('all') }}
