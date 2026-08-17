@@ -277,7 +277,7 @@ export async function sendDirect(req, res) {
 
     const phone = String(to).replace(/[^0-9]/g, '');
     const tpl = templateName || 'bsct_receipt';
-    const lang = templateLang || 'en_US';
+    const lang = templateLang || 'en';
     const donorProject = project || TEMPLATE_PROJECT_MAP[tpl] || 'bsct';
 
     const account = await resolveAccount(donorProject);
