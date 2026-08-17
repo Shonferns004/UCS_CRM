@@ -671,15 +671,16 @@ export const rejectLead = async (req, res) => {
       return res.status(400).json({ message: 'Rejection reason is required' });
     }
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, station, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.accounts_status !== 'pending') {
       return res.status(400).json({ message: `This lead has already been ${log.accounts_status || 'processed'}` });
@@ -827,15 +828,16 @@ export const goBackLead = async (req, res) => {
     const { logId } = req.params;
     const { reason } = req.body || {};
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
       return res.status(400).json({ message: 'Only lead verification entries can be sent back' });
@@ -980,15 +982,16 @@ export const undoLeadVerification = async (req, res) => {
   try {
     const { logId } = req.params;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, donor_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
       return res.status(400).json({ message: 'Only lead verification entries can be undone' });
@@ -1101,15 +1104,16 @@ export const deleteLead = async (req, res) => {
   try {
     const { logId } = req.params;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('id, action, disposition_detail, accounts_status, fro_worker_id, fro_assignments!inner(id, status, donor_id, fro_worker_id)')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.action !== 'disposition' || log.disposition_detail !== 'lead_done') {
       return res.status(400).json({ message: 'Only lead verification entries can be deleted' });
@@ -1215,15 +1219,16 @@ export const patchLeadField = async (req, res) => {
     const isDonorField = field in DONOR_FIELD_MAP;
 
     if (isDonorField) {
-      const { data: log, error: logError } = await db
+      const { data: logs, error: logError } = await db
         .from('fro_donor_logs')
         .select('id, fro_assignments!inner(donor_id)')
         .eq('id', logId)
-        .single();
+        .limit(1);
 
-      if (logError || !log) {
+      if (logError || !logs || logs.length === 0) {
         return res.status(404).json({ message: 'Log entry not found' });
       }
+      const log = logs[0];
 
       const donorId = log.fro_assignments?.donor_id;
       if (!donorId) {
@@ -1279,7 +1284,7 @@ export const generateReceipt = async (req, res) => {
       return res.json({ receipt: existing, message: 'Receipt already exists' });
     }
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
         id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
@@ -1293,11 +1298,12 @@ export const generateReceipt = async (req, res) => {
         )
       `)
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     const donorProfile = log.fro_assignments?.donor_profiles;
     let project = donorProfile?.project_supported || 'bsct';
