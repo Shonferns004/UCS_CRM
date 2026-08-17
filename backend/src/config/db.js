@@ -739,8 +739,6 @@ class QueryBuilder {
       if (data.length === 0) {
         if (this.singleFlag) return { data: null, count, error: { ...PGRST116 } };
         resultData = null;
-      } else if (data.length > 1) {
-        return { data: null, count, error: { ...PGRST116 } };
       } else {
         resultData = data[0];
       }
@@ -996,8 +994,6 @@ class QueryBuilder {
       if (data.length === 0) {
         if (this.singleFlag) return { data: null, count: null, error: { ...PGRST116 } };
         result = null;
-      } else if (data.length > 1) {
-        return { data: null, count: null, error: { ...PGRST116 } };
       } else {
         result = data[0];
       }
