@@ -3,6 +3,8 @@ name: Deploy to Staging
 on:
   pull_request:
     branches: [master]
+  push:
+    branches: [master]
 
 concurrency:
   group: deploy-staging-${{ github.event.pull_request.number }}
@@ -28,7 +30,7 @@ jobs:
             cd /home/ec2-user/app
             git remote set-url origin https://github.com/priyankshahdev-alt/UCS_CRM.git
             git fetch origin
-            git reset --hard origin/${{ github.event.pull_request.head.ref }}
+            git reset --hard origin/${{ github.event.pull_request.head.ref || 'master' }}
             if git diff HEAD@{1} --name-only 2>/dev/null | grep -qE 'backend/(package.json|package-lock.json)'; then
               cd backend && npm ci && cd ..
             fi
