@@ -1395,6 +1395,9 @@ export const getMyDonors = async (req, res) => {
     const offset = parseInt(req.query.offset, 10);
     let assignments = null;
 
+    const batchTypeFilter = req.query.new_only === 'true' ? 'new_data'
+      : req.query.old_only === 'true' ? 'old_data' : null;
+
     // Primary: donors assigned to the worker's stations (fro_station_assignments scope)
     if (effectiveStations.length > 0) {
       let query = db
@@ -1417,9 +1420,6 @@ export const getMyDonors = async (req, res) => {
       } else if (statusFilter) {
         query = query.eq('status', statusFilter);
       }
-
-      const batchTypeFilter = req.query.new_only === 'true' ? 'new_data'
-        : req.query.old_only === 'true' ? 'old_data' : null;
 
       if (batchTypeFilter) {
         if (req.query.station) {
