@@ -142,9 +142,9 @@ export const getLeadList = async (req, res) => {
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
-      agent_name: r.fro_assignments?.workers?.name || 'Unknown',
+      agent_name: r.fro_assignments?.workers?.name || 'Priyank Shah',
       agent_login: r.fro_assignments?.workers?.login_id || '',
-      claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Unknown',
+      claimant_name: r.workers?.name || r.fro_assignments?.workers?.name || 'Priyank Shah',
       claimant_login: r.workers?.login_id || r.fro_assignments?.workers?.login_id || '',
       claimed_receipt: receiptMap[r.id] || null,
       received_source: entrySourceMap[receiptMap[r.id]?.id] || null,
@@ -475,6 +475,94 @@ export const verifyLead = async (req, res) => {
     }
 
     return res.json({ message: 'Lead verified, receipt generated', receipt });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Quick Verify (Priyank Shah default) ────────────────────
+// When a lead has no FRO agent, accounts can quickly verify it under the
+// default agent name "Priyank Shah" without filling donor details.
+
+export const quickVerifyLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { donor_name, donor_mobile, donor_pan, donor_address, donor_city, donor_email, project } = req.body;
+
+    const { data: log, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !log) return res.status(404).json({ message: 'Lead not found' });
+    if (log.accounts_status !== 'pending') return res.status(400).json({ message: `Lead is already ${log.accounts_status}` });
+
+    const assignmentId = log.fro_assignments?.id;
+    const donorProfile = log.fro_assignments?.donor_profiles;
+    if (!assignmentId) return res.status(400).json({ message: 'No assignment found' });
+
+    let resolvedProject = project || donorProfile?.project_supported || 'bsct';
+    try { resolvedProject = await projectCodeFromNgoId(log.fro_assignments?.ngo_id) || resolvedProject; } catch {}
+
+    const finalDonorName = donor_name || 'Priyank Shah';
+
+    const existing = await findReceiptByLogId(logId);
+    let receipt = existing || null;
+
+    if (!existing) {
+      const receiptNo = await getNextReceiptNo(resolvedProject);
+      receipt = await createReceipt({
+        log_id: parseInt(logId),
+        receipt_no: receiptNo,
+        project_id: resolvedProject,
+        donor_name: finalDonorName,
+        donor_mobile: donor_mobile || donorProfile?.mobile_number || null,
+        amount: log.amount_collected || 0,
+        pan_number: donor_pan || donorProfile?.pan_number || null,
+        address: donor_address || donorProfile?.address_1 || null,
+        email: donor_email || donorProfile?.email || null,
+        bank_name: donorProfile?.donors_bank_name || null,
+        mode: log.payment_mode || null,
+        purpose: 'General Donation',
+        agent_name: 'Priyank Shah',
+        generated_by: req.user.id,
+        donor_id: log.fro_assignments?.donor_id || null,
+        receipt_date: log.transaction_datetime || new Date().toISOString(),
+      });
+    } else {
+      await db.from('receipts').update({
+        donor_name: finalDonorName,
+        agent_name: 'Priyank Shah',
+        donor_mobile: donor_mobile || existing.donor_mobile || null,
+      }).eq('id', existing.id);
+    }
+
+    const now = new Date().toISOString();
+    await db.from('fro_donor_logs').update({
+      accounts_status: 'verified',
+      verified_at: now,
+      verified_by: req.user.id,
+    }).eq('id', logId);
+
+    await db.from('fro_assignments').update({
+      status: 'donation_collected',
+      last_contacted_at: now,
+    }).eq('id', assignmentId);
+
+    const donorId = log.fro_assignments?.donor_id;
+    if (donorId) {
+      try {
+        const { data: donor } = await db.from('donor_profiles').select('total_amount, donation_count').eq('id', donorId).single();
+        await db.from('donor_profiles').update({
+          total_amount: (donor?.total_amount || 0) + (log.amount_collected || 0),
+          donation_count: (donor?.donation_count || 0) + 1,
+          updated_at: now,
+        }).eq('id', donorId);
+      } catch (err) { console.error('Failed to update donor totals:', err.message); }
+    }
+
+    return res.json({ message: 'Lead verified under Priyank Shah', receipt });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
