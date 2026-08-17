@@ -3,7 +3,7 @@ name: Deploy Test Backend
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [master, developer]
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-test-backend.yml'
@@ -31,7 +31,7 @@ jobs:
             set -e
             cd /home/ec2-user/app
             git fetch origin
-            git reset --hard origin/master
+            git reset --hard origin/${{ github.ref_name }}
             # Only reinstall when dependency files changed; npm ci wipes
             # node_modules, and a concurrent/raced restart then boots against
             # a half-removed install.
