@@ -359,34 +359,19 @@ export default function FROPanel() {
         } catch { /* silent */ }
       }
 
-      // Fetch unread counts for each agent
-      const agents = JSON.parse(localStorage.getItem('wa_agents') || '[]')
+      // Fetch unread counts — use the FRO JWT for all WhatsApp API calls
+      // since agent tokens are session tokens, not JWTs compatible with the
+      // authenticate middleware.
       const counts = { total: 0 }
-      for (const agent of agents) {
-        try {
-          const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
-            headers: { Authorization: `Bearer ${agent.token}` },
-          })
-          if (res.ok) {
-            const data = await res.json()
-            const key = `whatsapp-${agent.project}`
-            counts[key] = data?.count || 0
-            counts.total += data?.count || 0
-          }
-        } catch { /* skip */ }
-      }
-      // Fallback: try the FRO token for a single count
-      if (agents.length === 0) {
-        try {
-          const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          if (res.ok) {
-            const data = await res.json()
-            counts.total = data?.count || 0
-          }
-        } catch { /* skip */ }
-      }
+      try {
+        const res = await fetch(`${apiBase}/fro/whatsapp/conversations/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          counts.total = data?.count || 0
+        }
+      } catch { /* skip */ }
       setWaUnreadCounts(counts)
     } catch (e) { console.error('Error:', e.message); }
   }, [user?.id])

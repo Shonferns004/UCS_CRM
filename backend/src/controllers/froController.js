@@ -1144,9 +1144,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       ? (() => {
           const d = String(auditEntry.transaction_date);
           const datePart = d.includes('T') ? d.slice(0, 10) : d;
-          // Bank payment times are IST wall-clock; persist with the explicit
-          // offset so the stored timestamptz is the correct instant.
-          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}+05:30` : `${datePart}T00:00:00+05:30`;
+          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}` : datePart;
         })()
       : null;
 
@@ -1609,38 +1607,47 @@ export const getMyDonors = async (req, res) => {
       // to collect — drop them out of the workable (pending/not-connected) pool
       // so they stop reappearing at the top of the FRO stack. Uses monthDonatedSet
       // (verified or not) so the status matches the "already donated" banner.
-const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
-        const displayStatus = staleDoneStatus
-          ? 'pending'
-          : (donatedThisPeriod && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
-        
-        // Map donation_collected to indicate monthly donation banner
-        if (displayStatus === 'donation_collected') {
-          // This indicates donor donated in current period - show banner
-        }
-        result.push({
-          id: d.id,
-          ngo_id: a.ngo_id,
-          ngo_name: a.ngos?.name || 'Unknown',
-          assignment_id: a.id,
-          station: a.station || '',
-          batch_type: a.batch_type || '',
-          donor_name: d.name || 'Unknown',
-          donor_mobile: d.mobile_number || '',
-          donor_city: d.city || '',
-          donor_amount: hasScoped ? (d.amount || 0) : 0,
-          donor_email: d.email || '',
-          donor_pan: d.pan_number || '',
-          donor_project: d.project_supported || '',
-          donor_dob: d.birth_date || '',
-          donor_type: d.donor_type || '',
-          donor_address: d.address_1 || '',
-          donation_count: hasScoped ? (d.donation_count || 0) : 0,
-          total_donated: hasScoped ? (d.total_amount || 0) : 0,
-          has_donated_current_month: donatedThisPeriod,
-          has_verified_donation_current_month: evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
-          status: displayStatus,
-        });
+      const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
+      const displayStatus = staleDoneStatus
+        ? 'pending'
+        : (monthDonatedSet.has(a.id) && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
+      result.push({
+        id: a.donor_id,
+        donor_id: a.donor_id,
+        assignment_id: a.id,
+        ngo_id: a.ngo_id,
+        ngo_name: a.ngos?.name || 'Unknown',
+        station: a.station || '',
+        donor_mobile: d.mobile_number || '',
+        donor_name: d.name || 'Unknown',
+        donor_city: d.city || '',
+        donor_address: d.address_1 || '',
+        donor_amount: hasScopedSet.has(a.id) ? (d.amount || 0) : 0,
+        donor_email: d.email || '',
+        donor_pan: d.pan_number || '',
+        donor_project: d.project_supported || '',
+        donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
+        donation_count: hasScopedSet.has(a.id) ? (d.donation_count || 0) : 0,
+        total_donated: hasScopedSet.has(a.id) ? (d.total_amount || 0) : 0,
+        last_donation_date: hasScopedSet.has(a.id) ? (d.last_donation_date || null) : null,
+        first_donation_date: hasScopedSet.has(a.id) ? (d.first_donation_date || null) : null,
+        donor_frequency: d.donation_frequency || '',
+        has_donated_current_fy: activeSet.has(a.id),
+        has_donated_current_month: monthDonatedSet.has(a.id),
+        has_verified_donation_current_month: monthVerifiedSet.has(a.id),
+        is_active: activeSet.has(a.id),
+        status: staleDoneStatus ? 'pending' : rawStatus,
+        notes: a.notes || null,
+        last_contacted_at: a.last_contacted_at || null,
+        next_follow_up: a.next_follow_up || null,
+        assigned_at: a.assigned_at || null,
+        is_new: a.is_new !== false,
+        next_scheduled_at: s?.scheduled_at || null,
+        is_overdue: s ? new Date(s.scheduled_at) < new Date() : false,
+        schedule_id: s?.id || null,
+        schedule_notes: s?.notes || null,
+      });
     }
 
     // Aggregate all NGO names per donor (since dedup by donor_id loses NGO info)
