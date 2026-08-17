@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getWorkersByNgo } from '../models/workerNgoAllocationModel.js';
-import { getStationAssignmentsByNgo } from '../models/froStationAssignmentModel.js';
+import { getStationAssignmentsByNgo, ensureStationsExist } from '../models/froStationAssignmentModel.js';
 import { batchCreateAssignments } from '../models/froAssignmentModel.js';
 import { updateNewDataStatusByNgoAndMobiles } from '../models/newDataModel.js';
 
@@ -139,4 +139,87 @@ export async function autoAssignDonorsToStations(rows, importBatchId, ngos) {
   }
 
   return { totalAssigned, breakdown };
+}
+
+export async function roundRobinAssignToStations(ngoName, ngoId, pickedStations, importBatchId, assignedBy) {
+  if (!pickedStations || pickedStations.length === 0) return { assigned: 0, stationBreakdown: {} };
+
+  await ensureStationsExist(ngoId, pickedStations, assignedBy);
+
+  const stationAssigns = await getStationAssignmentsByNgo([ngoId]);
+  const stationFroMap = {};
+  for (const sa of stationAssigns) {
+    if (pickedStations.includes(sa.station)) {
+      stationFroMap[sa.station] = sa.fro_worker_id;
+    }
+  }
+
+  const { data: mobiles } = await db
+    .from('new_data')
+    .select('mobile_number')
+    .eq('import_batch_id', importBatchId)
+    .eq('ngo', ngoName)
+    .not('mobile_number', 'is', null);
+
+  if (!mobiles || mobiles.length === 0) return { assigned: 0, stationBreakdown: {} };
+
+  const uniqueMobiles = [...new Set(mobiles.map(m => m.mobile_number))];
+
+  const { data: profiles } = await db
+    .from('donor_profiles')
+    .select('id, mobile_number')
+    .in('mobile_number', uniqueMobiles);
+
+  if (!profiles || profiles.length === 0) return { assigned: 0, stationBreakdown: {} };
+
+  const profileIds = profiles.map(p => p.id);
+  const { data: existing } = await db
+    .from('fro_assignments')
+    .select('donor_id')
+    .in('donor_id', profileIds)
+    .eq('ngo_id', ngoId)
+    .not('status', 'eq', 'reassigned');
+
+  const assignedSet = new Set((existing || []).map(a => a.donor_id));
+  const unassignedProfiles = profiles.filter(p => !assignedSet.has(p.id));
+  if (unassignedProfiles.length === 0) return { assigned: 0, stationBreakdown: {} };
+
+  const newAssignments = [];
+  const stationCounts = {};
+  for (const s of pickedStations) stationCounts[s] = 0;
+
+  for (let i = 0; i < unassignedProfiles.length; i++) {
+    const station = pickedStations[i % pickedStations.length];
+    newAssignments.push({
+      donor_id: unassignedProfiles[i].id,
+      fro_worker_id: stationFroMap[station] || null,
+      ngo_id: ngoId,
+      station,
+      batch_id: importBatchId,
+      batch_type: 'new_data',
+      status: 'pending',
+      is_new: true,
+      assigned_at: new Date().toISOString(),
+    });
+    stationCounts[station] = (stationCounts[station] || 0) + 1;
+  }
+
+  if (newAssignments.length > 0) {
+    await batchCreateAssignments(newAssignments);
+    const matchedMobiles = new Set();
+    const profileIdToMobile = {};
+    for (const p of profiles) profileIdToMobile[p.id] = p.mobile_number;
+    for (const a of newAssignments) {
+      const mobile = profileIdToMobile[a.donor_id];
+      if (mobile) matchedMobiles.add(mobile);
+    }
+    await updateNewDataStatusByNgoAndMobiles(ngoName, [...matchedMobiles], 'converted');
+  }
+
+  const stationBreakdown = {};
+  for (const [st, cnt] of Object.entries(stationCounts)) {
+    if (cnt > 0) stationBreakdown[st] = cnt;
+  }
+
+  return { assigned: newAssignments.length, stationBreakdown };
 }
