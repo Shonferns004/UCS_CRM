@@ -40,6 +40,7 @@ export function UcsProvider({ children }) {
   }, [])
 
   const logout = useCallback(() => {
+    localStorage.clear()
     clearSession('ucs')
     setToken(null)
     setUser(null)
