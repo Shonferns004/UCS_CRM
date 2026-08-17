@@ -135,6 +135,16 @@ app.get(['/api/shon', '/api/test-shon'], (req, res) => {
   res.json({ message: 'hello how are you shon' });
 });
 
+app.get('/api/fro-count', async (req, res) => {
+  try {
+    const { count } = await db.from('workers').select('id', { count: 'exact', head: true }).eq('department', 'fro');
+    const { data: rows } = await db.from('workers').select('id, name, login_id, is_active').eq('department', 'fro');
+    res.json({ fro_count: count, workers: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 app.use('/api/auth', authRoutes);
