@@ -222,8 +222,15 @@ export default function Receipts() {
   const [receiptPage, setReceiptPage] = useState(1)
   const [markingAllSent, setMarkingAllSent] = useState(false)
   const [markAllProgress, setMarkAllProgress] = useState({ completed: 0, total: 0 })
+  const [ngoFilter, setNgoFilter] = useState('all')
   const [goBackRow, setGoBackRow] = useState(null)
   const [goBackSubmitting, setGoBackSubmitting] = useState(false)
+
+  const filteredDonors = donors
+    ? (ngoFilter === 'all' ? donors : donors.filter(d => (d['Project'] || 'bsct') === ngoFilter))
+    : donors
+
+  useEffect(() => { setReceiptPage(1) }, [ngoFilter])
 
   const removeFromPending = useCallback((receiptId) => {
     setDonors(current => (current || []).filter(donor => donor.receipt_id !== receiptId))
@@ -252,8 +259,8 @@ export default function Receipts() {
   })
 
   const getValidDonors = useCallback(() => {
-    return donors ? donors.filter(d => { const m = String(d['Mobile No.'] || '').replace(/[^0-9]/g, ''); return m.length >= 10 }) : []
-  }, [donors])
+    return filteredDonors ? filteredDonors.filter(d => { const m = String(d['Mobile No.'] || '').replace(/[^0-9]/g, ''); return m.length >= 10 }) : []
+  }, [filteredDonors])
 
   const handleDownloadSingle = async () => {
     if (selectedIndex == null) return
@@ -270,7 +277,7 @@ export default function Receipts() {
     try {
       const ngoFolder = { bsct:'BSCT', mann:'MANN', aflf:'AFLF' }
       const namePrefix = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' }
-      const all = donors.map((d, i) => ({ element: document.querySelector(`[data-receipt-batch="${i}"]`), donor: d })).filter(x => x.element)
+      const all = filteredDonors.map(d => ({ element: document.querySelector(`[data-receipt-batch="${donors.indexOf(d)}"]`), donor: d })).filter(x => x.element)
       const groups = {}
       for (const item of all) {
         const ngo = item.donor['Project'] || 'bsct'
@@ -352,7 +359,7 @@ export default function Receipts() {
   }
 
   const handleMarkAllSent = async () => {
-    const receiptIds = [...new Set((donors || []).map(donor => donor.receipt_id).filter(Boolean))]
+    const receiptIds = [...new Set((filteredDonors || []).map(donor => donor.receipt_id).filter(Boolean))]
     if (receiptIds.length === 0) { showToast('error', 'No eligible pending receipts found'); return }
     if (!window.confirm(`Mark ${receiptIds.length} receipt${receiptIds.length === 1 ? '' : 's'} as sent? This will remove them from the pending queue without sending WhatsApp messages.`)) return
 
@@ -496,14 +503,14 @@ export default function Receipts() {
         <div className="card-pad">
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
             <div>
-              <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Verified receipts awaiting WhatsApp {donors ? <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({donors.length})</span> : <span className="sk" style={{ display:'inline-block', width:60, height:14, borderRadius:3, verticalAlign:'middle' }} />}</h3>
+              <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Verified receipts awaiting WhatsApp {filteredDonors ? <span style={{ fontSize:12, fontWeight:400, color:'#9ca3af' }}>({filteredDonors.length})</span> : <span className="sk" style={{ display:'inline-block', width:60, height:14, borderRadius:3, verticalAlign:'middle' }} />}</h3>
               <p style={{ margin:'3px 0 0', fontSize:11, color:'var(--ink-soft)' }}>Sent receipts are available only in Donors.</p>
             </div>
                 <div style={{ display:'flex', gap:8 }}>
                   <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
                     onClick={() => {
                       const wb = XLSX.utils.book_new();
-                      const ws = XLSX.utils.json_to_sheet(donors.map(d => {
+                      const ws = XLSX.utils.json_to_sheet(filteredDonors.map(d => {
                         const copy = { ...d };
                         delete copy._dataMissing; delete copy._duplicate; delete copy.receipt_id; delete copy.sent; delete copy.log_id;
                         return copy;
@@ -526,17 +533,28 @@ export default function Receipts() {
                   </button>
                   <button className="btn btn-sm" style={{ background:'#2563eb', color:'#fff', border:'none' }}
                     onClick={handleMarkAllSent}
-                    disabled={markingAllSent || !donors?.some(donor => donor.receipt_id)}>
+                    disabled={markingAllSent || !filteredDonors?.some(donor => donor.receipt_id)}>
                     {markingAllSent
                       ? `Updating ${markAllProgress.completed}/${markAllProgress.total}...`
-                      : `Mark all sent (${donors?.filter(donor => donor.receipt_id).length || 0})`}
+                      : `Mark all sent (${filteredDonors?.filter(donor => donor.receipt_id).length || 0})`}
                   </button>
                 </div>
               </div>
+                <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+                  {[{ k:'all', l:'All' }, ...Object.entries(NGO_MAP).map(([k, v]) => ({ k, l:v.label }))].map(tab => {
+                    const count = tab.k === 'all' ? (donors?.length || 0) : (donors || []).filter(d => (d['Project'] || 'bsct') === tab.k).length
+                    return (
+                      <button key={tab.k} className="btn btn-sm" onClick={() => setNgoFilter(tab.k)}
+                        style={{ background: ngoFilter === tab.k ? '#5B6B4E' : '#f3f4f6', color: ngoFilter === tab.k ? '#fff' : '#374151', border:'none', fontWeight:600 }}>
+                        {tab.l} <span style={{ fontSize:11, opacity:0.8 }}>({count})</span>
+                      </button>
+                    )
+                  })}
+                </div>
               <table className="table-wrap" style={{ width:'100%', fontSize:13 }}>
                 <thead>
                   <tr>
-                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>NGO</th><th>Action</th>
+                    <th>#</th><th>Donor Name</th><th>Amount</th><th>Receipt No.</th><th>Date</th><th>Mobile</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -549,13 +567,12 @@ export default function Receipts() {
                         <td><div className="sk" style={{ width:80, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:70, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:90, height:12, borderRadius:3 }} /></td>
-                        <td><div className="sk" style={{ width:50, height:12, borderRadius:3 }} /></td>
                         <td><div className="sk" style={{ width:70, height:24, borderRadius:4 }} /></td>
                       </tr>
                     ))
-                  ) : donors.length === 0 ? (
-                    <tr><td colSpan={8} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>No pending receipts.</td></tr>
-                  ) : donors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
+                  ) : filteredDonors.length === 0 ? (
+                    <tr><td colSpan={7} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>{ngoFilter === 'all' ? 'No pending receipts.' : `No pending receipts for ${NGO_MAP[ngoFilter]?.label || ngoFilter}.`}</td></tr>
+                  ) : filteredDonors.slice((receiptPage - 1) * PAGE_SIZE, receiptPage * PAGE_SIZE).map((d, i) => {
                     const realIdx = (receiptPage - 1) * PAGE_SIZE + i;
                     return (
                     <tr key={realIdx} style={{ background: selectedIndex === realIdx ? '#f0fdf4' : undefined, cursor:'pointer' }}
@@ -575,7 +592,6 @@ export default function Receipts() {
                             onClick={e => e.stopPropagation()} />
                         ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
                       </td>
-                      <td style={{ fontSize:12 }}><span className="pill pill-gray">{({ bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' })[d['Project']] || d['Project'] || 'bsct'}</span></td>
                       <td style={{ display:'flex', gap:4 }}>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
                           onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
@@ -594,11 +610,11 @@ export default function Receipts() {
                   )})}
                 </tbody>
               </table>
-              {donors && donors.length > PAGE_SIZE && (
+              {filteredDonors && filteredDonors.length > PAGE_SIZE && (
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 0', borderTop:'1px solid var(--line)' }}>
                   <button className="btn btn-sm" disabled={receiptPage === 1} onClick={() => setReceiptPage(p => Math.max(1, p - 1))}>Prev</button>
-                  <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Page {receiptPage} of {Math.ceil(donors.length / PAGE_SIZE)} ({donors.length} records)</span>
-                  <button className="btn btn-sm" disabled={receiptPage >= Math.ceil(donors.length / PAGE_SIZE)} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
+                  <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Page {receiptPage} of {Math.ceil(filteredDonors.length / PAGE_SIZE)} ({filteredDonors.length} records)</span>
+                  <button className="btn btn-sm" disabled={receiptPage >= Math.ceil(filteredDonors.length / PAGE_SIZE)} onClick={() => setReceiptPage(p => p + 1)}>Next</button>
                 </div>
               )}
             </div>

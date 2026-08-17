@@ -1067,6 +1067,19 @@ export const claimSuspenseReceipt = async (req, res) => {
         .single();
       if (dErr || !found) return res.status(404).json({ message: 'Donor not found' });
       donorName = found.name;
+      // Update the existing donor profile with any edits the FRO made in the
+      // claim form so Lead Verification shows the latest data.
+      const donorUpdate = {};
+      if (donor_name) donorUpdate.name = donor_name;
+      if (donor_mobile) donorUpdate.mobile_number = donor_mobile;
+      if (donor_city) donorUpdate.city = donor_city;
+      if (donor_email) donorUpdate.email = donor_email;
+      if (donor_pan) donorUpdate.pan_number = donor_pan;
+      if (donor_address) donorUpdate.address_1 = donor_address;
+      if (Object.keys(donorUpdate).length > 0) {
+        donorUpdate.updated_at = new Date().toISOString();
+        await db.from('donor_profiles').update(donorUpdate).eq('id', donorId);
+      }
     } else {
       const { data: existingDonor } = await db
         .from('donor_profiles')
@@ -1080,7 +1093,15 @@ export const claimSuspenseReceipt = async (req, res) => {
       } else {
         const { data: createdDonor, error: donorErr } = await db
           .from('donor_profiles')
-          .insert({ name: donorName, project_supported: receipt.project_id })
+          .insert({
+            name: donorName,
+            mobile_number: donor_mobile || `NOCELL-${Date.now()}`,
+            city: donor_city || null,
+            email: donor_email || null,
+            pan_number: donor_pan || null,
+            address_1: donor_address || null,
+            project_supported: receipt.project_id,
+          })
           .select()
           .single();
         if (donorErr) throw donorErr;

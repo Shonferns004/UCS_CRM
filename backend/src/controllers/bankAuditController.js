@@ -1036,7 +1036,7 @@ export const resolveSuspenseEntry = async (req, res) => {
         if (!donorId) {
           const { data: newDonor } = await db
             .from('donor_profiles')
-            .insert({ name: donor_name, mobile_number: donor_mobile || null })
+            .insert({ name: donor_name, mobile_number: donor_mobile || `NOCELL-${Date.now()}` })
             .select()
             .single();
           donorId = newDonor?.id;
