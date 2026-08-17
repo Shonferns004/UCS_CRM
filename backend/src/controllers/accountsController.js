@@ -490,13 +490,14 @@ export const quickVerifyLead = async (req, res) => {
     const { logId } = req.params;
     const { donor_name, donor_mobile, donor_pan, donor_address, donor_city, donor_email, project } = req.body;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) return res.status(404).json({ message: 'Lead not found' });
+    if (logError || !logs || logs.length === 0) return res.status(404).json({ message: 'Lead not found' });
+    const log = logs[0];
     if (log.accounts_status !== 'pending') return res.status(400).json({ message: `Lead is already ${log.accounts_status}` });
 
     const assignmentId = log.fro_assignments?.id;
