@@ -12,7 +12,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: staging
+    permissions:
+      pull-requests: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Deploy Backend to Staging EC2
         uses: appleboy/ssh-action@v1
         with:

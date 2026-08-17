@@ -30,12 +30,13 @@ if ! command -v pm2 &> /dev/null; then
   sudo pm2 startup systemd -u ec2-user --hp /home/ec2-user
 fi
 
-# ---- 3. Install Nginx ----
-echo "[3/8] Installing Nginx..."
-if ! command -v nginx &> /dev/null; then
-  sudo yum install -y nginx
-  sudo systemctl enable nginx
-  sudo systemctl start nginx
+# ---- 3. Install Caddy ----
+echo "[3/8] Installing Caddy..."
+if ! command -v caddy &> /dev/null; then
+  CADDY_VERSION=$(curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest | grep tag_name | cut -d '"' -f4)
+  curl -L "https://github.com/caddyserver/caddy/releases/download/${CADDY_VERSION}/caddy_${CADDY_VERSION#v}_linux_amd64.tar.gz" | sudo tar -C /usr/local/bin -xz caddy
+  sudo chmod +x /usr/local/bin/caddy
+  sudo mkdir -p /etc/caddy
 fi
 
 # ---- 4. Clone the repo ----
@@ -44,7 +45,8 @@ if [ ! -d /home/ec2-user/app ]; then
   git clone https://github.com/priyankshahdev-alt/UCS_CRM.git /home/ec2-user/app
 else
   cd /home/ec2-user/app
-  git pull origin master
+  git fetch origin
+  git reset --hard origin/master
 fi
 
 # ---- 5. Install backend dependencies ----
@@ -106,56 +108,51 @@ pm2 delete backend-staging 2>/dev/null || true
 pm2 start src/index.js --name backend-staging --update-env
 pm2 save
 
-# ---- 8. Configure Nginx for staging ----
-echo "[8/8] Configuring Nginx..."
-sudo tee /etc/nginx/conf.d/staging.conf > /dev/null << 'NGINXEOF'
-server {
-    listen 80;
-    server_name _;
+# ---- 8. Configure Caddy for staging ----
+echo "[8/8] Configuring Caddy..."
+sudo tee /etc/caddy/Caddyfile > /dev/null << 'CADDYEOF'
+:80 {
+    @api path /api/*
+    @socket path /socket.io/*
 
-    # Staging frontend
-    location / {
-        root /var/www/staging-crm;
-        index index.html;
-        try_files $uri $uri/ /index.html;
+    handle @api {
+        reverse_proxy 127.0.0.1:5000
     }
 
-    # Staging backend API
-    location /api/ {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
+    handle @socket {
+        reverse_proxy 127.0.0.1:5000
     }
 
-    # Socket.io support
-    location /socket.io/ {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 86400;
+    handle {
+        root * /var/www/staging-crm
+        try_files {path} /index.html
+        encode gzip
+        file_server
     }
 }
-NGINXEOF
+CADDYEOF
 
-# Remove default config that conflicts
-sudo rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
+sudo tee /etc/systemd/system/caddy.service > /dev/null << 'SERVICEEOF'
+[Unit]
+Description=Caddy
+After=network.target
 
-# Test and reload
-sudo nginx -t
-sudo systemctl reload nginx
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable caddy
+sudo systemctl restart caddy
 
 # ---- Done ----
 echo ""
