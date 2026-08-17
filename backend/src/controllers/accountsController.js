@@ -1412,18 +1412,18 @@ export const getReceiptList = async (req, res) => {
     const fromDate = (req.query.from_date || '').trim();
     const toDate = (req.query.to_date || '').trim();
     if (period === 'today') {
-      where.push(`receipt_date = (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'yesterday') {
-      where.push(`receipt_date = (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata' - INTERVAL '1 day')::date`);
+      where.push(`receipt_date = ((now() - INTERVAL '1 day') AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'week') {
-      where.push(`receipt_date >= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days')::date`);
-      where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date >= ((now() - INTERVAL '7 days') AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'month') {
-      where.push(`receipt_date >= date_trunc('month', CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
-      where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'year') {
-      where.push(`receipt_date >= date_trunc('year', CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
-      where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date >= date_trunc('year', now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     }
     if (fromDate) { params.push(fromDate); where.push(`receipt_date >= $${params.length}::date`); }
     if (toDate) { params.push(toDate); where.push(`receipt_date <= $${params.length}::date`); }
