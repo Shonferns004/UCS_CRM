@@ -40,3 +40,13 @@ jobs:
             cd ..
 
             pm2 restart backend --update-env
+
+            # ── Cleanup: remove test infrastructure ──
+            pm2 delete backend-test 2>/dev/null || true
+            pm2 save
+            sudo rm -rf /var/www/crm-test
+            sudo cp /etc/caddy/Caddyfile /tmp/Caddyfile.bak
+            sudo sed -i '/# --- BEGIN test-api.beingsevak.org ---/,/# --- END test-api.beingsevak.org ---/d' /etc/caddy/Caddyfile
+            sudo sed -i '/# --- BEGIN test-crm.beingsevak.org ---/,/# --- END test-crm.beingsevak.org ---/d' /etc/caddy/Caddyfile
+            sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy || echo "Caddy cleanup skipped"
+            echo "TEST INFRASTRUCTURE REMOVED"
