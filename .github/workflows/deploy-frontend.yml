@@ -10,7 +10,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: aws
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -40,3 +40,12 @@ jobs:
           source: "ucs crm/dist/*"
           target: /var/www/crm
           strip_components: 2
+
+      - name: Verify Frontend
+        run: |
+          STATUS=$(curl -sf "https://beingsevak.org" -o /dev/null -w "%{http_code}" || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            echo "Frontend is live (HTTP $STATUS)"
+          else
+            echo "Warning: Frontend returned HTTP $STATUS"
+          fi
