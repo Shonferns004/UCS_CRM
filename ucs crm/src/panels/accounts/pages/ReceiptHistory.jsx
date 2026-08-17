@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
+import * as JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { apiGet, apiPost, apiDelete } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
@@ -121,6 +123,11 @@ export default function ReceiptHistory() {
   const [ngoId, setNgoId] = useState('');
   const [ngoOptions, setNgoOptions] = useState([]);
   const [page, setPage] = useState(1);
+  const [period, setPeriod] = useState('today');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [todayDownloading, setTodayDownloading] = useState(false);
+  const [historyForDownload, setHistoryForDownload] = useState(null);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -145,6 +152,11 @@ export default function ReceiptHistory() {
     if (receiptTab === 'donors') params.set('link', 'donors');
     if (receiptTab === 'suspense') params.set('link', 'suspense');
     if (receiptTab === 'others') params.set('link', 'others');
+    if (period !== 'custom' && period) params.set('period', period);
+    if (period === 'custom') {
+      if (fromDate) params.set('from_date', fromDate);
+      if (toDate) params.set('to_date', toDate);
+    }
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -153,7 +165,7 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, searchQuery, receiptTab]);
+  }, [page, searchQuery, receiptTab, period, fromDate, toDate]);
 
   const runImport = useCallback(async (rows, ngoIdForImport) => {
     if (!rows || rows.length === 0) return;
@@ -326,7 +338,7 @@ export default function ReceiptHistory() {
     finally { setSuspenseLoading(false); }
   };
 
-  useEffect(() => { setPage(1); }, [searchQuery, receiptTab]);
+  useEffect(() => { setPage(1); }, [searchQuery, receiptTab, period, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -414,6 +426,45 @@ export default function ReceiptHistory() {
     setPreview(null);
     if (savedDetail) { setDonorDetail(savedDetail); setSavedDetail(null); }
   };
+
+  const handleDownloadTodayReceipts = async () => {
+    setTodayDownloading(true);
+    try {
+      const res = await apiGet('/accounts/receipts?period=today&limit=500');
+      const todayReceipts = res?.data || [];
+      if (todayReceipts.length === 0) { alert('No receipts for today'); setTodayDownloading(false); return; }
+      setHistoryForDownload(todayReceipts);
+    } catch (err) {
+      alert('Failed to fetch: ' + err.message);
+      setTodayDownloading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!historyForDownload || historyForDownload.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const ngoFolder = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' };
+      const zip = new JSZip();
+      const els = document.querySelectorAll('[data-dl-history]');
+      for (let i = 0; i < els.length && !cancelled; i++) {
+        const pdf = await generateReceiptPDF(els[i]);
+        const r = historyForDownload[i];
+        const ngo = r.project_id || 'bsct';
+        const folder = zip.folder(ngoFolder[ngo] || 'Other');
+        const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
+        folder.file(`${ngoFolder[ngo]}_${donorName}_${r.receipt_no || 'NA'}.pdf`, pdf.output('arraybuffer'));
+      }
+      if (!cancelled) {
+        const content = await zip.generateAsync({ type: 'blob' });
+        saveAs(content, `Receipts_Today_${new Date().toISOString().slice(0,10)}.zip`);
+        alert(`Downloaded ${historyForDownload.length} receipts`);
+      }
+      setHistoryForDownload(null);
+      setTodayDownloading(false);
+    })();
+    return () => { cancelled = true };
+  }, [historyForDownload]);
 
   return (
     <div>
@@ -641,6 +692,38 @@ export default function ReceiptHistory() {
       )}
 
       <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Receipt History</h3>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--ink-soft)' }}>{total} total receipts</p>
+          </div>
+          <button
+            onClick={handleDownloadTodayReceipts}
+            disabled={todayDownloading}
+            style={{
+              padding: '7px 14px', borderRadius: 8, border: 'none', background: '#5B6B4E', color: '#fff',
+              cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+              opacity: todayDownloading ? 0.6 : 1,
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            {todayDownloading ? 'Generating...' : "Download Today's Receipts"}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
+          {[{ k: 'today', l: 'Today' }, { k: 'week', l: 'This Week' }, { k: 'month', l: 'This Month' }, { k: 'year', l: 'This Year' }, { k: 'custom', l: 'Custom' }].map(f => (
+            <button key={f.k} className={`btn btn-sm${period === f.k ? ' btn-primary' : ''}`}
+              onClick={() => { setPeriod(f.k); setPage(1) }}>
+              {f.l}
+            </button>
+          ))}
+          {period === 'custom' && (<>
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
+            <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
+          </>)}
+        </div>
         <div className="filter-bar">
           <div style={{ display: 'flex', gap: 6 }}>
             <button className={`btn btn-sm${receiptTab === 'donors' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('donors')}>
@@ -714,6 +797,12 @@ export default function ReceiptHistory() {
           )}
         </div>
       </div>
+
+      {historyForDownload && historyForDownload.length <= 200 && historyForDownload.map((r, i) => {
+        const ngo = r.project_id || 'bsct';
+        const Comp = TEMPLATES[getTemplateId(ngo)];
+        return <div key={i} data-dl-history style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
+      })}
 
       {preview && (
         <>
