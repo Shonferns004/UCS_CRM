@@ -30,6 +30,7 @@ jobs:
           script: |
             set -e
             cd /home/ec2-user/app
+            git remote set-url origin https://github.com/priyankshahdev-alt/UCS_CRM.git
             git fetch origin
             git reset --hard origin/${{ github.ref_name }}
             # Only reinstall when dependency files changed; npm ci wipes
