@@ -31,3 +31,7 @@ client/assets/*.properties
 
 tmp_schema.sql
 aws/main.md
+temp_check.js
+temp_check.cjs
+backend/temp_check.js
+backend/temp_check.cjs
