@@ -80,7 +80,7 @@ jobs:
           strip_components: 2
 
       - name: Comment on PR
-        if: success()
+        if: success() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
