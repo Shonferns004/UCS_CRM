@@ -1398,9 +1398,46 @@ export const getReceiptList = async (req, res) => {
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
+
+    const period = (req.query.period || '').trim();
+    const fromDate = (req.query.from_date || '').trim();
+    const toDate = (req.query.to_date || '').trim();
+    if (period === 'today') {
+      where.push(`receipt_date = (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'week') {
+      where.push(`receipt_date >= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days')::date`);
+      where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'month') {
+      where.push(`receipt_date >= date_trunc('month', CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'year') {
+      where.push(`receipt_date >= date_trunc('year', CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+    }
+    if (fromDate) { params.push(fromDate); where.push(`receipt_date >= $${params.length}::date`); }
+    if (toDate) { params.push(toDate); where.push(`receipt_date <= $${params.length}::date`); }
+
+    const hasDateFilter = !!period || !!fromDate || !!toDate;
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
+
+    if (hasDateFilter) {
+      const rowsRes = await db._pool.query(
+        `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+                receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
+                donor_id, agent_name, sent, sent_at, created_at
+         FROM receipts ${whereSql}
+         ORDER BY receipt_date DESC, created_at DESC`,
+        params
+      );
+      return res.json({
+        data: rowsRes.rows,
+        total: totalRes.rows[0].n,
+        statsByProject: statsRes.rows,
+        projects: projectsRes.rows.map(p => p.project_id),
+      });
+    }
 
     params.push(limit, (page - 1) * limit);
     const rowsRes = await db._pool.query(
