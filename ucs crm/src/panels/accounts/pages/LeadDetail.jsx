@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { TimePicker } from '../../fro/components/TimePicker';
+import { ModernTimeInput } from '../components/ModernTimeInput';
 import { apiGet, apiPost } from '../api/auth';
 import { toast } from '../../../components/Toast';
 import { generateReceiptPDF } from '../services/pdfGenerator';
@@ -420,7 +420,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Time</div>
-                  {isPending?<div className="field-picker"><TimePicker value={form.transaction_time} onChange={e=>setField('transaction_time',e.target.value)} placeholder="Select time" /></div>:                  <div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{fmtTime12(form.transaction_time)||'NA'}</div>}
+                  {isPending?<div className="field-picker"><ModernTimeInput value={form.transaction_time} onChange={v=>setField('transaction_time',v)} placeholder="Select time" /></div>:                  <div style={{fontSize:12,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{fmtTime12(form.transaction_time)||'NA'}</div>}
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>From</div>
