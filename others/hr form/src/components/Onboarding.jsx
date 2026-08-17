@@ -53,9 +53,9 @@ export default function Onboarding() {
   const canvasRef = useRef(null)
 
   useEffect(() => {
-    api.policies().then(d => setPolicies(Array.isArray(d) ? d : d?.policies || [])).catch(() => {})
     const token = localStorage.getItem('ucs_token')
     if (token) {
+      api.policies().then(d => setPolicies(Array.isArray(d) ? d : d?.policies || [])).catch(() => {})
       api.onboardingStatus().then(() => {
         document.getElementById('login-screen').style.display = 'none'
         document.getElementById('wizard-screen').classList.remove('hidden')
@@ -196,6 +196,7 @@ export default function Onboarding() {
       const d = await api.login(id, pw)
       localStorage.setItem('ucs_token', d.token)
       localStorage.setItem('ucs_worker', JSON.stringify(d.user))
+      api.policies().then(p => setPolicies(Array.isArray(p) ? p : p?.policies || [])).catch(() => {})
       try {
         applyProfile(await api.myProfile())
       } catch {}
