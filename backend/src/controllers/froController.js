@@ -1144,9 +1144,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       ? (() => {
           const d = String(auditEntry.transaction_date);
           const datePart = d.includes('T') ? d.slice(0, 10) : d;
-          // Bank payment times are IST wall-clock; persist with the explicit
-          // offset so the stored timestamptz is the correct instant.
-          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}+05:30` : `${datePart}T00:00:00+05:30`;
+          return auditEntry.payment_time ? `${datePart}T${auditEntry.payment_time}` : datePart;
         })()
       : null;
 
@@ -1395,9 +1393,6 @@ export const getMyDonors = async (req, res) => {
     const offset = parseInt(req.query.offset, 10);
     let assignments = null;
 
-    const batchTypeFilter = req.query.new_only === 'true' ? 'new_data'
-      : req.query.old_only === 'true' ? 'old_data' : null;
-
     // Primary: donors assigned to the worker's stations (fro_station_assignments scope)
     if (effectiveStations.length > 0) {
       let query = db
@@ -1421,9 +1416,9 @@ export const getMyDonors = async (req, res) => {
         query = query.eq('status', statusFilter);
       }
 
-      if (batchTypeFilter) {
+      if (req.query.new_only === 'true') {
         if (req.query.station) {
-          query = query.eq('batch_type', batchTypeFilter);
+          query = query.eq('batch_type', 'new_data');
         } else {
           const batchIds = [];
           for (const sc of effectiveScope) {
@@ -1432,7 +1427,7 @@ export const getMyDonors = async (req, res) => {
                 .from('fro_assignments')
                 .select('batch_id')
                 .eq('station', sc.station)
-                .eq('batch_type', batchTypeFilter)
+                .eq('batch_type', 'new_data')
                 .not('status', 'eq', 'reassigned')
                 .order('assigned_at', { ascending: false })
                 .limit(1);
@@ -1446,33 +1441,50 @@ export const getMyDonors = async (req, res) => {
           if (batchIds.length > 0) {
             query = query.in('batch_id', [...new Set(batchIds)]);
           } else {
-            query = query.eq('batch_type', batchTypeFilter);
+            query = query.eq('batch_type', 'new_data');
+          }
+        }
+      } else if (req.query.old_only === 'true') {
+        if (req.query.station) {
+          query = query.eq('batch_type', 'old_data');
+        } else {
+          const batchIds = [];
+          for (const sc of effectiveScope) {
+            try {
+              let batchQ = db
+                .from('fro_assignments')
+                .select('batch_id')
+                .eq('station', sc.station)
+                .eq('batch_type', 'old_data')
+                .not('status', 'eq', 'reassigned')
+                .order('assigned_at', { ascending: false })
+                .limit(1);
+              if (sc.ngo_id) batchQ = batchQ.eq('ngo_id', sc.ngo_id);
+              const { data: lb } = await batchQ.maybeSingle();
+              if (lb?.batch_id) batchIds.push(lb.batch_id);
+            } catch (e) {
+              console.error(`getMyDonors batch query error ${sc.station}:`, e.message);
+            }
+          }
+          if (batchIds.length > 0) {
+            query = query.in('batch_id', [...new Set(batchIds)]);
+          } else {
+            query = query.eq('batch_type', 'old_data');
           }
         }
       }
 
-      let { data: primaryData, error: qErr } = await query;
+      const { data, error: qErr } = await query;
       if (qErr) {
         console.error('getMyDonors main query error:', qErr);
-        let retryQ = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
-        retryQ = withStationNgoPairs(retryQ, effectiveScope);
-        if (batchTypeFilter) retryQ = retryQ.eq('batch_type', batchTypeFilter);
-        const { data: retry } = await retryQ;
-        primaryData = retry || [];
+        query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
+        query = withStationNgoPairs(query, effectiveScope);
+        if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
+        else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
+        const { data: retry } = await query;
+        data = retry || [];
       }
-
-      // Fallback: if batch_type filter returned empty, try without it so
-      // assignments with null batch_type are included.
-      if (batchTypeFilter && (!primaryData || primaryData.length === 0)) {
-        let fallbackQ = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
-        fallbackQ = withStationNgoPairs(fallbackQ, effectiveScope);
-        const { data: fallbackData, error: fallbackErr } = await fallbackQ;
-        if (!fallbackErr && fallbackData && fallbackData.length > 0) {
-          primaryData = fallbackData;
-        }
-      }
-
-      assignments = primaryData || [];
+      assignments = data || [];
     }
 
     // Fallback: the worker's own assignments. This covers workers who have data
@@ -1499,35 +1511,11 @@ export const getMyDonors = async (req, res) => {
       } else if (statusFilter) {
         byWorkerQ = byWorkerQ.eq('status', statusFilter);
       }
-      if (batchTypeFilter) byWorkerQ = byWorkerQ.eq('batch_type', batchTypeFilter);
+      if (req.query.new_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'new_data');
+      else if (req.query.old_only === 'true') byWorkerQ = byWorkerQ.eq('batch_type', 'old_data');
       const { data: byWorker } = await byWorkerQ;
       if (byWorker && byWorker.length > 0) {
         assignments = byWorker;
-      } else if (batchTypeFilter) {
-        // Fallback: try without batch_type filter for null-batch_type assignments
-        let byWorkerFallbackQ = db
-          .from('fro_assignments')
-          .select('*, ngos(name)')
-          .eq('fro_worker_id', workerId)
-          .not('status', 'eq', 'reassigned');
-        if (effectiveStations.length > 0) {
-          byWorkerFallbackQ = byWorkerFallbackQ.in('station', effectiveStations);
-          byWorkerFallbackQ = withStationNgoPairs(byWorkerFallbackQ, effectiveScope);
-        } else {
-          if (req.query.station) byWorkerFallbackQ = byWorkerFallbackQ.eq('station', req.query.station);
-          if (req.query.ngo_id) byWorkerFallbackQ = byWorkerFallbackQ.eq('ngo_id', req.query.ngo_id);
-        }
-        if (statusGroup === 'not_connected') {
-          byWorkerFallbackQ = byWorkerFallbackQ.in('status', NOT_CONNECTED_STATUSES);
-        } else if (statusGroup === 'connected') {
-          byWorkerFallbackQ = byWorkerFallbackQ.in('status', CONNECTED_STATUSES);
-        } else if (statusFilter) {
-          byWorkerFallbackQ = byWorkerFallbackQ.eq('status', statusFilter);
-        }
-        const { data: byWorkerFallback } = await byWorkerFallbackQ;
-        if (byWorkerFallback && byWorkerFallback.length > 0) {
-          assignments = byWorkerFallback;
-        }
       }
     }
 
@@ -1619,38 +1607,47 @@ export const getMyDonors = async (req, res) => {
       // to collect — drop them out of the workable (pending/not-connected) pool
       // so they stop reappearing at the top of the FRO stack. Uses monthDonatedSet
       // (verified or not) so the status matches the "already donated" banner.
-const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
-        const displayStatus = staleDoneStatus
-          ? 'pending'
-          : (donatedThisPeriod && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
-        
-        // Map donation_collected to indicate monthly donation banner
-        if (displayStatus === 'donation_collected') {
-          // This indicates donor donated in current period - show banner
-        }
-        result.push({
-          id: d.id,
-          ngo_id: a.ngo_id,
-          ngo_name: a.ngos?.name || 'Unknown',
-          assignment_id: a.id,
-          station: a.station || '',
-          batch_type: a.batch_type || '',
-          donor_name: d.name || 'Unknown',
-          donor_mobile: d.mobile_number || '',
-          donor_city: d.city || '',
-          donor_amount: hasScopedSet.has(a.id) ? (d.amount || 0) : 0,
-          donor_email: d.email || '',
-          donor_pan: d.pan_number || '',
-          donor_project: d.project_supported || '',
-          donor_dob: d.birth_date || '',
-          donor_type: d.donor_type || '',
-          donor_address: d.address_1 || '',
-          donation_count: hasScopedSet.has(a.id) ? (d.donation_count || 0) : 0,
-          total_donated: hasScopedSet.has(a.id) ? (d.total_amount || 0) : 0,
-          has_donated_current_month: donatedThisPeriod,
-          has_verified_donation_current_month: evidence.periodVerifiedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair),
-          status: displayStatus,
-        });
+      const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
+      const displayStatus = staleDoneStatus
+        ? 'pending'
+        : (monthDonatedSet.has(a.id) && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
+      result.push({
+        id: a.donor_id,
+        donor_id: a.donor_id,
+        assignment_id: a.id,
+        ngo_id: a.ngo_id,
+        ngo_name: a.ngos?.name || 'Unknown',
+        station: a.station || '',
+        donor_mobile: d.mobile_number || '',
+        donor_name: d.name || 'Unknown',
+        donor_city: d.city || '',
+        donor_address: d.address_1 || '',
+        donor_amount: hasScopedSet.has(a.id) ? (d.amount || 0) : 0,
+        donor_email: d.email || '',
+        donor_pan: d.pan_number || '',
+        donor_project: d.project_supported || '',
+        donor_dob: d.birth_date || '',
+        donor_type: d.donor_type || '',
+        donation_count: hasScopedSet.has(a.id) ? (d.donation_count || 0) : 0,
+        total_donated: hasScopedSet.has(a.id) ? (d.total_amount || 0) : 0,
+        last_donation_date: hasScopedSet.has(a.id) ? (d.last_donation_date || null) : null,
+        first_donation_date: hasScopedSet.has(a.id) ? (d.first_donation_date || null) : null,
+        donor_frequency: d.donation_frequency || '',
+        has_donated_current_fy: activeSet.has(a.id),
+        has_donated_current_month: monthDonatedSet.has(a.id),
+        has_verified_donation_current_month: monthVerifiedSet.has(a.id),
+        is_active: activeSet.has(a.id),
+        status: staleDoneStatus ? 'pending' : rawStatus,
+        notes: a.notes || null,
+        last_contacted_at: a.last_contacted_at || null,
+        next_follow_up: a.next_follow_up || null,
+        assigned_at: a.assigned_at || null,
+        is_new: a.is_new !== false,
+        next_scheduled_at: s?.scheduled_at || null,
+        is_overdue: s ? new Date(s.scheduled_at) < new Date() : false,
+        schedule_id: s?.id || null,
+        schedule_notes: s?.notes || null,
+      });
     }
 
     // Aggregate all NGO names per donor (since dedup by donor_id loses NGO info)
