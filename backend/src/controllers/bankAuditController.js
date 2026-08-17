@@ -104,20 +104,21 @@ const fetchDonorProfile = async (id) => {
 // matches, the pending/processed checks are skipped (idempotent edit).
 const getClaimableLog = async (logId, currentLogId = null) => {
   if (!logId) return null;
-  const { data: log, error } = await db
-    .from('fro_donor_logs')
-    .select(`
-      id, amount_collected, accounts_status, fro_worker_id, payment_mode,
-      fro_assignments!inner(
-        id, donor_id, fro_worker_id,
-        donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name),
-        workers!inner(id, name, login_id)
-      )
-    `)
-    .eq('id', logId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!log) throw new Error('Selected lead not found');
+    const { data: logs, error: logErr } = await db
+      .from('fro_donor_logs')
+      .select(`
+        id, amount_collected, accounts_status, fro_worker_id, payment_mode,
+        fro_assignments!inner(
+          id, donor_id, fro_worker_id,
+          donor_profiles!inner(id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name),
+          workers!inner(id, name, login_id)
+        )
+      `)
+      .eq('id', logId)
+      .limit(1);
+    if (logErr) throw logErr;
+    if (!logs || logs.length === 0) throw new Error('Selected lead not found');
+    const log = logs[0];
 
   const { data: existingReceipt } = await db
     .from('receipts')
