@@ -1183,52 +1183,8 @@ export const claimSuspenseReceipt = async (req, res) => {
       } catch (e) { console.error('Failed to backfill receipt payment id from audit entry:', e.message); }
     }
 
-    // Dedupe: if this FRO already has an unresolved pending lead_done for the
-    // same donor (e.g. they marked the lead done before, accounts could not
-    // match it because the money was sitting in suspense), attach the claimed
-    // receipt to that existing lead instead of creating a duplicate pending
-    // lead in Lead Verification for the same donor + agent.
-    const { data: existingPendingLead } = await db
-      .from('fro_donor_logs')
-      .select('id')
-      .eq('donor_id', donorId)
-      .eq('fro_worker_id', workerId)
-      .eq('action', 'disposition')
-      .eq('disposition_detail', 'lead_done')
-      .eq('accounts_status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingPendingLead) {
-      const leadUpdates = {};
-      if (finalUpi) leadUpdates.upi_transaction_id = finalUpi;
-      if (finalTxn) leadUpdates.transaction_datetime = finalTxn;
-      if (finalMode) leadUpdates.payment_mode = finalMode;
-      if (finalFrom) leadUpdates.payment_from = finalFrom;
-      if (effectivePan) leadUpdates.pan_number = effectivePan;
-      if (Object.keys(leadUpdates).length > 0) {
-        await db.from('fro_donor_logs').update(leadUpdates).eq('id', existingPendingLead.id);
-      }
-      const { error: updErr } = await db.from('receipts').update({ log_id: existingPendingLead.id }).eq('id', receiptId);
-      if (updErr) throw updErr;
-      await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
-      await linkClaimAuditEntry(auditEntry, receiptId, existingPendingLead.id, workerId, donorId);
-      try {
-        const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);
-        for (const u of (accounts || [])) {
-          await db.from('notification_log').insert({
-            worker_id: u.id,
-            type: 'claim_requested',
-            title: 'Suspense Claim',
-            body: `${req.user.name || 'An FRO'} linked a suspense receipt of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} to their existing pending lead for ${claimedDonorName} — ready to verify.`,
-            sent_at: new Date().toISOString(),
-          });
-        }
-      } catch (e) { console.error('Claim notification error:', e.message); }
-      findAutoMatches().catch((err) => console.error('Auto-match after suspense claim failed:', err.message));
-      return res.status(201).json({ message: `Claimed for ${claimedDonorName} — added to your existing pending lead`, log_id: existingPendingLead.id });
-    }
+    // Dedup removed: each claimed receipt now creates its own lead in Lead
+    // Verification so accounts sees every payment separately.
 
     // Resolve the receipt's project_id to an ngo_id first — the assignment must
     // match the receipt's NGO, not just any prior assignment for this donor.
