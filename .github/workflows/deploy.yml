@@ -25,6 +25,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /home/ec2-user/app
+            git remote set-url origin https://github.com/priyankshahdev-alt/UCS_CRM.git
             git fetch origin
             git reset --hard origin/master
             if git diff HEAD@{1} --name-only | grep -qE 'backend/(package.json|package-lock.json)'; then
