@@ -1205,7 +1205,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       .eq('donor_id', donorId)
       .eq('fro_worker_id', workerId)
       .eq('ngo_id', receiptNgoId)
-      .not('status', 'in', '(reassigned,donation_collected,lead_done,done)')
+      .neq('status', 'reassigned')
       .maybeSingle();
 
     let assignmentId = assignment?.id;
@@ -1251,7 +1251,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       .single();
     if (logErr) throw logErr;
 
-    const { error: updErr } = await db.from('receipts').update({ log_id: log.id }).eq('id', receiptId);
+    const { error: updErr } = await db.from('receipts').update({ log_id: log.id, agent_name: req.user.name }).eq('id', receiptId);
     if (updErr) throw updErr;
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
@@ -1694,8 +1694,8 @@ export const getMyDonors = async (req, res) => {
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
     // Use ALL donor_ids in the station (before dedup) to find hidden lead_done
+    // Only hide donors when ALL their leads are verified/rejected (none pending)
     const hiddenLeadDoneIds = new Set();
-    const rejectedLeadDoneIds = new Set();
     if (donorIds.length > 0) {
       const leadDoneLogs = await chunkedInQuery(donorIds, chunk =>
         db.from('fro_donor_logs').select('donor_id, accounts_status').in('donor_id', chunk)
@@ -1704,11 +1704,15 @@ export const getMyDonors = async (req, res) => {
           .gte('created_at', monthStart)
           .lte('created_at', monthEnd)
       );
+      const donorStatuses = new Map();
       for (const log of leadDoneLogs) {
-        hiddenLeadDoneIds.add(log.donor_id);
-        if (log.accounts_status === 'rejected') rejectedLeadDoneIds.add(log.donor_id);
+        if (!donorStatuses.has(log.donor_id)) donorStatuses.set(log.donor_id, []);
+        donorStatuses.get(log.donor_id).push(log.accounts_status);
       }
-      for (const id of rejectedLeadDoneIds) hiddenLeadDoneIds.delete(id);
+      for (const [donorId, statuses] of donorStatuses) {
+        const hasPending = statuses.some(s => s === 'pending');
+        if (!hasPending) hiddenLeadDoneIds.add(donorId);
+      }
     }
 
     const filtered = req.query.verified_only === 'true'
