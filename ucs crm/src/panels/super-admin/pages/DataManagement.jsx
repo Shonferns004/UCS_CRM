@@ -273,6 +273,212 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
   )
 }
 
+function FreshDataImport({ dataSources, ngos, onError, onBatchUpdate, stations, freshNgoStations, setFreshNgoStations }) {
+  const [date, setDate] = useState(todayStr)
+  const [dataSourceId, setDataSourceId] = useState('')
+  const [file, setFile] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState(null)
+  const [progress, setProgress] = useState(null)
+
+  const toggleStation = (ngoName, station) => {
+    setFreshNgoStations(prev => {
+      const current = prev[ngoName] || []
+      const next = current.includes(station)
+        ? current.filter(s => s !== station)
+        : [...current, station]
+      return { ...prev, [ngoName]: next }
+    })
+  }
+
+  const selectAllStations = (ngoName) => {
+    setFreshNgoStations(prev => ({ ...prev, [ngoName]: [...stations] }))
+  }
+
+  const clearStations = (ngoName) => {
+    setFreshNgoStations(prev => ({ ...prev, [ngoName]: [] }))
+  }
+
+  const hasAnyStations = Object.values(freshNgoStations).some(arr => arr && arr.length > 0)
+
+  const handleImport = async () => {
+    if (!file || !date || !dataSourceId || !hasAnyStations) return
+    setImporting(true); onError(''); setResult(null)
+    try {
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const wb = XLSX.read(evt.target.result, { type: 'array' });
+          let allRows = [];
+          for (const sn of wb.SheetNames) {
+            const ws = wb.Sheets[sn];
+            if (!ws) continue;
+            const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+            for (const row of json) {
+              const norm = {};
+              for (const [k, v] of Object.entries(row)) {
+                const key = k.toString().toLowerCase().replace(/[\s_\-./]+/g, '').trim();
+                norm[key] = v;
+              }
+              const name = norm.name || norm.fullname || norm.donorname || '';
+              const mobile = norm.mobilenumber || norm.mobile || norm.phone || norm.mobileno || '';
+              const category = norm.category || norm.datacategory || norm.data || '';
+              const rawAmt = (norm.amount || norm.dummyamount || '0').toString().replace(/,/g, '');
+              const amount = parseFloat(rawAmt) || 0;
+              if (name && mobile) {
+                allRows.push({ name: String(name).trim(), mobile_number: String(mobile).trim(), category: String(category).trim(), amount });
+              }
+            }
+          }
+          const seen = new Set();
+          const deduped = allRows.filter(r => { if (seen.has(r.mobile_number)) return false; seen.add(r.mobile_number); return true; });
+          if (deduped.length === 0) { onError('No valid rows found in file'); setImporting(false); return }
+
+          const CHUNK_SIZE = 500;
+          const chunks = [];
+          for (let i = 0; i < deduped.length; i += CHUNK_SIZE) chunks.push(deduped.slice(i, i + CHUNK_SIZE));
+
+          setProgress({ current: 0, total: chunks.length, label: `Parsing complete. Uploading ${deduped.length} donors in ${chunks.length} chunks...` });
+
+          let totalInserted = 0;
+          let batchId = null;
+          const ngoResults = {};
+
+          for (let i = 0; i < chunks.length; i++) {
+            setProgress({ current: i + 1, total: chunks.length, label: `Uploading chunk ${i + 1}/${chunks.length}` });
+            const body = {
+              rows: chunks[i],
+              data_source_id: dataSourceId,
+              import_date: date,
+              chunk_index: i,
+              total_chunks: chunks.length,
+              fresh_data: true,
+              ngo_stations: freshNgoStations,
+            };
+            if (batchId) body.batch_id = batchId;
+            const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
+            totalInserted += res.inserted;
+            if (res.batch_id) batchId = res.batch_id;
+            if (res.ngo_results) {
+              for (const [n, r] of Object.entries(res.ngo_results)) {
+                if (!ngoResults[n]) ngoResults[n] = { imported: 0, assigned: 0, station_breakdown: {} };
+                ngoResults[n].imported += r.imported || 0;
+                ngoResults[n].assigned += r.assigned || 0;
+                if (r.station_breakdown) {
+                  for (const [st, cnt] of Object.entries(r.station_breakdown)) {
+                    ngoResults[n].station_breakdown[st] = (ngoResults[n].station_breakdown[st] || 0) + cnt;
+                  }
+                }
+              }
+            }
+          }
+
+          setProgress(null);
+          const totalAssigned = Object.values(ngoResults).reduce((sum, r) => sum + (r.assigned || 0), 0);
+          setResult({
+            message: `Fresh data imported for ${Object.keys(freshNgoStations).filter(k => freshNgoStations[k]?.length > 0).length} NGO(s)`,
+            batch_id: batchId,
+            total_in_file: allRows.length,
+            imported: totalInserted,
+            assigned_donors: totalAssigned,
+            ngo_results: ngoResults,
+            fresh_data: true,
+          });
+          if (onBatchUpdate) onBatchUpdate();
+        } catch (e) { onError(e.message); setProgress(null); setImporting(false) }
+      };
+      reader.onerror = () => { onError('Failed to read file'); setImporting(false) };
+      reader.readAsArrayBuffer(file);
+    } catch (e) { onError(e.message); setImporting(false) }
+  }
+
+  return (
+    <>
+      <div className="sa-card">
+        <h3 className="sa-card-title">Upload Fresh New Data</h3>
+        <p className="sa-muted" style={{marginBottom:12}}>
+          Upload fresh donor data with NGO+Station selection. Donors are globally deduplicated and distributed round-robin across selected stations.
+        </p>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          <label className="field">Import Date <input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+          <label className="field">Data Source
+            <select value={dataSourceId} onChange={e => setDataSourceId(e.target.value)}>
+              <option value="">— Select —</option>
+              {dataSources.map(ds => <option key={ds.id} value={ds.id}>{ds.name}</option>)}
+            </select>
+          </label>
+          <label className="field">Excel / CSV File <input type="file" accept=".xlsx,.xls,.csv" onChange={e => { setFile(e.target.files[0]); setResult(null) }} /></label>
+
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:13, fontWeight:600, marginBottom:8, color:'var(--ink)'}}>Select Stations per NGO</div>
+            {ngos.map(ngo => (
+              <div key={ngo.id} style={{marginBottom:12, padding:12, background:'#fafafa', borderRadius:8, border:'1px solid var(--line, #e5e7eb)'}}>
+                <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:8}}>
+                  <span style={{fontWeight:600, fontSize:13, color:'var(--ink)', minWidth:120}}>{ngo.name}</span>
+                  <button className="btn btn-sm" onClick={() => selectAllStations(ngo.name)} style={{fontSize:11, padding:'2px 8px'}}>All</button>
+                  <button className="btn btn-sm" onClick={() => clearStations(ngo.name)} style={{fontSize:11, padding:'2px 8px'}}>None</button>
+                  {freshNgoStations[ngo.name]?.length > 0 && (
+                    <span className="sa-badge" style={{background:'#eef2ff', color:'#4338ca', padding:'2px 8px', borderRadius:4, fontSize:11}}>
+                      {freshNgoStations[ngo.name].length} selected
+                    </span>
+                  )}
+                </div>
+                <div style={{display:'flex', flexWrap:'wrap', gap:4}}>
+                  {stations.map(st => (
+                    <label key={st} style={{display:'flex', alignItems:'center', gap:3, cursor:'pointer', fontSize:11,
+                      background: (freshNgoStations[ngo.name] || []).includes(st) ? '#eef2ff' : '#f5f5f5',
+                      padding:'3px 8px', borderRadius:4, border:'1px solid var(--line, #e5e7eb)'}}>
+                      <input type="checkbox" checked={(freshNgoStations[ngo.name] || []).includes(st)}
+                        onChange={() => toggleStation(ngo.name, st)} />
+                      {st}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="sa-filters" style={{marginTop:8}}>
+            <button className="btn btn-primary" onClick={handleImport} disabled={importing || !file || !dataSourceId || !hasAnyStations}>
+              {importing ? 'Importing…' : 'Upload Fresh Data'}
+            </button>
+          </div>
+        </div>
+      </div>
+      {progress && <ProgressModal current={progress.current} total={progress.total} label={progress.label} />}
+      {result && (
+        <div className="sa-card">
+          <h3 className="sa-card-title" style={{color:'#10b981'}}>Import Complete</h3>
+          <div className="sa-stat-grid" style={{gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))'}}>
+            <div className="sa-stat-card"><div className="sa-stat-label">Total in File</div><div className="sa-stat-value">{result.total_in_file}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#10b981'}}><div className="sa-stat-label">Imported</div><div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#7c3aed'}}><div className="sa-stat-label">Assigned to FROs</div><div className="sa-stat-value" style={{color:'#7c3aed'}}>{result.assigned_donors || 0}</div></div>
+          </div>
+          {result.ngo_results && Object.keys(result.ngo_results).length > 0 && (
+            <div style={{marginTop:12, borderTop:'1px solid var(--line)', paddingTop:12}}>
+              <div style={{fontSize:13, fontWeight:600, marginBottom:8, color:'var(--ink)'}}>Per-NGO Breakdown</div>
+              {Object.entries(result.ngo_results).map(([ngo, r]) => (
+                <div key={ngo} style={{marginBottom:8, padding:8, background:'#fafafa', borderRadius:6}}>
+                  <div style={{fontWeight:600, fontSize:13, color:'#4338ca', marginBottom:4}}>{ngo}: {r.imported} imported, {r.assigned} assigned</div>
+                  {r.station_breakdown && Object.keys(r.station_breakdown).length > 0 && (
+                    <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                      {Object.entries(r.station_breakdown).map(([st, cnt]) => (
+                        <span key={st} className="sa-badge" style={{background:'#f3e8ff', color:'#7c3aed', padding:'2px 8px', borderRadius:4, fontSize:11}}>
+                          {cnt} → {st}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 export default function DataManagement() {
   const [tab, setTab] = useState('import')
   const [sources, setSources] = useState([])
@@ -292,6 +498,9 @@ export default function DataManagement() {
   const [copyMobileFile, setCopyMobileFile] = useState(null)
   const [copying, setCopying] = useState(false)
   const [copyResult, setCopyResult] = useState(null)
+
+  const STATIONS = Array.from({ length: 23 }, (_, i) => `FD-${i + 1}`)
+  const [freshNgoStations, setFreshNgoStations] = useState({})
 
   const loadSources = useCallback(() => {
     api('/data-sources').then(setSources).catch(e => setErr(e.message))
@@ -384,6 +593,7 @@ export default function DataManagement() {
       <div className="sa-tabs">
         <button className={`sa-tab${tab === 'sources' ? ' active' : ''}`} onClick={() => setTab('sources')}>Data Sources</button>
         <button className={`sa-tab${tab === 'import' ? ' active' : ''}`} onClick={() => setTab('import')}>Import</button>
+        <button className={`sa-tab${tab === 'fresh' ? ' active' : ''}`} onClick={() => setTab('fresh')}>Fresh New Data</button>
         <button className={`sa-tab${tab === 'history' ? ' active' : ''}`} onClick={() => { setTab('history'); loadBatches() }}>History ({batches.length})</button>
         <button className={`sa-tab${tab === 'old' ? ' active' : ''}`} onClick={() => setTab('old')}>Old Data</button>
         <button className={`sa-tab${tab === 'copy' ? ' active' : ''}`} onClick={() => setTab('copy')}>Copy to NGOs</button>
@@ -442,6 +652,18 @@ export default function DataManagement() {
           onNgoChange={(id) => setSelectedNgoIds(prev =>
             prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
           )}
+        />
+      )}
+
+      {tab === 'fresh' && (
+        <FreshDataImport
+          dataSources={sources}
+          ngos={ngos}
+          onError={setErr}
+          onBatchUpdate={loadBatches}
+          stations={STATIONS}
+          freshNgoStations={freshNgoStations}
+          setFreshNgoStations={setFreshNgoStations}
         />
       )}
 

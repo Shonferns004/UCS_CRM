@@ -322,6 +322,7 @@ export default function StationManagement() {
   });
   const [selectedNgoId, setSelectedNgoId] = useState(null);
   const [uploadStation, setUploadStation] = useState(null);
+  const [stationTab, setStationTab] = useState('all');
 
   useEffect(() => {
     if (!msg) return;
@@ -409,6 +410,12 @@ export default function StationManagement() {
 
   const activeTransfers = transfers.filter(t => !t.returned);
   const historyTransfers = transfers.filter(t => t.returned);
+
+  const filteredStations = stations.filter(s => {
+    if (stationTab === 'fresh') return s.station?.startsWith('FD-');
+    if (stationTab === 'old') return !s.station?.startsWith('FD-');
+    return true;
+  });
 
   const handleAddStation = async () => {
     if (!newStation.trim()) return;
@@ -518,7 +525,7 @@ export default function StationManagement() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <h3>Stations</h3>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span className="count">{stations.length} stations</span>
+              <span className="count">{filteredStations.length} stations</span>
               <button className="btn btn-sm btn-outline" onClick={async () => {
                 try {
                   const res = await apiPost('/ngo-admin/stations/seed', { ngo_id: selectedNgoId })
@@ -529,6 +536,17 @@ export default function StationManagement() {
                 }
               }} style={{ fontSize: 11 }}>
                 Seed Default Stations
+              </button>
+              <button className="btn btn-sm btn-outline" onClick={async () => {
+                try {
+                  const res = await apiPost('/ngo-admin/stations/seed', { ngo_id: selectedNgoId, fresh: true })
+                  setMsg(res.message || 'FD Stations seeded')
+                  fetchData()
+                } catch (err) {
+                  setMsg('Error: ' + err.message)
+                }
+              }} style={{ fontSize: 11, color: '#1e40af', borderColor: '#93c5fd' }}>
+                Seed FD Stations
               </button>
               <button className="btn btn-sm btn-outline" onClick={async () => {
                 try {
@@ -557,12 +575,27 @@ export default function StationManagement() {
               );
             })}
           </div>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 8, padding: 2, marginTop: 4 }}>
+            {[
+              { key: 'all', label: 'All Stations' },
+              { key: 'old', label: 'OLD Stations' },
+              { key: 'fresh', label: 'FRESH Stations (FD)' },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => setStationTab(tab.key)}
+                style={{ padding: '4px 12px', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', background: stationTab === tab.key ? '#fff' : 'transparent', color: stationTab === tab.key ? 'var(--ink)' : 'var(--ink-soft)', boxShadow: stationTab === tab.key ? '0 1px 3px rgba(0,0,0,.1)' : 'none' }}>
+                {tab.label}
+                <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 400, opacity: .6 }}>
+                  ({stationTab === tab.key ? filteredStations.length : stations.filter(s => tab.key === 'all' ? true : tab.key === 'fresh' ? s.station?.startsWith('FD-') : !s.station?.startsWith('FD-')).length})
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
         <div className="card-pad">
           {loading ? (
             <div className="loading">Loading stations...</div>
-          ) : stations.length === 0 ? (
-            <div className="empty-state"><p>No stations found. Add a station above to get started.</p></div>
+          ) : filteredStations.length === 0 ? (
+            <div className="empty-state"><p>No {stationTab === 'fresh' ? 'FRESH (FD)' : stationTab === 'old' ? 'OLD' : ''} stations found for this NGO.</p></div>
           ) : (
             <table>
               <thead>
@@ -581,10 +614,11 @@ export default function StationManagement() {
                 </tr>
               </thead>
               <tbody>
-                {stations.map((s, i) => (
+                {filteredStations.map((s, i) => (
                   <tr key={s.station}>
                     <td>
                       <strong>{s.station}</strong>
+                      {s.station?.startsWith('FD-') && <span style={{ marginLeft: 4, fontSize: 10, padding: '1px 5px', borderRadius: 4, background: '#dbeafe', color: '#1e40af', fontWeight: 600 }}>FRESH</span>}
                       {(() => {
                         const at = activeTransfers.find(t => t.station?.trim() === s.station?.trim());
                         return at ? <span style={{ marginLeft: 6, fontSize: 13, color: '#b45309', fontWeight: 500 }}>→ {at.target_station}</span> : null;
