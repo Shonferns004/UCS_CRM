@@ -116,6 +116,7 @@ export default function ReceiptHistory() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
   const [uploadMode, setUploadMode] = useState('receipts');
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [namesImporting, setNamesImporting] = useState(false);
   const [namesResult, setNamesResult] = useState(null);
   const [namesUploadProgress, setNamesUploadProgress] = useState(0);
@@ -465,6 +466,16 @@ export default function ReceiptHistory() {
   return (
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
+        <div
+          onClick={() => setUploadOpen(o => !o)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer', borderBottom: uploadOpen ? '1px solid var(--line)' : 'none' }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: uploadOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+        {uploadOpen && (
         <div className="card-pad">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -612,6 +623,7 @@ export default function ReceiptHistory() {
             )}
           </details>
         </div>
+        )}
       </div>
       {loading ? (
         <div className="stats-grid receipt-history-stats">
@@ -719,15 +731,14 @@ export default function ReceiptHistory() {
             <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
               style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
           </>)}
-          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
-        </div>
-        <div className="filter-bar" style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
           <input
             className="search-input"
             placeholder="Search by receipt no or donor name..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
+            style={{ flex: 1, minWidth: 200, maxWidth: 300 }}
           />
+          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
         </div>
         <div className="table-wrap">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
