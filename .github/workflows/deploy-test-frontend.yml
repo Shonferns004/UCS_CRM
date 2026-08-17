@@ -3,7 +3,7 @@ name: Deploy Test Frontend (ucs crm)
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [master, developer]
     paths:
       - 'ucs crm/**'
       - '.github/workflows/deploy-test-frontend.yml'
