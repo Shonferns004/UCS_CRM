@@ -481,6 +481,13 @@ class QueryBuilder {
       if (this.op === 'delete') return await this._execDelete();
       return { data: null, error: null };
     } catch (err) {
+      // Inside a PostgreSQL transaction any error automatically aborts the
+      // entire transaction.  Returning the error as a result object lets the
+      // caller continue executing queries on the same (now dead) transaction
+      // client, which surfaces the generic "current transaction is aborted"
+      // error and masks the real cause.  Re-throw immediately so the
+      // transaction wrapper can ROLLBACK and propagate the original error.
+      if (txStore.getStore()) throw err;
       return {
         data: null,
         error: {
