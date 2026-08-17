@@ -100,8 +100,10 @@ export const getWorkerByLoginId = async (login_id) => {
     .from('workers')
     .select('*')
     .eq('login_id', login_id)
-    .single();
-  if (error && error.code !== 'PGRST116') throw error;
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
   return data;
 };
 
