@@ -177,7 +177,7 @@ export const verifyLead = async (req, res) => {
 
     const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
-      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), workers!left(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
       .limit(1);
 
@@ -349,6 +349,7 @@ export const verifyLead = async (req, res) => {
         bank_payer_name: existing.bank_payer_name || oldPayerName || null,
         bank_name: donorProfile?.donors_bank_name || null,
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
+        agent_name: existing.agent_name === 'Suspense' ? (log.fro_assignments?.workers?.name || existing.agent_name) : existing.agent_name,
       };
       if (!existing.receipt_no) {
         existing.receipt_no = await getNextReceiptNo(existing.project_id || project);
