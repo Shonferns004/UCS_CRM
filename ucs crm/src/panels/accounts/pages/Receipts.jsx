@@ -11,14 +11,13 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak'
 import BulkProgressModal from '../components/BulkProgressModal'
 import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
+import ReceiptHistory from './ReceiptHistory'
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
   mann: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
   aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'aflf_receipt', metaLang: 'en' },
 }
-
-const PROJECT_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' }
 
 function getNgoSettings(project) {
   const saved = localStorage.getItem('receipt_template_settings')
@@ -228,41 +227,11 @@ export default function Receipts() {
   const [goBackRow, setGoBackRow] = useState(null)
   const [goBackSubmitting, setGoBackSubmitting] = useState(false)
 
-  const [historyPeriod, setHistoryPeriod] = useState('today')
-  const [historyFrom, setHistoryFrom] = useState('')
-  const [historyTo, setHistoryTo] = useState('')
-  const [historyData, setHistoryData] = useState([])
-  const [historyTotal, setHistoryTotal] = useState(0)
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyPage, setHistoryPage] = useState(1)
-  const [historyDownloading, setHistoryDownloading] = useState(false)
-  const [historyForDownload, setHistoryForDownload] = useState(null)
-
   const filteredDonors = donors
     ? (ngoFilter === 'all' ? donors : donors.filter(d => (d['Project'] || 'bsct') === ngoFilter))
     : donors
 
   useEffect(() => { setReceiptPage(1) }, [ngoFilter])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    ;(async () => {
-      setHistoryLoading(true)
-      const params = new URLSearchParams({ page: historyPage, limit: 50 })
-      if (historyPeriod !== 'custom' && historyPeriod) params.set('period', historyPeriod)
-      if (historyPeriod === 'custom') {
-        if (historyFrom) params.set('from_date', historyFrom)
-        if (historyTo) params.set('to_date', historyTo)
-      }
-      try {
-        const res = await apiGet(`/accounts/receipts?${params}`)
-        setHistoryData(res?.data || [])
-        setHistoryTotal(res?.total || 0)
-      } catch { setHistoryData([]); setHistoryTotal(0) }
-      setHistoryLoading(false)
-    })()
-    return () => controller.abort()
-  }, [historyPeriod, historyFrom, historyTo, historyPage])
 
   const removeFromPending = useCallback((receiptId) => {
     setDonors(current => (current || []).filter(donor => donor.receipt_id !== receiptId))
@@ -452,45 +421,6 @@ export default function Receipts() {
       setGoBackRow(null)
     }
   }
-
-  const handleDownloadTodayReceipts = async () => {
-    setHistoryDownloading(true)
-    try {
-      const res = await apiGet('/accounts/receipts?period=today&limit=500')
-      const todayReceipts = res?.data || []
-      if (todayReceipts.length === 0) { showToast('info', 'No receipts for today'); setHistoryDownloading(false); return }
-      setHistoryForDownload(todayReceipts)
-    } catch (e) {
-      showToast('error', 'Failed to fetch: ' + e.message)
-      setHistoryDownloading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!historyForDownload || historyForDownload.length === 0) return
-    let cancelled = false
-    ;(async () => {
-      const ngoFolder = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' }
-      const zip = new JSZip()
-      const els = document.querySelectorAll('[data-dl-history]')
-      for (let i = 0; i < els.length && !cancelled; i++) {
-        const pdf = await generateReceiptPDF(els[i])
-        const r = historyForDownload[i]
-        const ngo = r.project_id || 'bsct'
-        const folder = zip.folder(ngoFolder[ngo] || 'Other')
-        const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim()
-        folder.file(`${ngoFolder[ngo]}_${donorName}_${r.receipt_no || 'NA'}.pdf`, pdf.output('arraybuffer'))
-      }
-      if (!cancelled) {
-        const content = await zip.generateAsync({ type: 'blob' })
-        saveAs(content, `Receipts_Today_${new Date().toISOString().slice(0,10)}.zip`)
-        showToast('success', `Downloaded ${historyForDownload.length} receipts`)
-      }
-      setHistoryForDownload(null)
-      setHistoryDownloading(false)
-    })()
-    return () => { cancelled = true }
-  }, [historyForDownload])
 
   const handleConfirmBulkSend = async () => {
     setConfirmBulk({ visible:false, donorCount:0 })
@@ -691,93 +621,7 @@ export default function Receipts() {
             </div>
           </div>
 
-          <div className="card" style={{ marginTop:16 }}>
-            <div className="card-pad">
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-                <div>
-                  <h3 style={{ margin:0, fontSize:15, fontWeight:600 }}>Receipt History</h3>
-                  <p style={{ margin:'3px 0 0', fontSize:11, color:'var(--ink-soft)' }}>
-                    {historyTotal} total receipts
-                  </p>
-                </div>
-                <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
-                  onClick={handleDownloadTodayReceipts} disabled={historyDownloading}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  {historyDownloading ? 'Generating...' : "Download Today's Receipts"}
-                </button>
-              </div>
-
-              <div style={{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
-                {[{ k:'today', l:'Today' }, { k:'week', l:'This Week' }, { k:'month', l:'This Month' }, { k:'year', l:'This Year' }, { k:'custom', l:'Custom' }].map(f => (
-                  <button key={f.k} className="btn btn-sm"
-                    onClick={() => { setHistoryPeriod(f.k); setHistoryPage(1) }}
-                    style={{ background: historyPeriod === f.k ? '#5B6B4E' : '#f3f4f6', color: historyPeriod === f.k ? '#fff' : '#374151', border:'none', fontWeight:600 }}>
-                    {f.l}
-                  </button>
-                ))}
-                {historyPeriod === 'custom' && (<>
-                  <input type="date" value={historyFrom} onChange={e => { setHistoryFrom(e.target.value); setHistoryPage(1) }}
-                    style={{ fontSize:12, padding:'4px 8px', borderRadius:6, border:'1px solid #d1d5db' }} />
-                  <span style={{ fontSize:12, color:'#6b7280' }}>to</span>
-                  <input type="date" value={historyTo} onChange={e => { setHistoryTo(e.target.value); setHistoryPage(1) }}
-                    style={{ fontSize:12, padding:'4px 8px', borderRadius:6, border:'1px solid #d1d5db' }} />
-                </>)}
-              </div>
-
-              {historyData.length > 0 && (
-                <div style={{ fontSize:12, color:'var(--ink-soft)', marginBottom:8 }}>
-                  Showing {historyData.length} of {historyTotal} receipts · Total: {formatIndianCurrency(historyData.reduce((s, r) => s + Number(r.amount || 0), 0))}
-                </div>
-              )}
-
-              <div style={{ overflowX:'auto' }}>
-                <table className="table-wrap" style={{ width:'100%', fontSize:12 }}>
-                  <thead>
-                    <tr>
-                      <th>#</th><th>Agent Name</th><th>Donor Name</th><th>Mobile</th><th>Address</th>
-                      <th>PAN</th><th>Email</th><th>MOP</th><th>Payment ID</th><th>Donor Bank</th>
-                      <th>Amount</th><th>Receipt No.</th><th>Receipt Date</th><th>Time</th><th>Project</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyLoading ? (
-                      Array.from({ length:5 }).map((_, i) => (
-                        <tr key={i}>{Array.from({ length:15 }).map((_, j) => <td key={j}><div className="sk" style={{ width:'80%', height:12, borderRadius:3 }} /></td>)}</tr>
-                      ))
-                    ) : historyData.length === 0 ? (
-                      <tr><td colSpan={15} style={{ textAlign:'center', padding:30, color:'var(--ink-soft)' }}>No receipts found for this period.</td></tr>
-                    ) : historyData.map((r, i) => (
-                      <tr key={r.id || i}>
-                        <td>{(historyPage - 1) * 50 + i + 1}</td>
-                        <td style={{ fontSize:11 }}>{r.agent_name || '\u2014'}</td>
-                        <td style={{ fontWeight:500 }}>{r.donor_name || '\u2014'}</td>
-                        <td style={{ fontSize:11 }}>{r.donor_mobile || '\u2014'}</td>
-                        <td style={{ fontSize:11, maxWidth:150, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={r.address}>{r.address || '\u2014'}</td>
-                        <td style={{ fontSize:11, fontFamily:'monospace' }}>{r.pan_number || '\u2014'}</td>
-                        <td style={{ fontSize:11 }}>{r.email || '\u2014'}</td>
-                        <td>{r.mode || '\u2014'}</td>
-                        <td style={{ fontSize:10, fontFamily:'monospace' }} title={r.payment_id}>{r.payment_id ? (r.payment_id.length > 16 ? r.payment_id.slice(0, 16) + '\u2026' : r.payment_id) : '\u2014'}</td>
-                        <td style={{ fontSize:11 }}>{r.bank_name || '\u2014'}</td>
-                        <td style={{ color:'#059669', fontWeight:600 }}>{formatIndianCurrency(r.amount)}</td>
-                        <td style={{ fontFamily:'monospace', fontSize:11 }}>{r.receipt_no || '\u2014'}</td>
-                        <td style={{ fontSize:11 }}>{formatReceiptDate(r.receipt_date)}</td>
-                        <td style={{ fontSize:11 }}>{r.receipt_time || '\u2014'}</td>
-                        <td><span style={{ fontSize:11, padding:'2px 8px', borderRadius:4, background:'#f3f4f6' }}>{PROJECT_LABELS[r.project_id] || r.project_id}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {historyTotal > 50 && (
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 0', borderTop:'1px solid var(--line)' }}>
-                  <button className="btn btn-sm" disabled={historyPage === 1} onClick={() => setHistoryPage(p => Math.max(1, p - 1))}>Prev</button>
-                  <span style={{ fontSize:12, color:'var(--ink-soft)' }}>Page {historyPage} of {Math.ceil(historyTotal / 50)} ({historyTotal} records)</span>
-                  <button className="btn btn-sm" disabled={historyPage >= Math.ceil(historyTotal / 50)} onClick={() => setHistoryPage(p => p + 1)}>Next</button>
-                </div>
-              )}
-            </div>
-          </div>
+          <ReceiptHistory />
 
           {donors && (<div style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none', zIndex:-1 }}>
             {donors.length <= 100 && donors.map((d, i) => {
@@ -787,20 +631,6 @@ export default function Receipts() {
               return <div key={i} data-receipt-batch={i}><Comp donor={d} project={ngo} /></div>
             })}
           </div>)}
-
-          {historyForDownload && historyForDownload.length <= 200 && historyForDownload.map((r, i) => {
-            const ngo = r.project_id || 'bsct'
-            const tpl = getNgoSettings(ngo)
-            const Comp = tpl.comp
-            const donorData = {
-              'Donor Name': r.donor_name, 'Amount': r.amount, 'Receipt No.': r.receipt_no,
-              'Receipt Date': r.receipt_date, 'Mobile No.': r.donor_mobile, 'Address 1': r.address,
-              'PAN No.': r.pan_number, 'Email ID': r.email, 'Mode of Payment (MOP)': r.mode,
-              'Payment ID No.': r.payment_id, 'Donor Bank Name': r.bank_name,
-              'Account Of': 'Corpus', 'Project': ngo,
-            }
-            return <div key={i} data-dl-history style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={donorData} project={ngo} /></div>
-          })}
 
           {previewIndex != null && donors && donors[previewIndex] && (
             <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:1000 }}>
