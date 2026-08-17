@@ -62,6 +62,9 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   const [deleting, setDeleting] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [quickVerifyLead, setQuickVerifyLead] = useState(null);
+  const [quickVerifyName, setQuickVerifyName] = useState('Priyank Shah');
+  const [quickVerifying, setQuickVerifying] = useState(false);
   const PAGE_SIZE = 30;
   const [leadPage, setLeadPage] = useState(1);
 
@@ -232,6 +235,23 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
     }
   };
 
+  const handleQuickVerify = async () => {
+    if (!quickVerifyLead) return;
+    setQuickVerifying(true);
+    try {
+      await apiPost(`/accounts/leads/${quickVerifyLead.log_id}/quick-verify`, {
+        donor_name: quickVerifyName || 'Priyank Shah',
+      });
+      toast('Verified under ' + (quickVerifyName || 'Priyank Shah'), 'success');
+      setQuickVerifyLead(null);
+      load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setQuickVerifying(false);
+    }
+  };
+
   return (
     <div>
       {!embedded && <LeadStatCards stats={stats} loading={loading} />}
@@ -344,6 +364,12 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                   </span>}
                   <span className="ec-agent">{l.agent_name || 'No agent'}</span>
                   <span className="ec-date">{fmtDT(l.transaction_datetime || l.created_at)}</span>
+                  {l.accounts_status === 'pending' && l.agent_name === 'Priyank Shah' && (
+                    <button className="btn btn-sm" onClick={e => { e.stopPropagation(); setQuickVerifyLead(l); setQuickVerifyName('Priyank Shah'); }}
+                      style={{ fontSize: 10, padding: '3px 8px', background: '#059669', color: '#fff', border: 'none', borderRadius: 4, fontWeight: 600, cursor: 'pointer', marginLeft: 4 }}>
+                      Quick Verify
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -386,6 +412,33 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                 <button className="btn btn-sm" onClick={() => setDeleteAllConfirm(false)} disabled={deletingAll}>Cancel</button>
                 <button className="btn btn-sm" onClick={handleDeleteAll} disabled={deletingAll} style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
                   {deletingAll ? 'Deleting...' : `Delete All (${stats.pending.length})`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quickVerifyLead && (
+        <div className="modal-overlay" onClick={() => !quickVerifying && setQuickVerifyLead(null)}>
+          <div className="modal" style={{ maxWidth: 420, width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><h3>Quick Verify</h3></div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              <p style={{ margin: '0 0 10px', fontSize: 14 }}>
+                Verify <strong>{quickVerifyLead.donor_name}</strong> ({currency(quickVerifyLead.amount)}) under default agent?
+              </p>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Donor / Receipt Name</label>
+              <input value={quickVerifyName} onChange={e => setQuickVerifyName(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13, boxSizing: 'border-box' }}
+                placeholder="Priyank Shah" autoFocus />
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9ca3af' }}>
+                Receipt will be created with this name. No other donor details required.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-sm" onClick={() => setQuickVerifyLead(null)} disabled={quickVerifying}>Cancel</button>
+                <button className="btn btn-sm" onClick={handleQuickVerify} disabled={quickVerifying || !quickVerifyName.trim()}
+                  style={{ background: '#059669', color: '#fff', border: 'none' }}>
+                  {quickVerifying ? 'Verifying...' : 'Verify & Create Receipt'}
                 </button>
               </div>
             </div>
