@@ -3292,6 +3292,10 @@ export const searchDonors = async (req, res) => {
         const donatedThisPeriod = evidence.periodDonatedAssignmentIds.has(a.id) || evidence.receiptPeriodPairs.has(pair);
         const rawStatus = a.status || 'pending';
         const staleDoneStatus = ['donation_collected', 'lead_done', 'done'].includes(rawStatus) && !donatedThisPeriod;
+        const workableStatuses = new Set(['pending', 'busy', 'ringing', 'call_waiting', 'switched_off', 'out_of_coverage', 'unreachable', 'wrong_number', 'invalid_number', 'rejected', 'temporary_network_issue', 'voicemail', 'incoming_out']);
+        const displayStatus = staleDoneStatus
+          ? 'pending'
+          : (donatedThisPeriod && workableStatuses.has(rawStatus) ? 'donation_collected' : rawStatus);
         result.push({
           donor_id: d.id,
           ngo_id: a.ngo_id,
