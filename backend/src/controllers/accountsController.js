@@ -1413,6 +1413,8 @@ export const getReceiptList = async (req, res) => {
     const toDate = (req.query.to_date || '').trim();
     if (period === 'today') {
       where.push(`receipt_date = (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);
+    } else if (period === 'yesterday') {
+      where.push(`receipt_date = (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata' - INTERVAL '1 day')::date`);
     } else if (period === 'week') {
       where.push(`receipt_date >= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days')::date`);
       where.push(`receipt_date <= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date`);

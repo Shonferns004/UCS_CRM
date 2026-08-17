@@ -108,8 +108,6 @@ export default function ReceiptHistory() {
   const [preview, setPreview] = useState(null);
   const [donorDetail, setDonorDetail] = useState(null);
   const [downloading, setDownloading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [receiptTab, setReceiptTab] = useState('donors');
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -148,10 +146,6 @@ export default function ReceiptHistory() {
     const params = new URLSearchParams();
     params.set('page', String(page));
     params.set('limit', '100');
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (receiptTab === 'donors') params.set('link', 'donors');
-    if (receiptTab === 'suspense') params.set('link', 'suspense');
-    if (receiptTab === 'others') params.set('link', 'others');
     if (period !== 'custom' && period) params.set('period', period);
     if (period === 'custom') {
       if (fromDate) params.set('from_date', fromDate);
@@ -165,7 +159,7 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, searchQuery, receiptTab, period, fromDate, toDate]);
+  }, [page, period, fromDate, toDate]);
 
   const runImport = useCallback(async (rows, ngoIdForImport) => {
     if (!rows || rows.length === 0) return;
@@ -338,7 +332,7 @@ export default function ReceiptHistory() {
     finally { setSuspenseLoading(false); }
   };
 
-  useEffect(() => { setPage(1); }, [searchQuery, receiptTab, period, fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [period, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -710,39 +704,15 @@ export default function ReceiptHistory() {
           </button>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
-          {[{ k: 'today', l: 'Today' }, { k: 'week', l: 'This Week' }, { k: 'month', l: 'This Month' }, { k: 'year', l: 'This Year' }, { k: 'custom', l: 'Custom' }].map(f => (
+          {[{ k: 'today', l: 'Today' }, { k: 'yesterday', l: 'Yesterday' }].map(f => (
             <button key={f.k} className={`btn btn-sm${period === f.k ? ' btn-primary' : ''}`}
               onClick={() => { setPeriod(f.k); setPage(1) }}>
               {f.l}
             </button>
           ))}
-          {period === 'custom' && (<>
-            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
-            <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
-            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
-          </>)}
         </div>
-        <div className="filter-bar">
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button className={`btn btn-sm${receiptTab === 'donors' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('donors')}>
-              Donors
-            </button>
-            <button className={`btn btn-sm${receiptTab === 'suspense' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('suspense')}>
-              Suspense
-            </button>
-            <button className={`btn btn-sm${receiptTab === 'others' ? ' btn-primary' : ''}`} onClick={() => setReceiptTab('others')}>
-              Others
-            </button>
-          </div>
-          <input
-            className="search-input"
-            placeholder="Search by receipt no or donor name..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
-          <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
+        <div className="filter-bar" style={{ justifyContent: 'flex-end', padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{total} receipts</span>
         </div>
         <div className="table-wrap">
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -755,7 +725,7 @@ export default function ReceiptHistory() {
               ))
             ) : receipts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery ? 'No receipts match your filters.' : receiptTab === 'suspense' ? 'No suspense receipts — all clear!' : receiptTab === 'others' ? 'No other receipts found.' : 'No linked donors yet.'}
+                No receipts found for this period.
               </div>
             ) : (
               uniqueDonors.map(r => {
