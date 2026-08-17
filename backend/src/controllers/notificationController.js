@@ -70,14 +70,15 @@ export const getNotificationLeadInfo = async (req, res) => {
       return res.status(404).json({ message: 'Notification or log reference not found' });
     }
 
-    const { data: log, error: logErr } = await db
+    const { data: logs, error: logErr } = await db
       .from('fro_donor_logs')
       .select('id, amount_collected, fro_assignments!inner(id, fro_worker_id, donor_id, ngo_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', notif.fro_donor_log_id)
-      .single();
-    if (logErr || !log) {
+      .limit(1);
+    if (logErr || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Lead log not found' });
     }
+    const log = logs[0];
 
     const asgn = log.fro_assignments;
     const donor = asgn?.donor_profiles;

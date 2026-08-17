@@ -1151,15 +1151,16 @@ export const verifyLeadDone = async (req, res) => {
     const { pan_number, notes } = req.body;
     const ngoIds = await getUserNgoIds(req.user);
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, donor_profiles!inner(id, name, mobile_number))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     const assignmentNgoId = log.fro_assignments?.ngo_id;
     if (assignmentNgoId && !ngoIds.includes(Number(assignmentNgoId))) {
