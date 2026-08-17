@@ -175,15 +175,16 @@ export const verifyLead = async (req, res) => {
       upi_transaction_id, transaction_datetime, payment_from, payment_mode,
     } = req.body;
 
-    const { data: log, error: logError } = await db
+    const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
       .eq('id', logId)
-      .single();
+      .limit(1);
 
-    if (logError || !log) {
+    if (logError || !logs || logs.length === 0) {
       return res.status(404).json({ message: 'Log entry not found' });
     }
+    const log = logs[0];
 
     if (log.accounts_status !== 'pending') {
       return res.status(400).json({ message: `This lead has already been ${log.accounts_status || 'processed'}` });
