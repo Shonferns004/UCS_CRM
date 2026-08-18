@@ -115,9 +115,33 @@ export const projectCodeFromNgoId = async (ngoId) => {
   const name = data?.name ? String(data.name).trim().toLowerCase() : '';
   if (!name) return null;
   for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
-    if (name === code || aliases.some((a) => name === a || name.includes(a))) return code;
+    if (name === code || aliases.some((a) => a === name || name.includes(a))) return code;
   }
   return name;
+};
+
+// Resolve an NGO's id (ngos.id) from a project code (receipts.project_id /
+// bank_audit_entries.project_id, e.g. 'bsct' | 'mann' | 'aflf'). This is the
+// inverse of projectCodeFromNgoId — callers that must set fro_assignments.ngo_id
+// (NOT NULL) resolve it here from the entry's project_id. Returns null when no
+// NGO matches so callers can fall back.
+export const ngoIdFromProjectId = async (projectId) => {
+  if (!projectId) return null;
+  const needle = String(projectId).trim().toLowerCase();
+  if (!needle) return null;
+  const { data, error } = await db.from('ngos').select('id, name');
+  if (error) throw error;
+  for (const ngo of data || []) {
+    const name = ngo?.name ? String(ngo.name).trim().toLowerCase() : '';
+    if (!name) continue;
+    if (name === needle) return ngo.id;
+    for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+      if (code === needle && (name === code || aliases.some((a) => a === name || name.includes(a)))) {
+        return ngo.id;
+      }
+    }
+  }
+  return null;
 };
 
 export const getSources = async () => {
