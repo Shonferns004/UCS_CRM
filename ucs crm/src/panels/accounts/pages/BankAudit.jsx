@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, Zap, Download, Plus, ListFilter, X, Loader2, Landmark } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -606,14 +607,19 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){alert('Failed to download PDF: '+e.message)}setDl(false)};
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
-  const ddStyle={position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.12)',marginTop:4};
+  const ddStyle={position:'fixed',zIndex:9999,background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.12)',marginTop:4};
+  const [mvDdPos, setMvDdPos] = useState(null);
+  const updateMvDdPos = useCallback(() => { if (mvSearchRef.current) { const r = mvSearchRef.current.getBoundingClientRect(); setMvDdPos({ top: r.bottom + 4, left: r.left, width: r.width }); } }, []);
+  useEffect(() => { if (mvShowResults) updateMvDdPos(); }, [mvShowResults, updateMvDdPos]);
+  useEffect(() => { if (!mvShowResults) return; const h = () => updateMvDdPos(); window.addEventListener('scroll', h, true); window.addEventListener('resize', h); return () => { window.removeEventListener('scroll', h, true); window.removeEventListener('resize', h); }; }, [mvShowResults, updateMvDdPos]);
   const MvSearchDropdownInner=({sel})=>{
-    if(mvSearching&&mvShowResults){
-      return <div data-mv style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>;
+    if(!mvShowResults || !mvDdPos) return null;
+    const posStyle = { ...ddStyle, top: mvDdPos.top, left: mvDdPos.left, width: mvDdPos.width };
+    if(mvSearching){
+      return createPortal(<div data-mv style={{...posStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>, document.body);
     }
-    if(!mvShowResults)return null;
     if(mvResults.length!==0){
-      return <div data-mv style={{...ddStyle,maxHeight:180,overflowY:'auto'}}>
+      return createPortal(<div data-mv style={{...posStyle,maxHeight:180,overflowY:'auto'}}>
         {mvResults.slice(0,6).map((d,i)=>{
           const last=i===mvResults.length-1;
           return <div key={d.id||i} onMouseDown={e=>{e.preventDefault();sel(d)}} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:last?'none':'1px solid #f3f4f6',fontSize:12,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='#f0fdf4'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
@@ -624,12 +630,12 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             </div>
           </div>;
         })}
-      </div>;
+      </div>, document.body);
     }
-    if(!mvSearching)return <div data-mv style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>;
+    if(!mvSearching) return createPortal(<div data-mv style={{...posStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>, document.body);
     return null;
   };
-  const MvSearchDropdownStable=useCallback((p)=><MvSearchDropdownInner {...p}/>,[]);
+  const MvSearchDropdownStable=useCallback((p)=><MvSearchDropdownInner {...p}/>,[mvShowResults, mvDdPos, mvSearching, mvResults]);
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
