@@ -260,7 +260,14 @@ export default function Receipts() {
   const CHUNK_SIZE = 100
 
   useEffect(() => {
-    apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {})
+    apiGet('/accounts/ngos').then(data => {
+      const seen = new Set()
+      setNgoOptions((Array.isArray(data) ? data : []).filter(n => {
+        if (!n.id || seen.has(n.id)) return false
+        seen.add(n.id)
+        return true
+      }))
+    }).catch(() => {})
   }, [])
 
   const filteredDonors = donors
