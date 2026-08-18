@@ -295,6 +295,8 @@ export default function NewData() {
   const [distributeConfirmed, setDistributeConfirmed] = useState(false)
   const [showCleanupConfirm, setShowCleanupConfirm] = useState(false)
   const [cleanupConfirmed, setCleanupConfirmed] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [resetConfirmed, setResetConfirmed] = useState(false)
 
   useEffect(() => {
     apiGet('/ngo-admin/ngos').then(list => {
@@ -379,6 +381,28 @@ export default function NewData() {
     }
   }
 
+  const handleResetFreshData = () => {
+    setResetConfirmed(false)
+    setShowResetConfirm(true)
+  }
+
+  const executeReset = async () => {
+    setShowResetConfirm(false)
+    setDistributing(true)
+    setResult(null)
+    try {
+      const body = {}
+      if (selectedNgoId !== 'all') body.ngo_id = selectedNgoId
+      const res = await apiPost('/ngo-admin/new-data/reset', body)
+      setResult(res)
+      load()
+    } catch (err) {
+      toast(err.message, 'error')
+    } finally {
+      setDistributing(false)
+    }
+  }
+
   return (
     <div>
       <div className="filter-bar">
@@ -428,6 +452,10 @@ export default function NewData() {
                 <button className="btn btn-sm" onClick={handleCleanupNewData} disabled={distributing || total === 0}
                   style={{ fontSize: 11, color: '#dc2626', border: '1px solid #fca5a5', background: '#fef2f2' }}>
                   Cleanup New Data
+                </button>
+                <button className="btn btn-sm" onClick={handleResetFreshData} disabled={distributing}
+                  style={{ fontSize: 11, color: '#7c3aed', border: '1px solid #d8b4fe', background: '#faf5ff' }}>
+                  Remove All New Data
                 </button>
               </div>
             </div>
@@ -584,6 +612,43 @@ export default function NewData() {
                     <button className="btn" onClick={executeCleanup} disabled={!cleanupConfirmed}
                       style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
                       Delete All Undistributed Data
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showResetConfirm && (
+            <div className="modal-overlay" onClick={() => setShowResetConfirm(false)}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+                <div className="modal-head">
+                  <h3>Remove All New Data</h3>
+                  <button className="btn btn-sm btn-outline" onClick={() => setShowResetConfirm(false)}>✕</button>
+                </div>
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ background: '#faf5ff', borderRadius: 8, padding: '14px 16px', border: '1px solid #d8b4fe' }}>
+                    <div style={{ fontSize: 13, color: '#6b21a8', fontWeight: 600, marginBottom: 6 }}>⚠ This will remove ALL new data for <strong>{currentNgoName || 'All NGOs'}</strong></div>
+                    <div style={{ fontSize: 12, color: '#6b21a8' }}>
+                      Deletes: <br />
+                      • All fro_assignments on FD stations<br />
+                      • All new_data records (distributed + undistributed)<br />
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
+                      Old data, old station assignments, and donor profiles will NOT be touched. Use this to start fresh before re-uploading.
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, padding: '8px 12px', borderRadius: 6, background: resetConfirmed ? '#faf5ff' : '#f9fafb', border: `1px solid ${resetConfirmed ? '#d8b4fe' : 'var(--line)'}`, transition: 'all .15s' }}>
+                    <input type="checkbox" checked={resetConfirmed} onChange={e => setResetConfirmed(e.target.checked)} />
+                    <span>I understand this will remove all FD assignments and new data records</span>
+                  </label>
+
+                  <div className="modal-actions">
+                    <button className="btn btn-outline" onClick={() => setShowResetConfirm(false)}>Cancel</button>
+                    <button className="btn" onClick={executeReset} disabled={!resetConfirmed}
+                      style={{ background: '#7c3aed', color: '#fff', border: 'none' }}>
+                      Remove All New Data
                     </button>
                   </div>
                 </div>
