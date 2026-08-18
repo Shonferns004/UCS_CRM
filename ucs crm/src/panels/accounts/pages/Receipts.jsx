@@ -14,7 +14,7 @@ import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
   mann: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
-  aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'aflf_receipt', metaLang: 'en' },
+  aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'ashray_receipt', metaLang: 'en' },
 }
 
 function getNgoSettings(project) {
