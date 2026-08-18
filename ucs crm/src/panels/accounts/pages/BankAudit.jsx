@@ -236,10 +236,12 @@ function FroSearchPicker({ value, workers, onChange }){
   const [q,setQ]=useState('');
   const boxRef=useRef(null);
 
+  const staticFros=[{id:'static-priyank-shah',name:'Priyank Shah'},{id:'static-suspense',name:'Suspense'}];
   const froWorkers=workers.filter(w=>String(w.department||'').toLowerCase()==='fro');
   const kw=q.trim().toLowerCase();
   const list=kw?froWorkers.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):froWorkers;
-  const selected=workers.find(w=>String(w.id)===String(value));
+  const staticList=staticFros.filter(s=>!kw||s.name.toLowerCase().includes(kw));
+  const selected=value&&value.startsWith('static-')?staticFros.find(s=>s.id===value):workers.find(w=>String(w.id)===String(value));
 
   useEffect(()=>{
     const onDoc=(ev)=>{if(boxRef.current&&!boxRef.current.contains(ev.target))setOpen(false)};
@@ -250,9 +252,10 @@ function FroSearchPicker({ value, workers, onChange }){
   const selectedStyle={display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,border:'1.5px solid #cfe3cb',background:'#f0f7ef',fontSize:13,color:'#14532d',minWidth:0,cursor:'pointer'};
 
   if(value&&selected){
+    const isStatic=value&&value.startsWith('static-');
     return <div style={selectedStyle} onClick={()=>{onChange('');setOpen(true);setQ('')}}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selected.name}{selected.login_id?` (${selected.login_id})`:''}</span>
+      <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selected.name}{!isStatic&&selected.login_id?` (${selected.login_id})`:''}</span>
       <span style={{marginLeft:'auto',fontSize:10,color:'#6b7280',flexShrink:0}}>change</span>
     </div>;
   }
@@ -268,8 +271,14 @@ function FroSearchPicker({ value, workers, onChange }){
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     </div>
     {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:200,overflowY:'auto'}}>
-      {list.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>{kw?'No FROs found':'No FRO workers available'}</div>
-        :list.map(w=><button key={w.id} type="button" onClick={()=>{onChange(String(w.id));setOpen(false);setQ('')}}
+      {list.length===0&&staticList.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>{kw?'No FROs found':'No FRO workers available'}</div>
+        :<>
+          {staticList.map(s=><button key={s.id} type="button" onClick={()=>{onChange(s.id);setOpen(false);setQ('')}}
+            style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
+            onMouseOver={e=>e.currentTarget.style.background='#f0f7ef'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+            <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
+          </button>)}
+          {list.map(w=><button key={w.id} type="button" onClick={()=>{onChange(String(w.id));setOpen(false);setQ('')}}
           style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
           onMouseOver={e=>e.currentTarget.style.background='#f0f7ef'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
           <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{w.name}</span>
@@ -278,6 +287,7 @@ function FroSearchPicker({ value, workers, onChange }){
             {w.login_id&&<span style={{color:'#9ca3af',fontSize:11}}>{w.login_id}</span>}
           </span>
         </button>)}
+        </>}
     </div>}
   </div>;
 }
@@ -453,7 +463,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : visible.length===0 ? (
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
-        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
+        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':e.match_source==='static_fro'?' is-match-static':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
           onClick={()=>{if(!onSelectEntry||!selectionEnabled||e.match_source==='auto'||e.match_status==='confirmed')return;if(clickRef.current)clearTimeout(clickRef.current);clickRef.current=setTimeout(()=>{clickRef.current=null;if(selectedEntryId===e.id)onSelectEntry(null);else onSelectEntry(e)},300)}}
           onDoubleClick={()=>{if(clickRef.current){clearTimeout(clickRef.current);clickRef.current=null}if(!onSelectEntry||!selectionEnabled||e.match_source==='auto'||e.match_status==='confirmed')return;if(selectedEntryId===e.id)onSelectEntry(null);else onSelectEntry(e)}}>
           <div className="ec-main">
@@ -464,7 +474,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             <div className="ec-amount">{curr(e.amount)}</div>
           </div>
           <div className="ec-meta">
-            {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
+            {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='static_fro'?'#fef9c3':e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='static_fro'?'#854d0e':e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='static_fro'?'STATIC FRO':e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
             {e.match_status==='confirmed'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:'#e8f0e4',color:'#5B6B4E',whiteSpace:'nowrap'}}>CONFIRMED</span>}
             {!e.match_status&&<span className="pill pill-yellow">Pending</span>}
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
@@ -591,8 +601,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro('');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');setMvEmail(entry.donor_email||'');setMvCity(entry.donor_city||'');setMvPinCode(entry.donor_pin_code||'');setMvAddr2(entry.donor_address_2||'');setMvResults([]);setMvShowResults(false);setShowMvForm(true);};
   const mvTimerRef=useRef(null);
   const searchMvDonors=(q)=>{setMvMobile(q);setMvErr('');if(mvTimerRef.current)clearTimeout(mvTimerRef.current);const raw=q.replace(/[^\d]/g,'');if(raw.length<3){setMvResults([]);setMvShowResults(false);return}mvTimerRef.current=setTimeout(async()=>{try{setMvSearching(true);setMvShowResults(true);const r=await apiGet('/accounts/donors?search='+encodeURIComponent(raw));const donors=Array.isArray(r)?r:(r.data||[]);if(donors.length>0){setMvResults(donors)}else{try{const rec=await apiGet('/accounts/receipts/by-mobile?mobile='+encodeURIComponent(raw));if(rec&&rec.donor_name){setMvName(rec.donor_name||'');setMvAddr(rec.address||'');setMvPan(rec.pan_number||'');setMvShowResults(false)}else{setMvResults([])}}catch(_){setMvResults([])}}}catch(e){setMvResults([])}finally{setMvSearching(false)}},350)};
-  const selectMvDonor=(d)=>{setMvName(d.name||'');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'');setMvPan(d.pan_number||d.pan||'');setMvAddr2(d.address_2||'');setMvCity(d.city||'');setMvPinCode(d.pin_code||'');setMvEmail(d.email||'');setMvResults([]);setMvShowResults(false)};
-  const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{const res=await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null});setMv(null);setSe(null);setShowMvForm(false);setMvResults([]);setMvShowResults(false);setTo({msg:res?.message||'Entry manually verified',type:'success',vis:true});load(sd,st)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
+  const selectMvDonor=(d)=>{setMvName(d.name||'');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'');setMvPan(d.pan_number||d.pan||'');setMvResults([]);setMvShowResults(false)};
+  const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');const isStatic=mvFro&&mvFro.startsWith('static-');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{const res=await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null});setMv(null);setShowMvForm(false);setMvResults([]);setMvShowResults(false);setTo({msg:res?.message||'Entry manually verified',type:'success',vis:true});await load(sd,st);if(!isStatic)setSe(null)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){alert('Failed to download PDF: '+e.message)}setDl(false)};
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
@@ -638,6 +648,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select received bank...</option>
               {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              <option value="freecharge">Freecharge</option>
             </select>
           </label>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
@@ -821,10 +832,11 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </div>
       </div>
 
-      {st==='unverified'&&!isReceiptSuspense(se)&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,alignItems:'center'}}>
+      {st==='unverified'&&!isReceiptSuspense(se)&&se.match_status==='matched'&&<div style={{display:'flex',gap:10,marginBottom:14,padding:'10px 12px',background:se.match_source==='static_fro'?'#fefce8':'#f0fdf4',border:`1px solid ${se.match_source==='static_fro'?'#fde68a':'#86efac'}`,borderRadius:10,alignItems:'center'}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:'#166534'}}>{se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
-          <div style={{fontSize:12,color:'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.match_donor||''}{se.match_fro?` · ${se.match_fro}`:''}</div>
+          <div style={{fontSize:10,fontWeight:700,letterSpacing:'.6px',color:se.match_source==='static_fro'?'#92400e':'#166534'}}>{se.match_source==='static_fro'?'STATIC FRO VERIFIED':se.match_source==='manual'?'MATCHED MANUALLY':'SUGGESTED MATCH'}{se.match_no?` \u00B7 ${se.match_no}`:''}</div>
+          <div style={{fontSize:12,color:se.match_source==='static_fro'?'#92400e':'#166534',marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{se.agent_name||''}{se.match_donor?` · ${se.match_donor}`:''}</div>
+          {se.editable_until&&<div style={{fontSize:10,color:'#92400e',marginTop:2}}>Editable until {new Date(se.editable_until).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>}
         </div>
         <div style={{display:'flex',gap:8,flexShrink:0}}>
           <button className="btn btn-sm" style={{background:'var(--sage)',color:'#fff',border:'none'}} disabled={cm} onClick={()=>confirmMatch(se)}>Confirm</button>
