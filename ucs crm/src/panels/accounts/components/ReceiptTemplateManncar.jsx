@@ -25,16 +25,18 @@ export default function ReceiptTemplateManncar({ donor, index }) {
       <div style={{ textAlign:'center', fontSize:'25px', fontWeight:'bold', marginTop:'10px' }}>CERTIFICATE OF DONATION</div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
         <div style={{ width:'50%', lineHeight:'1.6', fontSize:'16px' }}>
-          <b>Receipt No.:</b> {donor['Receipt No.']}<br /><br />
+          <b>Receipt No.:</b> {donor['Receipt No.'] || 'NA'}<br /><br />
           Dated : {formattedDate}<br /><br />
-          <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name']?.toUpperCase() || 'Unknown'}</span><br />
+          <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name']?.toUpperCase() || 'NA'}</span><br />
           Address. - {hasRealAddr ? <>{donor['Address 1']}<br />{hasLocation ? <>{cityState}{cityState && pin ? ' - ' : ''}{pin}<br /></> : null}</> : <>NA<br /></>}
-          PAN No. - {donor['PAN No.']}<br />
-          Email - {donor['Email ID']}
+          PAN No. - {donor['PAN No.'] || 'NA'}<br />
+          Email - {donor['Email ID'] || 'NA'}
         </div>
         <div style={{ width:'42%', textAlign:'right' }}>
           <img src={MancareLogo} alt="Mann Care Foundation" style={{ width:'200px', height:'auto', display:'block', marginLeft:'auto', marginBottom:'10px' }} />
           <div style={{ color:'#d10087', lineHeight:'1.8', fontSize:'18px' }}>
+            CSR Registration No : CSR00115793<br />
+            Unique Registration No : AAUCM9048BE20261<br />
             CIN No : U88900MH2026NPL471199<br />
             TAN No : MUMM75033A<br />
             Trust PAN Card No : AAUCM9048B
@@ -46,11 +48,11 @@ export default function ReceiptTemplateManncar({ donor, index }) {
       <div style={{ fontSize:'20px', textAlign:'center', marginBottom:'25px' }}>We confirm the receipt of donation from Mr/Ms/Mrs <strong>{donor['Donor Name']?.toUpperCase() || 'Unknown'}</strong> as per details below:-</div>
       <table style={{ width:'80%', margin:'0 auto 30px', borderCollapse:'collapse', fontSize:'18px' }}>
         <tbody>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Donation Date</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formattedDate}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Transaction / Reference Number</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Payment ID No.']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Payment Mode</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Mode of Payment (MOP)']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Bank Name</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Donor Bank Name']}</td></tr>
-          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Email Address</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Email ID']}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Donation Date</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formattedDate || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Transaction / Reference Number</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Payment ID No.'] || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Payment Mode</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Mode of Payment (MOP)'] || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Bank Name</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Donor Bank Name'] || 'NA'}</td></tr>
+          <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Email Address</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Email ID'] || 'NA'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Account Of</td><td style={{ border:'1px solid #666', padding:'15px' }}>{donor['Account Of'] || 'Corpus'}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Numbers)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{formatIndianCurrency(amount)}</td></tr>
           <tr><td style={{ border:'1px solid #666', padding:'15px' }}>Total Contribution Received (Words)</td><td style={{ border:'1px solid #666', padding:'15px' }}>{amountInWords(amount)} Only</td></tr>
