@@ -34,6 +34,11 @@ const IMPORT_FIELDS = {
   payment_id: ['paymentid', 'paymentidno', 'transactionid', 'transactionno', 'utr', ''],
   bank_name: ['bankname', 'donorbankname', 'receivedbank', 'receivedbankname'],
   agent_name: ['fsename', 'agentname', 'agent', 'fro'],
+  caller_name: ['callername', 'caller'],
+  mobile_2: ['mobileno2', 'mobile2', 'mobilno2', 'mobilno2tel'],
+  address_2: ['address2', 'address 2'],
+  station: ['station'],
+  account_of: ['accountof', 'account of'],
 };
 
 const normalizeImportHeader = (value) => String(value || '').replace(/^\uFEFF/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -473,15 +478,15 @@ export default function ReceiptHistory() {
       const toRow = (r, isSuspense) => ({
         'Team Name': '',
         'Transaction Date': r.receipt_date || '',
-        'Caller Name': '',
+        'Caller Name': r.caller_name || '',
         'Receipt Name': r.donor_name || '',
         'Mobile no.': r.donor_mobile || '',
-        'Mobil No. 2 / Tel ': '',
+        'Mobil No. 2 / Tel ': r.mobile_2 || '',
         'Address-1 ': r.address || '',
-        'Address-2 ': '',
+        'Address-2 ': r.address_2 || '',
         'Pan. No. ': r.pan_number || '',
         'Mail Id ': r.email || '',
-        'Station': '',
+        'Station': r.station || '',
         'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
         'FSE Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
         'MOP': r.mode || '',
@@ -490,7 +495,7 @@ export default function ReceiptHistory() {
         'Receipt No.': r.receipt_no || '',
         'Receipt Date ': r.receipt_date || '',
         'Time': r.receipt_time || '',
-        'Account of': 'Corpus',
+        'Account of': r.account_of || 'Corpus',
       });
       const YELLOW_BG = { fgColor: { rgb: 'FFFF00' } };
       const buildSheet = (rows) => {

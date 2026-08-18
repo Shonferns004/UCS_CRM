@@ -1547,7 +1547,8 @@ export const getReceiptList = async (req, res) => {
                 ) AS donor_mobile,
                 amount,
                 receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-                donor_id, agent_name, sent, sent_at, created_at,
+                donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
+                sent, sent_at, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
                  WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                  ORDER BY b.id LIMIT 1) AS audit_payer_name
@@ -1573,7 +1574,8 @@ export const getReceiptList = async (req, res) => {
               ) AS donor_mobile,
               amount,
               receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-              donor_id, agent_name, sent, sent_at, created_at,
+              donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
+              sent, sent_at, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
                WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                ORDER BY b.id LIMIT 1) AS audit_payer_name
@@ -2038,6 +2040,11 @@ export const importReceipts = async (req, res) => {
           payment_id: row.payment_id || row['Payment Id No.'] || null,
           bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
           agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || 'Suspense',
+          caller_name: row.caller_name || row['Caller Name'] || null,
+          mobile_2: row.mobile_2 || row['Mobil No. 2 / Tel'] || row['Mobil No. 2 / Tel '] || null,
+          address_2: row.address_2 || row['Address-2'] || row['Address 2'] || null,
+          station: row.station || row['Station'] || null,
+          account_of: row.account_of || row['Account of'] || 'Corpus',
           sent: true,
           sent_at: new Date().toISOString(),
         },
@@ -2065,7 +2072,7 @@ export const importReceipts = async (req, res) => {
         const batch = incomingNos.slice(i, i + 100);
         const { data: existing } = await db
           .from('receipts')
-          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email')
+          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email, caller_name, mobile_2, address_2, station, account_of')
           .eq('project_id', batchProjectId)
           .in('receipt_no', batch);
         for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r);
@@ -2265,6 +2272,11 @@ export const importReceipts = async (req, res) => {
                 payment_id: row.payment_id,
                 bank_name: row.bank_name,
                 agent_name: row.agent_name,
+                caller_name: row.caller_name,
+                mobile_2: row.mobile_2,
+                address_2: row.address_2,
+                station: row.station,
+                account_of: row.account_of,
                 sent: true,
                 sent_at: new Date().toISOString(),
               }).eq('id', existing.id);
@@ -2298,6 +2310,11 @@ export const importReceipts = async (req, res) => {
                 bank_name: row.bank_name || existing.bank_name,
                 agent_name: row.agent_name || existing.agent_name,
                 email: row.email || existing.email,
+                caller_name: row.caller_name || existing.caller_name,
+                mobile_2: row.mobile_2 || existing.mobile_2,
+                address_2: row.address_2 || existing.address_2,
+                station: row.station || existing.station,
+                account_of: row.account_of || existing.account_of,
                 sent: true,
                 sent_at: nowIso,
               }).eq('id', existing.id);
