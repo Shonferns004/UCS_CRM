@@ -696,7 +696,7 @@ export default function ReceiptHistory() {
                       <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.receipt_no || '\u2014'}</td>
                       <td style={{ fontSize: 12 }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#f3f4f6' }}>{PROJECT_LABELS[r.project_id] || r.project_id || '\u2014'}</span></td>
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateStr}</td>
-                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{r.receipt_time || '\u2014'}</td>
+                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
                       <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
                     </tr>
