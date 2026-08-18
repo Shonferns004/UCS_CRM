@@ -957,28 +957,45 @@ export const manualVerifyEntry = async (req, res) => {
     if (eErr) throw eErr;
     if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
     if (entry.status === 'verified' || entry.match_status === 'confirmed') {
+      const proj = entry.project_id || 'bsct';
+
+      // Case 1: receipt is linked — just assign a number if missing
       if (entry.receipt_id) {
         const { data: rcpt } = await db.from('receipts')
           .select('id, receipt_no, project_id').eq('id', entry.receipt_id).maybeSingle();
         if (rcpt && !rcpt.receipt_no) {
-          const proj = rcpt.project_id || entry.project_id || 'bsct';
           const receiptNo = await BankAudit.getNextReceiptNo(proj);
           await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', rcpt.id);
           await db.from('bank_audit_entries').update({ receipt_no: receiptNo }).eq('id', id);
-          return res.json({
-            message: 'Entry was already verified — receipt number assigned.',
-            receipt_no: receiptNo,
-            receipt_id: rcpt.id,
-          });
+          return res.json({ message: 'Entry was already verified — receipt number assigned.', receipt_no: receiptNo, receipt_id: rcpt.id });
         }
         if (rcpt?.receipt_no) {
-          return res.status(400).json({
-            message: `Already verified. Receipt No: ${rcpt.receipt_no}`,
-            receipt_no: rcpt.receipt_no,
-          });
+          return res.status(400).json({ message: `Already verified. Receipt No: ${rcpt.receipt_no}`, receipt_no: rcpt.receipt_no });
         }
       }
-      return res.status(400).json({ message: 'This bank audit entry is already verified/credited' });
+
+      // Case 2: no receipt linked — create one from the entry's data
+      const receiptNo = await BankAudit.getNextReceiptNo(proj);
+      const receipt = await createReceipt({
+        receipt_no: receiptNo,
+        project_id: proj,
+        donor_name: entry.payer_name || entry.donor_name || 'Unknown',
+        donor_mobile: entry.donor_mobile || null,
+        amount: entry.amount || 0,
+        pan_number: entry.donor_pan || null,
+        address: [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null,
+        email: entry.donor_email || null,
+        bank_name: entry.bank_name || null,
+        mode: entry.mode || null,
+        payment_id: entry.payment_id || null,
+        agent_name: entry.agent_name || null,
+        purpose: 'Bank Audit Entry',
+        generated_by: req.user.id,
+        receipt_date: entry.transaction_date || new Date().toISOString(),
+        receipt_time: entry.payment_time || null,
+      });
+      await db.from('bank_audit_entries').update({ receipt_id: receipt.id, receipt_no: receiptNo }).eq('id', id);
+      return res.json({ message: 'Entry was already verified — receipt created and number assigned.', receipt_no: receiptNo, receipt_id: receipt.id });
     }
 
     // Resolve the FRO worker (must be an FRO).
