@@ -16,7 +16,7 @@ const RECEIPT_DESIGNS = [
 const DEFAULTS = {
   bsct: { receiptDesign: 'beingsevak', metaTemplate: 'bsct_receipt', metaLang: 'en' },
   mann: { receiptDesign: 'manncar', metaTemplate: 'mann_receipt', metaLang: 'en' },
-  aflf: { receiptDesign: 'ashray', metaTemplate: 'aflf_receipt', metaLang: 'en' },
+  aflf: { receiptDesign: 'ashray', metaTemplate: 'ashray_receipt', metaLang: 'en' },
 }
 
 export default function TemplateSettings() {
