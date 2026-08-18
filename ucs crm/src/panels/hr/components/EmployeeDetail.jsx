@@ -29,7 +29,7 @@ function Badge({ status }) {
 }
 
 export default function EmployeeDetail({ worker, onBack, onOffboard }) {
-  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans } = useHR();
+  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc } = useHR();
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [ngos, setNgos] = useState([]);
@@ -61,6 +61,17 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [achSaving, setAchSaving] = useState({});
   const [allocations, setAllocations] = useState([]);
   const [editNgoAllocations, setEditNgoAllocations] = useState([]);
+  const [peopleAllocs, setPeopleAllocs] = useState([]);
+  const [peopleForm, setPeopleForm] = useState([]);
+  const [editingPeople, setEditingPeople] = useState(false);
+  const [peopleSaving, setPeopleSaving] = useState(false);
+  const [salaryAllocMonth, setSalaryAllocMonth] = useState(null);
+  const [salaryAllocs, setSalaryAllocs] = useState([]);
+  const [salarySplitForm, setSalarySplitForm] = useState([]);
+  const [editingSalary, setEditingSalary] = useState(false);
+  const [salarySaving, setSalarySaving] = useState(false);
+  const [generatingSalary, setGeneratingSalary] = useState(false);
+  const [allocMsg, setAllocMsg] = useState('');
   const [sundayBonus, setSundayBonus] = useState(null);
   const [workerLoans, setWorkerLoans] = useState([]);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -102,13 +113,15 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
       fetchWorkerSalaries(worker.id).catch(() => []),
       fetchWorkerAllocations(worker.id).catch(() => []),
       fetchWorkerLoans(worker.id).catch(() => []),
-    ]).then(([d, l, s, a, wl]) => {
+      fetchWorkerPeopleAllocations(worker.id).catch(() => []),
+    ]).then(([d, l, s, a, wl, pAllocs]) => {
       if (cancelled) return;
       setData(d);
       setLetters(l || []);
       setSalaries(s || []);
       setAllocations(a || []);
       setWorkerLoans(wl || []);
+      setPeopleAllocs(pAllocs || []);
       setLoading(false);
 
       if (d?.department === 'FRO') {
@@ -129,6 +142,12 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     fetchLeaves().then(setLeaves).catch((err) => { console.error('API error:', err.message); });
     fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
     fetchHolidays().then(setHolidays).catch((err) => { console.error('API error:', err.message); });
+    const nowM = new Date();
+    const curMonth = `${nowM.getFullYear()}-${String(nowM.getMonth() + 1).padStart(2, '0')}-01`;
+    setSalaryAllocMonth(curMonth);
+    fetchWorkerSalaryAlloc(worker.id, curMonth)
+      .then(r => setSalaryAllocs(r?.allocations || []))
+      .catch((err) => { console.error('API error:', err.message); });
     return () => { cancelled = true; };
   }, [worker.id]);
 
@@ -1364,6 +1383,105 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                 </div>
               </div>
 
+              {/* NGO People Allocation */}
+              <div className="card" style={{ marginBottom:16 }}>
+                <div className="card-head">
+                  <h3>NGO Employment Split</h3>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <span className="sub">{peopleAllocs.length} NGO{peopleAllocs.length !== 1 ? 's' : ''} · {Math.round(peopleAllocs.reduce((s,a)=>s+(parseFloat(a.pct)||0),0) || 0)}% allocated</span>
+                    <button className="btn btn-sm" onClick={() => {
+                      setPeopleForm(peopleAllocs.length
+                        ? peopleAllocs.map(a => ({ ngo_id: a.ngo_id, pct: String(a.pct) }))
+                        : ngos.map(n => ({ ngo_id: n.id, pct: '' })));
+                      setEditingPeople(true); setAllocMsg('');
+                    }}>Edit</button>
+                  </div>
+                </div>
+                <div className="card-pad">
+                  {peopleAllocs.length === 0 ? (
+                    <div style={{ color:'var(--ink-soft)', fontSize:13 }}>No NGO employment split set. Assign the employee to one or more NGOs.</div>
+                  ) : (
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, fontVariantNumeric:'tabular-nums' }}>
+                      <tbody>
+                        {peopleAllocs.map(a => {
+                          const name = ngos.find(n => n.id === a.ngo_id)?.name || a.ngo_name || 'Unknown';
+                          const pct = parseFloat(a.pct) || 0;
+                          return (
+                            <tr key={a.id || a.ngo_id}>
+                              <td style={{ padding:'4px 4px', fontWeight:500 }}>{name}</td>
+                              <td style={{ padding:'4px 4px', textAlign:'right', width:110 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:8, justifyContent:'flex-end' }}>
+                                  <div style={{ width:64, height:6, background:'var(--line)', borderRadius:3, overflow:'hidden' }}>
+                                    <div style={{ width:Math.min(100, pct)+'%', height:6, background:'var(--sage)', borderRadius:3 }} />
+                                  </div>
+                                  <span style={{ fontWeight:600, minWidth:36, textAlign:'right' }}>{Math.round(pct)}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* NGO Salary Allocation */}
+              <div className="card" style={{ marginBottom:16 }}>
+                <div className="card-head">
+                  <h3>NGO Salary Allocation</h3>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <span className="sub">{salaryAllocMonth ? salaryAllocMonth.slice(0,7) : ''}</span>
+                    <button className="btn btn-sm" disabled={generatingSalary} onClick={async () => {
+                      setGeneratingSalary(true); setAllocMsg('');
+                      try {
+                        await generateWorkerSalaryAlloc(worker.id, salaryAllocMonth);
+                        const r = await fetchWorkerSalaryAlloc(worker.id, salaryAllocMonth);
+                        setSalaryAllocs(r?.allocations || []);
+                        setAllocMsg('Salary allocation generated from payroll.');
+                      } catch (e) { setAllocMsg('Generate failed: ' + e.message); }
+                      setGeneratingSalary(false);
+                    }}>{generatingSalary ? '…' : 'Generate from Payroll'}</button>
+                    <button className="btn btn-sm" onClick={() => {
+                      setSalarySplitForm(salaryAllocs.length
+                        ? salaryAllocs.map(a => ({ ngo_id: a.ngo_id, portion: String(a.salary_portion ?? '') }))
+                        : []);
+                      setEditingSalary(true); setAllocMsg('');
+                    }}>Edit</button>
+                  </div>
+                </div>
+                <div className="card-pad">
+                  {allocMsg && <div style={{ fontSize:12, color:'var(--ink-soft)', marginBottom:8 }}>{allocMsg}</div>}
+                  {salaryAllocs.length === 0 ? (
+                    <div style={{ color:'var(--ink-soft)', fontSize:13 }}>No salary allocation for this month. Click <strong>Generate from Payroll</strong> to seed it from payroll, or edit to set amounts per NGO.</div>
+                  ) : (
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, fontVariantNumeric:'tabular-nums' }}>
+                      <tbody>
+                        {salaryAllocs.map(a => {
+                          const name = ngos.find(n => n.id === a.ngo_id)?.name || a.ngo_name || 'Unknown';
+                          const portion = parseFloat(a.salary_portion) || 0;
+                          const activeSalaryVal = parseFloat(activeSalary?.salary || 0);
+                          const pct = activeSalaryVal > 0 ? (portion / activeSalaryVal) * 100 : 0;
+                          return (
+                            <tr key={a.id || a.ngo_id}>
+                              <td style={{ padding:'4px 4px', fontWeight:500 }}>{name}</td>
+                              <td style={{ padding:'4px 4px', textAlign:'right', width:140 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:8, justifyContent:'flex-end' }}>
+                                  <div style={{ width:64, height:6, background:'var(--line)', borderRadius:3, overflow:'hidden' }}>
+                                    <div style={{ width:Math.min(100, pct)+'%', height:6, background:'var(--sage)', borderRadius:3 }} />
+                                  </div>
+                                  <span style={{ fontWeight:600, minWidth:110, textAlign:'right' }}>₹{portion.toLocaleString('en-IN')}{activeSalaryVal > 0 ? ' · ' + Math.round(pct) + '%' : ''}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
               {/* NGO Allocations Breakdown */}
               {allocations.length > 0 && (
               <div className="card" style={{ marginBottom:16 }}>
@@ -1919,6 +2037,106 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
 
         </div>
       </div>
+
+      {editingPeople && (
+        <div className="modal-overlay" onClick={() => setEditingPeople(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="card-pad">
+              <h3 style={{ margin:'0 0 4px' }}>NGO Employment Split</h3>
+              <p style={{ fontSize:12, color:'var(--ink-soft)', margin:'0 0 12px' }}>
+                Assign the % of employment time per NGO. Leave empty NGOs blank. Total must equal 100%.
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
+                {peopleForm.map((p, i) => (
+                  <div key={p.ngo_id || i} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ flex:1, fontSize:13, fontWeight:500 }}>
+                      {ngos.find(n => n.id === p.ngo_id)?.name || 'NGO'}
+                    </span>
+                    <input type="number" min="0" max="100" value={p.pct}
+                      onChange={e => setPeopleForm(f => f.map((x, j) => j === i ? { ...x, pct: e.target.value } : x))}
+                      style={{ width:80, border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 8px', fontSize:13, textAlign:'right' }}
+                      placeholder="%" />
+                    <span style={{ width:20, textAlign:'right', fontSize:12, color:'var(--ink-soft)' }}>%</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, marginBottom:12, color: (() => {
+                const total = peopleForm.reduce((s, x) => s + (parseFloat(x.pct) || 0), 0);
+                return total === 100 ? '#065f46' : total > 100 ? '#991b1b' : 'var(--ink-soft)';
+              })() }}>
+                Total: {peopleForm.reduce((s, x) => s + (parseFloat(x.pct) || 0), 0)}% (must be 100%)
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-primary btn-sm" disabled={peopleSaving || peopleForm.reduce((s, x) => s + (parseFloat(x.pct) || 0), 0) !== 100}
+                  onClick={async () => {
+                    setPeopleSaving(true);
+                    try {
+                      const allocs = peopleForm.filter(x => (parseFloat(x.pct) || 0) > 0)
+                        .map(x => ({ ngo_id: x.ngo_id, pct: parseFloat(x.pct) }));
+                      await saveWorkerPeopleAllocations(worker.id, allocs);
+                      const r = await fetchWorkerPeopleAllocations(worker.id);
+                      setPeopleAllocs(r || []);
+                      setEditingPeople(false);
+                    } catch (e) { setAllocMsg(e.message); }
+                    setPeopleSaving(false);
+                  }}>
+                  {peopleSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingPeople(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingSalary && (
+        <div className="modal-overlay" onClick={() => setEditingSalary(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="card-pad">
+              <h3 style={{ margin:'0 0 4px' }}>NGO Salary Allocation</h3>
+              <p style={{ fontSize:12, color:'var(--ink-soft)', margin:'0 0 12px' }}>
+                Set the ₹ amount each NGO pays towards this employee's salary. Total must equal active salary (₹{parseFloat(activeSalary?.salary || 0).toLocaleString('en-IN')}).
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
+                {salarySplitForm.map((p, i) => (
+                  <div key={p.ngo_id || i} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ flex:1, fontSize:13, fontWeight:500 }}>
+                      {ngos.find(n => n.id === p.ngo_id)?.name || 'NGO'}
+                    </span>
+                    <span style={{ fontSize:12, color:'var(--ink-soft)' }}>₹</span>
+                    <input type="number" min="0" value={p.portion}
+                      onChange={e => setSalarySplitForm(f => f.map((x, j) => j === i ? { ...x, portion: e.target.value } : x))}
+                      style={{ width:120, border:'1px solid var(--line)', borderRadius:'var(--radius-sm)', padding:'6px 8px', fontSize:13, textAlign:'right' }}
+                      placeholder="0" />
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, marginBottom:12, color:'var(--ink-soft)' }}>
+                Total: ₹{salarySplitForm.reduce((s, x) => s + (parseFloat(x.portion) || 0), 0).toLocaleString('en-IN')}
+                {' '}· Active salary: ₹{parseFloat(activeSalary?.salary || 0).toLocaleString('en-IN')}
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-primary btn-sm" disabled={salarySaving}
+                  onClick={async () => {
+                    setSalarySaving(true);
+                    try {
+                      const allocs = salarySplitForm.filter(x => (parseFloat(x.portion) || 0) > 0)
+                        .map(x => ({ ngo_id: x.ngo_id, salary_portion: parseFloat(x.portion) }));
+                      await saveWorkerSalaryAlloc(worker.id, allocs, salaryAllocMonth);
+                      const r = await fetchWorkerSalaryAlloc(worker.id, salaryAllocMonth);
+                      setSalaryAllocs(r?.allocations || []);
+                      setEditingSalary(false);
+                    } catch (e) { setAllocMsg(e.message); }
+                    setSalarySaving(false);
+                  }}>
+                  {salarySaving ? 'Saving...' : 'Save'}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingSalary(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </>
   );

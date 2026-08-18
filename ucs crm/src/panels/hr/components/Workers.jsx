@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHR } from '../store';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check } from '../icons';
@@ -105,7 +106,8 @@ function WhoWithPhoto({ name, role, photo_url }) {
 }
 
 export default function Workers({ onSelect, onOffboard }) {
-  const { addWorker, DEPTS, fetchWorkers, fetchNGOs } = useHR();
+  const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
+  const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
   const [empIdMap, setEmpIdMap] = useState({});
   const [loading, setLoading] = useState(true);
@@ -122,6 +124,7 @@ export default function Workers({ onSelect, onOffboard }) {
   const [created, setCreated] = useState(null);
   const [salaryMap, setSalaryMap] = useState({});
   const [ngos, setNgos] = useState([]);
+  const [ngoSummary, setNgoSummary] = useState([]);
   const [selectedNgos, setSelectedNgos] = useState([]);
   const [workerDetails, setWorkerDetails] = useState({});
   const PAGE_SIZE = 20;
@@ -154,6 +157,7 @@ export default function Workers({ onSelect, onOffboard }) {
       });
     });
     fetchNGOs().then(setNgos).catch((err) => { console.error('API error:', err.message); });
+    fetchNgoSummaryList().then(setNgoSummary).catch((err) => { console.error('API error:', err.message); });
     api('/salary/workers-summary', { _prefix: 'ucs' })
       .then(data => {
         const map = {};
@@ -167,8 +171,9 @@ export default function Workers({ onSelect, onOffboard }) {
   const clientOf = (w) => {
     if (!w.ngo_id) return 'Other';
     const ngo = ngos.find(n => n.id === w.ngo_id);
-    const name = ngo ? (ngo.name || '').trim().toUpperCase() : '';
-    return ['BSCT','AFLF','MANN'].includes(name) ? name : 'Other';
+    if (!ngo) return 'Other';
+    const name = (ngo.name || '').trim().toUpperCase();
+    return name === 'OTHER' ? 'Other' : (name || 'Other');
   };
   const filtered = workers.filter(w => {
     const role = w.department || 'Team Member';
@@ -187,11 +192,18 @@ export default function Workers({ onSelect, onOffboard }) {
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const CLIENTS = ['BSCT', 'AFLF', 'MANN', 'Other'];
-  const CLIENT_COLORS = { BSCT: '#5B6B4E', AFLF: '#C08A2E', MANN: '#7A5C7E', Other: '#9aa0a6' };
-  const clientCounts = { BSCT: 0, AFLF: 0, MANN: 0, Other: 0 };
-  workers.forEach(w => { const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; });
-  const clientTotal = clientCounts.BSCT + clientCounts.AFLF + clientCounts.MANN + clientCounts.Other;
+  const CLIENTS = [...new Set([
+    ...(ngos || []).filter(n => (n.name || '').trim().toUpperCase() !== 'TESTING')
+      .map(n => (n.name || '').trim().toUpperCase() === 'OTHER' ? 'Other' : (n.name || '').trim().toUpperCase()).filter(Boolean),
+    'Other',
+  ])];
+  const PALETTE = ['#5B6B4E', '#C08A2E', '#7A5C7E', '#B5603A', '#4F6472', '#88693D', '#2E7D32', '#1565C0', '#6A1B9A', '#00838F'];
+  const CLIENT_COLORS = {};
+  CLIENTS.forEach((c, i) => { CLIENT_COLORS[c] = PALETTE[i % PALETTE.length]; });
+  const clientCounts = {};
+  CLIENTS.forEach(c => { clientCounts[c] = 0; });
+  workers.forEach(w => { const c = clientOf(w); if (clientCounts[c] !== undefined) clientCounts[c] += 1; else clientCounts[c] = 1; });
+  const clientTotal = CLIENTS.reduce((s, c) => s + (clientCounts[c] || 0), 0);
   const clientPct = (c) => clientTotal ? Math.round((clientCounts[c] / clientTotal) * 100) : 0;
 
   const mountedSearch = useRef(false);
@@ -215,7 +227,7 @@ export default function Workers({ onSelect, onOffboard }) {
       if (dept === 'NGO Admin' && selectedNgos.length > 0) {
         allocations.push(...selectedNgos.map(id => ({ ngo_id: id, salary_portion: 0 })));
       }
-      const clientNgo = ngos.find(n => (n.name || '').trim().toUpperCase() === client);
+      const clientNgo = ngos.find(n => (n.name || '').trim().toUpperCase() === String(client).toUpperCase());
       if (clientNgo) allocations.push({ ngo_id: clientNgo.id, salary_portion: 0 });
       if (allocations.length > 0) body.allocations = allocations;
       const res = await addWorker(body);
@@ -338,6 +350,25 @@ export default function Workers({ onSelect, onOffboard }) {
       const full = await Promise.all(list.map(w => api('/workers/' + w.id, { _prefix: 'ucs' }).catch((err) => { console.error('Error:', err.message); })));
       const data = full.filter(Boolean);
 
+      const now = new Date();
+      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      let allocByWorker = {};
+      let peopleByWorker = {};
+      try {
+        const rep = await api('/ngo-allocations/report/ngo-salary?month=' + month, { _prefix: 'ucs' });
+        for (const r of (rep && rep.rows) || []) {
+          if (!allocByWorker[r.worker_id]) allocByWorker[r.worker_id] = [];
+          allocByWorker[r.worker_id].push(r);
+        }
+      } catch (e) { console.error('Error:', e.message); }
+      try {
+        await Promise.all(data.map(async w => {
+          try {
+            peopleByWorker[w.id] = await api('/ngo-allocations/workers/' + w.id + '/people', { _prefix: 'ucs' });
+          } catch (e) { /* ignore per-worker people fetch errors */ }
+        }));
+      } catch (e) { console.error('Error:', e.message); }
+
       const famKeys = ['name', 'relationship', 'occupation', 'phone'];
 
       const eduNorm = (e) => ({ degree: toTitleCase(e.degree), institution: toTitleCase(e.institution), university: toTitleCase(e.university), year_of_passing: e.year_of_passing || e.year, percentage: e.percentage });
@@ -369,6 +400,12 @@ export default function Workers({ onSelect, onOffboard }) {
           Email: w.email,
           'Login ID': w.login_id,
           Department: toTitleCase(w.department),
+          NGO: clientOf(w),
+          'NGO Allocation %': (peopleByWorker[w.id] || []).map(p => `${p.ngos?.name || ''}: ${parseFloat(p.allocation_percentage || 0)}%`).join('; '),
+          'Total Salary (₹)': w.salary,
+          'NGO Salary Amount (₹)': (allocByWorker[w.id] || []).map(a => `${a.ngo_name}: ${parseFloat(a.allocation_amount || 0).toLocaleString('en-IN')}`).join('; '),
+          'Salary Month': (allocByWorker[w.id] || [])[0]?.salary_month || month,
+          'Payment Status': (allocByWorker[w.id] || []).map(a => `${a.ngo_name}: ${a.payment_status}`).join('; ') || 'unpaid',
           Gender: toTitleCase(w.gender),
           DOB: w.dob,
           Phone: w.phone,
@@ -502,7 +539,7 @@ export default function Workers({ onSelect, onOffboard }) {
               <Dropdown value={dept} onChange={e=>{ setDept(e.target.value); setSelectedNgos([]); }} options={DEPTS} />
             </label>
             <label className="field">Client
-              <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={['BSCT','AFLF','MANN','Other']} />
+              <Dropdown value={client} onChange={e=>setClient(e.target.value)} options={CLIENTS} />
             </label>
           </div>
           {dept === 'NGO Admin' && ngos.length > 0 && (
@@ -546,12 +583,13 @@ export default function Workers({ onSelect, onOffboard }) {
       <div className="card" ref={tableRef}>
         <div className="card-head"><h3>Volunteers</h3>
           <div className="search-input-wrap">
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
             <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
             <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>
             <span className="sub">{filtered.length} total</span>
-            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All','BSCT','AFLF','MANN','Other']} />
+            <Dropdown className="org-filter" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)} options={['All', ...CLIENTS]} />
             <Dropdown className="role-filter" value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}
               options={[{value:'',label:'All members'}, ...roles.map(r => ({value:r, label:r}))]} />
             <Dropdown className="status-filter" value={statusFilter} onChange={e=>{ setStatusFilter(e.target.value); save({ statusFilter: e.target.value }); }}
