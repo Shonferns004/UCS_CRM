@@ -2888,7 +2888,12 @@ const clearReceiptsByDate = async (from, to) => {
     if (ids.length > 0) {
       await db
         .from('bank_audit_entries')
-        .update({ receipt_id: null, receipt_no: null, status: 'unverified' })
+        .update({
+          receipt_id: null, receipt_no: null, status: 'unverified',
+          match_status: null, match_source: null, match_score: null,
+          matched_lead_log_id: null, matched_by: null, matched_at: null,
+          donor_id: null, agent_name: null,
+        })
         .in('receipt_id', ids);
     }
     const { data: delRows } = await db

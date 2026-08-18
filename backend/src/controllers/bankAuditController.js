@@ -956,7 +956,7 @@ export const manualVerifyEntry = async (req, res) => {
       .maybeSingle();
     if (eErr) throw eErr;
     if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
-    if (entry.status === 'verified' || entry.match_status === 'confirmed') {
+    if (entry.status === 'verified') {
       const proj = entry.project_id || 'bsct';
 
       // Case 1: receipt is linked — just assign a number if missing
@@ -993,6 +993,7 @@ export const manualVerifyEntry = async (req, res) => {
         generated_by: req.user.id,
         receipt_date: entry.transaction_date || new Date().toISOString(),
         receipt_time: entry.payment_time || null,
+        donor_id: entry.donor_id || null,
       });
       await db.from('bank_audit_entries').update({ receipt_id: receipt.id, receipt_no: receiptNo }).eq('id', id);
       return res.json({ message: 'Entry was already verified — receipt created and number assigned.', receipt_no: receiptNo, receipt_id: receipt.id });
