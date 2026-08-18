@@ -16,7 +16,7 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
-const EXCEL_HEADER = ["Transaction Date","Receipt Name","Mobile no.","Address","Pan. No.","Mail Id","Agent Name","MOP","Payment ID No.","Amt","Receipt No.","Receipt Date","Time","Account of"];
+const EXCEL_HEADER = ["Team Name","Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Station","Agent Name","FSE Name","MOP","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -470,32 +470,48 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
-      const toRow = r => ({
+      const toRow = (r, isSuspense) => ({
+        'Team Name': '',
         'Transaction Date': r.receipt_date || '',
+        'Caller Name': '',
         'Receipt Name': r.donor_name || '',
         'Mobile no.': r.donor_mobile || '',
-        'Address': r.address || '',
-        'Pan. No.': r.pan_number || '',
-        'Mail Id': r.email || '',
-        'Agent Name': r.agent_name || '',
+        'Mobil No. 2 / Tel ': '',
+        'Address-1 ': r.address || '',
+        'Address-2 ': '',
+        'Pan. No. ': r.pan_number || '',
+        'Mail Id ': r.email || '',
+        'Station': '',
+        'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
+        'FSE Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
         'MOP': r.mode || '',
-        'Payment ID No.': r.payment_id || '',
+        'Payment ID No. ': r.payment_id || '',
         'Amt': r.amount || 0,
         'Receipt No.': r.receipt_no || '',
-        'Receipt Date': r.receipt_date || '',
+        'Receipt Date ': r.receipt_date || '',
         'Time': r.receipt_time || '',
         'Account of': 'Corpus',
       });
-      const buildSheet = rows => XLSX.utils.aoa_to_sheet([EXCEL_HEADER, ...rows.map(row => EXCEL_HEADER.map(h => row[h] ?? ''))]);
+      const YELLOW_BG = { fgColor: { rgb: 'FFFF00' } };
+      const buildSheet = (rows) => {
+        const data = [EXCEL_HEADER, ...rows.map(({row, isSuspense}) =>
+          EXCEL_HEADER.map(h => {
+            const val = row[h] ?? '';
+            return isSuspense ? { v: val, t: typeof val === 'number' ? 'n' : 's', s: YELLOW_BG } : val;
+          })
+        )];
+        return XLSX.utils.aoa_to_sheet(data);
+      };
       const wb = XLSX.utils.book_new();
+      const isSuspenseEntry = r => !r.receipt_no;
       const groups = {
         beingsevak: all.filter(r => r.project_id === 'bsct'),
         ashray: all.filter(r => r.project_id === 'aflf'),
         manncare: all.filter(r => r.project_id === 'mann'),
       };
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.beingsevak.map(toRow)), 'BeingSevak');
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.ashray.map(toRow)), 'Ashray');
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.manncare.map(toRow)), 'MannCare');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.beingsevak.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'BeingSevak');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.ashray.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'Ashray');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.manncare.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'MannCare');
       XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
       alert('Export failed: ' + err.message);

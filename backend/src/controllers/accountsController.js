@@ -1539,7 +1539,13 @@ export const getReceiptList = async (req, res) => {
 
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
-        `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+        `SELECT id, log_id, receipt_no, project_id, donor_name,
+                COALESCE(receipts.donor_mobile,
+                  (SELECT b.donor_mobile FROM bank_audit_entries b
+                   WHERE b.receipt_id = receipts.id AND b.donor_mobile IS NOT NULL AND b.donor_mobile <> ''
+                   ORDER BY b.id LIMIT 1)
+                ) AS donor_mobile,
+                amount,
                 receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
                 donor_id, agent_name, sent, sent_at, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
@@ -1559,7 +1565,13 @@ export const getReceiptList = async (req, res) => {
 
     params.push(limit, (page - 1) * limit);
     const rowsRes = await db._pool.query(
-      `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+      `SELECT id, log_id, receipt_no, project_id, donor_name,
+              COALESCE(receipts.donor_mobile,
+                (SELECT b.donor_mobile FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.donor_mobile IS NOT NULL AND b.donor_mobile <> ''
+                 ORDER BY b.id LIMIT 1)
+              ) AS donor_mobile,
+              amount,
               receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
               donor_id, agent_name, sent, sent_at, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
