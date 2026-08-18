@@ -583,24 +583,24 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setSe(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro('');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');setMvEmail(entry.donor_email||'');setMvCity(entry.donor_city||'');setMvPinCode(entry.donor_pin_code||'');setMvAddr2(entry.donor_address_2||'');setMvResults([]);setMvShowResults(false);setShowMvForm(true);};
   const mvTimerRef=useRef(null);
-  const searchMvDonors=(q)=>{setMvMobile(q);setMvErr('');if(mvTimerRef.current)clearTimeout(mvTimerRef.current);const raw=q.replace(/[^\d]/g,'');if(raw.length<3){setMvResults([]);setMvShowResults(false);return}setMvShowResults(true);setMvSearching(true);mvTimerRef.current=setTimeout(async()=>{try{const r=await apiGet('/accounts/donors?search='+encodeURIComponent(raw));setMvResults(Array.isArray(r)?r:(r.data||[]))}catch(e){setMvResults([])}finally{setMvSearching(false)}},350)};
-  const selectMvDonor=(d)=>{setMvName(d.name||'NA');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'NA');setMvPan(d.pan_number||d.pan||'NA');setMvEmail(d.email||'NA');setMvCity(d.city||'NA');setMvPinCode(d.pin_code||'NA');setMvAddr2(d.address_2||'NA');setMvResults([]);setMvShowResults(false)};
-  const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null});setMv(null);setSe(null);setShowMvForm(false);setMvResults([]);setMvShowResults(false);setTo({msg:'Entry manually verified, FRO credited, and receipt generated',type:'success',vis:true});load(sd,st)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
+  const searchMvDonors=(q)=>{setMvMobile(q);setMvErr('');if(mvTimerRef.current)clearTimeout(mvTimerRef.current);const raw=q.replace(/[^\d]/g,'');if(raw.length<3){setMvResults([]);setMvShowResults(false);return}mvTimerRef.current=setTimeout(async()=>{try{setMvSearching(true);const r=await apiGet('/accounts/donors?search='+encodeURIComponent(raw));const donors=Array.isArray(r)?r:(r.data||[]);if(donors.length>0){setMvResults(donors);setMvShowResults(true)}else{try{const rec=await apiGet('/accounts/receipts/by-mobile?mobile='+encodeURIComponent(raw));if(rec&&rec.donor_name){setMvName(rec.donor_name||'');setMvAddr(rec.address||'');setMvPan(rec.pan_number||'');setMvShowResults(false)}else{setMvResults([]);setMvShowResults(true)}}catch(_){setMvResults([]);setMvShowResults(true)}}}catch(e){setMvResults([])}finally{setMvSearching(false)}},350)};
+  const selectMvDonor=(d)=>{setMvName(d.name||'');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'');setMvPan(d.pan_number||d.pan||'');setMvResults([]);setMvShowResults(false)};
+  const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null});setMv(null);setSe(null);setShowMvForm(false);setMvResults([]);setMvShowResults(false);setTo({msg:'Entry manually verified, FRO credited, and receipt generated',type:'success',vis:true});load(sd,st)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){alert('Failed to download PDF: '+e.message)}setDl(false)};
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
   const ddStyle={position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.12)',marginTop:4};
-  const MvSearchDropdown=()=>{
+  const MvSearchDropdownInner=({sel})=>{
     if(mvSearching&&mvShowResults){
-      return <div style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>;
+      return <div data-mv style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>;
     }
     if(!mvShowResults)return null;
     if(mvResults.length!==0){
-      return <div style={{...ddStyle,maxHeight:180,overflowY:'auto'}}>
+      return <div data-mv style={{...ddStyle,maxHeight:180,overflowY:'auto'}}>
         {mvResults.slice(0,6).map((d,i)=>{
           const last=i===mvResults.length-1;
-          return <div key={d.id||i} onMouseDown={e=>{e.preventDefault();selectMvDonor(d)}} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:last?'none':'1px solid #f3f4f6',fontSize:12,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='#f0fdf4'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+          return <div key={d.id||i} onMouseDown={e=>{e.preventDefault();sel(d)}} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:last?'none':'1px solid #f3f4f6',fontSize:12,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='#f0fdf4'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
             <div style={{width:28,height:28,borderRadius:'50%',background:'var(--sage)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:10,fontWeight:700,flexShrink:0}}>{(d.name||'?')[0].toUpperCase()}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name||'Unknown'}</div>
@@ -610,9 +610,10 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         })}
       </div>;
     }
-    if(!mvSearching)return <div style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>;
+    if(!mvSearching)return <div data-mv style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>;
     return null;
   };
+  const MvSearchDropdownStable=useCallback((p)=><MvSearchDropdownInner {...p}/>,[]);
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
@@ -845,8 +846,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
           </div>
           <div ref={mvSearchRef} style={{position:'relative',gridColumn:'1 / -1'}}>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Mobile <span style={{color:'#dc2626'}}>*</span></label>
-            <input type="tel" value={mvMobile} onChange={e=>searchMvDonors(e.target.value)} placeholder="e.g. 9876543210" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)';if(mvResults.length)setMvShowResults(true)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
-            <MvSearchDropdown/>
+            <input type="tel" autoComplete="off" value={mvMobile} onChange={e=>searchMvDonors(e.target.value)} placeholder="e.g. 9876543210" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)';if(mvResults.length)setMvShowResults(true)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none';setTimeout(()=>setMvShowResults(false),200)}}/>
+            <MvSearchDropdownStable sel={selectMvDonor}/>
           </div>
           <div>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Name <span style={{color:'#9ca3af',fontWeight:400,textTransform:'none',letterSpacing:0}}>— used if new</span></label>

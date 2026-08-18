@@ -8,6 +8,14 @@ const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') :
 
 const fieldStyle = { width: '100%', padding: '10px 12px', border: '1.5px solid var(--line)', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none', transition: 'border-color .15s' };
 
+function fmtTime12(t) {
+  if (!t) return '';
+  const [h, m] = String(t).split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return String(t);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
+}
+
 const CLAIM_BADGES = {
   pending: { text: 'Claimed · Pending', color: '#b45309', bg: '#fef3c7' },
   verified: { text: 'Claim Verified', color: '#166534', bg: '#dcfce7' },
@@ -271,7 +279,7 @@ export default function FroSuspense() {
                       <span>{r.donor_mobile || '\u2014'}</span>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      {r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${r.receipt_time}` : ''}
+                      {r.receipt_date || '\u2014'}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}
                       <span style={{ color: 'var(--line)', margin: '0 3px' }}>•</span>
                       {NGO_SHORT[r.project_id] || NGO_LABELS[r.project_id] || r.project_id}
                     </div>
@@ -335,7 +343,7 @@ export default function FroSuspense() {
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#78350f', marginBottom: 4 }}>{claimReceipt.donor_name || 'Unknown donor'}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#92400e' }}>
                       <span>{claimReceipt.receipt_date || '—'}</span>
-                      {claimReceipt.receipt_time && <span>· {claimReceipt.receipt_time}</span>}
+                      {claimReceipt.receipt_time && <span>· {fmtTime12(claimReceipt.receipt_time)}</span>}
                       <span style={{ marginLeft: 'auto', fontSize: 18, fontWeight: 800, color: '#78350f' }}>{currency(claimReceipt.amount)}</span>
                     </div>
                   </div>
