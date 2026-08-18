@@ -2,6 +2,9 @@ import * as BankAudit from '../models/bankAuditModel.js';
 import db from '../config/db.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
+import { getDonorByMobile } from '../models/donorProfileModel.js';
+import { createReceipt } from '../models/receiptModel.js';
+import { sendPushNotification } from '../services/fcmService.js';
 
 export const listSources = async (req, res) => {
   try {
@@ -924,6 +927,212 @@ export const markEntryVerified = async (req, res) => {
     return res.json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+// Manual Verify: attribute an unmatched bank audit entry to a specific FRO +
+// donor. Some FROs record donations on a PC (no FRO-app log row exists), so
+// Accounts picks the FRO and the donor's mobile. The flow resolves-or-creates
+// the donor, assigns it to the FRO, writes a verified donation log (crediting
+// the FRO + adding to donor history), settles the bank entry, and generates a
+// receipt.
+export const manualVerifyEntry = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
+    } = req.body || {};
+
+    const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
+    if (!fro_worker_id) return res.status(400).json({ message: 'Please select an FRO' });
+    if (mobile.length < 10) return res.status(400).json({ message: 'Please enter a valid donor mobile number' });
+
+    // Load the bank audit entry.
+    const { data: entry, error: eErr } = await db
+      .from('bank_audit_entries')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (eErr) throw eErr;
+    if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
+    if (entry.status === 'verified' || entry.match_status === 'confirmed') {
+      return res.status(400).json({ message: 'This bank audit entry is already verified/credited' });
+    }
+
+    // Resolve the FRO worker (must be an FRO).
+    const { data: worker, error: wErr } = await db
+      .from('workers')
+      .select('id, name, login_id, department')
+      .eq('id', fro_worker_id)
+      .maybeSingle();
+    if (wErr) throw wErr;
+    if (!worker || !worker.is_active) return res.status(404).json({ message: 'Selected FRO not found' });
+    const froName = worker.name || 'Unknown';
+
+    const amount = Number(entry.amount || 0);
+    const now = new Date().toISOString();
+    const project = entry.project_id || 'bsct';
+    const entryAddress = [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null;
+
+    const result = await db.transaction(async ({ from }) => {
+      // Resolve or create the donor profile.
+      let donor = await getDonorByMobile(mobile);
+      if (!donor) {
+        const { data: created, error: dErr } = await from('donor_profiles').insert({
+          name: (donor_name || entry.payer_name || 'Unknown').trim(),
+          mobile_number: mobile,
+          address_1: donor_address || entryAddress || null,
+          pan_number: donor_pan || entry.donor_pan || null,
+          project_supported: project,
+        }).select().single();
+        if (dErr) throw dErr;
+        donor = created;
+      } else {
+        // Fill blanks on an existing donor (only where currently empty).
+        const patch = {};
+        if (donor_address && !donor.address_1) patch.address_1 = donor_address;
+        else if (entryAddress && !donor.address_1) patch.address_1 = entryAddress;
+        if (donor_pan && !donor.pan_number) patch.pan_number = donor_pan;
+        else if (entry.donor_pan && !donor.pan_number) patch.pan_number = entry.donor_pan;
+        if (donor_name && !donor.name) patch.name = donor_name;
+        if (Object.keys(patch).length > 0) {
+          patch.updated_at = now;
+          await from('donor_profiles').update(patch).eq('id', donor.id);
+        }
+      }
+      const donorId = donor.id;
+
+      // Find or create an open assignment linking donor + FRO.
+      const { data: existingAsgn } = await from('fro_assignments')
+        .select('id')
+        .eq('donor_id', donorId)
+        .eq('fro_worker_id', fro_worker_id)
+        .not('status', 'eq', 'reassigned')
+        .order('assigned_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let assignment = existingAsgn || null;
+      if (!assignment) {
+        const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
+          donor_id: donorId,
+          fro_worker_id: fro_worker_id,
+          status: 'donation_collected',
+          assigned_by: req.user.id,
+        }).select().single();
+        if (asErr) throw asErr;
+        assignment = createdAsgn;
+      }
+
+      // Write the verified donation log -> credits FRO + adds to donor history.
+      const { data: log, error: lErr } = await from('fro_donor_logs').insert({
+        assignment_id: assignment.id,
+        donor_id: donorId,
+        fro_worker_id: fro_worker_id,
+        action: 'donation',
+        amount_collected: amount,
+        payment_mode: entry.mode || (entry.payment_id ? 'UPI' : 'Bank Transfer'),
+        upi_transaction_id: entry.payment_id || null,
+        payment_from: entry.payer_name || null,
+        transaction_datetime: entry.transaction_date || now,
+        accounts_status: 'verified',
+        verified_at: now,
+        verified_by: req.user.id,
+        created_by: req.user.id,
+        notes: `Manually verified from bank audit entry (${entry.payment_id || 'N/A'})`,
+      }).select().single();
+      if (lErr) throw lErr;
+
+      // Increment donor totals.
+      await from('donor_profiles').update({
+        total_amount: Math.round(((donor.total_amount || 0) + amount) * 100) / 100,
+        donation_count: (donor.donation_count || 0) + 1,
+        last_donation_date: entry.transaction_date || now.slice(0, 10),
+        updated_at: now,
+      }).eq('id', donorId);
+
+      // Settle the bank audit entry.
+      const matchNo = await BankAudit.nextMatchNo();
+      await from('bank_audit_entries').update({
+        status: 'verified',
+        donor_id: donorId,
+        agent_name: froName,
+        match_status: 'confirmed',
+        match_source: 'manual',
+        match_no: matchNo,
+        matched_by: req.user.id,
+        matched_at: now,
+        updated_at: now,
+        payer_name: entry.payer_name || donor.name || null,
+        donor_mobile: mobile,
+        donor_email: entry.donor_email || donor.email || null,
+        donor_pan: donor_pan || entry.donor_pan || donor.pan_number || null,
+        donor_address_1: donor_address || entryAddress || donor.address_1 || null,
+        donor_city: donor.city || null,
+        donor_pin_code: donor.pin_code || null,
+      }).eq('id', entry.id);
+
+      // Generate the receipt (uses the entered address/PAN where available).
+      const receiptNo = await BankAudit.getNextReceiptNo(project);
+      const receipt = await createReceipt({
+        log_id: log.id,
+        receipt_no: receiptNo,
+        project_id: project,
+        donor_name: donor.name || entry.payer_name || 'Unknown',
+        donor_mobile: mobile,
+        amount,
+        pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
+        address: donor_address || entryAddress || null,
+        email: entry.donor_email || donor.email || null,
+        bank_name: entry.bank_name || donor.donors_bank_name || null,
+        mode: entry.mode || null,
+        payment_id: entry.payment_id || null,
+        agent_name: froName,
+        purpose: 'Bank Audit Manual Verify',
+        generated_by: req.user.id,
+        donor_id: donorId,
+        receipt_date: entry.transaction_date || now,
+        receipt_time: entry.payment_time || null,
+      });
+
+      await from('bank_audit_entries').update({
+        receipt_id: receipt.id,
+        receipt_no: receipt.receipt_no || null,
+      }).eq('id', entry.id);
+
+      return { logId: log.id, donorId, amount, match_no: matchNo, receipt };
+    });
+
+    // Notify the FRO (FCM + notification_log).
+    try {
+      const notifTitle = 'Lead Verified';
+      const notifBody = `Your lead for ${result.receipt?.donor_name || 'donor'} (\u20B9${amount.toLocaleString('en-IN')}) was verified. Receipt: ${result.receipt?.receipt_no || ''}`;
+      let fcmLogged = false;
+      try {
+        const pushResult = await sendPushNotification(fro_worker_id, notifTitle, notifBody, 'lead_verified', result.logId);
+        fcmLogged = !!pushResult;
+      } catch (err) { console.error('FCM send error:', err.message); }
+      if (!fcmLogged) {
+        await db.from('notification_log').insert({
+          worker_id: fro_worker_id,
+          type: 'lead_verified',
+          title: notifTitle,
+          body: notifBody,
+          fro_donor_log_id: String(result.logId),
+          sent_at: now,
+        });
+      }
+    } catch (err) { console.error('Failed to create verified notification:', err.message); }
+
+    return res.json({
+      message: 'Entry manually verified, FRO credited, and receipt generated',
+      donor_id: result.donorId,
+      log_id: result.logId,
+      amount: result.amount,
+      match_no: result.match_no,
+      receipt_no: result.receipt?.receipt_no || null,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({ message: error.message });
   }
 };
 
