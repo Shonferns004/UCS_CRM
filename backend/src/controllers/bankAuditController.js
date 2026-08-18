@@ -554,10 +554,13 @@ export const editEntry = async (req, res) => {
 
     const { data: existing } = await db
       .from('bank_audit_entries')
-      .select('id, receipt_id')
+      .select('id, receipt_id, editable_until')
       .eq('id', id)
       .maybeSingle();
     if (!existing) return res.status(404).json({ message: 'Entry not found' });
+    if (existing.editable_until && new Date(existing.editable_until) < new Date()) {
+      return res.status(400).json({ message: 'Edit window has expired. This entry is no longer editable.' });
+    }
 
     const { data: currentReceipt } = existing.receipt_id
       ? await db.from('receipts').select('id, log_id').eq('id', existing.receipt_id).maybeSingle()
@@ -999,20 +1002,34 @@ export const manualVerifyEntry = async (req, res) => {
     }
 
     // Resolve the FRO worker (must be an FRO).
-    const { data: worker, error: wErr } = await db
-      .from('workers')
-      .select('id, name, login_id, department, is_active')
-      .eq('id', fro_worker_id)
-      .maybeSingle();
-    if (wErr) throw wErr;
-    if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
-    const froName = worker.name || 'Unknown';
+    const isStaticFro = String(fro_worker_id).startsWith('static-');
+    let froName = 'Unknown';
+    let workerId = fro_worker_id;
+    if (isStaticFro) {
+      froName = fro_worker_id === 'static-priyank-shah' ? 'Priyank Shah' : fro_worker_id === 'static-suspense' ? 'Suspense' : 'Unknown';
+      workerId = null;
+    } else {
+      const { data: worker, error: wErr } = await db
+        .from('workers')
+        .select('id, name, login_id, department, is_active')
+        .eq('id', fro_worker_id)
+        .maybeSingle();
+      if (wErr) throw wErr;
+      if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
+      froName = worker.name || 'Unknown';
+    }
 
     const amount = Number(entry.amount || 0);
     const now = new Date().toISOString();
     const project = entry.project_id || 'bsct';
     const entryAddress = [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null;
     const ngoId = await BankAudit.ngoIdFromProjectId(project);
+
+    // Compute editable_until = end of current month for static FROs.
+    const editableUntil = isStaticFro ? (() => {
+      const d = new Date();
+      return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    })() : null;
 
     const result = await db.transaction(async ({ from }) => {
       // Resolve or create the donor profile.
@@ -1051,63 +1068,67 @@ export const manualVerifyEntry = async (req, res) => {
       }
       const donorId = donor.id;
 
-      // Find or create an open assignment linking donor + FRO + NGO.
-      let asgnQuery = from('fro_assignments')
-        .select('id')
-        .eq('donor_id', donorId)
-        .eq('fro_worker_id', fro_worker_id)
-        .not('status', 'eq', 'reassigned')
-        .order('assigned_at', { ascending: false })
-        .limit(1);
-      if (ngoId) asgnQuery = asgnQuery.eq('ngo_id', ngoId);
-      const { data: existingAsgn } = await asgnQuery.maybeSingle();
-      let assignment = existingAsgn || null;
-      if (!assignment) {
-        const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
+      let logId = null;
+      if (!isStaticFro) {
+        // Find or create an open assignment linking donor + FRO + NGO.
+        let asgnQuery = from('fro_assignments')
+          .select('id')
+          .eq('donor_id', donorId)
+          .eq('fro_worker_id', fro_worker_id)
+          .not('status', 'eq', 'reassigned')
+          .order('assigned_at', { ascending: false })
+          .limit(1);
+        if (ngoId) asgnQuery = asgnQuery.eq('ngo_id', ngoId);
+        const { data: existingAsgn } = await asgnQuery.maybeSingle();
+        let assignment = existingAsgn || null;
+        if (!assignment) {
+          const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
+            donor_id: donorId,
+            fro_worker_id: fro_worker_id,
+            ngo_id: ngoId,
+            status: 'donation_collected',
+            assigned_by: null,
+          }).select().single();
+          if (asErr) throw asErr;
+          assignment = createdAsgn;
+        }
+
+        // Write the verified donation log -> credits FRO + adds to donor history.
+        const { data: log, error: lErr } = await from('fro_donor_logs').insert({
+          assignment_id: assignment.id,
           donor_id: donorId,
           fro_worker_id: fro_worker_id,
-          ngo_id: ngoId,
-          status: 'donation_collected',
-          assigned_by: null,
+          action: 'donation',
+          amount_collected: amount,
+          payment_mode: entry.mode || (entry.payment_id ? 'UPI' : 'Bank Transfer'),
+          upi_transaction_id: entry.payment_id || null,
+          payment_from: entry.payer_name || null,
+          transaction_datetime: entry.transaction_date || now,
+          accounts_status: 'verified',
+          verified_at: now,
+          verified_by: req.user.id,
+          created_by: req.user.id,
+          notes: `Manually verified from bank audit entry (${entry.payment_id || 'N/A'})`,
         }).select().single();
-        if (asErr) throw asErr;
-        assignment = createdAsgn;
+        if (lErr) throw lErr;
+        logId = log.id;
+
+        // Increment donor totals.
+        await from('donor_profiles').update({
+          total_amount: Math.round(((donor.total_amount || 0) + amount) * 100) / 100,
+          donation_count: (donor.donation_count || 0) + 1,
+          last_donation_date: entry.transaction_date || now.slice(0, 10),
+          updated_at: now,
+        }).eq('id', donorId);
       }
-
-      // Write the verified donation log -> credits FRO + adds to donor history.
-      const { data: log, error: lErr } = await from('fro_donor_logs').insert({
-        assignment_id: assignment.id,
-        donor_id: donorId,
-        fro_worker_id: fro_worker_id,
-        action: 'donation',
-        amount_collected: amount,
-        payment_mode: entry.mode || (entry.payment_id ? 'UPI' : 'Bank Transfer'),
-        upi_transaction_id: entry.payment_id || null,
-        payment_from: entry.payer_name || null,
-        transaction_datetime: entry.transaction_date || now,
-        accounts_status: 'verified',
-        verified_at: now,
-        verified_by: req.user.id,
-        created_by: req.user.id,
-        notes: `Manually verified from bank audit entry (${entry.payment_id || 'N/A'})`,
-      }).select().single();
-      if (lErr) throw lErr;
-
-      // Increment donor totals.
-      await from('donor_profiles').update({
-        total_amount: Math.round(((donor.total_amount || 0) + amount) * 100) / 100,
-        donation_count: (donor.donation_count || 0) + 1,
-        last_donation_date: entry.transaction_date || now.slice(0, 10),
-        updated_at: now,
-      }).eq('id', donorId);
 
       // Settle the bank audit entry.
       const matchNo = await BankAudit.nextMatchNo();
-      await from('bank_audit_entries').update({
-        status: 'verified',
+      const entryPatch = {
+        status: 'unverified',
         donor_id: donorId,
         agent_name: froName,
-        match_status: 'confirmed',
+        match_status: isStaticFro ? 'matched' : 'confirmed',
         match_source: 'manual',
         match_no: matchNo,
         matched_by: req.user.id,
@@ -1121,12 +1142,15 @@ export const manualVerifyEntry = async (req, res) => {
         donor_address_2: donor_address_2 || donor.address_2 || null,
         donor_city: donor_city || donor.city || null,
         donor_pin_code: donor_pin_code || donor.pin_code || null,
-      }).eq('id', entry.id);
+      };
+      if (editableUntil) entryPatch.editable_until = editableUntil;
+      if (isStaticFro) entryPatch.match_source = 'static_fro';
+      await from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
 
       // Generate the receipt (uses the entered address/PAN where available).
       const receiptNo = await BankAudit.getNextReceiptNo(project);
       const receipt = await createReceipt({
-        log_id: log.id,
+        log_id: logId,
         receipt_no: receiptNo,
         project_id: project,
         donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
@@ -1151,32 +1175,36 @@ export const manualVerifyEntry = async (req, res) => {
         receipt_no: receipt.receipt_no || null,
       }).eq('id', entry.id);
 
-      return { logId: log.id, donorId, amount, match_no: matchNo, receipt };
+      return { logId, donorId, amount, match_no: matchNo, receipt };
     });
 
-    // Notify the FRO (FCM + notification_log).
-    try {
-      const notifTitle = 'Lead Verified';
-      const notifBody = `Your lead for ${result.receipt?.donor_name || 'donor'} (\u20B9${amount.toLocaleString('en-IN')}) was verified. Receipt: ${result.receipt?.receipt_no || ''}`;
-      let fcmLogged = false;
+    // Notify the FRO (FCM + notification_log) — skip for static FROs.
+    if (!isStaticFro) {
       try {
-        const pushResult = await sendPushNotification(fro_worker_id, notifTitle, notifBody, 'lead_verified', result.logId);
-        fcmLogged = !!pushResult;
-      } catch (err) { console.error('FCM send error:', err.message); }
-      if (!fcmLogged) {
-        await db.from('notification_log').insert({
-          worker_id: fro_worker_id,
-          type: 'lead_verified',
-          title: notifTitle,
-          body: notifBody,
-          fro_donor_log_id: String(result.logId),
-          sent_at: now,
-        });
-      }
-    } catch (err) { console.error('Failed to create verified notification:', err.message); }
+        const notifTitle = 'Lead Verified';
+        const notifBody = `Your lead for ${result.receipt?.donor_name || 'donor'} (\u20B9${amount.toLocaleString('en-IN')}) was verified. Receipt: ${result.receipt?.receipt_no || ''}`;
+        let fcmLogged = false;
+        try {
+          const pushResult = await sendPushNotification(fro_worker_id, notifTitle, notifBody, 'lead_verified', result.logId);
+          fcmLogged = !!pushResult;
+        } catch (err) { console.error('FCM send error:', err.message); }
+        if (!fcmLogged) {
+          await db.from('notification_log').insert({
+            worker_id: fro_worker_id,
+            type: 'lead_verified',
+            title: notifTitle,
+            body: notifBody,
+            fro_donor_log_id: String(result.logId),
+            sent_at: now,
+          });
+        }
+      } catch (err) { console.error('Failed to create verified notification:', err.message); }
+    }
 
     return res.json({
-      message: 'Entry manually verified, FRO credited, and receipt generated',
+      message: isStaticFro
+        ? `Entry verified with ${froName}. Receipt generated. Entry remains editable until ${new Date(editableUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.`
+        : 'Entry manually verified, FRO credited, and receipt generated',
       donor_id: result.donorId,
       log_id: result.logId,
       amount: result.amount,
