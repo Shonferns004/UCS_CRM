@@ -274,6 +274,19 @@ export const nextMatchNo = async () => {
 export const manualMatchEntry = async (id, logId, actorId) => {
   const { rows } = await db._pool.query('SELECT match_no FROM bank_audit_entries WHERE id = $1', [id]);
   const matchNo = rows[0]?.match_no || (await nextMatchNo());
+
+  // Resolve the linked lead's FRO worker name so the entry's agent name is set
+  // (it stays nil otherwise). The matched lead is authoritative for the agent.
+  let agentName = null;
+  try {
+    const { data: leadLogs } = await db
+      .from('fro_donor_logs')
+      .select('fro_assignments!inner(workers!left(name))')
+      .eq('id', logId)
+      .limit(1);
+    agentName = leadLogs?.[0]?.fro_assignments?.workers?.name || null;
+  } catch (err) { console.error('Failed to resolve agent for manual match:', err.message); }
+
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -282,11 +295,12 @@ export const manualMatchEntry = async (id, logId, actorId) => {
       match_source: 'manual',
       matched_by: actorId,
       match_no: matchNo,
+      agent_name: agentName,
       matched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)
-    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, bank_audit_sources(name)')
+    .select('id, payment_id, amount, matched_lead_log_id, match_status, match_source, match_no, agent_name, bank_audit_sources(name)')
     .single();
   if (error) throw error;
   await syncEntryToLead(id, logId);
