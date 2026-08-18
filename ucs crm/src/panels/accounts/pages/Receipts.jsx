@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiDelete } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
@@ -14,7 +14,7 @@ import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
   mann: { label: 'Mann Care', comp: ReceiptTemplateManncar, metaTemplate: 'mann_receipt', metaLang: 'en' },
-  aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'aflf_receipt', metaLang: 'en' },
+  aflf: { label: 'Ashray', comp: ReceiptTemplateAshray, metaTemplate: 'ashray_receipt', metaLang: 'en' },
 }
 
 function getNgoSettings(project) {
@@ -495,6 +495,34 @@ export default function Receipts() {
   const [sendingIndex, setSendingIndex] = useState(null)
   const [editingPhone, setEditingPhone] = useState(null)
   const [previewIndex, setPreviewIndex] = useState(null)
+  const previewBodyRef = useRef(null)
+  const [previewScale, setPreviewScale] = useState(0.7)
+
+  useLayoutEffect(() => {
+    if (previewIndex == null) return
+
+    let frameId
+    const updatePreviewScale = () => {
+      const body = previewBodyRef.current
+      const sheet = body?.querySelector('[data-receipt-sheet]') || body?.firstElementChild
+      if (!body || !sheet) return
+
+      const availableWidth = Math.max(240, body.clientWidth - 40)
+      const availableHeight = Math.max(240, body.clientHeight - 40)
+      const sheetWidth = Math.max(sheet.scrollWidth, sheet.getBoundingClientRect().width)
+      const sheetHeight = Math.max(sheet.scrollHeight, sheet.getBoundingClientRect().height)
+      const nextScale = Math.min(0.86, availableWidth / sheetWidth, availableHeight / sheetHeight)
+
+      setPreviewScale(Math.max(0.4, Number.isFinite(nextScale) ? nextScale : 0.7))
+    }
+
+    frameId = requestAnimationFrame(updatePreviewScale)
+    window.addEventListener('resize', updatePreviewScale)
+    return () => {
+      cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', updatePreviewScale)
+    }
+  }, [previewIndex, donors])
 
   const updatePhone = (index, val) => {
     setDonors(prev => prev.map((d, i) => i === index ? { ...d, 'Mobile No.': val } : d))
@@ -588,13 +616,12 @@ export default function Receipts() {
   }
 
   const handleGoBack = async () => {
-    if (!goBackRow?.log_id || goBackSubmitting) return
+    if (!goBackRow?.receipt_id || goBackSubmitting) return
     setGoBackSubmitting(true)
     try {
-      await apiPost(`/accounts/leads/${goBackRow.log_id}/undo`)
-      const row = goBackRow
-      removeFromPending(row.receipt_id)
-      showToast('success', `Returned ${row['Donor Name'] || 'this lead'} to Lead Verification`)
+      await apiPost(`/accounts/receipts/${goBackRow.receipt_id}/undo`)
+      removeFromPending(goBackRow.receipt_id)
+      showToast('success', `Returned ${goBackRow['Donor Name'] || 'this receipt'} to Bank Audit`)
     } catch (error) {
       showToast('error', error.message || 'Could not undo this receipt')
     } finally {
@@ -944,8 +971,7 @@ export default function Receipts() {
                         </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 8px', background:'#fff', color:'#b45309', border:'1px solid #fcd34d' }}
                           onClick={e => { e.stopPropagation(); setGoBackRow(d) }}
-                          disabled={!d.log_id}
-                          title={d.log_id ? 'Undo verification and return to Lead Verification' : 'No linked lead'}>
+                          title='Undo and return to Bank Audit'>
                           {'\u21a9 Go Back'}
                         </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }}>Preview</button>
@@ -976,8 +1002,8 @@ export default function Receipts() {
           </div>)}
 
           {previewIndex != null && donors && donors[previewIndex] && (
-            <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:1000 }}>
-              <div className="modal" style={{ width:'95%', maxWidth:1060, height:'95vh', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:3000 }}>
+              <div className="modal" style={{ width:'min(900px, calc(100vw - 40px))', maxWidth:900, height:'min(760px, calc(100vh - 40px))', maxHeight:'calc(100vh - 40px)', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
                 <div className="modal-header" style={{ flexShrink:0 }}>
                   <h3 style={{ fontSize:15 }}>{donors[previewIndex]['Donor Name']} — {getNgoSettings(donors[previewIndex]['Project'] || 'bsct').label}</h3>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
@@ -988,14 +1014,14 @@ export default function Receipts() {
                     <button className="btn btn-sm" onClick={() => setPreviewIndex(null)}>Close</button>
                   </div>
                 </div>
-                <div className="modal-body" style={{ flex:1, overflow:'auto', padding:20, display:'flex', justifyContent:'center' }}>
+                <div ref={previewBodyRef} className="modal-body" style={{ flex:1, minHeight:0, overflow:'auto', padding:20, display:'flex', alignItems:'flex-start', justifyContent:'center' }}>
                   {(() => {
                     const idx = previewIndex
                     const ngo = donors[idx]['Project'] || 'bsct'
                     const tpl = getNgoSettings(ngo)
                     const Comp = tpl.comp
                     return (
-                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block', transform:'scale(0.7)', transformOrigin:'top center' }}>
+                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block', zoom:previewScale }}>
                         <Comp donor={donors[idx]} project={ngo} />
                       </div>
                     )
@@ -1012,9 +1038,9 @@ export default function Receipts() {
                   <h3 style={{ fontSize:15 }}>{'\u21a9'} Undo Verification</h3>
                 </div>
                 <div className="modal-body">
-                  <p style={{ margin:0, fontSize:14, fontWeight:600 }}>Return <span style={{ color:'var(--accent)' }}>{goBackRow['Donor Name'] || 'this lead'}</span> to Lead Verification?</p>
+                  <p style={{ margin:0, fontSize:14, fontWeight:600 }}>Return <span style={{ color:'var(--accent)' }}>{goBackRow['Donor Name'] || 'this receipt'}</span> to Bank Audit?</p>
                   <p style={{ margin:0, fontSize:12.5, color:'var(--ink-soft)', lineHeight:1.5 }}>
-                    The receipt will be unlinked from the donor, the lead will come back to Lead Verification, and the bank audit entry will be reverted to unverified.
+                    The receipt will be deleted, the receipt number freed, the donor totals reversed, and the bank audit entry (if any) reverted to unverified.
                   </p>
                   <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:4 }}>
                     <button className="btn btn-sm" onClick={() => { setGoBackRow(null) }}>Cancel</button>
