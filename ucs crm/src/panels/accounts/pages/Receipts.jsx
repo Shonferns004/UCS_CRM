@@ -1,7 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import JSZip from 'jszip'
-import { saveAs } from 'file-saver'
 import { apiGet, apiPost } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
@@ -205,11 +203,23 @@ function ExcelUpload({ onDataLoaded }) {
   )
 }
 
+const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
+const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
+
+function StatRow({ label, value, color }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '10px 0', borderTop: '1px solid var(--line)' }}>
+      <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color, lineHeight: 1.2, whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
+    </div>
+  );
+}
+
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
+  const [statsByProject, setStatsByProject] = useState([])
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
-  const [downloadAll, setDownloadAll] = useState(false)
   const [loading, setLoading] = useState(true)
   const receiptRef = useRef(null)
 
@@ -253,6 +263,12 @@ export default function Receipts() {
 
   useEffect(() => { loadPending() }, [loadPending])
 
+  useEffect(() => {
+    apiGet('/accounts/receipts?limit=1').then(res => {
+      setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
+    }).catch(e => console.error('Stats fetch error:', e.message))
+  }, [])
+
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
     onInsert: () => loadPending(),
@@ -271,36 +287,6 @@ export default function Receipts() {
       await downloadSinglePDF(receiptRef.current, donor, donor['Project'] || 'bsct')
     } catch (e) { alert('Failed to download PDF: ' + e.message) }
     setDownloadSingle(false)
-  }
-
-  const handleDownloadAll = async () => {
-    setDownloadAll(true)
-    try {
-      const ngoFolder = { bsct:'BSCT', mann:'MANN', aflf:'AFLF' }
-      const namePrefix = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' }
-      const all = filteredDonors.map(d => ({ element: document.querySelector(`[data-receipt-batch="${donors.indexOf(d)}"]`), donor: d })).filter(x => x.element)
-      const groups = {}
-      for (const item of all) {
-        const ngo = item.donor['Project'] || 'bsct'
-        if (!groups[ngo]) groups[ngo] = []
-        groups[ngo].push(item)
-      }
-      const zip = new JSZip()
-      for (const [ngo, items] of Object.entries(groups)) {
-        const folderName = ngoFolder[ngo] || 'OTHER'
-        const folder = zip.folder(folderName)
-        for (const { element, donor } of items) {
-          const pdf = await generateReceiptPDF(element)
-          const receiptNo = donor['Receipt No.'] || 'N/A'
-          const donorName = String(donor['Donor Name']).replace(/[<>:"/\\|?*]/g, '_').trim() || 'Donor'
-          const prefix = namePrefix[ngo] || 'Receipt'
-          folder.file(`${prefix}_${donorName}_${receiptNo}.pdf`, pdf.output('arraybuffer'))
-        }
-      }
-      const content = await zip.generateAsync({ type: 'blob' })
-      saveAs(content, 'Donation_Receipts.zip')
-    } catch (e) { alert('Failed to download ZIP: ' + e.message) }
-    setDownloadAll(false)
   }
 
   const handlePrint = () => {
@@ -500,6 +486,22 @@ export default function Receipts() {
 
   return (
     <div>
+      {statsByProject.length > 0 && (
+        <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
+          {statsByProject.map(group => (
+            <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
+                {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
+              </div>
+              <div style={{ width: '100%' }}>
+                <StatRow label="Total Receipts" value={group.count} color="#5B6B4E" />
+                <StatRow label="Total Donors" value={group.donors} color="#8b5cf6" />
+                <StatRow label="Total Amount" value={currency(group.total_amount)} color="#16a34a" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-pad">
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
@@ -508,25 +510,6 @@ export default function Receipts() {
               <p style={{ margin:'3px 0 0', fontSize:11, color:'var(--ink-soft)' }}>Sent receipts are available only in Donors.</p>
             </div>
                 <div style={{ display:'flex', gap:8 }}>
-                  <button className="btn btn-sm" style={{ background:'#5B6B4E', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
-                    onClick={() => {
-                      const wb = XLSX.utils.book_new();
-                      const ws = XLSX.utils.json_to_sheet(filteredDonors.map(d => {
-                        const copy = { ...d };
-                        delete copy._dataMissing; delete copy._duplicate; delete copy.receipt_id; delete copy.sent; delete copy.log_id;
-                        return copy;
-                      }));
-                      XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
-                      XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
-                    }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Excel
-                  </button>
-                  <button className="btn btn-sm" style={{ background:'#1d6f42', color:'#fff', border:'none', display:'inline-flex', alignItems:'center', gap:4 }}
-                    onClick={handleDownloadAll} disabled={downloadAll}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-                    {downloadAll ? 'Zipping...' : 'ZIP All'}
-                  </button>
                   <button className="btn btn-sm" style={{ background:'#059669', color:'#fff', border:'none' }}
                     onClick={handleSendAllWhatsApp}
                     disabled={bulkState.active || getValidDonors().length === 0}>

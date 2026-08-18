@@ -137,8 +137,6 @@ export default function ReceiptHistory() {
   const [cleanMode, setCleanMode] = useState('all');
   const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [suspenseByNgo, setSuspenseByNgo] = useState(null);
-  const [suspenseLoading, setSuspenseLoading] = useState(false);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
@@ -326,15 +324,6 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  const fetchSuspenseByNgo = async () => {
-    setSuspenseLoading(true);
-    try {
-      const data = await apiGet('/accounts/receipts/suspense-by-ngo');
-      setSuspenseByNgo(Array.isArray(data) ? data : []);
-    } catch (err) { alert('Failed to fetch suspense: ' + err.message); }
-    finally { setSuspenseLoading(false); }
-  };
-
   useEffect(() => { setPage(1); }, [searchQuery, period, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
@@ -437,6 +426,24 @@ export default function ReceiptHistory() {
     }
   };
 
+  const handleDownloadExcel = () => {
+    const rows = (receipts || []).map(r => ({
+      'Donor Name': r.donor_name || '',
+      'Payer Name': r.bank_payer_name || '',
+      'Receipt No.': r.receipt_no || '',
+      'Amount': r.amount || 0,
+      'Date': r.receipt_date || '',
+      'Mobile': r.donor_mobile || '',
+      'Project': r.project_id || '',
+      'Agent': r.agent_name || '',
+    }));
+    if (rows.length === 0) { alert('No receipts to export'); return; }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
+    XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   useEffect(() => {
     if (!historyForDownload || historyForDownload.length === 0) return;
     let cancelled = false;
@@ -465,166 +472,6 @@ export default function ReceiptHistory() {
 
   return (
     <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div
-          onClick={() => setUploadOpen(o => !o)}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer', borderBottom: uploadOpen ? '1px solid var(--line)' : 'none' }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: uploadOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </div>
-        {uploadOpen && (
-        <div className="card-pad">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{uploadMode === 'names' ? 'Upload Names' : uploadMode === 'reupload' ? 'Reupload Receipts' : 'Upload Receipts'}</span>
-              <div style={{ display: 'flex', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
-                <button onClick={() => setUploadMode('receipts')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'receipts' ? '#5B6B4E' : '#fff', color: uploadMode === 'receipts' ? '#fff' : '#374151', fontWeight: 600 }}>Receipts</button>
-                <button onClick={() => setUploadMode('names')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'names' ? '#5B6B4E' : '#fff', color: uploadMode === 'names' ? '#fff' : '#374151', fontWeight: 600 }}>Names</button>
-                <button onClick={() => setUploadMode('reupload')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'reupload' ? '#5B6B4E' : '#fff', color: uploadMode === 'reupload' ? '#fff' : '#374151', fontWeight: 600 }}>Reupload</button>
-              </div>
-            </div>
-            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', flexShrink: 0 }}>NGO</label>
-            <select
-              value={ngoId}
-              onChange={e => setNgoId(e.target.value)}
-              style={{ flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff', color: '#111827' }}
-            >
-              <option value="">Select NGO for this upload...</option>
-              {ngoOptions.map(n => (
-                <option key={n.id} value={n.id}>{n.name}</option>
-              ))}
-            </select>
-          </div>
-          {uploadMode === 'names' ? (
-            <div
-              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleNamesFile(f) }}
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onClick={() => namesFileRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragOver ? '#2563eb' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
-                cursor: 'pointer', background: dragOver ? '#eff6ff' : '#f9fafb', transition: 'all .2s',
-              }}
-            >
-              <input ref={namesFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleNamesFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
-              {namesImporting ? (
-                <div style={{ padding: '8px 0' }}>
-                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>Updating donor names...</span>
-                  </div>
-                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${namesUploadProgress}%`, height: '100%', background: '#2563eb', borderRadius: 3, transition: 'width .3s ease' }} />
-                  </div>
-                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{namesUploadProgress}%</p>
-                </div>
-              ) : (
-                <>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
-                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file to fix donor names</p>
-                  <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name or Donor Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
-                </>
-              )}
-            </div>
-          ) : (
-            <div
-              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onClick={() => fileRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
-                cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
-              }}
-            >
-              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
-              {importing ? (
-                <div style={{ padding: '8px 0' }}>
-                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>{uploadStatus || 'Importing...'}</span>
-                  </div>
-                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#5B6B4E', borderRadius: 3, transition: 'width .3s ease' }} />
-                  </div>
-                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{uploadProgress}%</p>
-                </div>
-              ) : (
-                <>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
-                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file here</p>
-                  <p style={{ fontSize: 10, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
-                </>
-              )}
-            </div>
-          )}
-          {deleting && (
-            <div style={{ marginTop: 8, padding: '6px 0' }}>
-              <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                <span style={{ fontSize: 11, color: '#6b7280' }}>{deleteStatus}</span>
-              </div>
-              <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ width: `${deleteProgress}%`, height: '100%', background: '#dc2626', borderRadius: 3, transition: 'width .3s ease' }} />
-              </div>
-              {deleteProgress > 0 && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{deleteProgress}%</p>}
-            </div>
-          )}
-          {importResult && (
-            <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <span>{importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}</span>
-              {(importResult.failedCount > 0 && importResult.failedFile) && (
-                <a href={importResult.failedFile} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: 11, color: '#dc2626', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Download failed rows
-                </a>
-              )}
-            </div>
-          )}
-          {namesResult && (
-            <div style={{ fontSize: 12, color: '#2563eb', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              <span>{namesResult.message}</span>
-            </div>
-          )}
-          <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Expected columns</summary>
-            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', justifyContent: 'center' }}>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donor Name</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt No</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}> Amt </span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt Date</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Time</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mobile No.</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>MOP</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mail Id</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Payment Id No.</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Received Bank</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Pan No</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Address-1</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Project Supported</span>
-              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donors Bank Name</span>
-            </div>
-            {uploadMode === 'names' && (
-              <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name / Donor Name</p>
-            )}
-          </details>
-        </div>
-        )}
-      </div>
       {loading ? (
         <div className="stats-grid receipt-history-stats">
           {[1,2,3].map(i => (
@@ -650,72 +497,34 @@ export default function ReceiptHistory() {
           ))}
         </div>
       )}
-      <div style={{ marginTop: 12 }}>
-        <button
-          onClick={fetchSuspenseByNgo}
-          disabled={suspenseLoading}
-          style={{
-            padding: '8px 18px', borderRadius: 8, border: '1px solid #d1d5db',
-            background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            display: 'inline-flex', alignItems: 'center', gap: 8, color: '#5B6B4E',
-            opacity: suspenseLoading ? 0.6 : 1, transition: 'all .15s',
-          }}
-          onMouseOver={e => e.currentTarget.style.background = '#f0fdf4'}
-          onMouseOut={e => e.currentTarget.style.background = '#fff'}
-        >
-          {suspenseLoading ? (
-            <div style={{ width: 14, height: 14, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          )}
-          Find Suspense by NGO
-        </button>
-        {suspenseByNgo && (
-          <span onClick={() => setSuspenseByNgo(null)} style={{ fontSize: 11, color: '#9ca3af', marginLeft: 10, cursor: 'pointer', userSelect:'none' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'-2px',marginRight:2}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            clear
-          </span>
-        )}
-      </div>
-      {suspenseByNgo && suspenseByNgo.length > 0 && (
-        <div className="stats-grid receipt-history-stats" style={{ marginTop: 10 }}>
-          {suspenseByNgo.map(group => (
-            <div key={group.project_id} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '16px 16px', borderLeft: '3px solid #B5603A' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#B5603A', textAlign: 'center', paddingBottom: 8 }}>
-                {PROJECT_LABELS[group.project_id] || group.project_id}
-              </div>
-              <div style={{ width: '100%' }}>
-                <StatRow label="Suspense Receipts" value={group.count} color="#B5603A" />
-                <StatRow label="Suspense Amount" value={currency(group.total_amount)} color="#dc2626" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {suspenseByNgo && suspenseByNgo.length === 0 && (
-        <div style={{ marginTop: 8, fontSize: 12, color: '#059669', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          No suspense receipts found!
-        </div>
-      )}
-
       <div className="card" style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Receipt History</h3>
             <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--ink-soft)' }}>{total} total receipts</p>
           </div>
-          <button
-            onClick={handleDownloadTodayReceipts}
-            disabled={todayDownloading}
-            style={{
-              padding: '7px 14px', borderRadius: 8, border: 'none', background: '#5B6B4E', color: '#fff',
-              cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
-              opacity: todayDownloading ? 0.6 : 1,
-            }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            {todayDownloading ? 'Generating...' : "Download Today's Receipts"}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={handleDownloadExcel}
+              style={{
+                padding: '7px 14px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Excel
+            </button>
+            <button
+              onClick={handleDownloadTodayReceipts}
+              disabled={todayDownloading}
+              style={{
+                padding: '7px 14px', borderRadius: 8, border: 'none', background: '#5B6B4E', color: '#fff',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: todayDownloading ? 0.6 : 1,
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              {todayDownloading ? 'Generating...' : "Download Today's Receipts"}
+            </button>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
           {[{ k: 'today', l: 'Today' }, { k: 'yesterday', l: 'Yesterday' }, { k: 'week', l: 'This Week' }, { k: 'month', l: 'This Month' }, { k: 'year', l: 'This Year' }, { k: 'custom', l: 'Custom' }].map(f => (
@@ -741,43 +550,59 @@ export default function ReceiptHistory() {
           <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
         </div>
         <div className="table-wrap">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {loading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <div className="sk" style={{ width: 32, height: 32, borderRadius: '50%' }} />
-                  <div className="sk" style={{ flex: 1, height: 14, borderRadius: 4 }} />
-                </div>
-              ))
-            ) : receipts.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)', fontSize: 12 }}>
-                {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
-              </div>
-            ) : (
-              uniqueDonors.map(r => {
-                const rMobile = (r.donor_mobile || '').replace(/\D/g, '');
-                const key = rMobile || (r.donor_name || '').toLowerCase().trim();
-                const info = donorMap[key] || { receipts: [], count: 0, total: 0 };
-                const initial = (r.donor_name || '?')[0].toUpperCase();
-                return (
-                  <div key={r.id} onClick={() => {
-                    const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
-                    setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: info.receipts });
-                  }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', transition: 'background .12s' }}
-                    onMouseOver={e => e.currentTarget.style.background = '#f9fafb'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#5B6B4E', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{initial}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.donor_name || '\u2014'}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>{info.count} receipt{info.count !== 1 ? 's' : ''}</div>
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)', whiteSpace: 'nowrap' }}>{currency(info.total)}</div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+          <table className="donors-table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th>Donor Name</th>
+                <th>Payer Name</th>
+                <th>Receipt No.</th>
+                <th>No. of Donations</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i}>
+                    <td><div className="sk" style={{ width: '55%', height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: '55%', height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 70, height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 40, height: 12, borderRadius: 3 }} /></td>
+                  </tr>
+                ))
+              ) : receipts.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                    {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
+                  </td>
+                </tr>
+              ) : (
+                uniqueDonors.map(r => {
+                  const rMobile = (r.donor_mobile || '').replace(/\D/g, '');
+                  const key = rMobile || (r.donor_name || '').toLowerCase().trim();
+                  const info = donorMap[key] || { receipts: [], count: 0, total: 0 };
+                  const initial = (r.donor_name || '?')[0].toUpperCase();
+                  const latestReceipt = info.receipts.find(x => x.receipt_no) || r;
+                  const payerName = latestReceipt?.bank_payer_name || r.bank_payer_name || '';
+                  return (
+                    <tr key={r.id} className="clickable-row" onClick={() => {
+                      const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
+                      setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: info.receipts });
+                    }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--sage)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{initial}</div>
+                          <strong>{r.donor_name || '\u2014'}</strong>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{payerName || '\u2014'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{latestReceipt?.receipt_no || '\u2014'}</td>
+                      <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
           {!loading && totalPages > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
