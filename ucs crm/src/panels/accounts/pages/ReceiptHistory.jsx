@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { Download, FileSpreadsheet } from 'lucide-react';
 import { apiGet, apiPost, apiDelete } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
@@ -13,6 +14,8 @@ import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
+
+const EXCEL_HEADER = ["Team Name","Transaction Date","Caller Name","Receipt Name","Mobile no.","Len","Count","Mobil No. 2 / Tel ","Len","Address-1 ","Address-2 ","Station","East / West","City","Pin Code","Pan. No. ","Len ","Mail Id ","Birth Date","Data Cat","Station","Mobile","Android No","Team","Agent Name","FSE Name","MOP","Received Bank","Payment ID No. ","Len","Count","Donors Bank Name","Amt","Receipt No.","Receipt Book No","Receipt Date ","Time","Project Supported","Account of","State","Branch"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -128,6 +131,7 @@ export default function ReceiptHistory() {
   const [toDate, setToDate] = useState('');
   const [receiptNgo, setReceiptNgo] = useState('');
   const [todayDownloading, setTodayDownloading] = useState(false);
+  const [excelDownloading, setExcelDownloading] = useState(false);
   const [historyForDownload, setHistoryForDownload] = useState(null);
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -422,35 +426,99 @@ export default function ReceiptHistory() {
     if (savedDetail) { setDonorDetail(savedDetail); setSavedDetail(null); }
   };
 
-  const handleDownloadTodayReceipts = async () => {
+  const buildFilterParams = (extra = {}) => {
+    const p = new URLSearchParams();
+    if (searchQuery.trim()) p.set('search', searchQuery.trim());
+    if (receiptNgo) p.set('project', receiptNgo);
+    if (period === 'custom') {
+      if (fromDate) p.set('from_date', fromDate);
+      if (toDate) p.set('to_date', toDate);
+    } else if (period && period !== 'all') {
+      p.set('period', period);
+    }
+    for (const [k, v] of Object.entries(extra)) p.set(k, v);
+    return p;
+  };
+
+  const fetchAllFiltered = async () => {
+    const all = [];
+    let page = 1;
+    for (;;) {
+      const p = buildFilterParams({ page: String(page), limit: '100' });
+      const res = await apiGet(`/accounts/receipts?${p.toString()}`);
+      const data = res?.data || [];
+      all.push(...data);
+      const total = Number(res?.total) || 0;
+      if (all.length >= total || data.length === 0 || page >= 200) break;
+      page++;
+    }
+    return all;
+  };
+
+  const handleDownloadReceipts = async () => {
     setTodayDownloading(true);
     try {
-      const res = await apiGet('/accounts/receipts?period=today&limit=500');
-      const todayReceipts = res?.data || [];
-      if (todayReceipts.length === 0) { alert('No receipts for today'); setTodayDownloading(false); return; }
-      setHistoryForDownload(todayReceipts);
+      const all = await fetchAllFiltered();
+      if (all.length === 0) { alert('No receipts match the current filter'); setTodayDownloading(false); return; }
+      setHistoryForDownload(all);
     } catch (err) {
       alert('Failed to fetch: ' + err.message);
       setTodayDownloading(false);
     }
   };
 
-  const handleDownloadExcel = () => {
-    const rows = (receipts || []).map(r => ({
-      'Donor Name': r.donor_name || '',
-      'Payer Name': r.bank_payer_name || '',
-      'Receipt No.': r.receipt_no || '',
-      'Amount': r.amount || 0,
-      'Date': r.receipt_date || '',
-      'Mobile': r.donor_mobile || '',
-      'Project': r.project_id || '',
-      'Agent': r.agent_name || '',
-    }));
-    if (rows.length === 0) { alert('No receipts to export'); return; }
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
-    XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  const handleDownloadExcel = async () => {
+    setExcelDownloading(true);
+    try {
+      const all = await fetchAllFiltered();
+      if (!all.length) { alert('No receipts to export'); return; }
+      const rows = all.map(r => ({
+        'Team Name': '',
+        'Transaction Date': r.receipt_date || '',
+        'Caller Name': '',
+        'Receipt Name': r.donor_name || '',
+        'Mobile no.': r.donor_mobile || '',
+        'Len': '',
+        'Count': '',
+        'Mobil No. 2 / Tel ': '',
+        'Address-1 ': r.address || '',
+        'Address-2 ': '',
+        'Station': '',
+        'East / West': '',
+        'City': '',
+        'Pin Code': '',
+        'Pan. No. ': r.pan_number || '',
+        'Mail Id ': r.email || '',
+        'Birth Date': '',
+        'Data Cat': '',
+        'Mobile': '',
+        'Android No': '',
+        'Team': '',
+        'Agent Name': r.agent_name || '',
+        'FSE Name': r.agent_name || '',
+        'MOP': r.mode || '',
+        'Received Bank': r.bank_name || '',
+        'Payment ID No. ': r.payment_id || '',
+        'Donors Bank Name': r.bank_payer_name || '',
+        'Amt': r.amount || 0,
+        'Receipt No.': r.receipt_no || '',
+        'Receipt Book No': '',
+        'Receipt Date ': r.receipt_date || '',
+        'Time': r.receipt_time || '',
+        'Project Supported': r.project_id || '',
+        'Account of': 'Corpus',
+        'State': '',
+        'Branch': '',
+      }));
+      const ws = XLSX.utils.aoa_to_sheet([EXCEL_HEADER, ...rows.map(row => EXCEL_HEADER.map(h => row[h] ?? ''))]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
+      XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    } finally {
+      setExcelDownloading(false);
+    }
   };
 
   useEffect(() => {
@@ -466,11 +534,16 @@ export default function ReceiptHistory() {
         const ngo = r.project_id || 'bsct';
         const folder = zip.folder(ngoFolder[ngo] || 'Other');
         const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
-        folder.file(`${ngoFolder[ngo]}_${donorName}_${r.receipt_no || 'NA'}.pdf`, pdf.output('arraybuffer'));
+        const receiptNo = r.receipt_no || 'NA';
+        const isMann = ngo === 'mann';
+        const filename = isMann
+          ? `MannCare_${receiptNo}.pdf`
+          : `${ngoFolder[ngo]}_Receipt_${receiptNo}_${donorName}.pdf`;
+        folder.file(filename, pdf.output('arraybuffer'));
       }
       if (!cancelled) {
         const content = await zip.generateAsync({ type: 'blob' });
-        saveAs(content, `Receipts_Today_${new Date().toISOString().slice(0,10)}.zip`);
+        saveAs(content, `Receipts_${new Date().toISOString().slice(0,10)}.zip`);
         alert(`Downloaded ${historyForDownload.length} receipts`);
       }
       setHistoryForDownload(null);
@@ -490,23 +563,25 @@ export default function ReceiptHistory() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button
               onClick={handleDownloadExcel}
+              disabled={excelDownloading}
               style={{
                 padding: '7px 14px', borderRadius: 8, border: 'none', background: '#16a34a', color: '#fff',
                 cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
+                opacity: excelDownloading ? 0.6 : 1,
               }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Download Excel
+              <FileSpreadsheet size={14} strokeWidth={2.5} />
+              {excelDownloading ? 'Exporting...' : 'Download Excel'}
             </button>
             <button
-              onClick={handleDownloadTodayReceipts}
+              onClick={handleDownloadReceipts}
               disabled={todayDownloading}
               style={{
                 padding: '7px 14px', borderRadius: 8, border: 'none', background: '#5B6B4E', color: '#fff',
                 cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6,
                 opacity: todayDownloading ? 0.6 : 1,
               }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {todayDownloading ? 'Generating...' : "Download Today's Receipts"}
+              <Download size={14} strokeWidth={2.5} />
+              {todayDownloading ? 'Zipping...' : 'Download Receipts'}
             </button>
           </div>
         </div>

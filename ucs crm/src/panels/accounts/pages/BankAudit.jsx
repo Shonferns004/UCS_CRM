@@ -223,6 +223,58 @@ function AgentPicker({ value, workers, onChange }){
   </div>;
 }
 
+// ─── FRO Search Picker (for Manual Verify) ─────────────────
+function FroSearchPicker({ value, workers, onChange }){
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState('');
+  const boxRef=useRef(null);
+
+  const froWorkers=workers.filter(w=>String(w.department||'').toLowerCase()==='fro');
+  const kw=q.trim().toLowerCase();
+  const list=kw?froWorkers.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):froWorkers;
+  const selected=workers.find(w=>String(w.id)===String(value));
+
+  useEffect(()=>{
+    const onDoc=(ev)=>{if(boxRef.current&&!boxRef.current.contains(ev.target))setOpen(false)};
+    document.addEventListener('mousedown',onDoc);
+    return ()=>document.removeEventListener('mousedown',onDoc);
+  },[]);
+
+  const selectedStyle={display:'flex',alignItems:'center',gap:8,padding:'9px 12px',borderRadius:8,border:'1.5px solid #cfe3cb',background:'#f0f7ef',fontSize:13,color:'#14532d',minWidth:0,cursor:'pointer'};
+
+  if(value&&selected){
+    return <div style={selectedStyle} onClick={()=>{onChange('');setOpen(true);setQ('')}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selected.name}{selected.login_id?` (${selected.login_id})`:''}</span>
+      <span style={{marginLeft:'auto',fontSize:10,color:'#6b7280',flexShrink:0}}>change</span>
+    </div>;
+  }
+
+  return <div ref={boxRef} style={{position:'relative'}}>
+    <div style={{position:'relative'}}>
+      <input placeholder="Search FRO by name or login..." value={q}
+        onChange={e=>{setQ(e.target.value);setOpen(true)}}
+        onFocus={()=>setOpen(true)}
+        style={{width:'100%',padding:'9px 12px',paddingRight:28,borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',outline:'none',boxSizing:'border-box',transition:'border-color .15s, box-shadow .15s'}}
+        onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}}
+        onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </div>
+    {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:200,overflowY:'auto'}}>
+      {list.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>{kw?'No FROs found':'No FRO workers available'}</div>
+        :list.map(w=><button key={w.id} type="button" onClick={()=>{onChange(String(w.id));setOpen(false);setQ('')}}
+          style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
+          onMouseOver={e=>e.currentTarget.style.background='#f0f7ef'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+          <span style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{w.name}</span>
+          <span style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+            <span style={{fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'2px 6px',borderRadius:4,background:'#dcfce7',color:'#166534'}}>FRO</span>
+            {w.login_id&&<span style={{color:'#9ca3af',fontSize:11}}>{w.login_id}</span>}
+          </span>
+        </button>)}
+    </div>}
+  </div>;
+}
+
 // ─── Audit Stat Cards ──────────────────────────────────────
 export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo='',setSuspenseNgo=null,combo=null}){
   const c=combo?(combo[suspenseNgo||'all']||{count:0,entries:0,suspense:0,amount:0}):null;
@@ -438,6 +490,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);const clickRef=useRef(null);
   const[mv,setMv]=useState(null);const[mvSub,setMvSub]=useState(false);const[mvErr,setMvErr]=useState('');
   const[mvFro,setMvFro]=useState('');const[mvMobile,setMvMobile]=useState('');const[mvName,setMvName]=useState('');const[mvAddr,setMvAddr]=useState('');const[mvPan,setMvPan]=useState('');
+  const[showMvForm,setShowMvForm]=useState(false);
   const[wr,setWr]=useState([]);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
@@ -523,8 +576,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const clearLead=()=>setFm(p=>({...p,log_id:'',donor_id:'',donor_name:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',_lead_amount:null}));
   const confirmMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/confirm-match');setSe(null);setTo({msg:'Match confirmed and credited',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
   const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setSe(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setCm(false)}};
-  const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro('');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');};
-  const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null});setMv(null);setSe(null);setTo({msg:'Entry manually verified, FRO credited, and receipt generated',type:'success',vis:true});load(sd,st)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
+  const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro('');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');setShowMvForm(true);};
+  const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null});setMv(null);setSe(null);setShowMvForm(false);setTo({msg:'Entry manually verified, FRO credited, and receipt generated',type:'success',vis:true});load(sd,st)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){alert('Failed to download PDF: '+e.message)}setDl(false)};
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
@@ -743,10 +796,53 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {renderEntryFields(true,se)}
 
+      {!isReceiptSuspense(se)&&st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{width:28,height:28,borderRadius:8,background:'#dcfce7',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <span style={{fontSize:13,fontWeight:700,color:'#111827'}}>Manual Verify</span>
+            <span style={{fontSize:20,fontWeight:700,color:'var(--sage)'}}>{curr(mv?.amount||0)}</span>
+          </div>
+          <button onClick={()=>{setShowMvForm(false);setMv(null);setMvErr('')}} style={{width:24,height:24,borderRadius:6,border:'none',background:'transparent',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#9ca3af',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='#9ca3af'}}><SvgX/></button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
+          <div style={{gridColumn:'1 / -1'}}>
+            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>FRO <span style={{color:'#dc2626'}}>*</span></label>
+            <FroSearchPicker value={mvFro} workers={wr} onChange={id=>{setMvFro(id);setMvErr('')}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Mobile <span style={{color:'#dc2626'}}>*</span></label>
+            <input type="tel" value={mvMobile} onChange={e=>{setMvMobile(e.target.value);setMvErr('')}} placeholder="e.g. 9876543210" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Name <span style={{color:'#9ca3af',fontWeight:400,textTransform:'none',letterSpacing:0}}>— used if new</span></label>
+            <input value={mvName} onChange={e=>setMvName(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Address</label>
+            <input value={mvAddr} onChange={e=>setMvAddr(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor PAN</label>
+            <input value={mvPan} onChange={e=>setMvPan(e.target.value.toUpperCase())} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',textTransform:'uppercase',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
+          </div>
+        </div>
+        {mvErr&&<div style={{marginBottom:12,padding:'9px 12px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,fontSize:12,color:'#991b1b'}}>{mvErr}</div>}
+        <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+          <button className="btn btn-sm" onClick={()=>{setShowMvForm(false);setMv(null)}} disabled={mvSub} style={{padding:'8px 16px',borderRadius:8,fontSize:12,fontWeight:600,border:'1px solid #d1d5db',background:'#fff',color:'#374151',cursor:'pointer'}}>Cancel</button>
+          <button className="btn btn-sm" style={{background:'#059669',color:'#fff',border:'none',fontWeight:600,padding:'8px 18px',borderRadius:8,fontSize:12,display:'inline-flex',alignItems:'center',gap:6,opacity:mvSub?.6:1,cursor:mvSub?'not-allowed':'pointer',transition:'all .15s'}} onClick={handleManualVerify} disabled={mvSub} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.95)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            {mvSub?'Verifying...':'Verify & Generate Receipt'}
+          </button>
+        </div>
+      </div>}
+
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
-        {!isReceiptSuspense(se)&&st==='unverified'&&<div style={{display:'flex',gap:10,marginBottom:10}}>
-          <button className="btn btn-sm" style={{flex:1,background:'#059669',color:'#fff',border:'none',fontWeight:600}} onClick={()=>openManualVerify(se)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:-2,marginRight:4}}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<div style={{display:'flex',gap:10,marginBottom:10}}>
+          <button className="btn btn-sm" style={{flex:1,background:showMvForm?'#f0fdf4':'#059669',color:showMvForm?'#059669':'#fff',border:showMvForm?'1px solid #86efac':'none',fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:6,transition:'all .15s'}} onClick={()=>openManualVerify(se)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Manual Verify (FRO + Donor)
           </button>
         </div>}
@@ -759,51 +855,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </div>
       </div>
     </RightPanel>}
-
-    {/* Manual Verify Modal */}
-    {mv&&<div className="modal-overlay" onClick={()=>!mvSub&&setMv(null)} style={{zIndex:1100}}>
-      <div className="modal" style={{maxWidth:520,width:'92%'}} onClick={e=>e.stopPropagation()}>
-        <div className="modal-header">
-          <h3 style={{fontSize:15}}>Manual Verify</h3>
-          <div style={{fontSize:22,fontWeight:700,color:'var(--sage)'}}>{curr(mv.amount)}</div>
-        </div>
-        <div className="modal-body" style={{padding:20}}>
-          <p style={{margin:'0 0 14px',fontSize:12.5,color:'#6b7280',lineHeight:1.5}}>
-            Attribute this bank audit entry to an FRO + donor. The donor will be found or created, assigned to the FRO, credited, added to donor history, and a receipt generated.
-          </p>
-          <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:14}}>
-            <span style={{display:'block',marginBottom:4}}>FRO <span style={{color:'#dc2626'}}>*</span></span>
-            <select className="field-input" value={mvFro} onChange={e=>{setMvFro(e.target.value);setMvErr('')}} style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff'}}>
-              <option value="">Select FRO...</option>
-              {wr.filter(w=>String(w.department||'').toLowerCase()==='fro').map(w=><option key={w.id} value={w.id}>{w.name}{w.login_id?` (${w.login_id})`:''}</option>)}
-            </select>
-          </label>
-          <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:14}}>
-            <span style={{display:'block',marginBottom:4}}>Donor Mobile <span style={{color:'#dc2626'}}>*</span></span>
-            <input className="field-input" type="tel" value={mvMobile} onChange={e=>{setMvMobile(e.target.value);setMvErr('')}} placeholder="e.g. 9876543210" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box'}}/>
-          </label>
-          <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:14}}>
-            <span style={{display:'block',marginBottom:4}}>Donor Name <span style={{color:'#9ca3af',fontWeight:400}}>— used if new</span></span>
-            <input className="field-input" value={mvName} onChange={e=>setMvName(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box'}}/>
-          </label>
-          <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:14}}>
-            <span style={{display:'block',marginBottom:4}}>Donor Address</span>
-            <input className="field-input" value={mvAddr} onChange={e=>setMvAddr(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box'}}/>
-          </label>
-          <label style={{display:'block',fontSize:12,fontWeight:600,color:'#374151',marginBottom:4}}>
-            <span style={{display:'block',marginBottom:4}}>Donor PAN</span>
-            <input className="field-input" value={mvPan} onChange={e=>setMvPan(e.target.value.toUpperCase())} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',textTransform:'uppercase'}}/>
-          </label>
-          {mvErr&&<div style={{marginTop:12,padding:'9px 12px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,fontSize:12,color:'#991b1b'}}>{mvErr}</div>}
-          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:20}}>
-            <button className="btn btn-sm" onClick={()=>setMv(null)} disabled={mvSub}>Cancel</button>
-            <button className="btn btn-sm" style={{background:'#059669',color:'#fff',border:'none',fontWeight:600}} onClick={handleManualVerify} disabled={mvSub}>
-              {mvSub?'Verifying...':'\u2714 Manual Verify'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>}
 
     {/* Receipt Preview Modal */}
     {rp&&(()=>{const donor=entryToDonor(rp);const ngo=donor['Project']||'bsct';const tpl=getNgoSettings(ngo);const Comp=tpl.comp;return <div className="modal-overlay" onClick={()=>setRp(null)} style={{zIndex:1000}}>
