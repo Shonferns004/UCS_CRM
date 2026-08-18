@@ -2861,10 +2861,11 @@ const cleanupDayAutoCredits = async (from, to) => {
 const clearReceiptsByDate = async (from, to) => {
   let deleted = 0, deletedLogs = 0;
   const affected = new Set();
+  const affectedProjects = new Set();
   while (true) {
     const { data: rows } = await db
       .from('receipts')
-      .select('id, log_id, donor_id')
+      .select('id, log_id, donor_id, project_id')
       .neq('id', 0)
       .gte('receipt_date', from)
       .lte('receipt_date', to)
@@ -2872,15 +2873,30 @@ const clearReceiptsByDate = async (from, to) => {
     const batchRows = rows || [];
     if (batchRows.length === 0) break;
     const ids = batchRows.map(r => r.id);
+    // Reset linked bank_audit_entries BEFORE deleting (FK ON DELETE SET NULL
+    // only clears receipt_id; receipt_no and status must be explicitly reset)
+    if (ids.length > 0) {
+      await db
+        .from('bank_audit_entries')
+        .update({ receipt_id: null, receipt_no: null, status: 'unverified' })
+        .in('receipt_id', ids);
+    }
     const { data: delRows } = await db
       .from('receipts')
       .delete()
       .in('id', ids)
-      .select('id, log_id, donor_id');
+      .select('id, log_id, donor_id, project_id');
     const rowsOut = delRows || [];
     deleted += rowsOut.length;
-    for (const r of rowsOut) if (r.donor_id) affected.add(r.donor_id);
+    for (const r of rowsOut) {
+      if (r.donor_id) affected.add(r.donor_id);
+      if (r.project_id) affectedProjects.add(r.project_id);
+    }
     deletedLogs += await deleteLinkedLogs(rowsOut.map(r => r.log_id).filter(Boolean));
+  }
+  // Reset receipt number counters so next receipt continues from last live number
+  for (const projectId of affectedProjects) {
+    try { await cancelReceiptNo(projectId); } catch (e) { /* ignore */ }
   }
   const cleanedAutoCredits = await cleanupDayAutoCredits(from, to);
   const recomputed = await recomputeDonorTotals([...affected]);
