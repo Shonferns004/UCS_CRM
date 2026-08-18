@@ -464,7 +464,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
             {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
             <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
-            {e.agent_name&&e.agent_name!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name}</span>}
+            {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name||e.match_fro}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
             <button title="Edit" className="ec-action" style={{marginLeft:'auto'}} onClick={ev=>{ev.stopPropagation();onOpen(e)}}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -491,6 +491,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[mv,setMv]=useState(null);const[mvSub,setMvSub]=useState(false);const[mvErr,setMvErr]=useState('');
   const[mvFro,setMvFro]=useState('');const[mvMobile,setMvMobile]=useState('');const[mvName,setMvName]=useState('');const[mvAddr,setMvAddr]=useState('');const[mvPan,setMvPan]=useState('');
   const[showMvForm,setShowMvForm]=useState(false);
+  const mvFormRef=useRef(null);
   const[wr,setWr]=useState([]);
   const srRef=useRef(st);useEffect(()=>{srRef.current=st},[st]);
   const orRef=useRef(onSummary);orRef.current=onSummary;
@@ -545,6 +546,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   },[e]);
   useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf,combo})},[sr,su,ld,embedded,suspenseNgo,useGlobalNgo,e]);
   useEffect(()=>{onView?.(se?se.id:null)},[se]);
+  useEffect(()=>{if(showMvForm&&mvFormRef.current){setTimeout(()=>mvFormRef.current?.scrollIntoView({behavior:'smooth',block:'end'}),100)}},[showMvForm]);
 
   const fe=e.filter(en=>{
     if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
@@ -652,7 +654,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </div>
       </FieldSection>
 
-      <FieldSection title="Agent & Lead Link">
+      {!showMvForm&&<FieldSection title="Agent & Lead Link">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
@@ -668,7 +670,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
             <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
           </div>}
-      </FieldSection>
+      </FieldSection>}
     </>
   );
 
@@ -796,7 +798,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {renderEntryFields(true,se)}
 
-      {!isReceiptSuspense(se)&&st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
+      {!isReceiptSuspense(se)&&st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div ref={mvFormRef} style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{width:28,height:28,borderRadius:8,background:'#dcfce7',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -840,15 +842,15 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       </div>}
 
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<button className="btn btn-sm" title="Manual Verify" style={{width:36,height:36,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#059669',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',flexShrink:0,transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <div style={{display:'flex',gap:10,alignItems:'center'}}>
+          {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<button title="Manual Verify (FRO + Donor)" style={{flex:1,height:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#059669',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)';e.currentTarget.style.transform='translateY(-1px)'}} onMouseOut={e=>{e.currentTarget.style.filter='none';e.currentTarget.style.transform='none'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           </button>}
-          <button className="btn btn-sm" title={sv?'Saving...':'Save Changes'} style={{width:36,height:36,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--sage)',color:'#fff',border:'none',borderRadius:8,cursor:sv?'not-allowed':'pointer',opacity:sv?.6:1,flexShrink:0,transition:'all .15s'}} disabled={sv} onClick={editEntry} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg>
+          <button title={sv?'Saving...':'Save Changes'} style={{flex:1,height:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--sage)',color:'#fff',border:'none',borderRadius:10,cursor:sv?'not-allowed':'pointer',opacity:sv?.6:1,transition:'all .15s'}} disabled={sv} onClick={editEntry} onMouseOver={e=>{if(!sv){e.currentTarget.style.filter='brightness(.92)';e.currentTarget.style.transform='translateY(-1px)'}}} onMouseOut={e=>{e.currentTarget.style.filter='none';e.currentTarget.style.transform='none'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg>
           </button>
-          <button className="btn btn-sm" title="Delete" style={{width:36,height:36,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,cursor:'pointer',flexShrink:0,transition:'all .15s'}} onClick={()=>{setDci(se);setSe(null)}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2'}} onMouseOut={e=>{e.currentTarget.style.background='#fef2f2'}}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <button title="Delete" style={{width:44,height:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#fef2f2',color:'#dc2626',border:'1.5px solid #fecaca',borderRadius:10,cursor:'pointer',flexShrink:0,transition:'all .15s'}} onClick={()=>{setDci(se);setSe(null)}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.transform='translateY(-1px)'}} onMouseOut={e=>{e.currentTarget.style.background='#fef2f2';e.currentTarget.style.transform='none'}}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
         </div>
       </div>
