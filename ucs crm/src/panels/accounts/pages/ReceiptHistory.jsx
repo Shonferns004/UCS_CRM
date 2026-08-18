@@ -476,25 +476,25 @@ export default function ReceiptHistory() {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
       const toRow = (r, isSuspense) => ({
-        'Team Name': '',
-        'Transaction Date': r.receipt_date || '',
-        'Caller Name': r.caller_name || '',
-        'Receipt Name': r.donor_name || '',
-        'Mobile no.': r.donor_mobile || '',
-        'Mobil No. 2 / Tel ': r.mobile_2 || '',
-        'Address-1 ': r.address || '',
-        'Address-2 ': r.address_2 || '',
-        'Pan. No. ': r.pan_number || '',
-        'Mail Id ': r.email || '',
-        'Station': r.station || '',
-        'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
-        'FSE Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
-        'MOP': r.mode || '',
-        'Payment ID No. ': r.payment_id || '',
+        'Team Name': 'NA',
+        'Transaction Date': r.receipt_date || 'NA',
+        'Caller Name': r.caller_name || 'NA',
+        'Receipt Name': r.donor_name || 'NA',
+        'Mobile no.': r.donor_mobile || 'NA',
+        'Mobil No. 2 / Tel ': r.mobile_2 || 'NA',
+        'Address-1 ': r.address || 'NA',
+        'Address-2 ': r.address_2 || 'NA',
+        'Pan. No. ': r.pan_number || 'NA',
+        'Mail Id ': r.email || 'NA',
+        'Station': r.station || 'NA',
+        'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || 'NA'),
+        'FSE Name': isSuspense ? 'Suspense' : (r.agent_name || 'NA'),
+        'MOP': r.mode || 'NA',
+        'Payment ID No. ': r.payment_id || 'NA',
         'Amt': r.amount || 0,
-        'Receipt No.': r.receipt_no || '',
-        'Receipt Date ': r.receipt_date || '',
-        'Time': r.receipt_time || '',
+        'Receipt No.': r.receipt_no || 'NA',
+        'Receipt Date ': r.receipt_date || 'NA',
+        'Time': r.receipt_time || 'NA',
         'Account of': r.account_of || 'Corpus',
       });
       const YELLOW_BG = { fgColor: { rgb: 'FFFF00' } };
@@ -508,7 +508,7 @@ export default function ReceiptHistory() {
         return XLSX.utils.aoa_to_sheet(data);
       };
       const wb = XLSX.utils.book_new();
-      const isSuspenseEntry = r => !r.receipt_no;
+      const isSuspenseEntry = r => !r.receipt_no || (!r.donor_mobile && (!r.agent_name || r.agent_name === 'Suspense'));
       const groups = {
         beingsevak: all.filter(r => r.project_id === 'bsct'),
         ashray: all.filter(r => r.project_id === 'aflf'),
@@ -633,7 +633,15 @@ export default function ReceiptHistory() {
             className="search-input"
             placeholder="Search by receipt no, donor name, or mobile..."
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => {
+              setSearchQuery(e.target.value);
+              if (e.target.value.trim()) {
+                setFromDate('');
+                setToDate('');
+                setReceiptNgo('');
+                setSuspenseMode(false);
+              }
+            }}
             style={{ flex: 1, minWidth: 200, maxWidth: 300 }}
           />
           <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>
