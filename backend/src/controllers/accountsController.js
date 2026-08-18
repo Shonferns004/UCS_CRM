@@ -1996,6 +1996,11 @@ export const getImportNgoOptions = async (req, res) => {
 export const importReceipts = async (req, res) => {
   try {
     const { receipts, ngo_id } = req.body;
+    const cleanVal = (v) => {
+      const s = String(v || '').trim();
+      if (!s || /^n\/?a$/i.test(s)) return null;
+      return s;
+    };
     if (!receipts || !Array.isArray(receipts) || receipts.length === 0) {
       return res.status(400).json({ message: 'No receipts data provided' });
     }
@@ -2024,27 +2029,27 @@ export const importReceipts = async (req, res) => {
       return {
         original: r,
         parsed: {
-          receipt_no: (row.receipt_no || row['Receipt No'] || row['Receipt No.'] || '').trim() || null,
+          receipt_no: cleanVal(row.receipt_no || row['Receipt No'] || row['Receipt No.']),
           project_id: projectId,
           donor_name: donorName,
-          donor_mobile: row.donor_mobile || row['Donor Mobile'] || row['Mobile No.'] || null,
+          donor_mobile: cleanVal(row.donor_mobile || row['Donor Mobile'] || row['Mobile No.']),
           amount: parseFloat(rawAmount) || 0,
-          pan_number: row.pan_number || row['PAN No.'] || row['PAN No'] || row['Pan No'] || null,
-          address: row.address || row['Address 1'] || row['Address-1'] || null,
-          mode: row.mode || row['Mode of Payment (MOP)'] || row['MOP'] || null,
-          purpose: row.purpose || row['Purpose'] || 'General Donation',
+          pan_number: cleanVal(row.pan_number || row['PAN No.'] || row['PAN No'] || row['Pan No']),
+          address: cleanVal(row.address || row['Address 1'] || row['Address-1']),
+          mode: cleanVal(row.mode || row['Mode of Payment (MOP)'] || row['MOP']),
+          purpose: cleanVal(row.purpose || row['Purpose']) || 'General Donation',
           receipt_date: normalizeReceiptDate(row.receipt_date || row['Receipt Date'] || row['Transaction Date'] || row.transaction_date),
           receipt_time: normalizeReceiptTime(row.receipt_time || row['Receipt Time'] || row['Time'] || row.time),
           generated_by: row.generated_by || req.user.id,
-          email: row.email || row['Mail Id'] || row['Email ID'] || null,
-          payment_id: row.payment_id || row['Payment Id No.'] || null,
-          bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
-          agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || 'Suspense',
-          caller_name: row.caller_name || row['Caller Name'] || null,
-          mobile_2: row.mobile_2 || row['Mobil No. 2 / Tel'] || row['Mobil No. 2 / Tel '] || null,
-          address_2: row.address_2 || row['Address-2'] || row['Address 2'] || null,
-          station: row.station || row['Station'] || null,
-          account_of: row.account_of || row['Account of'] || 'Corpus',
+          email: cleanVal(row.email || row['Mail Id'] || row['Email ID']),
+          payment_id: cleanVal(row.payment_id || row['Payment Id No.']),
+          bank_name: cleanVal(row.bank_name || row['Received Bank'] || row['Donors Bank Name']),
+          agent_name: cleanVal(row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name']) || 'Suspense',
+          caller_name: cleanVal(row.caller_name || row['Caller Name']),
+          mobile_2: cleanVal(row.mobile_2 || row['Mobil No. 2 / Tel'] || row['Mobil No. 2 / Tel ']),
+          address_2: cleanVal(row.address_2 || row['Address-2'] || row['Address 2']),
+          station: cleanVal(row.station || row['Station']),
+          account_of: cleanVal(row.account_of || row['Account of']) || 'Corpus',
           sent: true,
           sent_at: new Date().toISOString(),
         },
