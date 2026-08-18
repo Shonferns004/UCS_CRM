@@ -519,27 +519,41 @@ export default function ReceiptHistory() {
         'Time': fmtTime12(r.receipt_time),
         'Account of': r.account_of || 'Corpus',
       });
-      const YELLOW_BG = { fgColor: { rgb: 'FFFF00' } };
-      const buildSheet = (rows) => {
-        const data = [EXCEL_HEADER, ...rows.map(({row, isSuspense}) =>
-          EXCEL_HEADER.map(h => {
-            const val = row[h] ?? '';
-            return isSuspense ? { v: val, t: typeof val === 'number' ? 'n' : 's', s: YELLOW_BG } : val;
-          })
-        )];
-        return XLSX.utils.aoa_to_sheet(data);
+      const YELLOW_BG = { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } } };
+      const HEADER_FILL = { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } } };
+      const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      const buildSheet = async (ws, rows) => {
+        ws.addRow(EXCEL_HEADER);
+        const headerRow = ws.getRow(1);
+        headerRow.eachCell(c => { c.fill = HEADER_FILL.fill; c.font = HEADER_FONT; c.alignment = { horizontal: 'center' }; });
+        for (const { row, isSuspense } of rows) {
+          const dataRow = EXCEL_HEADER.map(h => row[h] ?? '');
+          const addedRow = ws.addRow(dataRow);
+          if (isSuspense) { addedRow.eachCell(c => { c.fill = YELLOW_BG.fill; }); }
+        }
+        EXCEL_HEADER.forEach((_, i) => { ws.getColumn(i + 1).width = 18; });
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
       };
-      const wb = XLSX.utils.book_new();
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
       const isSuspenseEntry = r => !r.receipt_no || (!r.donor_mobile && (!r.agent_name || r.agent_name === 'Suspense'));
       const groups = {
         beingsevak: all.filter(r => r.project_id === 'bsct'),
         ashray: all.filter(r => r.project_id === 'aflf'),
         manncare: all.filter(r => r.project_id === 'mann'),
       };
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.beingsevak.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'BeingSevak');
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.ashray.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'Ashray');
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.manncare.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'MannCare');
-      XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const ws1 = wb.addWorksheet('BeingSevak');
+      await buildSheet(ws1, groups.beingsevak.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));
+      const ws2 = wb.addWorksheet('Ashray');
+      await buildSheet(ws2, groups.ashray.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));
+      const ws3 = wb.addWorksheet('MannCare');
+      await buildSheet(ws3, groups.manncare.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) })));
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click(); URL.revokeObjectURL(url);
     } catch (err) {
       alert('Export failed: ' + err.message);
     } finally {
