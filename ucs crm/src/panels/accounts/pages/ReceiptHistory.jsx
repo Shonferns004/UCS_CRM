@@ -723,8 +723,8 @@ export default function ReceiptHistory() {
 
       {preview && (
         <>
-          <div className="modal-overlay" onClick={closePreview} />
-          <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto' }}>
+          <div className="modal-overlay" onClick={closePreview} style={{ zIndex: 9999 }} />
+          <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto', zIndex: 10000 }}>
             <div className="modal-header">
               <h3>Receipt — {preview.receipt.receipt_no}</h3>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
