@@ -698,8 +698,9 @@ export default function Receipts() {
                 <button onClick={() => setUploadMode('reupload')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'reupload' ? '#5B6B4E' : '#fff', color: uploadMode === 'reupload' ? '#fff' : '#374151', fontWeight: 600 }}>Reupload</button>
               </div>
             </div>
-            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts by date range">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Delete by Date
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -1001,6 +1002,54 @@ export default function Receipts() {
               </div>
             </div>
           )}
+
+      {showCleanModal && (
+        <div className="modal-overlay" onClick={() => !deleting && setShowCleanModal(false)} style={{ zIndex:2000 }}>
+          <div className="modal" style={{ maxWidth:400, width:'90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize:15, margin:0 }}>Delete Receipts by Date</h3>
+              <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} disabled={deleting}>Cancel</button>
+            </div>
+            <div className="modal-body" style={{ padding:20 }}>
+              <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+                <label style={{ flex:1, fontSize:11, color:'#6b7280', fontWeight:600 }}>
+                  From
+                  <input type="date" value={cleanFrom} onChange={e => setCleanFrom(e.target.value)}
+                    disabled={deleting}
+                    style={{ width:'100%', marginTop:4, padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12 }} />
+                </label>
+                <label style={{ flex:1, fontSize:11, color:'#6b7280', fontWeight:600 }}>
+                  To
+                  <input type="date" value={cleanTo} onChange={e => setCleanTo(e.target.value)}
+                    disabled={deleting}
+                    style={{ width:'100%', marginTop:4, padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12 }} />
+                </label>
+              </div>
+              <p style={{ fontSize:13, color:'#374151', marginBottom:14, textAlign:'center' }}>
+                This will permanently delete all receipts between <strong>{cleanFrom || '...'}</strong> and <strong>{cleanTo || cleanFrom || '...'}</strong>.
+              </p>
+              <p style={{ fontSize:12, color:'#9ca3af', marginBottom:4, textAlign:'center' }}>Donor donation history for affected donors will also be removed.</p>
+              <p style={{ fontSize:12, color:'#9ca3af', marginBottom:16, textAlign:'center' }}>This action cannot be undone.</p>
+              {deleting ? (
+                <div style={{ textAlign:'center' }}>
+                  <p style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>{deleteStatus}</p>
+                  <div style={{ height:6, background:'#e5e7eb', borderRadius:3, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${deleteProgress}%`, background:'#dc2626', borderRadius:3, transition:'width .3s' }} />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
+                  <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} style={{ padding:'6px 16px' }}>Cancel</button>
+                  <button className="btn btn-sm" onClick={handleCleanUpDate}
+                    style={{ background:'#dc2626', color:'#fff', border:'none', padding:'6px 16px' }}>
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmBulkModal visible={confirmBulk.visible} donorCount={confirmBulk.donorCount} projectName="" onConfirm={handleConfirmBulkSend} onCancel={() => setConfirmBulk({ visible:false, donorCount:0 })} />
       <BulkProgressModal visible={bulkState.active} total={bulkState.total} sent={bulkState.sent} failed={bulkState.failed} currentBatch={bulkState.currentBatch} totalBatches={bulkState.totalBatches} results={bulkState.results} previousBatches={bulkState.previousBatches} onCancel={() => { cancelBulkRef.current = true; setBulkState(prev => ({ ...prev, cancelled:true })) }} />
