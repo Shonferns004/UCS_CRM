@@ -1433,6 +1433,11 @@ export const getReceiptList = async (req, res) => {
 
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
 
+    // Ascending by receipt number when searching, otherwise newest first.
+    const orderSql = search
+      ? 'ORDER BY receipt_no ASC, receipt_date ASC'
+      : (hasDateFilter ? 'ORDER BY receipt_date DESC, created_at DESC' : 'ORDER BY created_at DESC');
+
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
         `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
@@ -1442,7 +1447,7 @@ export const getReceiptList = async (req, res) => {
                  WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                  ORDER BY b.id LIMIT 1) AS audit_payer_name
          FROM receipts ${whereSql}
-         ORDER BY receipt_date DESC, created_at DESC`,
+         ${orderSql}`,
         params
       );
       return res.json({
@@ -1462,7 +1467,7 @@ export const getReceiptList = async (req, res) => {
                WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                ORDER BY b.id LIMIT 1) AS audit_payer_name
        FROM receipts ${whereSql}
-       ORDER BY created_at DESC
+       ${orderSql}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
