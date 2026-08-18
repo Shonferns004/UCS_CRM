@@ -379,7 +379,7 @@ export default function MyDonors() {
         const ngoMap = {};
         arr.forEach(st => { if (st.ngo_id && !ngoMap[st.ngo_id]) ngoMap[st.ngo_id] = st.ngo_name || st.ngo_id; });
         const ngoList = Object.entries(ngoMap).map(([id, name]) => ({ ngo_id: id, ngo_name: name }));
-        if (ngoList.length > 0) setSelectedNgo(ngoList[0].ngo_id);
+        if (ngoList.length === 1) setSelectedNgo(ngoList[0].ngo_id);
       }
     }).catch((err) => { console.error('API error:', err.message); });
   }, []);
@@ -1412,6 +1412,11 @@ export default function MyDonors() {
             if (ngoList.length <= 1) return null;
             return (
               <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
+                <button onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(null); setSelectedStation('all'); }}
+                  className={`fro-tab-btn ${!selectedNgo ? 'fro-tab-active-new' : ''}`}
+                  style={{ fontSize: 10 }}>
+                  All
+                </button>
                 {ngoList.map(n => (
                   <button key={n.ngo_id} onClick={() => { if (donor) { saveProgress(dataTab, donor.id, index); localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index })); } setSelectedNgo(n.ngo_id); setSelectedStation('all'); }}
                     className={`fro-tab-btn ${selectedNgo === n.ngo_id ? 'fro-tab-active-new' : ''}`}
@@ -1424,9 +1429,8 @@ export default function MyDonors() {
           })()}
           {/* Station Tabs */}
           {(() => {
-            const allAssignedStations = stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station);
-            const stationsWithData = [...new Set(donors.filter(d => d.station).map(d => d.station))];
-            const filteredStations = allAssignedStations.filter(s => stationsWithData.includes(s));
+            const allAssignedStations = [...new Set(stations.filter(s => !selectedNgo || s.ngo_id === selectedNgo).map(s => s.station))];
+            const filteredStations = allAssignedStations;
             if (filteredStations.length === 0) return null;
             return (
             <div className="fro-tab-segment" style={{ marginBottom: 4 }}>
