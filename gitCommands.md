@@ -12,4 +12,4 @@
 --   git push upstream
 
 5. Open/update the PR on the real repo
---   gh pr create --repo priyankshahdev-alt/UCS_CRM --base master --head fix/receipt-date-timezone --title "Your title" --body "Your description"
+--   gh pr create --repo priyankshahdev-alt/UCS_CRM --base master --head fix/receipt-date-timezone --title "Your title" --body
