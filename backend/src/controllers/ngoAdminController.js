@@ -1769,9 +1769,9 @@ export const distributeNewData = async (req, res) => {
       const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
       if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
     }
-    // Filter to specific NGO if provided
+    // Filter to specific NGO if provided (match by ID or name)
     if (filterNgoId) {
-      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
     }
     if (ngoEntries.length === 0) {
       return res.json({ message: 'No NGO assigned to your account', count: 0 });
@@ -2043,7 +2043,7 @@ export const cleanupNewData = async (req, res) => {
     }
     const { ngo_id: filterNgoId } = req.body;
     if (filterNgoId) {
-      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId));
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
     }
     if (ngoEntries.length === 0) {
       return res.json({ message: 'No NGO assigned to your account', deleted: 0 });
