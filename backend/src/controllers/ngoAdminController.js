@@ -1923,12 +1923,32 @@ export const distributeNewData = async (req, res) => {
         .not('status', 'eq', 'reassigned');
 
       const assignedSet = new Set(froAsgn ? froAsgn.map(a => a.donor_id) : []);
-      let unassignedIds = allIds.filter(id => !assignedSet.has(id));
-      console.log(`[${ngoName}] alreadyAssigned:`, assignedSet.size, 'unassignedIds:', unassignedIds.length);
-      if (unassignedIds.length === 0) { console.log(`[${ngoName}] SKIP — all already assigned`); continue; }
+      const hasFdStations = selectedStations && selectedStations.some(s => s.startsWith('FD-'));
 
-      // Step 4: Assign stations round-robin to unassigned donors
-      const shuffled = [...unassignedIds];
+      let idsToAssign;
+      if (hasFdStations && assignedSet.size > 0) {
+        // Fresh data FD distribution: reassign ALL donors, mark existing as reassigned
+        const assignedIds = allIds.filter(id => assignedSet.has(id));
+        console.log(`[${ngoName}] Reassigning ${assignedIds.length} existing donors to FD stations`);
+        for (let i = 0; i < assignedIds.length; i += 500) {
+          const batch = assignedIds.slice(i, i + 500);
+          await db.from('fro_assignments')
+            .update({ status: 'reassigned', updated_at: new Date().toISOString() })
+            .in('donor_id', batch)
+            .eq('ngo_id', ngoId)
+            .not('status', 'eq', 'reassigned');
+        }
+        idsToAssign = allIds;
+      } else {
+        // Old station distribution: skip already-assigned donors
+        idsToAssign = allIds.filter(id => !assignedSet.has(id));
+      }
+
+      console.log(`[${ngoName}] alreadyAssigned:`, assignedSet.size, 'idsToAssign:', idsToAssign.length);
+      if (idsToAssign.length === 0) { console.log(`[${ngoName}] SKIP — all already assigned`); continue; }
+
+      // Step 4: Assign stations round-robin to donors
+      const shuffled = [...idsToAssign];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -2072,6 +2092,66 @@ export const cleanupNewData = async (req, res) => {
     });
   } catch (error) {
     console.error('cleanupNewData ERROR:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const resetFreshData = async (req, res) => {
+  try {
+    let access = await getUserNgoAccess(req.user.id);
+    let ngoEntries = access.map(a => ({ ngoId: a.ngo_id, ngoName: a.ngo_name })).filter(e => e.ngoId);
+    if (ngoEntries.length === 0 && req.user.ngo_id) {
+      const { data: ngo } = await db.from('ngos').select('name').eq('id', req.user.ngo_id).single();
+      if (ngo) ngoEntries.push({ ngoId: req.user.ngo_id, ngoName: ngo.name });
+    }
+    const { ngo_id: filterNgoId } = req.body;
+    if (filterNgoId) {
+      ngoEntries = ngoEntries.filter(e => String(e.ngoId) === String(filterNgoId) || String(e.ngoName).toLowerCase() === String(filterNgoId).toLowerCase());
+    }
+    if (ngoEntries.length === 0) {
+      return res.json({ message: 'No NGO assigned to your account', deleted: 0 });
+    }
+
+    let totalDeleted = 0;
+    const messages = [];
+
+    for (const { ngoId, ngoName } of ngoEntries) {
+      let ngoFroDeleted = 0;
+      let ngoDataDeleted = 0;
+
+      // Step 1: Delete fro_assignments on FD stations for this NGO
+      const { count: froCount, error: froErr } = await db
+        .from('fro_assignments')
+        .delete({ count: 'exact' })
+        .eq('ngo_id', ngoId)
+        .like('station', 'FD-%');
+      if (froErr) {
+        messages.push(`FRO error for ${ngoName}: ${froErr.message}`);
+      } else {
+        ngoFroDeleted = froCount || 0;
+      }
+
+      // Step 2: Delete ALL new_data rows for this NGO (distributed + undistributed)
+      const { count: dataCount, error: dataErr } = await db
+        .from('new_data')
+        .delete({ count: 'exact' })
+        .eq('ngo', ngoName);
+      if (dataErr) {
+        messages.push(`Data error for ${ngoName}: ${dataErr.message}`);
+      } else {
+        ngoDataDeleted = dataCount || 0;
+      }
+
+      totalDeleted += ngoFroDeleted + ngoDataDeleted;
+      messages.push(`${ngoName}: ${ngoFroDeleted} FD assignments removed, ${ngoDataDeleted} new_data deleted`);
+    }
+
+    return res.json({
+      message: messages.join('; ') || 'No fresh data to reset',
+      deleted: totalDeleted,
+    });
+  } catch (error) {
+    console.error('resetFreshData ERROR:', error);
     return res.status(500).json({ message: error.message });
   }
 };
