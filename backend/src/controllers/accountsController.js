@@ -1101,6 +1101,96 @@ export const undoLeadVerification = async (req, res) => {
   }
 };
 
+// Universal receipt go-back: works for ANY receipt (with or without log_id,
+// from manual verify, bank audit, lead verification, CSV import, etc.).
+export const undoReceipt = async (req, res) => {
+  try {
+    const { receiptId } = req.params;
+    const { data: receipt, error: rErr } = await db
+      .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+    if (rErr) throw rErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    const donorId = receipt.donor_id;
+    const logId = receipt.log_id;
+    const projectId = receipt.project_id;
+
+    // 1. Revert linked bank_audit_entry if any.
+    const { data: entry } = await db.from('bank_audit_entries')
+      .select('id').eq('receipt_id', receipt.id).maybeSingle();
+    if (entry) {
+      await db.from('bank_audit_entries').update({
+        status: 'unverified', donor_id: null, agent_name: null,
+        donor_mobile: null, donor_email: null, donor_pan: null,
+        donor_address_1: null, donor_address_2: null, donor_city: null, donor_pin_code: null,
+        matched_lead_log_id: null, match_status: null, match_score: null,
+        matched_by: null, matched_at: null,
+        receipt_id: null, receipt_no: null, updated_at: new Date().toISOString(),
+      }).eq('id', entry.id);
+    }
+
+    // 2. Revert fro_donor_log if linked.
+    if (logId) {
+      try {
+        const { data: log } = await db.from('fro_donor_logs')
+          .select('id, action, disposition_detail, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(id, status, donor_id, ngo_id)')
+          .eq('id', logId).maybeSingle();
+        if (log) {
+          // Revert the log to pending.
+          await db.from('fro_donor_logs').update({
+            accounts_status: 'pending', verified_at: null, verified_by: null,
+          }).eq('id', logId);
+          // Reopen assignment if it was donation_collected.
+          const asgn = log.fro_assignments;
+          if (asgn?.id && asgn.status === 'donation_collected') {
+            await db.from('fro_assignments').update({
+              status: 'pending', last_contacted_at: new Date().toISOString(),
+            }).eq('id', asgn.id);
+          }
+          // Reverse donor totals.
+          if (asgn?.donor_id && log.accounts_status === 'verified') {
+            try {
+              const { data: donor } = await db.from('donor_profiles')
+                .select('total_amount, donation_count').eq('id', asgn.donor_id).single();
+              const amt = Number(log.amount_collected || 0);
+              await db.from('donor_profiles').update({
+                total_amount: Math.max(0, (donor?.total_amount || 0) - amt),
+                donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+                updated_at: new Date().toISOString(),
+              }).eq('id', asgn.donor_id);
+            } catch (e) { console.error('donor totals revert failed:', e.message); }
+          }
+          // Clean up child references.
+          try { await db.from('notification_log').delete().in('fro_donor_log_id', [logId]); } catch (_) {}
+          try { await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', [logId]); } catch (_) {}
+        }
+      } catch (e) { console.error('fro_donor_log revert failed:', e.message); }
+    }
+
+    // 3. Reverse donor totals from the receipt itself (if no log but has donor_id).
+    if (donorId && !logId) {
+      try {
+        const { data: donor } = await db.from('donor_profiles')
+          .select('total_amount, donation_count').eq('id', donorId).single();
+        const amt = Number(receipt.amount || 0);
+        await db.from('donor_profiles').update({
+          total_amount: Math.max(0, (donor?.total_amount || 0) - amt),
+          donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+          updated_at: new Date().toISOString(),
+        }).eq('id', donorId);
+      } catch (e) { console.error('donor totals revert (receipt-level) failed:', e.message); }
+    }
+
+    // 4. Delete the receipt and free the number.
+    await db.from('receipts').delete().eq('id', receipt.id);
+    try { await cancelReceiptNo(projectId); } catch (_) {}
+
+    return res.json({ message: 'Receipt undone — returned to Bank Audit', receipt_id: receipt.id });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteLead = async (req, res) => {
   try {
     const { logId } = req.params;
@@ -1449,9 +1539,16 @@ export const getReceiptList = async (req, res) => {
 
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
-        `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+        `SELECT id, log_id, receipt_no, project_id, donor_name,
+                COALESCE(receipts.donor_mobile,
+                  (SELECT b.donor_mobile FROM bank_audit_entries b
+                   WHERE b.receipt_id = receipts.id AND b.donor_mobile IS NOT NULL AND b.donor_mobile <> ''
+                   ORDER BY b.id LIMIT 1)
+                ) AS donor_mobile,
+                amount,
                 receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-                donor_id, agent_name, sent, sent_at, created_at,
+                donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
+                sent, sent_at, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
                  WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                  ORDER BY b.id LIMIT 1) AS audit_payer_name
@@ -1469,9 +1566,16 @@ export const getReceiptList = async (req, res) => {
 
     params.push(limit, (page - 1) * limit);
     const rowsRes = await db._pool.query(
-      `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
+      `SELECT id, log_id, receipt_no, project_id, donor_name,
+              COALESCE(receipts.donor_mobile,
+                (SELECT b.donor_mobile FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.donor_mobile IS NOT NULL AND b.donor_mobile <> ''
+                 ORDER BY b.id LIMIT 1)
+              ) AS donor_mobile,
+              amount,
               receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-              donor_id, agent_name, sent, sent_at, created_at,
+              donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
+              sent, sent_at, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
                WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                ORDER BY b.id LIMIT 1) AS audit_payer_name
@@ -1936,6 +2040,11 @@ export const importReceipts = async (req, res) => {
           payment_id: row.payment_id || row['Payment Id No.'] || null,
           bank_name: row.bank_name || row['Received Bank'] || row['Donors Bank Name'] || null,
           agent_name: row.agent_name || row['FSE Name'] || row['Fse Name'] || row['Agent Name'] || 'Suspense',
+          caller_name: row.caller_name || row['Caller Name'] || null,
+          mobile_2: row.mobile_2 || row['Mobil No. 2 / Tel'] || row['Mobil No. 2 / Tel '] || null,
+          address_2: row.address_2 || row['Address-2'] || row['Address 2'] || null,
+          station: row.station || row['Station'] || null,
+          account_of: row.account_of || row['Account of'] || 'Corpus',
           sent: true,
           sent_at: new Date().toISOString(),
         },
@@ -1963,7 +2072,7 @@ export const importReceipts = async (req, res) => {
         const batch = incomingNos.slice(i, i + 100);
         const { data: existing } = await db
           .from('receipts')
-          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email')
+          .select('id, receipt_no, donor_id, log_id, agent_name, donor_mobile, receipt_date, receipt_time, amount, pan_number, address, mode, payment_id, bank_name, email, caller_name, mobile_2, address_2, station, account_of')
           .eq('project_id', batchProjectId)
           .in('receipt_no', batch);
         for (const r of (existing || [])) existingReceiptIds.set(r.receipt_no, r);
@@ -2163,6 +2272,11 @@ export const importReceipts = async (req, res) => {
                 payment_id: row.payment_id,
                 bank_name: row.bank_name,
                 agent_name: row.agent_name,
+                caller_name: row.caller_name,
+                mobile_2: row.mobile_2,
+                address_2: row.address_2,
+                station: row.station,
+                account_of: row.account_of,
                 sent: true,
                 sent_at: new Date().toISOString(),
               }).eq('id', existing.id);
@@ -2196,6 +2310,11 @@ export const importReceipts = async (req, res) => {
                 bank_name: row.bank_name || existing.bank_name,
                 agent_name: row.agent_name || existing.agent_name,
                 email: row.email || existing.email,
+                caller_name: row.caller_name || existing.caller_name,
+                mobile_2: row.mobile_2 || existing.mobile_2,
+                address_2: row.address_2 || existing.address_2,
+                station: row.station || existing.station,
+                account_of: row.account_of || existing.account_of,
                 sent: true,
                 sent_at: nowIso,
               }).eq('id', existing.id);

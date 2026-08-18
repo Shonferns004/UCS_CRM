@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -15,7 +16,7 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
-const EXCEL_HEADER = ["Team Name","Transaction Date","Caller Name","Receipt Name","Mobile no.","Len","Count","Mobil No. 2 / Tel ","Len","Address-1 ","Address-2 ","Station","East / West","City","Pin Code","Pan. No. ","Len ","Mail Id ","Birth Date","Data Cat","Station","Mobile","Android No","Team","Agent Name","FSE Name","MOP","Received Bank","Payment ID No. ","Len","Count","Donors Bank Name","Amt","Receipt No.","Receipt Book No","Receipt Date ","Time","Project Supported","Account of","State","Branch"];
+const EXCEL_HEADER = ["Team Name","Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Station","Agent Name","FSE Name","MOP","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -33,6 +34,11 @@ const IMPORT_FIELDS = {
   payment_id: ['paymentid', 'paymentidno', 'transactionid', 'transactionno', 'utr', ''],
   bank_name: ['bankname', 'donorbankname', 'receivedbank', 'receivedbankname'],
   agent_name: ['fsename', 'agentname', 'agent', 'fro'],
+  caller_name: ['callername', 'caller'],
+  mobile_2: ['mobileno2', 'mobile2', 'mobilno2', 'mobilno2tel'],
+  address_2: ['address2', 'address 2'],
+  station: ['station'],
+  account_of: ['accountof', 'account of'],
 };
 
 const normalizeImportHeader = (value) => String(value || '').replace(/^\uFEFF/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -469,54 +475,48 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
-      const toRow = r => ({
+      const toRow = (r, isSuspense) => ({
         'Team Name': '',
         'Transaction Date': r.receipt_date || '',
-        'Caller Name': '',
+        'Caller Name': r.caller_name || '',
         'Receipt Name': r.donor_name || '',
         'Mobile no.': r.donor_mobile || '',
-        'Len': '',
-        'Count': '',
-        'Mobil No. 2 / Tel ': '',
+        'Mobil No. 2 / Tel ': r.mobile_2 || '',
         'Address-1 ': r.address || '',
-        'Address-2 ': '',
-        'Station': '',
-        'East / West': '',
-        'City': '',
-        'Pin Code': '',
+        'Address-2 ': r.address_2 || '',
         'Pan. No. ': r.pan_number || '',
         'Mail Id ': r.email || '',
-        'Birth Date': '',
-        'Data Cat': '',
-        'Mobile': '',
-        'Android No': '',
-        'Team': '',
-        'Agent Name': r.agent_name || '',
-        'FSE Name': r.agent_name || '',
+        'Station': r.station || '',
+        'Agent Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
+        'FSE Name': isSuspense ? 'Suspense' : (r.agent_name || ''),
         'MOP': r.mode || '',
-        'Received Bank': r.bank_name || '',
         'Payment ID No. ': r.payment_id || '',
-        'Donors Bank Name': r.bank_payer_name || '',
         'Amt': r.amount || 0,
         'Receipt No.': r.receipt_no || '',
-        'Receipt Book No': '',
         'Receipt Date ': r.receipt_date || '',
         'Time': r.receipt_time || '',
-        'Project Supported': r.project_id || '',
-        'Account of': 'Corpus',
-        'State': '',
-        'Branch': '',
+        'Account of': r.account_of || 'Corpus',
       });
-      const buildSheet = rows => XLSX.utils.aoa_to_sheet([EXCEL_HEADER, ...rows.map(row => EXCEL_HEADER.map(h => row[h] ?? ''))]);
+      const YELLOW_BG = { fgColor: { rgb: 'FFFF00' } };
+      const buildSheet = (rows) => {
+        const data = [EXCEL_HEADER, ...rows.map(({row, isSuspense}) =>
+          EXCEL_HEADER.map(h => {
+            const val = row[h] ?? '';
+            return isSuspense ? { v: val, t: typeof val === 'number' ? 'n' : 's', s: YELLOW_BG } : val;
+          })
+        )];
+        return XLSX.utils.aoa_to_sheet(data);
+      };
       const wb = XLSX.utils.book_new();
+      const isSuspenseEntry = r => !r.receipt_no;
       const groups = {
         beingsevak: all.filter(r => r.project_id === 'bsct'),
         ashray: all.filter(r => r.project_id === 'aflf'),
         manncare: all.filter(r => r.project_id === 'mann'),
       };
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.beingsevak.map(toRow)), 'BeingSevak');
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.ashray.map(toRow)), 'Ashray');
-      XLSX.utils.book_append_sheet(wb, buildSheet(groups.manncare.map(toRow)), 'MannCare');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.beingsevak.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'BeingSevak');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.ashray.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'Ashray');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.manncare.map(r => ({ row: toRow(r, isSuspenseEntry(r)), isSuspense: isSuspenseEntry(r) }))), 'MannCare');
       XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
       alert('Export failed: ' + err.message);
@@ -721,10 +721,10 @@ export default function ReceiptHistory() {
         return <div key={idx} data-dl-history data-dl-idx={idx} style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
       })}
 
-      {preview && (
+      {preview && createPortal(
         <>
-          <div className="modal-overlay" onClick={closePreview} />
-          <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto' }}>
+          <div className="modal-overlay" onClick={closePreview} style={{ zIndex: 9999 }} />
+          <div className="modal" style={{ maxWidth: 600, width: '85%', maxHeight: '85vh', overflow: 'auto', zIndex: 10000 }}>
             <div className="modal-header">
               <h3>Receipt — {preview.receipt.receipt_no}</h3>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -761,7 +761,8 @@ export default function ReceiptHistory() {
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       {donorDetail && (
