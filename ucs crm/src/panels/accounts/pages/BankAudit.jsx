@@ -566,8 +566,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   useEffect(()=>{if(embedded&&orRef.current)orRef.current({sources:sr,summary:su,loading:ld,suspenseNgo,setSuspenseNgo:useGlobalNgo?null:setSnf,combo})},[sr,su,ld,embedded,suspenseNgo,useGlobalNgo,e]);
   useEffect(()=>{onView?.(se?se.id:null)},[se]);
   useEffect(()=>{if(showMvForm&&mvFormRef.current){setTimeout(()=>mvFormRef.current?.scrollIntoView({behavior:'smooth',block:'end'}),100)}},[showMvForm]);
-  useEffect(()=>{if(!mvShowResults)return;const handler=(e)=>{if(mvSearchRef.current&&!mvSearchRef.current.contains(e.target))setMvShowResults(false)};document.addEventListener('mousedown',handler);return()=>document.removeEventListener('mousedown',handler)},[mvShowResults]);
-
   const fe=e.filter(en=>{
     if(ngoFilter&&!matchesNgo(en,ngoFilter))return false;
     if(leadFilter&&leadFilter.amount!=null&&leadFilter.amount!==''&&Number(en.amount)!==Number(leadFilter.amount))return false;
@@ -612,30 +610,24 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const updateMvDdPos = useCallback(() => { if (mvSearchRef.current) { const r = mvSearchRef.current.getBoundingClientRect(); setMvDdPos({ top: r.bottom + 4, left: r.left, width: r.width }); } }, []);
   useEffect(() => { if (mvShowResults) updateMvDdPos(); }, [mvShowResults, updateMvDdPos]);
   useEffect(() => { if (!mvShowResults) return; const h = () => updateMvDdPos(); window.addEventListener('scroll', h, true); window.addEventListener('resize', h); return () => { window.removeEventListener('scroll', h, true); window.removeEventListener('resize', h); }; }, [mvShowResults, updateMvDdPos]);
-  const MvSearchDropdownInner=({sel})=>{
-    if(!mvShowResults || !mvDdPos) return null;
-    const posStyle = { ...ddStyle, top: mvDdPos.top, left: mvDdPos.left, width: mvDdPos.width };
-    if(mvSearching){
-      return createPortal(<div data-mv style={{...posStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>, document.body);
-    }
-    if(mvResults.length!==0){
-      return createPortal(<div data-mv style={{...posStyle,maxHeight:180,overflowY:'auto'}}>
-        {mvResults.slice(0,6).map((d,i)=>{
-          const last=i===mvResults.length-1;
-          return <div key={d.id||i} onMouseDown={e=>{e.preventDefault();sel(d)}} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:last?'none':'1px solid #f3f4f6',fontSize:12,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='#f0fdf4'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
-            <div style={{width:28,height:28,borderRadius:'50%',background:'var(--sage)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:10,fontWeight:700,flexShrink:0}}>{(d.name||'?')[0].toUpperCase()}</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name||'Unknown'}</div>
-              <div style={{fontSize:10,color:'#6b7280',marginTop:1,display:'flex',gap:8,flexWrap:'wrap'}}>{d.mobile_number&&<span>{d.mobile_number}</span>}{d.city&&<span>{d.city}</span>}</div>
-            </div>
-          </div>;
-        })}
-      </div>, document.body);
-    }
-    if(!mvSearching) return createPortal(<div data-mv style={{...posStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>, document.body);
-    return null;
+  const renderMvDropdown=()=>{
+    if(!mvShowResults||!mvDdPos) return null;
+    const ps={...ddStyle,top:mvDdPos.top,left:mvDdPos.left,width:mvDdPos.width};
+    if(mvSearching) return createPortal(<div data-mv style={{...ps,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>,document.body);
+    if(mvResults.length>0) return createPortal(<div data-mv style={{...ps,maxHeight:180,overflowY:'auto'}}>
+      {mvResults.slice(0,6).map((d,i)=>{
+        const last=i===mvResults.length-1;
+        return <div key={d.id||i} onMouseDown={e=>{e.preventDefault();selectMvDonor(d)}} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:last?'none':'1px solid #f3f4f6',fontSize:12,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='#f0fdf4'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+          <div style={{width:28,height:28,borderRadius:'50%',background:'var(--sage)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:10,fontWeight:700,flexShrink:0}}>{(d.name||'?')[0].toUpperCase()}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:600,color:'#111827',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name||'Unknown'}</div>
+            <div style={{fontSize:10,color:'#6b7280',marginTop:1,display:'flex',gap:8,flexWrap:'wrap'}}>{d.mobile_number&&<span>{d.mobile_number}</span>}{d.city&&<span>{d.city}</span>}</div>
+          </div>
+        </div>;
+      })}
+    </div>,document.body);
+    return createPortal(<div data-mv style={{...ps,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>,document.body);
   };
-  const MvSearchDropdownStable=useCallback((p)=><MvSearchDropdownInner {...p}/>,[mvShowResults, mvDdPos, mvSearching, mvResults]);
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
@@ -871,7 +863,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
           <div ref={mvSearchRef} style={{position:'relative',gridColumn:'1 / -1'}}>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Mobile <span style={{color:'#dc2626'}}>*</span></label>
             <input type="tel" autoComplete="off" value={mvMobile} onChange={e=>searchMvDonors(e.target.value)} placeholder="e.g. 9876543210" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)';if(mvResults.length)setMvShowResults(true)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none';setTimeout(()=>setMvShowResults(false),200)}}/>
-            <MvSearchDropdownStable sel={selectMvDonor}/>
+            {renderMvDropdown()}
           </div>
           <div>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Name <span style={{color:'#9ca3af',fontWeight:400,textTransform:'none',letterSpacing:0}}>— used if new</span></label>
