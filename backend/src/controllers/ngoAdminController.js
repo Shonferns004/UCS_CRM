@@ -340,7 +340,12 @@ export const getDonorDetail = async (req, res) => {
 export const getAccessibleNgos = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
-    const ngos = access.map(a => ({ id: a.ngo_id, name: a.ngo_name })).filter(n => n.id);
+    const seen = new Set();
+    const ngos = access.map(a => ({ id: a.ngo_id, name: a.ngo_name })).filter(n => {
+      if (!n.id || seen.has(n.id)) return false;
+      seen.add(n.id);
+      return true;
+    });
     return res.json(ngos);
   } catch (error) {
     return res.status(500).json({ message: error.message });
