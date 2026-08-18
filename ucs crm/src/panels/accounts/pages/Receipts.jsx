@@ -271,14 +271,6 @@ export default function Receipts() {
     }).catch(() => {})
   }, [])
 
-  const isSuspense = (d) => {
-    const agent = String(d['Agent Name'] || '').trim().toLowerCase()
-    const mobile = String(d['Mobile No.'] || '').trim()
-    const agentBlank = !agent || agent === 'suspense' || agent === 'na'
-    const mobileBlank = !mobile || mobile === 'na'
-    return agentBlank && mobileBlank
-  }
-
   const parseReceiptNo = (d) => {
     const v = String(d['Receipt No.'] || '').trim()
     const n = parseInt(v, 10)
@@ -287,11 +279,8 @@ export default function Receipts() {
 
   const filteredDonors = (() => {
     if (!donors) return donors
-    const suspenseRows = donors.filter(isSuspense)
-    const nonSuspense = donors.filter(d => !isSuspense(d))
-    let pool = ngoFilter === 'suspense' ? suspenseRows
-      : ngoFilter === 'all' ? nonSuspense
-      : nonSuspense.filter(d => (d['Project'] || 'bsct') === ngoFilter)
+    let pool = ngoFilter === 'all' ? donors
+      : donors.filter(d => (d['Project'] || 'bsct') === ngoFilter)
     if (receiptSearch.trim()) {
       const q = receiptSearch.trim().toLowerCase()
       pool = pool.filter(d => String(d['Receipt No.'] || '').toLowerCase().includes(q))
@@ -306,8 +295,6 @@ export default function Receipts() {
     }
     return pool
   })()
-
-  const suspenseCount = donors ? donors.filter(isSuspense).length : 0
 
   useEffect(() => { setReceiptPage(1) }, [ngoFilter, receiptSearch])
 
@@ -897,13 +884,12 @@ export default function Receipts() {
                   <input type="text" placeholder="Search receipt no..."
                     value={receiptSearch} onChange={e => setReceiptSearch(e.target.value)}
                     style={{ padding:'5px 10px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, width:150, marginRight:4 }} />
-                  {[{ k:'all', l:'All' }, ...Object.entries(NGO_MAP).map(([k, v]) => ({ k, l:v.label })), { k:'suspense', l:'Suspense' }].map(tab => {
-                    const count = tab.k === 'all' ? (donors?.filter(d => !isSuspense(d)).length || 0)
-                      : tab.k === 'suspense' ? suspenseCount
-                      : (donors || []).filter(d => !isSuspense(d) && (d['Project'] || 'bsct') === tab.k).length
+                  {[{ k:'all', l:'All' }, ...Object.entries(NGO_MAP).map(([k, v]) => ({ k, l:v.label }))].map(tab => {
+                    const count = tab.k === 'all' ? (donors?.length || 0)
+                      : (donors || []).filter(d => (d['Project'] || 'bsct') === tab.k).length
                     return (
                       <button key={tab.k} className="btn btn-sm" onClick={() => setNgoFilter(tab.k)}
-                        style={{ background: ngoFilter === tab.k ? (tab.k === 'suspense' ? '#dc2626' : '#5B6B4E') : '#f3f4f6', color: ngoFilter === tab.k ? '#fff' : '#374151', border:'none', fontWeight:600 }}>
+                        style={{ background: ngoFilter === tab.k ? '#5B6B4E' : '#f3f4f6', color: ngoFilter === tab.k ? '#fff' : '#374151', border:'none', fontWeight:600 }}>
                         {tab.l} <span style={{ fontSize:11, opacity:0.8 }}>({count})</span>
                       </button>
                     )

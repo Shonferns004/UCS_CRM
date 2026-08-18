@@ -941,6 +941,7 @@ export const manualVerifyEntry = async (req, res) => {
     const { id } = req.params;
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
+      donor_email, donor_city, donor_pin_code, donor_address_2,
     } = req.body || {};
 
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
@@ -956,7 +957,45 @@ export const manualVerifyEntry = async (req, res) => {
     if (eErr) throw eErr;
     if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
     if (entry.status === 'verified' || entry.match_status === 'confirmed') {
-      return res.status(400).json({ message: 'This bank audit entry is already verified/credited' });
+      const proj = entry.project_id || 'bsct';
+
+      // Case 1: receipt is linked — just assign a number if missing
+      if (entry.receipt_id) {
+        const { data: rcpt } = await db.from('receipts')
+          .select('id, receipt_no, project_id').eq('id', entry.receipt_id).maybeSingle();
+        if (rcpt && !rcpt.receipt_no) {
+          const receiptNo = await BankAudit.getNextReceiptNo(proj);
+          await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', rcpt.id);
+          await db.from('bank_audit_entries').update({ receipt_no: receiptNo }).eq('id', id);
+          return res.json({ message: 'Entry was already verified — receipt number assigned.', receipt_no: receiptNo, receipt_id: rcpt.id });
+        }
+        if (rcpt?.receipt_no) {
+          return res.status(400).json({ message: `Already verified. Receipt No: ${rcpt.receipt_no}`, receipt_no: rcpt.receipt_no });
+        }
+      }
+
+      // Case 2: no receipt linked — create one from the entry's data
+      const receiptNo = await BankAudit.getNextReceiptNo(proj);
+      const receipt = await createReceipt({
+        receipt_no: receiptNo,
+        project_id: proj,
+        donor_name: entry.payer_name || entry.donor_name || 'Unknown',
+        donor_mobile: entry.donor_mobile || null,
+        amount: entry.amount || 0,
+        pan_number: entry.donor_pan || null,
+        address: [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null,
+        email: entry.donor_email || null,
+        bank_name: entry.bank_name || null,
+        mode: entry.mode || null,
+        payment_id: entry.payment_id || null,
+        agent_name: entry.agent_name || null,
+        purpose: 'Bank Audit Entry',
+        generated_by: req.user.id,
+        receipt_date: entry.transaction_date || new Date().toISOString(),
+        receipt_time: entry.payment_time || null,
+      });
+      await db.from('bank_audit_entries').update({ receipt_id: receipt.id, receipt_no: receiptNo }).eq('id', id);
+      return res.json({ message: 'Entry was already verified — receipt created and number assigned.', receipt_no: receiptNo, receipt_id: receipt.id });
     }
 
     // Resolve the FRO worker (must be an FRO).
@@ -983,7 +1022,11 @@ export const manualVerifyEntry = async (req, res) => {
           name: (donor_name || entry.payer_name || 'Unknown').trim(),
           mobile_number: mobile,
           address_1: donor_address || entryAddress || null,
+          address_2: donor_address_2 || null,
           pan_number: donor_pan || entry.donor_pan || null,
+          email: donor_email || entry.donor_email || null,
+          city: donor_city || null,
+          pin_code: donor_pin_code || null,
           project_supported: project,
         }).select().single();
         if (dErr) throw dErr;
@@ -993,9 +1036,14 @@ export const manualVerifyEntry = async (req, res) => {
         const patch = {};
         if (donor_address && !donor.address_1) patch.address_1 = donor_address;
         else if (entryAddress && !donor.address_1) patch.address_1 = entryAddress;
+        if (donor_address_2 && !donor.address_2) patch.address_2 = donor_address_2;
         if (donor_pan && !donor.pan_number) patch.pan_number = donor_pan;
         else if (entry.donor_pan && !donor.pan_number) patch.pan_number = entry.donor_pan;
         if (donor_name && !donor.name) patch.name = donor_name;
+        if (donor_email && !donor.email) patch.email = donor_email;
+        else if (entry.donor_email && !donor.email) patch.email = entry.donor_email;
+        if (donor_city && !donor.city) patch.city = donor_city;
+        if (donor_pin_code && !donor.pin_code) patch.pin_code = donor_pin_code;
         if (Object.keys(patch).length > 0) {
           patch.updated_at = now;
           await from('donor_profiles').update(patch).eq('id', donor.id);
@@ -1020,7 +1068,7 @@ export const manualVerifyEntry = async (req, res) => {
           fro_worker_id: fro_worker_id,
           ngo_id: ngoId,
           status: 'donation_collected',
-          assigned_by: req.user.id,
+          assigned_by: null,
         }).select().single();
         if (asErr) throw asErr;
         assignment = createdAsgn;
@@ -1067,11 +1115,12 @@ export const manualVerifyEntry = async (req, res) => {
         updated_at: now,
         payer_name: entry.payer_name || donor.name || null,
         donor_mobile: mobile,
-        donor_email: entry.donor_email || donor.email || null,
+        donor_email: donor_email || entry.donor_email || donor.email || null,
         donor_pan: donor_pan || entry.donor_pan || donor.pan_number || null,
         donor_address_1: donor_address || entryAddress || donor.address_1 || null,
-        donor_city: donor.city || null,
-        donor_pin_code: donor.pin_code || null,
+        donor_address_2: donor_address_2 || donor.address_2 || null,
+        donor_city: donor_city || donor.city || null,
+        donor_pin_code: donor_pin_code || donor.pin_code || null,
       }).eq('id', entry.id);
 
       // Generate the receipt (uses the entered address/PAN where available).
@@ -1080,12 +1129,12 @@ export const manualVerifyEntry = async (req, res) => {
         log_id: log.id,
         receipt_no: receiptNo,
         project_id: project,
-        donor_name: donor.name || entry.payer_name || 'Unknown',
+        donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
         donor_mobile: mobile,
         amount,
         pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
         address: donor_address || entryAddress || null,
-        email: entry.donor_email || donor.email || null,
+        email: donor_email || entry.donor_email || donor.email || null,
         bank_name: entry.bank_name || donor.donors_bank_name || null,
         mode: entry.mode || null,
         payment_id: entry.payment_id || null,

@@ -126,10 +126,11 @@ export default function ReceiptHistory() {
   const [ngoId, setNgoId] = useState('');
   const [ngoOptions, setNgoOptions] = useState([]);
   const [page, setPage] = useState(1);
-  const [period, setPeriod] = useState('all');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [fromDate, setFromDate] = useState(todayStr);
+  const [toDate, setToDate] = useState(todayStr);
   const [receiptNgo, setReceiptNgo] = useState('');
+  const [suspenseMode, setSuspenseMode] = useState(false);
   const [todayDownloading, setTodayDownloading] = useState(false);
   const [excelDownloading, setExcelDownloading] = useState(false);
   const [historyForDownload, setHistoryForDownload] = useState(null);
@@ -155,12 +156,9 @@ export default function ReceiptHistory() {
     params.set('limit', '100');
     if (searchQuery.trim()) params.set('search', searchQuery.trim());
     if (receiptNgo) params.set('project', receiptNgo);
-    if (period === 'custom') {
-      if (fromDate) params.set('from_date', fromDate);
-      if (toDate) params.set('to_date', toDate);
-    } else if (period && period !== 'all') {
-      params.set('period', period);
-    }
+    if (suspenseMode) params.set('suspense', '1');
+    if (fromDate) params.set('from_date', fromDate);
+    if (toDate) params.set('to_date', toDate);
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -169,7 +167,7 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, searchQuery, period, fromDate, toDate, receiptNgo]);
+  }, [page, searchQuery, fromDate, toDate, receiptNgo, suspenseMode]);
 
   const runImport = useCallback(async (rows, ngoIdForImport) => {
     if (!rows || rows.length === 0) return;
@@ -333,7 +331,7 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  useEffect(() => { setPage(1); }, [searchQuery, period, fromDate, toDate, receiptNgo]);
+  useEffect(() => { setPage(1); }, [searchQuery, fromDate, toDate, receiptNgo, suspenseMode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -432,12 +430,9 @@ export default function ReceiptHistory() {
     const p = new URLSearchParams();
     if (searchQuery.trim()) p.set('search', searchQuery.trim());
     if (receiptNgo) p.set('project', receiptNgo);
-    if (period === 'custom') {
-      if (fromDate) p.set('from_date', fromDate);
-      if (toDate) p.set('to_date', toDate);
-    } else if (period && period !== 'all') {
-      p.set('period', period);
-    }
+    if (suspenseMode) p.set('suspense', '1');
+    if (fromDate) p.set('from_date', fromDate);
+    if (toDate) p.set('to_date', toDate);
     for (const [k, v] of Object.entries(extra)) p.set(k, v);
     return p;
   };
@@ -616,19 +611,17 @@ export default function ReceiptHistory() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
-          {[{ k: 'all', l: 'All' }, { k: 'today', l: 'Today' }, { k: 'yesterday', l: 'Yesterday' }, { k: 'week', l: 'This Week' }, { k: 'month', l: 'This Month' }, { k: 'year', l: 'This Year' }, { k: 'custom', l: 'Custom' }].map(f => (
-            <button key={f.k} className={`btn btn-sm${period === f.k ? ' btn-primary' : ''}`}
-              onClick={() => { setPeriod(f.k); setPage(1) }}>
-              {f.l}
-            </button>
-          ))}
-          {period === 'custom' && (<>
-            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
-            <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
-            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
-          </>)}
+          <button className="btn btn-sm" onClick={() => { setSuspenseMode(s => !s); setPage(1) }}
+            style={{ background: suspenseMode ? '#dc2626' : '#f3f4f6', color: suspenseMode ? '#fff' : '#374151', border: 'none', fontWeight: 600, borderRadius: 6 }}>
+            Suspense
+          </button>
+          <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
+          <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>to</span>
+          <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(1) }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db' }} />
+          <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
           <select value={receiptNgo} onChange={e => { setReceiptNgo(e.target.value); setPage(1) }}
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff' }}>
             <option value="">All NGOs</option>

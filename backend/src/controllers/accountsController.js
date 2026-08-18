@@ -1363,7 +1363,9 @@ export const getReceiptList = async (req, res) => {
       ? 'suspense'
       : (req.query.link === 'donors' || req.query.link === 'linked' ? 'donors'
       : (req.query.link === 'others' ? 'others' : ''));
-    const isSuspense = link === 'suspense';
+    const isSuspense = link === 'suspense' || req.query.suspense === '1';
+    const filterMonth = parseInt(req.query.filter_month, 10) || 0;
+    const filterYear  = parseInt(req.query.filter_year, 10) || 0;
 
     // Cheap per-NGO aggregates + project options (unfiltered).
     const statsRes = await db._pool.query(
@@ -1391,14 +1393,21 @@ export const getReceiptList = async (req, res) => {
     }
     if (link === 'donors') where.push('donor_id IS NOT NULL');
     if (isSuspense) {
-      const now = new Date();
-      const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
-      const y = ist.getUTCFullYear();
-      const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
-      params.push(`${y}-${m}-01`);
+      let y, m;
+      if (filterMonth && filterYear) {
+        y = filterYear;
+        m = filterMonth;
+      } else {
+        const now = new Date();
+        const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
+        y = ist.getUTCFullYear();
+        m = ist.getUTCMonth() + 1;
+      }
+      const mStr = String(m).padStart(2, '0');
+      params.push(`${y}-${mStr}-01`);
       where.push(`receipt_date >= $${params.length}`);
-      const lastDay = new Date(Date.UTC(y, ist.getUTCMonth() + 1, 0)).getUTCDate();
-      params.push(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      params.push(`${y}-${mStr}-${String(lastDay).padStart(2, '0')}`);
       where.push(`receipt_date <= $${params.length}`);
       where.push('donor_id IS NULL');
       where.push(`(agent_name IS NULL OR trim(agent_name) = '' OR lower(trim(agent_name)) IN ('na', 'suspense'))`);
