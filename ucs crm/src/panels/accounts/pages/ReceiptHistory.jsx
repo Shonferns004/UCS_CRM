@@ -533,7 +533,7 @@ export default function ReceiptHistory() {
           </select>
           <input
             className="search-input"
-            placeholder="Search by receipt no or donor name..."
+            placeholder="Search by receipt number..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{ flex: 1, minWidth: 200, maxWidth: 300 }}
