@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Users, Check, Plane, Bell, Star, Heart } from '../icons';
 import { Avatar } from './ui';
-import { fetchWorkers, fetchAttendance, fetchLeaves, fetchHolidays } from '../store';
+import { fetchWorkers, fetchAttendance, fetchLeaves, fetchHolidays, fetchNgoSummaryList } from '../store';
 import api from '../api/auth';
 import RecentNotices from '../../../components/RecentNotices';
 import RecruiterOverview from './RecruiterOverview';
@@ -114,6 +114,7 @@ export default function Visualizations() {
   const [leaves, setLeaves] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [salSum, setSalSum] = useState([]);
+  const [ngoSummary, setNgoSummary] = useState([]);
   const [noticeForm, setNoticeForm] = useState({ title: '', content: '', target_role: 'all' })
   const [noticeSaving, setNoticeSaving] = useState(false)
   const [noticeErr, setNoticeErr] = useState('')
@@ -143,8 +144,9 @@ export default function Visualizations() {
       fetchLeaves().catch(() => []),
       fetchHolidays().catch(() => []),
       fetch(API_BASE + '/salary/workers-summary', { headers }).then(r => r.json()).catch(() => []),
-    ]).then(([w, a, l, h, s]) => {
-      setWorkers(w); setAttendance(a); setLeaves(l); setHolidays(h); setSalSum(s);
+      fetchNgoSummaryList().catch(() => []),
+    ]).then(([w, a, l, h, s, ngos]) => {
+      setWorkers(w); setAttendance(a); setLeaves(l); setHolidays(h); setSalSum(s); setNgoSummary(ngos || []);
     }).catch((err) => { console.error('API error:', err.message); }).finally(() => setLoading(false));
   }, []);
 
@@ -314,6 +316,30 @@ export default function Visualizations() {
       <MiniCard icon={<Check width={16} />} label="Present Today" num={presentPct} suffix="%" sub={`${present} of ${total}`} color="var(--sage)" />
       <MiniCard icon={<Plane width={16} />} label="On Leave" num={onLeave} sub="away today" color="var(--gold)" />
       <MiniCard icon={<Bell width={16} />} label="Pending Leaves" num={pendingL} sub="need decision" color="var(--danger)" />
+
+      {/* NGO summary row */}
+      {ngoSummary.length > 0 && (
+        <div className="mc w-3" style={{ overflow: 'hidden' }}>
+          <div className="mc-top" style={{ marginBottom: 8 }}>
+            <span className="mc-icon" style={{ color: 'var(--sage)' }}><Star width={16} /></span>
+            <span className="mc-label" style={{ fontSize: 11, fontWeight: 700 }}>NGO SPLIT</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {ngoSummary.map(n => (
+              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
+                <span style={{ minWidth: 110, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.name}</span>
+                <div style={{ flex: 1, height: 8, background: 'var(--line)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(100, Number(n.allocation_percentage) || 0)}%`, height: 8, background: 'var(--sage)', borderRadius: 4 }} />
+                </div>
+                <span style={{ minWidth: 44, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{Number(n.allocation_percentage) || 0}%</span>
+                <span style={{ minWidth: 90, textAlign: 'right', color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                  {Number(n.salary_employees) || 0} emp · ₹{Number(n.salary_amount || 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Heatmap — big (spans 2 cols, 2 rows) */}
       <div className="mc w-2 h-2" style={{ overflow: 'hidden' }}>

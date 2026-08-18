@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx'
 
 const PAGE_SIZES = [100, 500, 1000]
 
-function StationSelectModal({ stations, onClose, onDistribute, ngoName }) {
+function StationSelectModal({ stations, onClose, onDistribute, ngoId, ngoName }) {
   const freshStations = stations.filter(s => s.station?.startsWith('FD-'))
   const oldStations = stations.filter(s => !s.station?.startsWith('FD-'))
   const [viewTab, setViewTab] = useState(freshStations.length > 0 ? 'fresh' : 'old')
@@ -57,7 +57,7 @@ function StationSelectModal({ stations, onClose, onDistribute, ngoName }) {
     setLoading(true)
     try {
       const body = { stations: Array.from(selected) }
-      if (ngoName) body.ngo_id = ngoName
+      if (ngoId) body.ngo_id = ngoId
       const res = await apiPost('/ngo-admin/new-data/distribute', body)
       onDistribute(res)
     } catch (err) {
@@ -512,6 +512,7 @@ export default function NewData() {
               stations={stations}
               onClose={() => setShowStationSelect(false)}
               onDistribute={(res) => { setShowStationSelect(false); setResult(res); load() }}
+              ngoId={selectedNgoId}
               ngoName={currentNgoName}
             />
           )}
