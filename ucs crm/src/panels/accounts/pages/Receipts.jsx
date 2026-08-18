@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { apiGet, apiPost, apiDelete } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
@@ -495,6 +495,34 @@ export default function Receipts() {
   const [sendingIndex, setSendingIndex] = useState(null)
   const [editingPhone, setEditingPhone] = useState(null)
   const [previewIndex, setPreviewIndex] = useState(null)
+  const previewBodyRef = useRef(null)
+  const [previewScale, setPreviewScale] = useState(0.7)
+
+  useLayoutEffect(() => {
+    if (previewIndex == null) return
+
+    let frameId
+    const updatePreviewScale = () => {
+      const body = previewBodyRef.current
+      const sheet = body?.querySelector('[data-receipt-sheet]') || body?.firstElementChild
+      if (!body || !sheet) return
+
+      const availableWidth = Math.max(240, body.clientWidth - 40)
+      const availableHeight = Math.max(240, body.clientHeight - 40)
+      const sheetWidth = Math.max(sheet.scrollWidth, sheet.getBoundingClientRect().width)
+      const sheetHeight = Math.max(sheet.scrollHeight, sheet.getBoundingClientRect().height)
+      const nextScale = Math.min(0.86, availableWidth / sheetWidth, availableHeight / sheetHeight)
+
+      setPreviewScale(Math.max(0.4, Number.isFinite(nextScale) ? nextScale : 0.7))
+    }
+
+    frameId = requestAnimationFrame(updatePreviewScale)
+    window.addEventListener('resize', updatePreviewScale)
+    return () => {
+      cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', updatePreviewScale)
+    }
+  }, [previewIndex, donors])
 
   const updatePhone = (index, val) => {
     setDonors(prev => prev.map((d, i) => i === index ? { ...d, 'Mobile No.': val } : d))
@@ -986,14 +1014,14 @@ export default function Receipts() {
                     <button className="btn btn-sm" onClick={() => setPreviewIndex(null)}>Close</button>
                   </div>
                 </div>
-                <div className="modal-body" style={{ flex:1, overflow:'auto', padding:20, display:'flex', justifyContent:'center' }}>
+                <div ref={previewBodyRef} className="modal-body" style={{ flex:1, minHeight:0, overflow:'auto', padding:20, display:'flex', alignItems:'flex-start', justifyContent:'center' }}>
                   {(() => {
                     const idx = previewIndex
                     const ngo = donors[idx]['Project'] || 'bsct'
                     const tpl = getNgoSettings(ngo)
                     const Comp = tpl.comp
                     return (
-                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block', transform:'scale(0.7)', transformOrigin:'top center' }}>
+                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block', zoom:previewScale }}>
                         <Comp donor={donors[idx]} project={ngo} />
                       </div>
                     )
