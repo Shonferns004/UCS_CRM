@@ -840,18 +840,16 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       </div>}
 
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
-        {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<div style={{display:'flex',gap:10,marginBottom:10}}>
-          <button className="btn btn-sm" style={{flex:1,background:showMvForm?'#f0fdf4':'#059669',color:showMvForm?'#059669':'#fff',border:showMvForm?'1px solid #86efac':'none',fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:6,transition:'all .15s'}} onClick={()=>openManualVerify(se)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            Manual Verify (FRO + Donor)
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<button className="btn btn-sm" title="Manual Verify" style={{width:36,height:36,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#059669',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',flexShrink:0,transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </button>}
+          <button className="btn btn-sm" title={sv?'Saving...':'Save Changes'} style={{width:36,height:36,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'var(--sage)',color:'#fff',border:'none',borderRadius:8,cursor:sv?'not-allowed':'pointer',opacity:sv?.6:1,flexShrink:0,transition:'all .15s'}} disabled={sv} onClick={editEntry} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)'}} onMouseOut={e=>{e.currentTarget.style.filter='none'}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg>
           </button>
-        </div>}
-        <div style={{display:'flex',gap:10}}>
-          <button className="btn btn-sm" style={{flex:1,background:'var(--sage)',color:'#fff',border:'none'}} disabled={sv} onClick={editEntry}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:-2,marginRight:4}}><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"/><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"/></svg>
-            {sv?'Saving...':'Save Changes'}
+          <button className="btn btn-sm" title="Delete" style={{width:36,height:36,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,cursor:'pointer',flexShrink:0,transition:'all .15s'}} onClick={()=>{setDci(se);setSe(null)}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2'}} onMouseOut={e=>{e.currentTarget.style.background='#fef2f2'}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
-          <button className="btn btn-sm" style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca'}} onClick={()=>{setDci(se);setSe(null)}}>{'\u2715'} Delete</button>
         </div>
       </div>
     </RightPanel>}

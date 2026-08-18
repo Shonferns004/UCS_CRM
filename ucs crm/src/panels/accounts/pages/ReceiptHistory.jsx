@@ -472,7 +472,7 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
-      const rows = all.map(r => ({
+      const toRow = r => ({
         'Team Name': '',
         'Transaction Date': r.receipt_date || '',
         'Caller Name': '',
@@ -509,10 +509,17 @@ export default function ReceiptHistory() {
         'Account of': 'Corpus',
         'State': '',
         'Branch': '',
-      }));
-      const ws = XLSX.utils.aoa_to_sheet([EXCEL_HEADER, ...rows.map(row => EXCEL_HEADER.map(h => row[h] ?? ''))]);
+      });
+      const buildSheet = rows => XLSX.utils.aoa_to_sheet([EXCEL_HEADER, ...rows.map(row => EXCEL_HEADER.map(h => row[h] ?? ''))]);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Receipts');
+      const groups = {
+        beingsevak: all.filter(r => r.project_id === 'bsct'),
+        ashray: all.filter(r => r.project_id === 'aflf'),
+        manncare: all.filter(r => r.project_id === 'mann'),
+      };
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.beingsevak.map(toRow)), 'BeingSevak');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.ashray.map(toRow)), 'Ashray');
+      XLSX.utils.book_append_sheet(wb, buildSheet(groups.manncare.map(toRow)), 'MannCare');
       XLSX.writeFile(wb, `receipts_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
       alert('Export failed: ' + err.message);
@@ -528,19 +535,31 @@ export default function ReceiptHistory() {
       const ngoFolder = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' };
       const zip = new JSZip();
       const els = document.querySelectorAll('[data-dl-history]');
+      const items = [];
       for (let i = 0; i < els.length && !cancelled; i++) {
-        const pdf = await generateReceiptPDF(els[i]);
         const r = historyForDownload[i];
         const ngo = r.project_id || 'bsct';
-        const folder = zip.folder(ngoFolder[ngo] || 'Other');
         const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
         const receiptNo = r.receipt_no || 'NA';
-        const isMann = ngo === 'mann';
-        const filename = isMann
+        const filename = ngo === 'mann'
           ? `MannCare_${receiptNo}.pdf`
           : `${ngoFolder[ngo]}_Receipt_${receiptNo}_${donorName}.pdf`;
-        folder.file(filename, pdf.output('arraybuffer'));
+        items.push({ el: els[i], ngo, filename });
       }
+      const CONCURRENCY = 5;
+      let idx = 0;
+      const worker = async () => {
+        while (!cancelled) {
+          const cur = idx++;
+          if (cur >= items.length) break;
+          const { el, ngo, filename } = items[cur];
+          try {
+            const pdf = await generateReceiptPDF(el);
+            zip.folder(ngoFolder[ngo] || 'Other').file(filename, pdf.output('arraybuffer'));
+          } catch (e) { console.error('PDF gen failed:', e.message); }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length || 1) }, () => worker()));
       if (!cancelled) {
         const content = await zip.generateAsync({ type: 'blob' });
         saveAs(content, `Receipts_${new Date().toISOString().slice(0,10)}.zip`);
