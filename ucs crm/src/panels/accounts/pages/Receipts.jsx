@@ -1002,8 +1002,8 @@ export default function Receipts() {
           </div>)}
 
           {previewIndex != null && donors && donors[previewIndex] && (
-            <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:1000 }}>
-              <div className="modal" style={{ width:'95%', maxWidth:1060, height:'95vh', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-overlay" onClick={() => setPreviewIndex(null)} style={{ zIndex:3000 }}>
+              <div className="modal" style={{ width:'min(900px, calc(100vw - 40px))', maxWidth:900, height:'min(760px, calc(100vh - 40px))', maxHeight:'calc(100vh - 40px)', display:'flex', flexDirection:'column' }} onClick={e => e.stopPropagation()}>
                 <div className="modal-header" style={{ flexShrink:0 }}>
                   <h3 style={{ fontSize:15 }}>{donors[previewIndex]['Donor Name']} — {getNgoSettings(donors[previewIndex]['Project'] || 'bsct').label}</h3>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
