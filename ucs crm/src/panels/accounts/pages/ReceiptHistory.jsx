@@ -472,31 +472,6 @@ export default function ReceiptHistory() {
 
   return (
     <div>
-      {loading ? (
-        <div className="stats-grid receipt-history-stats">
-          {[1,2,3].map(i => (
-            <div key={i} className="stat-card receipt-history-stat-card" style={{ padding: 20 }}>
-              <div className="sk" style={{ width: '40%', height: 14, borderRadius: 4, marginBottom: 8 }} />
-              <div className="sk" style={{ width: '60%', height: 22, borderRadius: 4 }} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="stats-grid receipt-history-stats">
-          {statsByProject.map(group => (
-            <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-                {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
-              </div>
-              <div style={{ width: '100%' }}>
-                <StatRow label="Total Receipts" value={group.count} color="#5B6B4E" />
-                <StatRow label="Total Donors" value={group.donors} color="#8b5cf6" />
-                <StatRow label="Total Amount" value={currency(group.total_amount)} color="#16a34a" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
       <div className="card" style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
           <div>
@@ -789,6 +764,8 @@ export default function ReceiptHistory() {
       )}
 
       <style>{`
+        .donors-table th, .donors-table td { border-right: 1px solid var(--line); }
+        .donors-table th:last-child, .donors-table td:last-child { border-right: none; }
         .modal-overlay {
           position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
           animation: fadeIn .15s ease;
