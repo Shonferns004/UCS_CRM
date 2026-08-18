@@ -1383,7 +1383,7 @@ export const getReceiptList = async (req, res) => {
     const params = [];
     if (search) {
       params.push(`%${search}%`);
-      where.push(`receipt_no ILIKE $${params.length}`);
+      where.push(`(receipt_no ILIKE $${params.length} OR donor_name ILIKE $${params.length} OR donor_mobile ILIKE $${params.length})`);
     }
     if (project) {
       params.push(project);
