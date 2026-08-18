@@ -1101,6 +1101,96 @@ export const undoLeadVerification = async (req, res) => {
   }
 };
 
+// Universal receipt go-back: works for ANY receipt (with or without log_id,
+// from manual verify, bank audit, lead verification, CSV import, etc.).
+export const undoReceipt = async (req, res) => {
+  try {
+    const { receiptId } = req.params;
+    const { data: receipt, error: rErr } = await db
+      .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+    if (rErr) throw rErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    const donorId = receipt.donor_id;
+    const logId = receipt.log_id;
+    const projectId = receipt.project_id;
+
+    // 1. Revert linked bank_audit_entry if any.
+    const { data: entry } = await db.from('bank_audit_entries')
+      .select('id').eq('receipt_id', receipt.id).maybeSingle();
+    if (entry) {
+      await db.from('bank_audit_entries').update({
+        status: 'unverified', donor_id: null, agent_name: null,
+        donor_mobile: null, donor_email: null, donor_pan: null,
+        donor_address_1: null, donor_address_2: null, donor_city: null, donor_pin_code: null,
+        matched_lead_log_id: null, match_status: null, match_score: null,
+        matched_by: null, matched_at: null,
+        receipt_id: null, receipt_no: null, updated_at: new Date().toISOString(),
+      }).eq('id', entry.id);
+    }
+
+    // 2. Revert fro_donor_log if linked.
+    if (logId) {
+      try {
+        const { data: log } = await db.from('fro_donor_logs')
+          .select('id, action, disposition_detail, accounts_status, amount_collected, fro_worker_id, fro_assignments!inner(id, status, donor_id, ngo_id)')
+          .eq('id', logId).maybeSingle();
+        if (log) {
+          // Revert the log to pending.
+          await db.from('fro_donor_logs').update({
+            accounts_status: 'pending', verified_at: null, verified_by: null,
+          }).eq('id', logId);
+          // Reopen assignment if it was donation_collected.
+          const asgn = log.fro_assignments;
+          if (asgn?.id && asgn.status === 'donation_collected') {
+            await db.from('fro_assignments').update({
+              status: 'pending', last_contacted_at: new Date().toISOString(),
+            }).eq('id', asgn.id);
+          }
+          // Reverse donor totals.
+          if (asgn?.donor_id && log.accounts_status === 'verified') {
+            try {
+              const { data: donor } = await db.from('donor_profiles')
+                .select('total_amount, donation_count').eq('id', asgn.donor_id).single();
+              const amt = Number(log.amount_collected || 0);
+              await db.from('donor_profiles').update({
+                total_amount: Math.max(0, (donor?.total_amount || 0) - amt),
+                donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+                updated_at: new Date().toISOString(),
+              }).eq('id', asgn.donor_id);
+            } catch (e) { console.error('donor totals revert failed:', e.message); }
+          }
+          // Clean up child references.
+          try { await db.from('notification_log').delete().in('fro_donor_log_id', [logId]); } catch (_) {}
+          try { await db.from('rejected_lead_tickets').delete().in('fro_donor_log_id', [logId]); } catch (_) {}
+        }
+      } catch (e) { console.error('fro_donor_log revert failed:', e.message); }
+    }
+
+    // 3. Reverse donor totals from the receipt itself (if no log but has donor_id).
+    if (donorId && !logId) {
+      try {
+        const { data: donor } = await db.from('donor_profiles')
+          .select('total_amount, donation_count').eq('id', donorId).single();
+        const amt = Number(receipt.amount || 0);
+        await db.from('donor_profiles').update({
+          total_amount: Math.max(0, (donor?.total_amount || 0) - amt),
+          donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+          updated_at: new Date().toISOString(),
+        }).eq('id', donorId);
+      } catch (e) { console.error('donor totals revert (receipt-level) failed:', e.message); }
+    }
+
+    // 4. Delete the receipt and free the number.
+    await db.from('receipts').delete().eq('id', receipt.id);
+    try { await cancelReceiptNo(projectId); } catch (_) {}
+
+    return res.json({ message: 'Receipt undone — returned to Bank Audit', receipt_id: receipt.id });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const deleteLead = async (req, res) => {
   try {
     const { logId } = req.params;
@@ -2888,7 +2978,12 @@ const clearReceiptsByDate = async (from, to) => {
     if (ids.length > 0) {
       await db
         .from('bank_audit_entries')
-        .update({ receipt_id: null, receipt_no: null, status: 'unverified' })
+        .update({
+          receipt_id: null, receipt_no: null, status: 'unverified',
+          match_status: null, match_source: null, match_score: null,
+          matched_lead_log_id: null, matched_by: null, matched_at: null,
+          donor_id: null, agent_name: null,
+        })
         .in('receipt_id', ids);
     }
     const { data: delRows } = await db

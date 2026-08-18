@@ -588,13 +588,12 @@ export default function Receipts() {
   }
 
   const handleGoBack = async () => {
-    if (!goBackRow?.log_id || goBackSubmitting) return
+    if (!goBackRow?.receipt_id || goBackSubmitting) return
     setGoBackSubmitting(true)
     try {
-      await apiPost(`/accounts/leads/${goBackRow.log_id}/undo`)
-      const row = goBackRow
-      removeFromPending(row.receipt_id)
-      showToast('success', `Returned ${row['Donor Name'] || 'this lead'} to Lead Verification`)
+      await apiPost(`/accounts/receipts/${goBackRow.receipt_id}/undo`)
+      removeFromPending(goBackRow.receipt_id)
+      showToast('success', `Returned ${goBackRow['Donor Name'] || 'this receipt'} to Bank Audit`)
     } catch (error) {
       showToast('error', error.message || 'Could not undo this receipt')
     } finally {
@@ -944,8 +943,7 @@ export default function Receipts() {
                         </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 8px', background:'#fff', color:'#b45309', border:'1px solid #fcd34d' }}
                           onClick={e => { e.stopPropagation(); setGoBackRow(d) }}
-                          disabled={!d.log_id}
-                          title={d.log_id ? 'Undo verification and return to Lead Verification' : 'No linked lead'}>
+                          title='Undo and return to Bank Audit'>
                           {'\u21a9 Go Back'}
                         </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px' }} onClick={e => { e.stopPropagation(); setPreviewIndex(realIdx) }}>Preview</button>
@@ -1012,9 +1010,9 @@ export default function Receipts() {
                   <h3 style={{ fontSize:15 }}>{'\u21a9'} Undo Verification</h3>
                 </div>
                 <div className="modal-body">
-                  <p style={{ margin:0, fontSize:14, fontWeight:600 }}>Return <span style={{ color:'var(--accent)' }}>{goBackRow['Donor Name'] || 'this lead'}</span> to Lead Verification?</p>
+                  <p style={{ margin:0, fontSize:14, fontWeight:600 }}>Return <span style={{ color:'var(--accent)' }}>{goBackRow['Donor Name'] || 'this receipt'}</span> to Bank Audit?</p>
                   <p style={{ margin:0, fontSize:12.5, color:'var(--ink-soft)', lineHeight:1.5 }}>
-                    The receipt will be unlinked from the donor, the lead will come back to Lead Verification, and the bank audit entry will be reverted to unverified.
+                    The receipt will be deleted, the receipt number freed, the donor totals reversed, and the bank audit entry (if any) reverted to unverified.
                   </p>
                   <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:4 }}>
                     <button className="btn btn-sm" onClick={() => { setGoBackRow(null) }}>Cancel</button>
