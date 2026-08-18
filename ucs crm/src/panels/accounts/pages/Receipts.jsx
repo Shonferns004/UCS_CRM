@@ -9,7 +9,7 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak'
 import BulkProgressModal from '../components/BulkProgressModal'
 import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
-import ReceiptHistory from './ReceiptHistory'
+import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
@@ -356,16 +356,7 @@ export default function Receipts() {
       const sourceRows = wb.SheetNames
         .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
         .find(sheetRows => sheetRows.length > 0) || [];
-      const rows = sourceRows
-        .map(row => Object.fromEntries(Object.keys(row).map(k => [String(k).toLowerCase().replace(/[^a-z0-9]/g, ''), row[k]])))
-        .map(row => {
-          const r = { ...row };
-          if (row.receiptdate) r.receipt_date = row.receiptdate;
-          if (row.donorname) r.donor_name = row.donorname;
-          if (row.amount !== undefined) r.amount = row.amount;
-          return r;
-        })
-        .filter(row => row.receipt_no || row.donor_name || row.amount);
+      const rows = prepareImportRows(sourceRows);
       if (!rows || rows.length === 0) { alert('File is empty'); return; }
       await runImport(rows, uploadNgoId);
     } catch (err) { alert('Import failed: ' + err.message); }
