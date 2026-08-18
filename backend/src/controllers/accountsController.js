@@ -2115,19 +2115,17 @@ export const importReceipts = async (req, res) => {
       if (existing) {
         const fileIsSuspense = isBlankSuspenseValue(parsed.agent_name) && isBlankSuspenseValue(parsed.donor_mobile);
         if (!fileIsSuspense) {
-          const key = `${existing.id}|${parsed.receipt_no}`;
-          if (existing.log_id) {
-            if (!verifySeen.has(key)) {
-              verifySeen.add(key);
-              verifyRows.push({ existing, parsed });
-            }
-          } else if (!existing.donor_id && !bankAudited.has(existing.id)) {
-            if (!upgradeSeen.has(key)) {
+            const key = `${existing.id}|${parsed.receipt_no}`;
+            if (existing.log_id) {
+              if (!verifySeen.has(key)) {
+                verifySeen.add(key);
+                verifyRows.push({ existing, parsed });
+              }
+            } else if (!upgradeSeen.has(key)) {
               upgradeSeen.add(key);
               upgradeRows.push({ existing, parsed });
             }
           }
-        }
         return false; // number already on file — never re-insert (UNIQUE)
       }
       if (seen.has(parsed.receipt_no)) return false;
