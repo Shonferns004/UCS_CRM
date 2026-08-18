@@ -9,7 +9,7 @@ import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak'
 import BulkProgressModal from '../components/BulkProgressModal'
 import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
-import ReceiptHistory from './ReceiptHistory'
+import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
@@ -234,6 +234,7 @@ export default function Receipts() {
   const [markingAllSent, setMarkingAllSent] = useState(false)
   const [markAllProgress, setMarkAllProgress] = useState({ completed: 0, total: 0 })
   const [ngoFilter, setNgoFilter] = useState('all')
+  const [receiptSearch, setReceiptSearch] = useState('')
   const [goBackRow, setGoBackRow] = useState(null)
   const [goBackSubmitting, setGoBackSubmitting] = useState(false)
 
@@ -270,11 +271,45 @@ export default function Receipts() {
     }).catch(() => {})
   }, [])
 
-  const filteredDonors = donors
-    ? (ngoFilter === 'all' ? donors : donors.filter(d => (d['Project'] || 'bsct') === ngoFilter))
-    : donors
+  const isSuspense = (d) => {
+    const agent = String(d['Agent Name'] || '').trim().toLowerCase()
+    const mobile = String(d['Mobile No.'] || '').trim()
+    const agentBlank = !agent || agent === 'suspense' || agent === 'na'
+    const mobileBlank = !mobile || mobile === 'na'
+    return agentBlank && mobileBlank
+  }
 
-  useEffect(() => { setReceiptPage(1) }, [ngoFilter])
+  const parseReceiptNo = (d) => {
+    const v = String(d['Receipt No.'] || '').trim()
+    const n = parseInt(v, 10)
+    return isNaN(n) ? -1 : n
+  }
+
+  const filteredDonors = (() => {
+    if (!donors) return donors
+    const suspenseRows = donors.filter(isSuspense)
+    const nonSuspense = donors.filter(d => !isSuspense(d))
+    let pool = ngoFilter === 'suspense' ? suspenseRows
+      : ngoFilter === 'all' ? nonSuspense
+      : nonSuspense.filter(d => (d['Project'] || 'bsct') === ngoFilter)
+    if (receiptSearch.trim()) {
+      const q = receiptSearch.trim().toLowerCase()
+      pool = pool.filter(d => String(d['Receipt No.'] || '').toLowerCase().includes(q))
+      pool.sort((a, b) => {
+        const aExact = String(a['Receipt No.'] || '').toLowerCase() === q ? 0 : 1
+        const bExact = String(b['Receipt No.'] || '').toLowerCase() === q ? 0 : 1
+        if (aExact !== bExact) return aExact - bExact
+        return parseReceiptNo(b) - parseReceiptNo(a)
+      })
+    } else {
+      pool.sort((a, b) => parseReceiptNo(b) - parseReceiptNo(a))
+    }
+    return pool
+  })()
+
+  const suspenseCount = donors ? donors.filter(isSuspense).length : 0
+
+  useEffect(() => { setReceiptPage(1) }, [ngoFilter, receiptSearch])
 
   const removeFromPending = useCallback((receiptId) => {
     setDonors(current => (current || []).filter(donor => donor.receipt_id !== receiptId))
@@ -356,16 +391,7 @@ export default function Receipts() {
       const sourceRows = wb.SheetNames
         .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
         .find(sheetRows => sheetRows.length > 0) || [];
-      const rows = sourceRows
-        .map(row => Object.fromEntries(Object.keys(row).map(k => [String(k).toLowerCase().replace(/[^a-z0-9]/g, ''), row[k]])))
-        .map(row => {
-          const r = { ...row };
-          if (row.receiptdate) r.receipt_date = row.receiptdate;
-          if (row.donorname) r.donor_name = row.donorname;
-          if (row.amount !== undefined) r.amount = row.amount;
-          return r;
-        })
-        .filter(row => row.receipt_no || row.donor_name || row.amount);
+      const rows = prepareImportRows(sourceRows);
       if (!rows || rows.length === 0) { alert('File is empty'); return; }
       await runImport(rows, uploadNgoId);
     } catch (err) { alert('Import failed: ' + err.message); }
@@ -705,8 +731,9 @@ export default function Receipts() {
                 <button onClick={() => setUploadMode('reupload')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'reupload' ? '#5B6B4E' : '#fff', color: uploadMode === 'reupload' ? '#fff' : '#374151', fontWeight: 600 }}>Reupload</button>
               </div>
             </div>
-            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts by date range">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Delete by Date
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -866,12 +893,17 @@ export default function Receipts() {
                   </button>
                 </div>
               </div>
-                <div style={{ display:'flex', gap:6, marginBottom:10 }}>
-                  {[{ k:'all', l:'All' }, ...Object.entries(NGO_MAP).map(([k, v]) => ({ k, l:v.label }))].map(tab => {
-                    const count = tab.k === 'all' ? (donors?.length || 0) : (donors || []).filter(d => (d['Project'] || 'bsct') === tab.k).length
+                <div style={{ display:'flex', gap:6, marginBottom:10, alignItems:'center', flexWrap:'wrap' }}>
+                  <input type="text" placeholder="Search receipt no..."
+                    value={receiptSearch} onChange={e => setReceiptSearch(e.target.value)}
+                    style={{ padding:'5px 10px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, width:150, marginRight:4 }} />
+                  {[{ k:'all', l:'All' }, ...Object.entries(NGO_MAP).map(([k, v]) => ({ k, l:v.label })), { k:'suspense', l:'Suspense' }].map(tab => {
+                    const count = tab.k === 'all' ? (donors?.filter(d => !isSuspense(d)).length || 0)
+                      : tab.k === 'suspense' ? suspenseCount
+                      : (donors || []).filter(d => !isSuspense(d) && (d['Project'] || 'bsct') === tab.k).length
                     return (
                       <button key={tab.k} className="btn btn-sm" onClick={() => setNgoFilter(tab.k)}
-                        style={{ background: ngoFilter === tab.k ? '#5B6B4E' : '#f3f4f6', color: ngoFilter === tab.k ? '#fff' : '#374151', border:'none', fontWeight:600 }}>
+                        style={{ background: ngoFilter === tab.k ? (tab.k === 'suspense' ? '#dc2626' : '#5B6B4E') : '#f3f4f6', color: ngoFilter === tab.k ? '#fff' : '#374151', border:'none', fontWeight:600 }}>
                         {tab.l} <span style={{ fontSize:11, opacity:0.8 }}>({count})</span>
                       </button>
                     )
@@ -1008,6 +1040,54 @@ export default function Receipts() {
               </div>
             </div>
           )}
+
+      {showCleanModal && (
+        <div className="modal-overlay" onClick={() => !deleting && setShowCleanModal(false)} style={{ zIndex:2000 }}>
+          <div className="modal" style={{ maxWidth:400, width:'90%' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize:15, margin:0 }}>Delete Receipts by Date</h3>
+              <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} disabled={deleting}>Cancel</button>
+            </div>
+            <div className="modal-body" style={{ padding:20 }}>
+              <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+                <label style={{ flex:1, fontSize:11, color:'#6b7280', fontWeight:600 }}>
+                  From
+                  <input type="date" value={cleanFrom} onChange={e => setCleanFrom(e.target.value)}
+                    disabled={deleting}
+                    style={{ width:'100%', marginTop:4, padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12 }} />
+                </label>
+                <label style={{ flex:1, fontSize:11, color:'#6b7280', fontWeight:600 }}>
+                  To
+                  <input type="date" value={cleanTo} onChange={e => setCleanTo(e.target.value)}
+                    disabled={deleting}
+                    style={{ width:'100%', marginTop:4, padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12 }} />
+                </label>
+              </div>
+              <p style={{ fontSize:13, color:'#374151', marginBottom:14, textAlign:'center' }}>
+                This will permanently delete all receipts between <strong>{cleanFrom || '...'}</strong> and <strong>{cleanTo || cleanFrom || '...'}</strong>.
+              </p>
+              <p style={{ fontSize:12, color:'#9ca3af', marginBottom:4, textAlign:'center' }}>Donor donation history for affected donors will also be removed.</p>
+              <p style={{ fontSize:12, color:'#9ca3af', marginBottom:16, textAlign:'center' }}>This action cannot be undone.</p>
+              {deleting ? (
+                <div style={{ textAlign:'center' }}>
+                  <p style={{ fontSize:13, fontWeight:600, marginBottom:8 }}>{deleteStatus}</p>
+                  <div style={{ height:6, background:'#e5e7eb', borderRadius:3, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${deleteProgress}%`, background:'#dc2626', borderRadius:3, transition:'width .3s' }} />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
+                  <button className="btn btn-sm" onClick={() => setShowCleanModal(false)} style={{ padding:'6px 16px' }}>Cancel</button>
+                  <button className="btn btn-sm" onClick={handleCleanUpDate}
+                    style={{ background:'#dc2626', color:'#fff', border:'none', padding:'6px 16px' }}>
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmBulkModal visible={confirmBulk.visible} donorCount={confirmBulk.donorCount} projectName="" onConfirm={handleConfirmBulkSend} onCancel={() => setConfirmBulk({ visible:false, donorCount:0 })} />
       <BulkProgressModal visible={bulkState.active} total={bulkState.total} sent={bulkState.sent} failed={bulkState.failed} currentBatch={bulkState.currentBatch} totalBatches={bulkState.totalBatches} results={bulkState.results} previousBatches={bulkState.previousBatches} onCancel={() => { cancelBulkRef.current = true; setBulkState(prev => ({ ...prev, cancelled:true })) }} />
