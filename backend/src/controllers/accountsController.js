@@ -1437,7 +1437,10 @@ export const getReceiptList = async (req, res) => {
       const rowsRes = await db._pool.query(
         `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
                 receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-                donor_id, agent_name, sent, sent_at, created_at
+                donor_id, agent_name, sent, sent_at, created_at,
+                (SELECT b.payer_name FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
+                 ORDER BY b.id LIMIT 1) AS audit_payer_name
          FROM receipts ${whereSql}
          ORDER BY receipt_date DESC, created_at DESC`,
         params
@@ -1454,7 +1457,10 @@ export const getReceiptList = async (req, res) => {
     const rowsRes = await db._pool.query(
       `SELECT id, log_id, receipt_no, project_id, donor_name, donor_mobile, amount,
               receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
-              donor_id, agent_name, sent, sent_at, created_at
+              donor_id, agent_name, sent, sent_at, created_at,
+              (SELECT b.payer_name FROM bank_audit_entries b
+               WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
+               ORDER BY b.id LIMIT 1) AS audit_payer_name
        FROM receipts ${whereSql}
        ORDER BY created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
