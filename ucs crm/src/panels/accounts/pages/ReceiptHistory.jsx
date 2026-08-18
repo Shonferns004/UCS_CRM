@@ -133,6 +133,8 @@ export default function ReceiptHistory() {
   const [todayDownloading, setTodayDownloading] = useState(false);
   const [excelDownloading, setExcelDownloading] = useState(false);
   const [historyForDownload, setHistoryForDownload] = useState(null);
+  const [dlWindow, setDlWindow] = useState(0);
+  const DL_BATCH = 8;
   const [savedDetail, setSavedDetail] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -534,36 +536,45 @@ export default function ReceiptHistory() {
     (async () => {
       const ngoFolder = { bsct:'BeingSevak', mann:'MannCare', aflf:'Ashray' };
       const zip = new JSZip();
-      const els = document.querySelectorAll('[data-dl-history]');
-      const items = [];
-      for (let i = 0; i < els.length && !cancelled; i++) {
-        const r = historyForDownload[i];
-        const ngo = r.project_id || 'bsct';
-        const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
-        const receiptNo = r.receipt_no || 'NA';
-        const filename = ngo === 'mann'
-          ? `MannCare_${receiptNo}.pdf`
-          : `${ngoFolder[ngo]}_Receipt_${receiptNo}_${donorName}.pdf`;
-        items.push({ el: els[i], ngo, filename });
-      }
-      const CONCURRENCY = 5;
-      let idx = 0;
-      const worker = async () => {
-        while (!cancelled) {
-          const cur = idx++;
-          if (cur >= items.length) break;
-          const { el, ngo, filename } = items[cur];
+      const total = historyForDownload.length;
+      setDlWindow(0);
+
+      const processBatch = async (start) => {
+        await new Promise(res => setTimeout(res, 60));
+        const els = document.querySelectorAll('[data-dl-history]');
+        const map = {};
+        els.forEach(el => map[Number(el.getAttribute('data-dl-idx'))] = el);
+        const batch = [];
+        for (let i = start; i < Math.min(start + DL_BATCH, total); i++) {
+          const el = map[i];
+          if (!el) continue;
+          const r = historyForDownload[i];
+          const ngo = r.project_id || 'bsct';
+          const donorName = String(r.donor_name || 'Donor').replace(/[<>:"/\\|?*]/g, '_').trim();
+          const receiptNo = r.receipt_no || 'NA';
+          const filename = ngo === 'mann'
+            ? `MannCare_${receiptNo}.pdf`
+            : `${ngoFolder[ngo]}_Receipt_${receiptNo}_${donorName}.pdf`;
+          batch.push({ el, ngo, filename });
+        }
+        await Promise.all(batch.map(async ({ el, ngo, filename }) => {
           try {
             const pdf = await generateReceiptPDF(el);
             zip.folder(ngoFolder[ngo] || 'Other').file(filename, pdf.output('arraybuffer'));
           } catch (e) { console.error('PDF gen failed:', e.message); }
-        }
+        }));
       };
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length || 1) }, () => worker()));
+
+      for (let start = 0; start < total && !cancelled; start += DL_BATCH) {
+        setDlWindow(start);
+        await processBatch(start);
+      }
+
       if (!cancelled) {
+        setDlWindow(0);
         const content = await zip.generateAsync({ type: 'blob' });
         saveAs(content, `Receipts_${new Date().toISOString().slice(0,10)}.zip`);
-        alert(`Downloaded ${historyForDownload.length} receipts`);
+        alert(`Downloaded ${total} receipts`);
       }
       setHistoryForDownload(null);
       setTodayDownloading(false);
@@ -710,10 +721,11 @@ export default function ReceiptHistory() {
         </div>
       </div>
 
-      {historyForDownload && historyForDownload.length <= 200 && historyForDownload.map((r, i) => {
+      {historyForDownload && historyForDownload.slice(dlWindow, dlWindow + DL_BATCH).map((r, i) => {
         const ngo = r.project_id || 'bsct';
         const Comp = TEMPLATES[getTemplateId(ngo)];
-        return <div key={i} data-dl-history style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
+        const idx = dlWindow + i;
+        return <div key={idx} data-dl-history data-dl-idx={idx} style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
       })}
 
       {preview && (
