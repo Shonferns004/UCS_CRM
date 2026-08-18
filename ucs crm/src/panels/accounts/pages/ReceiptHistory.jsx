@@ -57,7 +57,7 @@ function fmtTime12(t) {
   return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ap;
 }
 
-function prepareImportRows(rows) {
+export function prepareImportRows(rows) {
   return rows.map(row => {
     const fields = Object.fromEntries(Object.keys(row).map(key => [normalizeImportHeader(key), row[key]]));
     const result = { ...row };
