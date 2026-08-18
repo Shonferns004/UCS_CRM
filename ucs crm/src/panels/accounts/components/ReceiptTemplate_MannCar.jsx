@@ -75,7 +75,7 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
       {/* Top Section */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ width: '50%', lineHeight: '1.6', fontSize: '16px' }}>
-          <b>Receipt No.:</b> {donor['Receipt No.']}
+          <b>Receipt No.:</b> {donor['Receipt No.'] || 'NA'}
           <br /><br />
          Dated : {formattedDate}
           <br /><br />
@@ -106,6 +106,8 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
             }}
           />
           <div style={{ color: '#d10087', lineHeight: '1.8', fontSize: '18px' }}>
+            CSR Registration No : CSR00115793<br />
+            Unique Registration No : AAUCM9048BE20261<br />
             CIN No : U88900MH2026NPL471199<br />
             TAN No : MUMM75033A<br />
             Trust PAN Card No : AAUCM9048B
@@ -138,15 +140,15 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
         <tbody>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Donation Date</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{formattedDate}</td>
+            <td style={{ border: '1px solid #666', padding: '15px' }}>{formattedDate || 'NA'}</td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Transaction / Reference Number</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Payment ID No.']}</td>
+            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Payment ID No.'] || 'NA'}</td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Payment Mode</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Mode of Payment (MOP)']}</td>
+            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Mode of Payment (MOP)'] || 'NA'}</td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Bank Name</td>

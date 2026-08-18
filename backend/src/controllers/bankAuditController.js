@@ -933,6 +933,61 @@ export const markEntryVerified = async (req, res) => {
   }
 };
 
+// Save the FRO + donor details typed into the Manual Verify form onto the bank
+// audit entry WITHOUT verifying it or generating a receipt — a draft save so
+// Accounts can resume the verify later without re-entering the details.
+export const saveManualVerifyDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
+      donor_email, donor_city, donor_pin_code, donor_address_2,
+    } = req.body || {};
+
+    const { data: entry, error: eErr } = await db
+      .from('bank_audit_entries')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (eErr) throw eErr;
+    if (!entry) return res.status(404).json({ message: 'Bank audit entry not found' });
+
+    const updates = {};
+
+    if (fro_worker_id) {
+      const isStaticFro = String(fro_worker_id).startsWith('static-');
+      let froName = null;
+      if (isStaticFro) {
+        froName = fro_worker_id === 'static-priyank-shah' ? 'Priyank Shah' : fro_worker_id === 'static-suspense' ? 'Suspense' : null;
+      } else {
+        const { data: worker } = await db
+          .from('workers')
+          .select('name')
+          .eq('id', fro_worker_id)
+          .maybeSingle();
+        if (worker?.name) froName = worker.name;
+      }
+      if (froName) updates.agent_name = froName;
+    }
+
+    if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
+    if (donor_name !== undefined) updates.donor_name = donor_name || null;
+    if (donor_address !== undefined) updates.donor_address_1 = donor_address || null;
+    if (donor_address_2 !== undefined) updates.donor_address_2 = donor_address_2 || null;
+    if (donor_pan !== undefined) updates.donor_pan = donor_pan || null;
+    if (donor_email !== undefined) updates.donor_email = donor_email || null;
+    if (donor_city !== undefined) updates.donor_city = donor_city || null;
+    if (donor_pin_code !== undefined) updates.donor_pin_code = donor_pin_code || null;
+
+    if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
+
+    const saved = await BankAudit.updateEntry(id, updates);
+    return res.json(saved);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // Manual Verify: attribute an unmatched bank audit entry to a specific FRO +
 // donor. Some FROs record donations on a PC (no FRO-app log row exists), so
 // Accounts picks the FRO and the donor's mobile. The flow resolves-or-creates
