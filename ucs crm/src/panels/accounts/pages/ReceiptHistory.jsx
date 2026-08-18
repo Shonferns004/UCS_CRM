@@ -16,7 +16,7 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
-const EXCEL_HEADER = ["Team Name","Transaction Date","Caller Name","Receipt Name","Mobile no.","Len","Count","Mobil No. 2 / Tel ","Len","Address-1 ","Address-2 ","Station","East / West","City","Pin Code","Pan. No. ","Len ","Mail Id ","Birth Date","Data Cat","Station","Mobile","Android No","Team","Agent Name","FSE Name","MOP","Received Bank","Payment ID No. ","Len","Count","Donors Bank Name","Amt","Receipt No.","Receipt Book No","Receipt Date ","Time","Project Supported","Account of","State","Branch"];
+const EXCEL_HEADER = ["Transaction Date","Receipt Name","Mobile no.","Address","Pan. No.","Mail Id","Agent Name","MOP","Payment ID No.","Amt","Receipt No.","Receipt Date","Time","Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -471,42 +471,20 @@ export default function ReceiptHistory() {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
       const toRow = r => ({
-        'Team Name': '',
         'Transaction Date': r.receipt_date || '',
-        'Caller Name': '',
         'Receipt Name': r.donor_name || '',
         'Mobile no.': r.donor_mobile || '',
-        'Len': '',
-        'Count': '',
-        'Mobil No. 2 / Tel ': '',
-        'Address-1 ': r.address || '',
-        'Address-2 ': '',
-        'Station': '',
-        'East / West': '',
-        'City': '',
-        'Pin Code': '',
-        'Pan. No. ': r.pan_number || '',
-        'Mail Id ': r.email || '',
-        'Birth Date': '',
-        'Data Cat': '',
-        'Mobile': '',
-        'Android No': '',
-        'Team': '',
+        'Address': r.address || '',
+        'Pan. No.': r.pan_number || '',
+        'Mail Id': r.email || '',
         'Agent Name': r.agent_name || '',
-        'FSE Name': r.agent_name || '',
         'MOP': r.mode || '',
-        'Received Bank': r.bank_name || '',
-        'Payment ID No. ': r.payment_id || '',
-        'Donors Bank Name': r.bank_payer_name || '',
+        'Payment ID No.': r.payment_id || '',
         'Amt': r.amount || 0,
         'Receipt No.': r.receipt_no || '',
-        'Receipt Book No': '',
-        'Receipt Date ': r.receipt_date || '',
+        'Receipt Date': r.receipt_date || '',
         'Time': r.receipt_time || '',
-        'Project Supported': r.project_id || '',
         'Account of': 'Corpus',
-        'State': '',
-        'Branch': '',
       });
       const buildSheet = rows => XLSX.utils.aoa_to_sheet([EXCEL_HEADER, ...rows.map(row => EXCEL_HEADER.map(h => row[h] ?? ''))]);
       const wb = XLSX.utils.book_new();
