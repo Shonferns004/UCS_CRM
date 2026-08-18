@@ -973,6 +973,7 @@ export const manualVerifyEntry = async (req, res) => {
     const now = new Date().toISOString();
     const project = entry.project_id || 'bsct';
     const entryAddress = [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null;
+    const ngoId = await BankAudit.ngoIdFromProjectId(project);
 
     const result = await db.transaction(async ({ from }) => {
       // Resolve or create the donor profile.
@@ -1002,20 +1003,22 @@ export const manualVerifyEntry = async (req, res) => {
       }
       const donorId = donor.id;
 
-      // Find or create an open assignment linking donor + FRO.
-      const { data: existingAsgn } = await from('fro_assignments')
+      // Find or create an open assignment linking donor + FRO + NGO.
+      let asgnQuery = from('fro_assignments')
         .select('id')
         .eq('donor_id', donorId)
         .eq('fro_worker_id', fro_worker_id)
         .not('status', 'eq', 'reassigned')
         .order('assigned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      if (ngoId) asgnQuery = asgnQuery.eq('ngo_id', ngoId);
+      const { data: existingAsgn } = await asgnQuery.maybeSingle();
       let assignment = existingAsgn || null;
       if (!assignment) {
         const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
           donor_id: donorId,
           fro_worker_id: fro_worker_id,
+          ngo_id: ngoId,
           status: 'donation_collected',
           assigned_by: req.user.id,
         }).select().single();

@@ -1617,6 +1617,7 @@ export const getPendingReceipts = async (req, res) => {
         'Account Of': 'Corpus',
         'Mobile No.': r.donor_mobile || donor?.mobile_number || '',
         'City': donor?.city || '',
+        'Agent Name': r.agent_name || '',
         receipt_id: r.id,
         sent: r.sent || false,
         log_id: r.log_id,
