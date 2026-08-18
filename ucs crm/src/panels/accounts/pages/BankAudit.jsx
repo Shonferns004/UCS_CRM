@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, Zap, Download, Plus, ListFilter, X, Loader2, Landmark } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
@@ -584,20 +585,25 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro('');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');setMvEmail(entry.donor_email||'');setMvCity(entry.donor_city||'');setMvPinCode(entry.donor_pin_code||'');setMvAddr2(entry.donor_address_2||'');setMvResults([]);setMvShowResults(false);setShowMvForm(true);};
   const mvTimerRef=useRef(null);
   const searchMvDonors=(q)=>{setMvMobile(q);setMvErr('');if(mvTimerRef.current)clearTimeout(mvTimerRef.current);const raw=q.replace(/[^\d]/g,'');if(raw.length<3){setMvResults([]);setMvShowResults(false);return}mvTimerRef.current=setTimeout(async()=>{try{setMvSearching(true);setMvShowResults(true);const r=await apiGet('/accounts/donors?search='+encodeURIComponent(raw));const donors=Array.isArray(r)?r:(r.data||[]);if(donors.length>0){setMvResults(donors)}else{try{const rec=await apiGet('/accounts/receipts/by-mobile?mobile='+encodeURIComponent(raw));if(rec&&rec.donor_name){setMvName(rec.donor_name||'');setMvAddr(rec.address||'');setMvPan(rec.pan_number||'');setMvShowResults(false)}else{setMvResults([])}}catch(_){setMvResults([])}}}catch(e){setMvResults([])}finally{setMvSearching(false)}},350)};
-  const selectMvDonor=(d)=>{setMvName(d.name||'');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'');setMvPan(d.pan_number||d.pan||'');setMvResults([]);setMvShowResults(false)};
+  const selectMvDonor=(d)=>{setMvName(d.name||'');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'');setMvPan(d.pan_number||d.pan||'');setMvAddr2(d.address_2||'');setMvCity(d.city||'');setMvPinCode(d.pin_code||'');setMvEmail(d.email||'');setMvResults([]);setMvShowResults(false)};
   const handleManualVerify=async()=>{if(!mv||mvSub)return;setMvErr('');const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(!mvFro){setMvErr('Please select an FRO');return}if(mobile.length<10){setMvErr('Please enter a valid donor mobile number');return}setMvSub(true);try{const res=await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',{fro_worker_id:mvFro,donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null});setMv(null);setSe(null);setShowMvForm(false);setMvResults([]);setMvShowResults(false);setTo({msg:res?.message||'Entry manually verified',type:'success',vis:true});load(sd,st)}catch(e){setMvErr(e.message)}finally{setMvSub(false)}};
   const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){alert(e.message)}finally{setAm(false)}};
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){alert('Failed to download PDF: '+e.message)}setDl(false)};
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){alert('Please allow pop-ups to print');return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
-  const ddStyle={position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.12)',marginTop:4};
+  const ddStyle={position:'fixed',zIndex:9999,background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,.12)',marginTop:4};
+  const [mvDdPos, setMvDdPos] = useState(null);
+  const updateMvDdPos = useCallback(() => { if (mvSearchRef.current) { const r = mvSearchRef.current.getBoundingClientRect(); setMvDdPos({ top: r.bottom + 4, left: r.left, width: r.width }); } }, []);
+  useEffect(() => { if (mvShowResults) updateMvDdPos(); }, [mvShowResults, updateMvDdPos]);
+  useEffect(() => { if (!mvShowResults) return; const h = () => updateMvDdPos(); window.addEventListener('scroll', h, true); window.addEventListener('resize', h); return () => { window.removeEventListener('scroll', h, true); window.removeEventListener('resize', h); }; }, [mvShowResults, updateMvDdPos]);
   const MvSearchDropdownInner=({sel})=>{
-    if(mvSearching&&mvShowResults){
-      return <div data-mv style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>;
+    if(!mvShowResults || !mvDdPos) return null;
+    const posStyle = { ...ddStyle, top: mvDdPos.top, left: mvDdPos.left, width: mvDdPos.width };
+    if(mvSearching){
+      return createPortal(<div data-mv style={{...posStyle,padding:'10px 12px',fontSize:12,color:'#6b7280'}}>Searching donors...</div>, document.body);
     }
-    if(!mvShowResults)return null;
     if(mvResults.length!==0){
-      return <div data-mv style={{...ddStyle,maxHeight:180,overflowY:'auto'}}>
+      return createPortal(<div data-mv style={{...posStyle,maxHeight:180,overflowY:'auto'}}>
         {mvResults.slice(0,6).map((d,i)=>{
           const last=i===mvResults.length-1;
           return <div key={d.id||i} onMouseDown={e=>{e.preventDefault();sel(d)}} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',cursor:'pointer',borderBottom:last?'none':'1px solid #f3f4f6',fontSize:12,transition:'background .1s'}} onMouseOver={e=>e.currentTarget.style.background='#f0fdf4'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
@@ -608,12 +614,12 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             </div>
           </div>;
         })}
-      </div>;
+      </div>, document.body);
     }
-    if(!mvSearching)return <div data-mv style={{...ddStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>;
+    if(!mvSearching) return createPortal(<div data-mv style={{...posStyle,padding:'10px 12px',fontSize:12,color:'#9ca3af'}}>No donor found — will create new</div>, document.body);
     return null;
   };
-  const MvSearchDropdownStable=useCallback((p)=><MvSearchDropdownInner {...p}/>,[]);
+  const MvSearchDropdownStable=useCallback((p)=><MvSearchDropdownInner {...p}/>,[mvShowResults, mvDdPos, mvSearching, mvResults]);
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
