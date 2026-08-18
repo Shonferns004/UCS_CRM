@@ -64,6 +64,11 @@ function fmtTime12(t) {
 }
 
 export function prepareImportRows(rows) {
+  const cleanNA = v => {
+    const s = String(v || '').trim();
+    if (!s || /^n\/?a$/i.test(s)) return '';
+    return s;
+  };
   return rows.map(row => {
     const fields = Object.fromEntries(Object.keys(row).map(key => [normalizeImportHeader(key), row[key]]));
     const result = { ...row };
@@ -71,7 +76,7 @@ export function prepareImportRows(rows) {
       const value = aliases.map(alias => fields[alias]).find(value => value !== undefined && value !== null && String(value).trim() !== '');
       result[field] = field === 'receipt_date' ? formatImportDate(value)
         : field === 'receipt_time' ? formatImportTime(value)
-        : (value == null ? '' : String(value).trim());
+        : cleanNA(value);
     }
     return result;
   }).filter(row => row.receipt_no || row.donor_name || row.amount);
