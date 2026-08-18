@@ -182,7 +182,8 @@ function AgentPicker({ value, workers, onChange }){
   const base=[...workers].sort((a,b)=>(froSet.has(b.name)?1:0)-(froSet.has(a.name)?1:0));
   const kw=q.trim().toLowerCase();
   const list=kw?base.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):base;
-  const fromLead=!!value&&!workers.some(w=>w.name===value);
+  const staticAgents=[{name:'Priyank Shah'},{name:'Suspense'}];
+  const fromLead=!!value&&!workers.some(w=>w.name===value)&&!staticAgents.some(s=>s.name===value);
 
   useEffect(()=>{
     const onDoc=(ev)=>{if(boxRef.current&&!boxRef.current.contains(ev.target))setOpen(false)};
@@ -204,11 +205,16 @@ function AgentPicker({ value, workers, onChange }){
       onFocus={()=>setOpen(true)}
       style={{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,outline:'none',width:'100%',boxSizing:'border-box'}}/>
     {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:220,overflowY:'auto'}}>
-      {list.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No FROs found</div>
+      {list.length===0&&!staticAgents.some(s=>!kw||s.name.toLowerCase().includes(kw))?<div style={{padding:14,fontSize:12,color:'#9ca3af'}}>No FROs found</div>
         :<>
           <button type="button" onClick={()=>{onChange('');setOpen(false);setQ('')}}
             style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12,color:'#6b7280'}}
             onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>None</button>
+          {staticAgents.filter(s=>!kw||s.name.toLowerCase().includes(kw)).map(s=><button key={s.name} type="button" onClick={()=>{onChange(s.name);setOpen(false);setQ('')}}
+            style={{display:'block',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
+            onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
+            <span style={{fontWeight:600,color:'#111827'}}>{s.name}</span>
+          </button>)}
           {list.map(w=><button key={w.id} type="button" onClick={()=>{onChange(w.name);setOpen(false);setQ('')}}
             style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
             onMouseOver={e=>e.currentTarget.style.background='#f9fafb'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
