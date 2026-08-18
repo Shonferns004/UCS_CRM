@@ -83,13 +83,13 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
            Name : - {donor['Donor Name']?.toUpperCase() || 'Unknown'}
           </span>
           <br />
-        Address. - {donor['Address 1']}<br />
+        Address. - {donor['Address 1'] || 'NA'}<br />
           {[donor['City'], donor['State'], donor['Pincode']].some(Boolean) && (
             <>{donor['City']}{donor['City'] && donor['State'] ? ', ' : ''}{donor['State']}{donor['State'] && donor['Pincode'] ? ' - ' : ''}{donor['Pincode']}<br /></>
           )}
-          PAN No. - {donor['PAN No.']}
+          PAN No. - {donor['PAN No.'] || 'NA'}
           <br />
-          Email - {donor['Email ID']}
+          Email - {donor['Email ID'] || 'NA'}
         </div>
 
         <div style={{ width: '42%', textAlign: 'right' }}>
@@ -150,11 +150,11 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Bank Name</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Donor Bank Name']}</td>
+            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Donor Bank Name'] || 'NA'}</td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Email Address</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Email ID']}</td>
+            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Email ID'] || 'NA'}</td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Account Of</td>
