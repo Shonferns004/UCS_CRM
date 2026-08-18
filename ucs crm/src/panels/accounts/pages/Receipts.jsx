@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet, apiPost } from '../api/auth'
+import { apiGet, apiPost, apiDelete } from '../api/auth'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar'
@@ -237,6 +237,32 @@ export default function Receipts() {
   const [goBackRow, setGoBackRow] = useState(null)
   const [goBackSubmitting, setGoBackSubmitting] = useState(false)
 
+  const [uploadMode, setUploadMode] = useState('receipts')
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadStatus, setUploadStatus] = useState('')
+  const [namesImporting, setNamesImporting] = useState(false)
+  const [namesResult, setNamesResult] = useState(null)
+  const [namesUploadProgress, setNamesUploadProgress] = useState(0)
+  const [uploadNgoId, setUploadNgoId] = useState('')
+  const [ngoOptions, setNgoOptions] = useState([])
+  const [dragOver, setDragOver] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteStatus, setDeleteStatus] = useState('')
+  const [deleteProgress, setDeleteProgress] = useState(0)
+  const [showCleanModal, setShowCleanModal] = useState(false)
+  const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10))
+  const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const fileRef = useRef(null)
+  const namesFileRef = useRef(null)
+  const CHUNK_SIZE = 100
+
+  useEffect(() => {
+    apiGet('/accounts/ngos').then(setNgoOptions).catch(() => {})
+  }, [])
+
   const filteredDonors = donors
     ? (ngoFilter === 'all' ? donors : donors.filter(d => (d['Project'] || 'bsct') === ngoFilter))
     : donors
@@ -268,6 +294,155 @@ export default function Receipts() {
       setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
     }).catch(e => console.error('Stats fetch error:', e.message))
   }, [])
+
+  const refreshHistory = () => {
+    window.dispatchEvent(new CustomEvent('ucs:receipts-refresh'))
+  }
+
+  const runImport = useCallback(async (rows, ngoIdForImport) => {
+    if (!rows || rows.length === 0) return;
+    setImporting(true);
+    setImportResult(null);
+    setUploadProgress(0);
+    setUploadStatus('Reading file...');
+    try {
+      const chunks = [];
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        chunks.push(rows.slice(i, i + CHUNK_SIZE));
+      }
+      let totalImported = 0, totalMatched = 0, totalUpgraded = 0, totalCreditedPending = 0, totalFailed = 0, failedFileUrl = null;
+      for (let i = 0; i < chunks.length; i++) {
+        setUploadStatus(`Importing ${Math.min((i+1)*CHUNK_SIZE, rows.length)} of ${rows.length} rows...`);
+        const res = await apiPost('/accounts/receipts/import', { receipts: chunks[i], ngo_id: ngoIdForImport }, 300000);
+        totalImported += res.imported || 0;
+        totalMatched += res.matchedDonors || 0;
+        totalUpgraded += res.upgraded || 0;
+        totalCreditedPending += res.creditedPending || 0;
+        totalFailed += res.failedCount || 0;
+        if (res.failedFile && !failedFileUrl) failedFileUrl = res.failedFile;
+        setUploadProgress(Math.round(((i + 1) / chunks.length) * 100));
+      }
+      setUploadProgress(100);
+      setUploadStatus('');
+      const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
+      const rootUrl = apiBase.replace(/\/api\/?$/, '');
+      const parts = [`${totalImported} receipts imported`];
+      if (totalUpgraded > 0) parts.push(`${totalUpgraded} suspense receipts credited from re-upload`);
+      if (totalCreditedPending > 0) parts.push(`${totalCreditedPending} pending claims auto-credited`);
+      if (totalMatched > 0) parts.push(`${totalMatched} linked to donors`);
+      if (totalFailed > 0) parts.push(`${totalFailed} failed`);
+      setImportResult({ message: parts.join(', '), imported: totalImported, matchedDonors: totalMatched, failedCount: totalFailed, failedFile: failedFileUrl ? rootUrl + failedFileUrl : null });
+      loadPending();
+      refreshHistory();
+    } catch (err) { alert('Import failed: ' + err.message); }
+    finally { setImporting(false); setUploadProgress(0); setUploadStatus(''); }
+  }, [loadPending]);
+
+  const handleFile = useCallback(async (file) => {
+    if (!file) return;
+    if (!uploadNgoId) { alert('Please select the NGO for this upload first'); return; }
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) { alert('Please upload a valid Excel/CSV file'); return; }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const sourceRows = wb.SheetNames
+        .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
+        .find(sheetRows => sheetRows.length > 0) || [];
+      const rows = sourceRows
+        .map(row => Object.fromEntries(Object.keys(row).map(k => [String(k).toLowerCase().replace(/[^a-z0-9]/g, ''), row[k]])))
+        .map(row => {
+          const r = { ...row };
+          if (row.receiptdate) r.receipt_date = row.receiptdate;
+          if (row.donorname) r.donor_name = row.donorname;
+          if (row.amount !== undefined) r.amount = row.amount;
+          return r;
+        })
+        .filter(row => row.receipt_no || row.donor_name || row.amount);
+      if (!rows || rows.length === 0) { alert('File is empty'); return; }
+      await runImport(rows, uploadNgoId);
+    } catch (err) { alert('Import failed: ' + err.message); }
+  }, [uploadNgoId, runImport]);
+
+  const handleNamesFile = useCallback(async (file) => {
+    if (!file) return;
+    if (!uploadNgoId) { alert('Please select the NGO for this upload first'); return; }
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.xlsx') && !name.endsWith('.xls') && !name.endsWith('.csv')) { alert('Please upload a valid Excel/CSV file'); return; }
+    setNamesImporting(true);
+    setNamesResult(null);
+    setNamesUploadProgress(0);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+      const sourceRows = wb.SheetNames
+        .map(sheetName => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '', raw: false }))
+        .find(sheetRows => sheetRows.length > 0) || [];
+      const rows = sourceRows
+        .map(row => Object.fromEntries(Object.keys(row).map(k => [String(k).toLowerCase().replace(/[^a-z0-9]/g, ''), row[k]])))
+        .map(row => ({ receipt_no: String(row.receiptno || '').trim(), donor_name: String(row.donorname || '').trim() }))
+        .filter(r => r.receipt_no && r.donor_name);
+      if (!rows || rows.length === 0) { alert('No rows with a Receipt No. and a donor name found'); return; }
+      const chunks = [];
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) chunks.push(rows.slice(i, i + CHUNK_SIZE));
+      let updated = 0, notFound = 0;
+      for (let i = 0; i < chunks.length; i++) {
+        setNamesUploadProgress(Math.round((i / chunks.length) * 100));
+        const res = await apiPost('/accounts/receipts/names-import', { rows: chunks[i], ngo_id: uploadNgoId }, 300000);
+        updated += res.updated || 0;
+        notFound += res.notFound || 0;
+        setNamesUploadProgress(Math.round(((i + 1) / chunks.length) * 100));
+      }
+      setNamesResult({ message: `${updated} receipt${updated === 1 ? '' : 's'} updated${notFound > 0 ? `, ${notFound} receipt no. not found` : ''}` });
+      loadPending();
+      refreshHistory();
+    } catch (err) { alert('Update failed: ' + err.message); }
+    finally { setNamesImporting(false); setNamesUploadProgress(0); }
+  }, [uploadNgoId, loadPending]);
+
+  const handleCleanUp = async () => {
+    setShowCleanModal(false);
+    setDeleting(true);
+    setDeleteStatus('Finding receipts...');
+    setDeleteProgress(0);
+    try {
+      const { count: total } = await apiGet('/accounts/receipts/count');
+      if (total === 0) { setDeleteStatus('No receipts to delete'); setTimeout(() => { setDeleting(false); setDeleteStatus(''); }, 800); return; }
+      let deleted = 0, isFirst = true;
+      const BATCH = 1000;
+      while (true) {
+        const res = await apiDelete(`/accounts/receipts?batch=${BATCH}${isFirst ? '&reverse=1' : ''}`);
+        isFirst = false;
+        if (!res.deleted || res.deleted === 0) break;
+        deleted += res.deleted;
+        setDeleteProgress(Math.round((Math.min(deleted, total) / total) * 100));
+        setDeleteStatus(`Deleting ${Math.min(deleted, total)} of ${total} receipts...`);
+      }
+      setDeleteStatus(`Deleted ${total} receipts`);
+      setTimeout(() => { setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }, 1500);
+      loadPending(); refreshHistory();
+    } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
+  };
+
+  const handleCleanUpDate = async () => {
+    if (!cleanFrom) { alert('Please choose a date to delete'); return; }
+    const from = cleanFrom;
+    const to = cleanTo || cleanFrom;
+    if (to < from) { alert('"To" date must be on or after the "From" date'); return; }
+    if (!window.confirm(`Delete all receipts from ${from}${to !== from ? ` to ${to}` : ''}? This cannot be undone.`)) return;
+    setShowCleanModal(false);
+    setDeleting(true);
+    setDeleteStatus('Deleting receipts...');
+    setDeleteProgress(0);
+    try {
+      const res = await apiDelete(`/accounts/receipts?from=${from}${to !== from ? `&to=${to}` : ''}`);
+      const done = res?.deleted || 0;
+      setDeleteProgress(100);
+      setDeleteStatus(done > 0 ? `Deleted ${done} receipt${done !== 1 ? 's' : ''}` : 'No receipts found on this date');
+      setTimeout(() => { setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }, 1500);
+      loadPending(); refreshHistory();
+    } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
+  };
 
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
@@ -502,6 +677,166 @@ export default function Receipts() {
           ))}
         </div>
       )}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div
+          onClick={() => setUploadOpen(o => !o)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer', borderBottom: uploadOpen ? '1px solid var(--line)' : 'none' }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Upload Receipts</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: uploadOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+        {uploadOpen && (
+        <div className="card-pad">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{uploadMode === 'names' ? 'Upload Names' : uploadMode === 'reupload' ? 'Reupload Receipts' : 'Upload Receipts'}</span>
+              <div style={{ display: 'flex', border: '1px solid #d1d5db', borderRadius: 6, overflow: 'hidden' }}>
+                <button onClick={() => setUploadMode('receipts')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'receipts' ? '#5B6B4E' : '#fff', color: uploadMode === 'receipts' ? '#fff' : '#374151', fontWeight: 600 }}>Receipts</button>
+                <button onClick={() => setUploadMode('names')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'names' ? '#5B6B4E' : '#fff', color: uploadMode === 'names' ? '#fff' : '#374151', fontWeight: 600 }}>Names</button>
+                <button onClick={() => setUploadMode('reupload')} style={{ padding: '3px 10px', fontSize: 11, border: 'none', cursor: 'pointer', background: uploadMode === 'reupload' ? '#5B6B4E' : '#fff', color: uploadMode === 'reupload' ? '#fff' : '#374151', fontWeight: 600 }}>Reupload</button>
+              </div>
+            </div>
+            <button style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, cursor: 'pointer' }} onClick={() => setShowCleanModal(true)} title="Delete receipts">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', flexShrink: 0 }}>NGO</label>
+            <select
+              value={uploadNgoId}
+              onChange={e => setUploadNgoId(e.target.value)}
+              style={{ flex: 1, padding: '7px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff', color: '#111827' }}
+            >
+              <option value="">Select NGO for this upload...</option>
+              {ngoOptions.map(n => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
+          </div>
+          {uploadMode === 'names' ? (
+            <div
+              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleNamesFile(f) }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => namesFileRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? '#2563eb' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
+                cursor: 'pointer', background: dragOver ? '#eff6ff' : '#f9fafb', transition: 'all .2s',
+              }}
+            >
+              <input ref={namesFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleNamesFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
+              {namesImporting ? (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>Updating donor names...</span>
+                  </div>
+                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${namesUploadProgress}%`, height: '100%', background: '#2563eb', borderRadius: 3, transition: 'width .3s ease' }} />
+                  </div>
+                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{namesUploadProgress}%</p>
+                </div>
+              ) : (
+                <>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
+                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file to fix donor names</p>
+                  <p style={{ fontSize: 10, color: '#9ca3af' }}>Uses the Receipt Name or Donor Name column, matched by Receipt No. &nbsp;·&nbsp; .xlsx .xls .csv</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div
+              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => fileRef.current?.click()}
+              style={{
+                border: `2px dashed ${dragOver ? '#5B6B4E' : '#d1d5db'}`, borderRadius: 12, padding: '12px 20px', textAlign: 'center',
+                cursor: 'pointer', background: dragOver ? '#f0fdf4' : '#f9fafb', transition: 'all .2s',
+              }}
+            >
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={e => { handleFile(e.target.files[0]); e.target.value = '' }} style={{ display: 'none' }} />
+              {importing ? (
+                <div style={{ padding: '8px 0' }}>
+                  <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                    <div style={{ width: 16, height: 16, border: '2px solid #e5e7eb', borderTopColor: '#5B6B4E', borderRadius: '50%', animation: 'spin .6s linear infinite', flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>{uploadStatus || 'Importing...'}</span>
+                  </div>
+                  <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#5B6B4E', borderRadius: 3, transition: 'width .3s ease' }} />
+                  </div>
+                  <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{uploadProgress}%</p>
+                </div>
+              ) : (
+                <>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5B6B4E" strokeWidth="1.5" style={{ marginBottom: 4, opacity: .6 }}>
+                    <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 1 }}>Drag & drop your Excel/CSV file here</p>
+                  <p style={{ fontSize: 10, color: '#9ca3af' }}>or click to browse &nbsp;·&nbsp; .xlsx .xls .csv</p>
+                </>
+              )}
+            </div>
+          )}
+          {deleting && (
+            <div style={{ marginTop: 8, padding: '6px 0' }}>
+              <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{deleteStatus}</span>
+              </div>
+              <div style={{ width: '100%', maxWidth: 320, margin: '0 auto', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${deleteProgress}%`, height: '100%', background: '#dc2626', borderRadius: 3, transition: 'width .3s ease' }} />
+              </div>
+              {deleteProgress > 0 && <p style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>{deleteProgress}%</p>}
+            </div>
+          )}
+          {importResult && (
+            <div style={{ fontSize: 12, color: '#059669', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>{importResult.message}{importResult.withBank != null ? ` (${importResult.withBank} with bank)` : ''}</span>
+              {(importResult.failedCount > 0 && importResult.failedFile) && (
+                <a href={importResult.failedFile} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 11, color: '#dc2626', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download failed rows
+                </a>
+              )}
+            </div>
+          )}
+          {namesResult && (
+            <div style={{ fontSize: 12, color: '#2563eb', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>{namesResult.message}</span>
+            </div>
+          )}
+          <details style={{ marginTop: 8, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Expected columns</summary>
+            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', justifyContent: 'center' }}>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donor Name</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt No</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}> Amt </span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Receipt Date</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Time</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mobile No.</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>MOP</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Mail Id</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Payment Id No.</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Received Bank</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Pan No</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Address-1</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Project Supported</span>
+              <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 3 }}>Donors Bank Name</span>
+            </div>
+            {uploadMode === 'names' && (
+              <p style={{ marginTop: 6, fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Names mode only needs: Receipt No + Receipt Name / Donor Name</p>
+            )}
+          </details>
+        </div>
+        )}
+      </div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-pad">
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
