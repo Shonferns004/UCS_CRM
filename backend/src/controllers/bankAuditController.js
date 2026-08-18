@@ -962,11 +962,11 @@ export const manualVerifyEntry = async (req, res) => {
     // Resolve the FRO worker (must be an FRO).
     const { data: worker, error: wErr } = await db
       .from('workers')
-      .select('id, name, login_id, department')
+      .select('id, name, login_id, department, is_active')
       .eq('id', fro_worker_id)
       .maybeSingle();
     if (wErr) throw wErr;
-    if (!worker || !worker.is_active) return res.status(404).json({ message: 'Selected FRO not found' });
+    if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
     const froName = worker.name || 'Unknown';
 
     const amount = Number(entry.amount || 0);
