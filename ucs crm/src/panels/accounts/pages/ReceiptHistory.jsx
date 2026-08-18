@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -721,10 +722,10 @@ export default function ReceiptHistory() {
         return <div key={idx} data-dl-history data-dl-idx={idx} style={{ position:'fixed', left:'-9999px', top:0, width:'1000px', opacity:0, pointerEvents:'none' }}><Comp donor={buildDonor(r, null)} project={getTemplateId(ngo)} /></div>;
       })}
 
-      {preview && (
+      {preview && createPortal(
         <>
           <div className="modal-overlay" onClick={closePreview} style={{ zIndex: 9999 }} />
-          <div className="modal" style={{ maxWidth: 800, width: '90%', maxHeight: '90vh', overflow: 'auto', zIndex: 10000 }}>
+          <div className="modal" style={{ maxWidth: 600, width: '85%', maxHeight: '85vh', overflow: 'auto', zIndex: 10000 }}>
             <div className="modal-header">
               <h3>Receipt — {preview.receipt.receipt_no}</h3>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -761,7 +762,8 @@ export default function ReceiptHistory() {
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       {donorDetail && (
