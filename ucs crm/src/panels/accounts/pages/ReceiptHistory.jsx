@@ -545,7 +545,7 @@ export default function ReceiptHistory() {
             <thead>
               <tr>
                 <th>Donor Name</th>
-                <th>Payer Name</th>
+                <th>Receipt No.</th>
                 <th>NGO</th>
                 <th>Date</th>
                 <th>Time</th>
@@ -558,7 +558,7 @@ export default function ReceiptHistory() {
                 Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i}>
                     <td><div className="sk" style={{ width: '55%', height: 12, borderRadius: 3 }} /></td>
-                    <td><div className="sk" style={{ width: '55%', height: 12, borderRadius: 3 }} /></td>
+                    <td><div className="sk" style={{ width: 55, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: '45%', height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 60, height: 12, borderRadius: 3 }} /></td>
                     <td><div className="sk" style={{ width: 45, height: 12, borderRadius: 3 }} /></td>
@@ -577,7 +577,6 @@ export default function ReceiptHistory() {
                   const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
                   const key = rMobileClean || (r.donor_name || '').toLowerCase().trim();
                   const info = donorMap[key] || { count: 1, total: 0 };
-                  const payerName = r.bank_payer_name || r.audit_payer_name || '';
                   const dateStr = r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014';
                   return (
                     <tr key={r.id || i} className="clickable-row" onClick={() => {
@@ -589,7 +588,7 @@ export default function ReceiptHistory() {
                           <strong>{r.donor_name || '\u2014'}</strong>
                         </div>
                       </td>
-                      <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{payerName || '\u2014'}</td>
+                      <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.receipt_no || '\u2014'}</td>
                       <td style={{ fontSize: 12 }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: '#f3f4f6' }}>{PROJECT_LABELS[r.project_id] || r.project_id || '\u2014'}</span></td>
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{dateStr}</td>
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{r.receipt_time || '\u2014'}</td>
