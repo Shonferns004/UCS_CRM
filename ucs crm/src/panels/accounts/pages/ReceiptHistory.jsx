@@ -16,7 +16,7 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
-const EXCEL_HEADER = ["Team Name","Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Station","Agent Name","FSE Name","MOP","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
+const EXCEL_HEADER = ["Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Station","Agent Name","FSE Name","MOP","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
 
 const IMPORT_FIELDS = {
   receipt_no: ['receiptno', 'recieptno', 'receiptnumber'],
@@ -480,10 +480,27 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const fmtDate = (d) => {
+        if (!d) return 'NA';
+        const dt = new Date(d);
+        if (isNaN(dt.getTime())) return String(d);
+        return `${String(dt.getDate()).padStart(2,'0')}-${MONTHS[dt.getMonth()]}-${dt.getFullYear()}`;
+      };
+      const fmtTime12 = (t) => {
+        if (!t) return 'NA';
+        const s = String(t);
+        const parts = s.split(':');
+        if (parts.length < 2) return s;
+        let h = parseInt(parts[0], 10);
+        const m = parts[1];
+        const ap = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return `${h}:${m} ${ap}`;
+      };
       const toRow = (r, isSuspense) => ({
-        'Team Name': 'NA',
-        'Transaction Date': r.receipt_date || 'NA',
-        'Caller Name': r.caller_name || 'NA',
+        'Transaction Date': fmtDate(r.receipt_date),
+        'Caller Name': r.audit_payer_name || 'NA',
         'Receipt Name': r.donor_name || 'NA',
         'Mobile no.': r.donor_mobile || 'NA',
         'Mobil No. 2 / Tel ': r.mobile_2 || 'NA',
@@ -498,8 +515,8 @@ export default function ReceiptHistory() {
         'Payment ID No. ': r.payment_id || 'NA',
         'Amt': r.amount || 0,
         'Receipt No.': r.receipt_no || 'NA',
-        'Receipt Date ': r.receipt_date || 'NA',
-        'Time': r.receipt_time || 'NA',
+        'Receipt Date ': fmtDate(r.receipt_date),
+        'Time': fmtTime12(r.receipt_time),
         'Account of': r.account_of || 'Corpus',
       });
       const YELLOW_BG = { fgColor: { rgb: 'FFFF00' } };
