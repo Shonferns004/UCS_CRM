@@ -1016,6 +1016,16 @@ export const manualVerifyEntry = async (req, res) => {
     if (entry.status === 'verified') {
       const proj = entry.project_id || 'bsct';
 
+      // If this entry was linked to a claimed lead, mark the claim as verified.
+      if (entry.matched_lead_log_id) {
+        try {
+          await db.from('fro_donor_logs')
+            .update({ accounts_status: 'verified', verified_at: new Date().toISOString(), verified_by: req.user.id })
+            .eq('id', entry.matched_lead_log_id)
+            .eq('accounts_status', 'pending');
+        } catch (e) { console.error('Failed to verify claimed lead from already-verified entry:', e.message); }
+      }
+
       // Case 1: receipt is linked — just assign a number if missing
       if (entry.receipt_id) {
         const { data: rcpt } = await db.from('receipts')
@@ -1226,7 +1236,7 @@ export const manualVerifyEntry = async (req, res) => {
       // Settle the bank audit entry.
       const matchNo = await BankAudit.nextMatchNo();
       const entryPatch = {
-        status: 'unverified',
+        status: 'verified',
         donor_id: donorId,
         agent_name: froName,
         match_status: isStaticFro ? 'matched' : 'confirmed',
@@ -1275,6 +1285,17 @@ export const manualVerifyEntry = async (req, res) => {
         receipt_id: receipt.id,
         receipt_no: receipt.receipt_no || null,
       }).eq('id', entry.id);
+
+      // If this entry was linked to a claimed lead, mark the claim as verified
+      // so it no longer shows in Leads as pending.
+      if (entry.matched_lead_log_id) {
+        try {
+          await from('fro_donor_logs')
+            .update({ accounts_status: 'verified', verified_at: now, verified_by: req.user.id })
+            .eq('id', entry.matched_lead_log_id)
+            .eq('accounts_status', 'pending');
+        } catch (e) { console.error('Failed to verify claimed lead from manual verify:', e.message); }
+      }
 
       return { logId, donorId, amount, match_no: matchNo, receipt };
     });
