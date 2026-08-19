@@ -428,6 +428,7 @@ export const uploadChunk = async (req, res) => {
 
       return res.json({
         inserted: totalInserted,
+        unique_donors: validRows.length,
         invalid_mobile_count: invalidMobileCount,
         batch_id: importBatchId,
         chunk_index,
@@ -488,9 +489,11 @@ export const uploadChunk = async (req, res) => {
     for (const row of deduped) {
       ngoCounts[row.ngo] = (ngoCounts[row.ngo] || 0) + 1;
     }
+    const uniqueDonors = new Set(validRows.map(r => r.mobile_number)).size;
 
     return res.json({
       inserted,
+      unique_donors: uniqueDonors,
       invalid_mobile_count: invalidMobileCount,
       batch_id: importBatchId,
       chunk_index,
