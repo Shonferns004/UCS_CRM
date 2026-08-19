@@ -518,7 +518,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   useEffect(()=>{if((sa||se)&&wr.length===0){Promise.allSettled([apiGet('/workers?status=all'),apiGet('/auth/fro-workers')]).then(([a,b])=>{
     const bList=(b.status==='fulfilled'&&b.value)?(Array.isArray(b.value)?b.value:(b.value.workers||[])):[];
     const list=[...(a.status==='fulfilled'&&Array.isArray(a.value)?a.value:[]),...bList];
-    const seen=new Set();const merged=list.filter(w=>{const n=(w.name||'').trim();if(!n||seen.has(n.toLowerCase()))return false;seen.add(n.toLowerCase());return true});
+    const seen=new Set();const merged=list.filter(w=>{const wid=String(w.id||'');if(!wid||seen.has(wid))return false;seen.add(wid);return true});
     setWr(merged);
   })}},[sa,se,wr.length]);
 
