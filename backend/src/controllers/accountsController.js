@@ -482,6 +482,108 @@ export const verifyLead = async (req, res) => {
   }
 };
 
+// ─── Done Lead ─────────────────────────────────────────────
+// Simplified verify for leads where the receipt already exists (e.g. receipt_sent
+// flow: Accounts created the receipt, FRO claimed, now Accounts just closes out).
+
+export const doneLead = async (req, res) => {
+  try {
+    const { logId } = req.params;
+
+    const { data: logs, error: logError } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(id, fro_worker_id, donor_id, status, ngo_id, ngos(name), workers!left(name), donor_profiles!inner(id, name, mobile_number, city, address_1, address_2, email, pan_number, project_supported, donors_bank_name))')
+      .eq('id', logId)
+      .limit(1);
+    if (logError || !logs || logs.length === 0) return res.status(404).json({ message: 'Log entry not found' });
+    const log = logs[0];
+    if (log.accounts_status !== 'pending') {
+      return res.status(400).json({ message: `This lead has already been ${log.accounts_status || 'processed'}` });
+    }
+
+    const assignment = log.fro_assignments;
+    const donorProfile = assignment?.donor_profiles;
+    const donorId = assignment?.donor_id;
+    if (!assignment?.id || !donorProfile) return res.status(400).json({ message: 'Associated assignment/donor not found' });
+
+    const existing = await findReceiptByLogId(logId);
+    if (!existing?.receipt_no) {
+      return res.status(400).json({ message: 'No receipt found for this lead — use Verify instead' });
+    }
+
+    const amount = Number(log.amount_collected || 0);
+    const now = new Date().toISOString();
+
+    const result = await db.transaction(async ({ from }) => {
+      // Mark the lead verified.
+      await from('fro_donor_logs').update({
+        accounts_status: 'verified',
+        verified_at: now,
+        verified_by: req.user.id,
+      }).eq('id', logId);
+
+      // Update assignment.
+      await from('fro_assignments').update({
+        status: 'donation_collected',
+        last_contacted_at: now,
+      }).eq('id', assignment.id);
+
+      // Credit donor totals.
+      const { data: donorRow } = await from('donor_profiles')
+        .select('total_amount, donation_count, last_donation_date')
+        .eq('id', donorId)
+        .single();
+      const date = now.slice(0, 10);
+      await from('donor_profiles').update({
+        total_amount: Math.round(((donorRow?.total_amount || 0) + amount) * 100) / 100,
+        donation_count: (donorRow?.donation_count || 0) + 1,
+        last_donation_date: !donorRow?.last_donation_date || date > donorRow.last_donation_date ? date : donorRow.last_donation_date,
+        updated_at: now,
+      }).eq('id', donorId);
+
+      // Mark any linked bank_audit_entries as verified.
+      try {
+        await from('bank_audit_entries').update({
+          status: 'verified',
+          matched_at: now,
+          updated_at: now,
+        }).eq('receipt_id', existing.id);
+      } catch (err) { console.error('Failed to mark bank audit entry verified:', err.message); }
+
+      return { receipt_no: existing.receipt_no };
+    });
+
+    // Notify the FRO.
+    const froWorkerId = log.fro_worker_id;
+    const froName = log.fro_assignments?.workers?.name || 'An FRO';
+    if (froWorkerId) {
+      try {
+        const notifTitle = 'Lead Completed';
+        const notifBody = `Lead for ${donorProfile.name || 'donor'} (₹${amount.toLocaleString('en-IN')}) completed. Receipt: ${result.receipt_no}`;
+        let fcmLogged = false;
+        try {
+          const pushResult = await sendPushNotification(froWorkerId, notifTitle, notifBody, 'lead_verified', parseInt(logId));
+          fcmLogged = !!pushResult;
+        } catch (err) { console.error('FCM send error:', err.message); }
+        if (!fcmLogged) {
+          await db.from('notification_log').insert({
+            worker_id: froWorkerId,
+            type: 'lead_verified',
+            title: notifTitle,
+            body: notifBody,
+            fro_donor_log_id: String(logId),
+            sent_at: now,
+          });
+        }
+      } catch (err) { console.error('Failed to create done notification:', err.message); }
+    }
+
+    return res.json({ message: 'Lead completed', receipt_no: result.receipt_no });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Quick Verify (Priyank Shah default) ────────────────────
 // When a lead has no FRO agent, accounts can quickly verify it under the
 // default agent name "Priyank Shah" without filling donor details.
