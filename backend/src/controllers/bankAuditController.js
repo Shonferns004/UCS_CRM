@@ -1042,6 +1042,62 @@ export const manualVerifyEntry = async (req, res) => {
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
     if (mobile.length < 10) return res.status(400).json({ message: 'Please enter a valid donor mobile number' });
 
+    // ── Suspense receipt path ──────────────────────────────────────
+    const isSuspense = String(id).startsWith(SUSPENSE_PREFIX);
+    if (isSuspense) {
+      const receiptId = parseInt(id.replace(SUSPENSE_PREFIX, ''), 10);
+      const { data: receipt, error: rErr } = await db
+        .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+      if (rErr) throw rErr;
+      if (!receipt) return res.status(404).json({ message: 'Suspense receipt not found' });
+
+      // Resolve or create donor
+      const { data: existingDonor } = await db
+        .from('donor_profiles').select('*').eq('mobile_number', mobile).maybeSingle();
+      let donorId = existingDonor?.id || null;
+      const donorName = (donor_name || existingDonor?.name || 'Unknown').trim();
+      const donorAddress = donor_address || existingDonor?.address_1 || null;
+      const donorPan = donor_pan || existingDonor?.pan_number || null;
+      const donorEmail = donor_email || existingDonor?.email || null;
+
+      if (existingDonor) {
+        const patch = {};
+        if (!existingDonor.name && donor_name) patch.name = donor_name;
+        if (!existingDonor.address_1 && donor_address) patch.address_1 = donor_address;
+        if (!existingDonor.pan_number && donor_pan) patch.pan_number = donor_pan;
+        if (!existingDonor.email && donor_email) patch.email = donor_email;
+        if (Object.keys(patch).length > 0) await db.from('donor_profiles').update(patch).eq('id', donorId);
+      } else {
+        const { data: newDonor } = await db.from('donor_profiles').insert({
+          name: donorName, mobile_number: mobile,
+          address_1: donorAddress, pan_number: donorPan, email: donorEmail,
+          project_supported: receipt.project_id || 'bsct',
+        }).select('id').single();
+        donorId = newDonor?.id || null;
+      }
+
+      // Update the receipt with donor info
+      const receiptPatch = { donor_name: donorName, donor_mobile: mobile, donor_id: donorId };
+      if (donorPan) receiptPatch.pan_number = donorPan;
+      if (donorAddress) receiptPatch.address = donorAddress;
+      if (donorEmail) receiptPatch.email = donorEmail;
+
+      // Assign receipt number if missing
+      if (!receipt.receipt_no) {
+        const receiptNo = await BankAudit.getNextReceiptNo(receipt.project_id || 'bsct');
+        receiptPatch.receipt_no = receiptNo;
+      }
+
+      await db.from('receipts').update(receiptPatch).eq('id', receiptId);
+
+      return res.json({
+        message: `Suspense receipt verified. Receipt No: ${receiptPatch.receipt_no || receipt.receipt_no || ''}`,
+        receipt_no: receiptPatch.receipt_no || receipt.receipt_no,
+        donor_id: donorId,
+      });
+    }
+
+    // ── Regular bank audit entry path ──────────────────────────────
     // Load the bank audit entry.
     const { data: entry, error: eErr } = await db
       .from('bank_audit_entries')
