@@ -808,6 +808,39 @@ export const getSuspenseReceipts = async (req, res) => {
       }
     }
 
+    // Orphaned receipts: receipts that have a donor identified (donor_id set)
+    // but no FRO lead (log_id NULL) and agent_name is blank/suspense. These
+    // were created before the receipt_sent feature existed and are invisible in
+    // both FRO Suspense and Bank Audit. Surface them as receipt_sent entries.
+    const existingPoolIds = new Set(pool.map(r => String(r.id)));
+    const { data: orphanedReceipts } = await db
+      .from('receipts')
+      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
+      .not('donor_id', 'is', null)
+      .is('log_id', null)
+      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.suspense,agent_name.eq.NA,agent_name.eq.na')
+      .gte('receipt_date', monthStart)
+      .lte('receipt_date', monthEnd)
+      .in('project_id', projectSet);
+    if (orphanedReceipts && orphanedReceipts.length > 0) {
+      for (const r of orphanedReceipts) {
+        if (existingPoolIds.has(String(r.id))) continue;
+        if (isBlankSuspenseValue(r.donor_mobile)) {
+          pool.push({
+            id: r.id,
+            receipt_no: r.receipt_no,
+            donor_name: r.donor_name,
+            donor_mobile: r.donor_mobile,
+            amount: r.amount,
+            receipt_date: r.receipt_date,
+            receipt_time: r.receipt_time,
+            project_id: r.project_id,
+            kind: 'receipt_sent',
+          });
+        }
+      }
+    }
+
     const poolIds = pool.map(r => r.id);
     let claims = [];
     if (poolIds.length > 0) {
@@ -984,27 +1017,33 @@ const findClaimAuditEntry = async (receipt, claimUpiId = '') => {
 // the money once (with the claim pill) instead of a separate unlinked entry.
 // Never relinks an entry that is already verified or matched to a different
 // lead; never blocks the claim if the link fails.
-const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId) => {
+const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId, workerName) => {
   if (!entry?.id) return;
   if (entry.status === 'verified') return;
-  if (entry.matched_lead_log_id != null && String(entry.matched_lead_log_id) !== String(logId)) return;
+
+  const alreadyLinkedToDifferentLog = entry.matched_lead_log_id != null && String(entry.matched_lead_log_id) !== String(logId);
 
   const patch = {
-    receipt_id: receiptId,
-    matched_lead_log_id: logId,
-    match_status: 'matched',
-    match_source: 'manual',
-    matched_by: workerId,
-    matched_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    donor_id: donorId || entry.donor_id || null,
+    agent_name: workerName || null,
   };
-  if (!entry.match_no) {
-    try {
-      const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
-      patch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
-    } catch (e) { console.error('Match no allocation failed:', e.message); }
+
+  if (!alreadyLinkedToDifferentLog) {
+    patch.receipt_id = receiptId;
+    patch.matched_lead_log_id = logId;
+    patch.match_status = 'matched';
+    patch.match_source = 'manual';
+    patch.matched_by = workerId;
+    patch.matched_at = new Date().toISOString();
+    patch.donor_id = donorId || entry.donor_id || null;
+    if (!entry.match_no) {
+      try {
+        const { rows } = await db._pool.query("SELECT nextval('bank_audit_match_no_seq') AS n");
+        patch.match_no = 'MTCH-' + String(rows[0].n).padStart(6, '0');
+      } catch (e) { console.error('Match no allocation failed:', e.message); }
+    }
   }
+
   try {
     await db.from('bank_audit_entries').update(patch).eq('id', entry.id);
   } catch (e) {
@@ -1295,7 +1334,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     if (updErr) throw updErr;
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
-    await linkClaimAuditEntry(auditEntry, receiptId, log.id, workerId, donorId);
+    await linkClaimAuditEntry(auditEntry, receiptId, log.id, workerId, donorId, req.user.name);
 
     // For receipt_sent entries, transition the bank_audit_entry status from
     // "receipt_sent" → "unverified" and stamp the claiming FRO's name so
