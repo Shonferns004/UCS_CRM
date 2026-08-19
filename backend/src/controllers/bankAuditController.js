@@ -1090,9 +1090,31 @@ export const manualVerifyEntry = async (req, res) => {
 
       await db.from('receipts').update(receiptPatch).eq('id', receiptId);
 
+      // Create a bank_audit_entries row so the verified receipt shows in the audit.
+      const { data: suspenseSource } = await db
+        .from('bank_audit_sources').select('id').eq('name', 'Suspense Receipt').maybeSingle();
+      const sourceId = suspenseSource?.id || null;
+
+      await db.from('bank_audit_entries').insert({
+        source_id: sourceId,
+        amount: receipt.amount,
+        payment_id: receipt.payment_id || null,
+        transaction_date: receipt.receipt_date || new Date().toISOString(),
+        payer_name: donorName,
+        donor_id: donorId,
+        receipt_id: receiptId,
+        receipt_no: receiptPatch.receipt_no || receipt.receipt_no || null,
+        agent_name: receipt.agent_name || 'Suspense',
+        project_id: receipt.project_id || 'bsct',
+        status: 'verified',
+        matched_by: req.user.id,
+        matched_at: new Date().toISOString(),
+      });
+
       return res.json({
         message: `Suspense receipt verified. Receipt No: ${receiptPatch.receipt_no || receipt.receipt_no || ''}`,
         receipt_no: receiptPatch.receipt_no || receipt.receipt_no,
+        receipt_id: receiptId,
         donor_id: donorId,
       });
     }
