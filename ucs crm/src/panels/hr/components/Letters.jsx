@@ -5,7 +5,7 @@ import { FileTxt, WhatsApp } from '../icons';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
-const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','ODAR'];
+const TYPES = ['Offer letter','Experience letter','Promotion letter','Warning letter','Relieving letter','Joining letter','NOBSD','ODAR','Volunteer Termination Letter'];
 
 const HR_MESSAGES = [
   {
@@ -440,7 +440,7 @@ function build(type, w, joiningDate = '', designation = '', ngoKey = 'BSCT') {
   const r = w.role || w.department || 'Team Member';
   const d = w.dept || w.department || 'General';
   const body = {
-    'Offer letter': `To,\n${w.name}\n\n<strong>Designation: ${designation || r}</strong>\n\nDear ${w.name},\n\nWe are pleased to offer you the role of ${designation || r} in the ${d} department of ${ngo.name}. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on <strong>${joiningDate}</strong> for a period of <strong>2 months</strong>, extendable by mutual consent.\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the ${ngo.name} family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${w.name}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
+    'Offer letter': `To,\n${titleCase(w.name)}\n\n<strong>Designation: ${designation || r}</strong>\n\nDear ${titleCase(w.name)},\n\nWe are pleased to offer you the role of ${designation || r} in the ${d} department of ${ngo.name}. Your skills and enthusiasm will be a valuable addition to our mission of serving the community.\n\nTerms of your engagement with the Trust:\n\nRole: You will assist the Trust with duties related to ${d} and other activities assigned from time to time, reporting to the respective Coordinator.\nDuration: Commencing on <strong>${joiningDate}</strong> for a period of <strong>2 months</strong>, extendable by mutual consent.\nNature of Engagement: This is an honorary role undertaken in the spirit of seva and social service. No monetary compensation shall be payable for your services.\nConduct & Confidentiality: You agree to follow the Trust's policies, act with integrity towards beneficiaries and colleagues, and keep all Trust-related information confidential.\nTermination: Either party may end this engagement with [seven days'] written notice.\n\nWe appreciate your willingness to serve and look forward to welcoming you to the ${ngo.name} family. Kindly sign below to confirm your acceptance.\n\nACCEPTANCE: I, ${titleCase(w.name)}, accept the role offered to me on the terms above.\nSignature: ______________ Date: ______________`,
     'Promotion letter': `Dear ${w.name},\n\nCongratulations. In recognition of your strong contribution to the ${d} team, we are pleased to confirm your promotion, effective immediately. Thank you for the energy you bring to your work.\n\nWarm regards,\nThe People Team`,
     'Warning letter': ``,
     'Relieving letter': `Dear ${w.name},\n\nThis confirms that you have been relieved of your duties as ${r}, ${d}, with all responsibilities duly handed over. Thank you for your contributions — we wish you the very best in what comes next.\n\nWarm regards,\nThe People Team`,
@@ -463,6 +463,30 @@ function buildStyledLetterHTML(w, letterType, bodyText, dateText, hrNameText, su
 ${showDate ? `<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>` : ''}
 <div style="text-align:justify;white-space:pre-wrap">${bodyHtml}</div>
 <div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />${hrNameText}<br /><strong>${ngo.name}</strong></p></div>
+<div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
+</div>`;
+}
+
+function buildVolunteerTerminationLetterHTML(w, dateText, hrNameText, ngoKey) {
+  const ngo = getNgo(ngoKey);
+  const r = w.role || w.department || 'Team Member';
+  const subj = 'Termination of Volunteer Engagement';
+  return `<div style="max-width:800px;margin:0 auto;font-family:'Times New Roman',Times,serif;font-size:12px;line-height:1.25;color:#000;background:#fff;padding:25px 35px">
+<div style="display:flex;align-items:center;margin-bottom:4px">
+<img src="${ngo.logo}" alt="${ngo.alt}" style="width:${ngo.logoSize || 100}px;height:auto;margin-right:14px" />
+<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:#082F5A;letter-spacing:2px;line-height:1.1">${ngo.name}</div></div>
+</div>
+<div style="height:2px;background:#0B73C4;margin-bottom:12px"></div>
+<div style="text-align:center;font-size:14px;font-weight:700;color:#082F5A;margin:0 0 8px 0;text-transform:uppercase">Volunteer Termination Letter</div>
+<table style="width:100%;border-collapse:collapse"><tr><td style="padding:0 0 6px 0;font-size:12px"><strong>Date:</strong> ${dateText}</td></tr></table>
+<div style="margin-bottom:6px"><strong>Dear ${titleCase(w.name)},</strong></div>
+<div style="text-align:justify">
+<p style="margin:0 0 6px 0">This is to formally inform you that your volunteer engagement with <strong>${ngo.name}</strong> is terminated with effect from <strong>${dateText}</strong> due to organizational requirements/non-compliance with Trust policies.</p>
+<p style="margin:0 0 6px 0">Please note that your association was strictly on a voluntary basis. Therefore, the Trust shall not be liable for any volunteer compensation, termination benefits, expenses, reimbursements, allowances, or other financial claims arising from your termination.</p>
+<p style="margin:0 0 6px 0">You are requested to return all Trust property, documents, ID cards, and other materials if any in your possession and discontinue representing the Trust after the effective date.</p>
+<p style="margin:0 0 6px 0">We thank you for your contribution and wish you all the best for your future.</p>
+</div>
+<div style="margin-top:12px"><p style="margin:0 0 2px 0">Yours sincerely,</p><p style="margin:10px 0 0 0"><strong>Authorized Signatory</strong><br />Name: __________________<br />Designation: _____________<br />Signature: ______________</p></div>
 <div style="margin-top:14px;padding-top:4px"><div style="height:2px;background:#0B73C4;margin-bottom:6px"></div><div style="text-align:center;font-size:12px;color:#6b7280">    <strong>Regd. Address:</strong> ${ngo.address}</div></div>
 </div>`;
 }
@@ -570,6 +594,11 @@ export default function Letters() {
       const jd = w.date_of_joining || w.created_at || '';
       const joiningDate = jd ? new Date(jd + (jd.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : '{{joining_date}}';
       body = buildWarningLetterHTML(w, dateText, joiningDate, subject, ngo);
+      today = dateText;
+    } else if (type === 'Volunteer Termination Letter') {
+      const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
+      const hrNameText = hrName || '{{hr_name}}';
+      body = buildVolunteerTerminationLetterHTML(w, dateText, hrNameText, ngo);
       today = dateText;
     } else {
       const dateText = letterDate ? new Date(letterDate + 'T00:00:00').toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' }) : new Date().toLocaleDateString('en-GB',{ day:'numeric', month:'long', year:'numeric' });
