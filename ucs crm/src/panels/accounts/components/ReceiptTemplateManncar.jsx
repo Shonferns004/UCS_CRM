@@ -5,7 +5,9 @@ import MancareLogo from '../assets/MAANCareLogo.jpeg'
 export default function ReceiptTemplateManncar({ donor, index }) {
   const formattedDate = formatReceiptDate(donor['Receipt Date'])
   const amount = Number(donor['Amount']) || 0
-  const hasRealAddr = donor['Address 1'] && !['NA', 'N/A'].includes(donor['Address 1'].trim())
+  const rawAddr1 = donor['Address 1'] || ''
+  const cleanAddr = rawAddr1.replace(/,?\s*NA$/i, '').trim()
+  const hasRealAddr = cleanAddr && !['NA', 'N/A', ''].includes(cleanAddr)
   const cityState = [donor['City'], donor['State']].filter(Boolean).join(', ')
   const pin = donor['Pincode']
   const hasLocation = cityState || pin
@@ -28,7 +30,7 @@ export default function ReceiptTemplateManncar({ donor, index }) {
           <b>Receipt No.:</b> {donor['Receipt No.'] || 'NA'}<br /><br />
           Dated : {formattedDate}<br /><br />
           <span style={{ fontWeight:'bold' }}>Name : - {donor['Donor Name']?.toUpperCase() || 'NA'}</span><br />
-          Address. - {hasRealAddr ? <>{donor['Address 1']}<br />{hasLocation ? <>{cityState}{cityState && pin ? ' - ' : ''}{pin}<br /></> : null}</> : <>NA<br /></>}
+          Address. - {hasRealAddr ? <>{cleanAddr}<br />{hasLocation ? <>{cityState}{cityState && pin ? ' - ' : ''}{pin}<br /></> : null}</> : <>NA<br /></>}
           PAN No. - {donor['PAN No.'] || 'NA'}<br />
           Email - {donor['Email ID'] || 'NA'}
         </div>
