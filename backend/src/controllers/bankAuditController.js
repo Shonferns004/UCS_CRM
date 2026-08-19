@@ -1018,7 +1018,7 @@ export const saveManualVerifyDetails = async (req, res) => {
     if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
-    if (donor_name !== undefined) updates.donor_name = donor_name || null;
+    if (donor_name !== undefined) updates.payer_name = donor_name || null;
     if (donor_address !== undefined) updates.donor_address_1 = donor_address || null;
     if (donor_address_2 !== undefined) updates.donor_address_2 = donor_address_2 || null;
     if (donor_pan !== undefined) updates.donor_pan = donor_pan || null;
