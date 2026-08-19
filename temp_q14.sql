@@ -1,0 +1,1 @@
+SELECT be.id, be.status, be.receipt_id, be.agent_name, be.donor_id, be.payer_name, be.amount, be.match_status, be.match_no, be.matched_lead_log_id FROM bank_audit_entries be WHERE be.payer_name ILIKE '%Surendra%' AND be.amount = 2000 AND be.transaction_date = '2026-08-18';
