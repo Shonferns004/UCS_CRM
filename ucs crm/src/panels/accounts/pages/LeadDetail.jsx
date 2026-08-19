@@ -77,6 +77,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
   const [receipt, setReceipt] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [goBackOpen, setGoBackOpen] = useState(false);
@@ -223,6 +224,16 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
       if (res.receipt) setReceipt(res.receipt);
       if (onBack) onBack();
       toast('Successfully verified', 'success');
+    } catch(err) { alert(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDone = async () => {
+    if (!lead) return; setDoneOpen(false); setSubmitting(true);
+    try {
+      await apiPost(`/accounts/leads/${lead.log_id}/done`);
+      toast('Lead completed', 'success');
+      if (onBack) onBack();
     } catch(err) { alert(err.message); }
     finally { setSubmitting(false); }
   };
@@ -513,7 +524,13 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               )}
               <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
               <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
-              <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              {receipt?.receipt_no ? (
+                <button onClick={()=>setDoneOpen(true)} disabled={submitting} style={{flex:2,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#0369a1',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                  {submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Done'}
+                </button>
+              ) : (
+                <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              )}
             </div>
           )}
           {isVerified && (
@@ -530,7 +547,13 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
             <div style={{display:'flex',gap:12,maxWidth:600,margin:'0 auto',width:'100%'}}>
               <button onClick={()=>setRejectOpen(true)} disabled={submitting} className="reject-btn" style={{flex:1}}>{submitting?'...':'\u2716 Reject'}</button>
               <button onClick={()=>setGoBackOpen(true)} disabled={submitting} style={{flex:1,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#fff',color:'#92400e',border:'1.5px solid #fcd34d',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>{'\u21a9 Go Back'}</button>
-              <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              {receipt?.receipt_no ? (
+                <button onClick={()=>setDoneOpen(true)} disabled={submitting} style={{flex:2,padding:'10px 22px',fontSize:13,fontWeight:600,background:'#0369a1',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',transition:'all .2s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                  {submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Done'}
+                </button>
+              ) : (
+                <button onClick={()=>setConfirmOpen(true)} disabled={submitting} className="verify-btn" style={{flex:2}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Verify & Save'}</button>
+              )}
             </div>
           )}
           {isVerified && (
@@ -553,6 +576,22 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
               <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:20}}>
                 <button className="btn btn-sm" onClick={()=>setConfirmOpen(false)}>Cancel</button>
                 <button className="verify-btn" onClick={handleVerify} disabled={submitting}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Confirm & Save'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {doneOpen && (
+        <div className="modal-overlay" onClick={()=>setDoneOpen(false)}>
+          <div className="modal" style={{maxWidth:420,width:'90%'}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><h3>Complete Lead</h3></div>
+            <div className="modal-body" style={{padding:20}}>
+              <p style={{margin:'0 0 6px',fontSize:14}}>Mark this lead as done?</p>
+              <p style={{margin:0,fontSize:13,color:'var(--ink-soft)'}}>Receipt <strong>{receipt?.receipt_no}</strong> already exists. This will credit the FRO and mark the lead verified.</p>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:20}}>
+                <button className="btn btn-sm" onClick={()=>setDoneOpen(false)}>Cancel</button>
+                <button className="verify-btn" onClick={handleDone} disabled={submitting} style={{background:'#0369a1'}}>{submitting?<span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{display:'inline-block',width:14,height:14,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>Saving</span>:'\u2714 Done'}</button>
               </div>
             </div>
           </div>

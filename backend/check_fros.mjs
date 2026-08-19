@@ -1,0 +1,1 @@
+import pg from 'pg'; import { config } from 'dotenv'; config(); const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL }); const { rows } = await pool.query('SELECT id, name, department, is_active, employment_status FROM workers ORDER BY name'); console.log(JSON.stringify(rows, null, 2)); await pool.end();
