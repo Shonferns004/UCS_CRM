@@ -3244,6 +3244,24 @@ export const getSuspenseByNgo = async (req, res) => {
   }
 };
 
+export const quickSearchDonors = async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) return res.json([]);
+    const query = q.trim();
+    const { data, error } = await db
+      .from('donor_profiles')
+      .select('id,name,mobile_number,address_1,address_2,city,pin_code,pan_number,email')
+      .or(`name.ilike.%${query}%,mobile_number.ilike.%${query}%`)
+      .order('last_donation_date', { ascending: false, nullsFirst: false })
+      .limit(8);
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorsList = async (req, res) => {
   try {
     const { search, page = '1', limit = '50', ngo } = req.query;
