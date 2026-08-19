@@ -209,7 +209,9 @@ export const listEntries = async (req, res) => {
       // attached (FRO claim / import FSE / Accounts assignment), the money is
       // handled and leaves the Accounts suspense pool, consistent with the bare
       // suspense rule in getUnlinkedReceipts.
-      e.kind = (r && !r.donor_id && !r.log_id
+      // A receipt with a receipt_no is also never suspense — it has been
+      // accounted for regardless of the other fields.
+      e.kind = (r && !r.donor_id && !r.log_id && !r.receipt_no
                  && !BankAudit.isPriyankShahAgent(r.agent_name)
                  && BankAudit.isBlankSuspenseValue(r.agent_name)
                  && BankAudit.isBlankSuspenseValue(r.donor_mobile))
@@ -359,6 +361,8 @@ export const listEntries = async (req, res) => {
         source_id: null,
         bank_audit_sources: { name: 'Suspense Receipt' },
         status: 'unverified',
+        verify_type: r.verify_type || null,
+        verify_fro_worker_id: r.verify_fro_worker_id || null,
       }));
       entries.push(...suspenseRows);
 
@@ -375,7 +379,7 @@ export const listEntries = async (req, res) => {
       const bankReceiptIds = [...new Set((bankRows || []).map((b) => b.receipt_id).filter(Boolean))];
       let claimedQuery = db
         .from('receipts')
-        .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, fro_donor_logs!receipts_log_id_fkey(id, accounts_status, fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name))')
+        .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, fro_donor_logs!receipts_log_id_fkey(id, accounts_status, fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name)), verify_type, verify_fro_worker_id')
         .not('log_id', 'is', null)
         .is('donor_id', null);
       if (bankReceiptIds.length > 0) claimedQuery = claimedQuery.not('id', 'in', bankReceiptIds);
@@ -409,6 +413,8 @@ export const listEntries = async (req, res) => {
           source_id: null,
           bank_audit_sources: { name: 'Claimed Suspense' },
           status: 'unverified',
+          verify_type: r.verify_type || null,
+          verify_fro_worker_id: r.verify_fro_worker_id || null,
         }));
       entries.push(...claimedRows);
 
@@ -708,7 +714,7 @@ export const editSuspenseReceipt = async (req, res) => {
     const updates = {};
     if (link) {
       Object.assign(updates, link.receipt);
-      if (donor_name !== undefined) updates.donor_name = donor_name || null;
+    if (donor_name !== undefined) updates.payer_name = donor_name || null;
       if (project_id !== undefined) updates.project_id = project_id || link.receipt.project_id || 'bsct';
       else if (!updates.project_id) updates.project_id = 'bsct';
     } else {
@@ -988,6 +994,38 @@ export const saveManualVerifyDetails = async (req, res) => {
       verify_type, verify_fro_worker_id,
     } = req.body || {};
 
+    const isSuspense = String(id).startsWith(SUSPENSE_PREFIX);
+    const receiptId = isSuspense ? parseInt(id.replace(SUSPENSE_PREFIX, ''), 10) : null;
+
+    if (isSuspense) {
+      const { data: receipt, error: rErr } = await db
+        .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+      if (rErr) throw rErr;
+      if (!receipt) return res.status(404).json({ message: 'Suspense receipt not found' });
+
+      const updates = {};
+      if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
+      if (donor_name !== undefined) updates.donor_name = donor_name || null;
+      if (donor_pan !== undefined) updates.pan_number = donor_pan || null;
+      if (donor_address !== undefined) updates.address = donor_address || null;
+      if (donor_email !== undefined) updates.email = donor_email || null;
+
+      if (fro_worker_id) {
+        const isStaticFro = String(fro_worker_id).startsWith('static-');
+        if (!isStaticFro) {
+          const { data: worker } = await db.from('workers').select('name').eq('id', fro_worker_id).maybeSingle();
+          if (worker?.name) updates.agent_name = worker.name;
+        }
+      }
+      if (verify_type !== undefined) updates.verify_type = verify_type || null;
+      if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
+
+      if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
+      const { data: saved, error: uErr } = await db.from('receipts').update(updates).eq('id', receiptId).select().single();
+      if (uErr) throw uErr;
+      return res.json(saved);
+    }
+
     const { data: entry, error: eErr } = await db
       .from('bank_audit_entries')
       .select('*')
@@ -1018,7 +1056,7 @@ export const saveManualVerifyDetails = async (req, res) => {
     if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
-    if (donor_name !== undefined) updates.donor_name = donor_name || null;
+    if (donor_name !== undefined) updates.payer_name = donor_name || null;
     if (donor_address !== undefined) updates.donor_address_1 = donor_address || null;
     if (donor_address_2 !== undefined) updates.donor_address_2 = donor_address_2 || null;
     if (donor_pan !== undefined) updates.donor_pan = donor_pan || null;
@@ -1029,6 +1067,22 @@ export const saveManualVerifyDetails = async (req, res) => {
     if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
 
     const saved = await BankAudit.updateEntry(id, updates);
+
+    // Sync the linked receipt so the kind check (listEntries) sees updated
+    // values and moves the entry out of the Suspense pool.
+    if (entry.receipt_id) {
+      const rcptUpdates = {};
+      if (updates.agent_name !== undefined) rcptUpdates.agent_name = updates.agent_name;
+      if (updates.donor_mobile !== undefined) rcptUpdates.donor_mobile = updates.donor_mobile;
+      if (updates.payer_name !== undefined) rcptUpdates.donor_name = updates.payer_name;
+      if (updates.donor_pan !== undefined) rcptUpdates.pan_number = updates.donor_pan;
+      if (updates.donor_address_1 !== undefined) rcptUpdates.address = updates.donor_address_1;
+      if (updates.donor_email !== undefined) rcptUpdates.email = updates.donor_email;
+      if (Object.keys(rcptUpdates).length > 0) {
+        await db.from('receipts').update(rcptUpdates).eq('id', entry.receipt_id);
+      }
+    }
+
     return res.json(saved);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1053,6 +1107,74 @@ export const manualVerifyEntry = async (req, res) => {
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
     if (mobile.length < 10) return res.status(400).json({ message: 'Please enter a valid donor mobile number' });
 
+    // ── Suspense receipt path ──────────────────────────────────────
+    const isSuspense = String(id).startsWith(SUSPENSE_PREFIX);
+    if (isSuspense) {
+      const receiptId = parseInt(id.replace(SUSPENSE_PREFIX, ''), 10);
+      const { data: receipt, error: rErr } = await db
+        .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+      if (rErr) throw rErr;
+      if (!receipt) return res.status(404).json({ message: 'Suspense receipt not found' });
+
+      // Resolve or create donor
+      const { data: existingDonor } = await db
+        .from('donor_profiles').select('*').eq('mobile_number', mobile).maybeSingle();
+      let donorId = existingDonor?.id || null;
+      const donorName = (donor_name || existingDonor?.name || 'Unknown').trim();
+      const donorAddress = donor_address || existingDonor?.address_1 || null;
+      const donorPan = donor_pan || existingDonor?.pan_number || null;
+      const donorEmail = donor_email || existingDonor?.email || null;
+
+      if (existingDonor) {
+        const patch = {};
+        if (!existingDonor.name && donor_name) patch.name = donor_name;
+        if (!existingDonor.address_1 && donor_address) patch.address_1 = donor_address;
+        if (!existingDonor.pan_number && donor_pan) patch.pan_number = donor_pan;
+        if (!existingDonor.email && donor_email) patch.email = donor_email;
+        if (Object.keys(patch).length > 0) await db.from('donor_profiles').update(patch).eq('id', donorId);
+      } else {
+        const { data: newDonor } = await db.from('donor_profiles').insert({
+          name: donorName, mobile_number: mobile,
+          address_1: donorAddress, pan_number: donorPan, email: donorEmail,
+          project_supported: receipt.project_id || 'bsct',
+        }).select('id').single();
+        donorId = newDonor?.id || null;
+      }
+
+      // Update the receipt with donor info
+      const receiptPatch = { donor_name: donorName, donor_mobile: mobile, donor_id: donorId };
+      if (donorPan) receiptPatch.pan_number = donorPan;
+      if (donorAddress) receiptPatch.address = donorAddress;
+      if (donorEmail) receiptPatch.email = donorEmail;
+
+      // Assign receipt number if missing
+      if (!receipt.receipt_no) {
+        const receiptNo = await BankAudit.getNextReceiptNo(receipt.project_id || 'bsct');
+        receiptPatch.receipt_no = receiptNo;
+      }
+
+      await db.from('receipts').update(receiptPatch).eq('id', receiptId);
+
+      // If this receipt was claimed by an FRO (has a log_id), mark the lead
+      // as verified so it disappears from the pending Leads list.
+      if (receipt.log_id) {
+        try {
+          await db.from('fro_donor_logs')
+            .update({ accounts_status: 'verified', verified_at: new Date().toISOString(), verified_by: req.user?.id || null })
+            .eq('id', receipt.log_id)
+            .eq('accounts_status', 'pending');
+        } catch (e) { console.error('Failed to verify claimed lead from suspense receipt:', e.message); }
+      }
+
+      return res.json({
+        message: `Suspense receipt verified. Receipt No: ${receiptPatch.receipt_no || receipt.receipt_no || ''}`,
+        receipt_no: receiptPatch.receipt_no || receipt.receipt_no,
+        receipt_id: receiptId,
+        donor_id: donorId,
+      });
+    }
+
+    // ── Regular bank audit entry path ──────────────────────────────
     // Load the bank audit entry.
     const { data: entry, error: eErr } = await db
       .from('bank_audit_entries')

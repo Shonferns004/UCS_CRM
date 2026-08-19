@@ -25,12 +25,11 @@ export const getUnlinkedReceipts = async () => {
   const { rows, error } = await db._pool.query(`
     SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
            r.receipt_date, r.receipt_time, r.project_id, r.payment_id, r.agent_name, r.mode, r.bank_name, r.created_at,
-           r.pan_number, r.address, r.email
+           r.pan_number, r.address, r.email, r.verify_type, r.verify_fro_worker_id
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
-      AND (r.agent_name IS NULL OR trim(r.agent_name) = '' OR lower(trim(r.agent_name)) IN ('na', 'suspense'))
-      AND (r.donor_mobile IS NULL OR trim(r.donor_mobile) = '' OR lower(trim(r.donor_mobile)) IN ('na', 'suspense'))
+      AND r.receipt_no IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
       )
