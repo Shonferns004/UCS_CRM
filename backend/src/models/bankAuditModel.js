@@ -100,6 +100,8 @@ const NGO_PROJECT_ALIASES = {
   bsct: ['bsct', 'beingsevak', 'being sevak', 'sevak'],
   mann: ['mann', 'manncar', 'mann care', 'manncare', 'maan'],
   aflf: ['aflf', 'ashray', 'ashray life'],
+  library: ['library'],
+  pg: ['pg'],
 };
 
 // The canonical project code for a lead is the NGO it is assigned under
