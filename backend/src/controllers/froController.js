@@ -782,6 +782,32 @@ export const getSuspenseReceipts = async (req, res) => {
     // claim it. No bank-audit exclusion.
     const pool = filtered;
 
+    // "Receipt Sent" entries: Accounts verified the donor but did not select an
+    // FRO.  The receipt already exists; the FRO must claim to close the loop.
+    const { data: rsEntries } = await db
+      .from('bank_audit_entries')
+      .select('id, receipt_id, donor_name, donor_mobile, amount, transaction_date, payment_time, project_id, receipt_no')
+      .eq('status', 'receipt_sent')
+      .gte('transaction_date', monthStart)
+      .lte('transaction_date', monthEnd)
+      .in('project_id', projectSet);
+    if (rsEntries && rsEntries.length > 0) {
+      for (const e of rsEntries) {
+        pool.push({
+          id: e.receipt_id || e.id,
+          receipt_no: e.receipt_no,
+          donor_name: e.donor_name,
+          donor_mobile: e.donor_mobile,
+          amount: e.amount,
+          receipt_date: e.transaction_date,
+          receipt_time: e.payment_time,
+          project_id: e.project_id,
+          kind: 'receipt_sent',
+          _bank_audit_entry_id: e.id,
+        });
+      }
+    }
+
     const poolIds = pool.map(r => r.id);
     let claims = [];
     if (poolIds.length > 0) {
@@ -811,6 +837,8 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_date: r.receipt_date,
       receipt_time: r.receipt_time,
       project_id: r.project_id,
+      kind: r.kind || 'suspense',
+      _bank_audit_entry_id: r._bank_audit_entry_id || null,
       claim_count: claimCountByReceipt[r.id] || 0,
       my_claim_status: myClaimStatusByReceipt[r.id] || null,
     }));
@@ -1003,8 +1031,20 @@ export const claimSuspenseReceipt = async (req, res) => {
       .eq('id', receiptId)
       .single();
     if (rErr || !receipt) return res.status(404).json({ message: 'Receipt not found' });
-    if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
-    if (receipt.log_id) return res.status(409).json({ message: 'This receipt has already been claimed' });
+
+    // Detect "receipt_sent" entries: receipt has a donor but no log (no FRO assigned).
+    const isReceiptSent = receipt.donor_id != null && receipt.log_id == null;
+    if (!isReceiptSent) {
+      if (receipt.donor_id) return res.status(409).json({ message: 'This receipt is already linked to a donor' });
+      if (receipt.log_id) return res.status(409).json({ message: 'This receipt has already been claimed' });
+    }
+
+    // For receipt_sent entries, pre-fill the donor from the receipt so the FRO
+    // sees the existing donor but can override if the bank name was wrong.
+    if (isReceiptSent && !donorId) {
+      donorId = receipt.donor_id;
+      donorName = receipt.donor_name || donorName;
+    }
     if (projectSet.length > 0 && !projectSet.includes(receipt.project_id)) {
       return res.status(403).json({ message: 'Receipt does not belong to your NGO' });
     }
@@ -1256,6 +1296,19 @@ export const claimSuspenseReceipt = async (req, res) => {
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
     await linkClaimAuditEntry(auditEntry, receiptId, log.id, workerId, donorId);
+
+    // For receipt_sent entries, transition the bank_audit_entry status from
+    // "receipt_sent" → "unverified" and stamp the claiming FRO's name so
+    // Accounts sees it as a normal pending lead.
+    if (isReceiptSent && auditEntry?.id) {
+      try {
+        await db.from('bank_audit_entries').update({
+          status: 'unverified',
+          agent_name: req.user.name || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', auditEntry.id);
+      } catch (e) { console.error('Failed to update receipt_sent audit entry:', e.message); }
+    }
 
     try {
       const { data: accounts } = await db.from('users').select('id').in('role', ['accounts', 'super_admin']);

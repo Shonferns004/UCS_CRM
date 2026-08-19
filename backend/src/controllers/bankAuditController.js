@@ -1003,7 +1003,6 @@ export const manualVerifyEntry = async (req, res) => {
     } = req.body || {};
 
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
-    if (!fro_worker_id) return res.status(400).json({ message: 'Please select an FRO' });
     if (mobile.length < 10) return res.status(400).json({ message: 'Please enter a valid donor mobile number' });
 
     // Load the bank audit entry.
@@ -1057,22 +1056,24 @@ export const manualVerifyEntry = async (req, res) => {
       return res.json({ message: 'Entry was already verified — receipt created and number assigned.', receipt_no: receiptNo, receipt_id: receipt.id });
     }
 
-    // Resolve the FRO worker (must be an FRO).
-    const isStaticFro = String(fro_worker_id).startsWith('static-');
+    // Resolve the FRO worker (must be an FRO) — optional for receipt_sent flow.
+    const isStaticFro = fro_worker_id ? String(fro_worker_id).startsWith('static-') : false;
     let froName = 'Unknown';
-    let workerId = fro_worker_id;
-    if (isStaticFro) {
-      froName = fro_worker_id === 'static-priyank-shah' ? 'Priyank Shah' : fro_worker_id === 'static-suspense' ? 'Suspense' : 'Unknown';
-      workerId = null;
-    } else {
-      const { data: worker, error: wErr } = await db
-        .from('workers')
-        .select('id, name, login_id, department, is_active')
-        .eq('id', fro_worker_id)
-        .maybeSingle();
-      if (wErr) throw wErr;
-      if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
-      froName = worker.name || 'Unknown';
+    let workerId = fro_worker_id || null;
+    if (fro_worker_id) {
+      if (isStaticFro) {
+        froName = fro_worker_id === 'static-priyank-shah' ? 'Priyank Shah' : fro_worker_id === 'static-suspense' ? 'Suspense' : 'Unknown';
+        workerId = null;
+      } else {
+        const { data: worker, error: wErr } = await db
+          .from('workers')
+          .select('id, name, login_id, department, is_active')
+          .eq('id', fro_worker_id)
+          .maybeSingle();
+        if (wErr) throw wErr;
+        if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
+        froName = worker.name || 'Unknown';
+      }
     }
 
     const amount = Number(entry.amount || 0);
@@ -1124,6 +1125,49 @@ export const manualVerifyEntry = async (req, res) => {
       }
       const donorId = donor.id;
 
+      // ── No FRO selected → "receipt_sent" path ──────────────────────────────
+      // Receipt is generated so the donor can receive it, but no FRO is credited
+      // yet. The entry stays visible for an FRO to claim later.
+      if (!fro_worker_id) {
+        const receiptNo = await BankAudit.getNextReceiptNo(project);
+        const receipt = await createReceipt({
+          receipt_no: receiptNo,
+          project_id: project,
+          donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
+          donor_mobile: mobile,
+          amount,
+          pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
+          address: donor_address || entryAddress || donor.address_1 || null,
+          email: donor_email || entry.donor_email || donor.email || null,
+          bank_name: entry.bank_name || donor.donors_bank_name || null,
+          mode: entry.mode || null,
+          payment_id: entry.payment_id || null,
+          agent_name: null,
+          purpose: 'Bank Audit Manual Verify (Receipt Sent)',
+          generated_by: req.user.id,
+          donor_id: donorId,
+          receipt_date: entry.transaction_date || now,
+          receipt_time: entry.payment_time || null,
+        });
+
+        await from('bank_audit_entries').update({
+          status: 'receipt_sent',
+          receipt_id: receipt.id,
+          receipt_no: receipt.receipt_no || null,
+          donor_id: donorId,
+          payer_name: entry.payer_name || donor.name || null,
+          donor_mobile: mobile,
+          donor_email: donor_email || entry.donor_email || donor.email || null,
+          donor_pan: donor_pan || entry.donor_pan || donor.pan_number || null,
+          donor_address_1: donor_address || entryAddress || donor.address_1 || null,
+          donor_address_2: donor_address_2 || donor.address_2 || null,
+          updated_at: now,
+        }).eq('id', entry.id);
+
+        return { receiptSent: true, donorId, amount, receipt };
+      }
+
+      // ── FRO provided → existing full-verify path ───────────────────────────
       let logId = null;
       if (!isStaticFro) {
         // Find or create an open assignment linking donor + FRO + NGO.
@@ -1234,8 +1278,8 @@ export const manualVerifyEntry = async (req, res) => {
       return { logId, donorId, amount, match_no: matchNo, receipt };
     });
 
-    // Notify the FRO (FCM + notification_log) — skip for static FROs.
-    if (!isStaticFro) {
+    // Notify the FRO (FCM + notification_log) — only when an FRO was selected.
+    if (fro_worker_id && !isStaticFro) {
       try {
         const notifTitle = 'Lead Verified';
         const notifBody = `Your lead for ${result.receipt?.donor_name || 'donor'} (\u20B9${amount.toLocaleString('en-IN')}) was verified. Receipt: ${result.receipt?.receipt_no || ''}`;
@@ -1255,6 +1299,15 @@ export const manualVerifyEntry = async (req, res) => {
           });
         }
       } catch (err) { console.error('Failed to create verified notification:', err.message); }
+    }
+
+    if (result.receiptSent) {
+      return res.json({
+        message: 'Receipt generated. FRO can claim later.',
+        donor_id: result.donorId,
+        receipt_no: result.receipt?.receipt_no || null,
+        receipt_id: result.receipt?.id || null,
+      });
     }
 
     return res.json({
