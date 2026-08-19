@@ -123,6 +123,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
           setProgress({ current: 0, total: chunks.length, label: `Parsing complete. Uploading ${deduped.length} donors in ${chunks.length} chunks...` });
 
           let totalInserted = 0;
+          let totalUniqueDonors = 0;
           let batchId = null;
           const ngoCounts = {};
 
@@ -133,6 +134,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
             if (batchId) body.batch_id = batchId;
             const res = await api('/data-import/upload-chunk', { method: 'POST', body: JSON.stringify(body) });
             totalInserted += res.inserted;
+            totalUniqueDonors += res.unique_donors || 0;
             if (res.batch_id) batchId = res.batch_id;
             if (res.ngo_counts) {
               for (const [n, c] of Object.entries(res.ngo_counts)) {
@@ -148,7 +150,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
             total_in_file: allRows.length,
             duplicates_removed: allRows.length - deduped.length,
             cross_batch_duplicates: 0,
-            imported: totalInserted,
+            imported: totalUniqueDonors,
             ngo_counts: ngoCounts,
             ngos_used: selectedNgoIds?.length || 3,
           });
@@ -230,7 +232,7 @@ function ImportForm({ dataSources, onError, onBatchUpdate, endpoint, showSample,
             {endpoint !== '/data-import/upload-old' && (
               <div className="sa-stat-card" style={{borderLeftColor:'#f59e0b'}}><div className="sa-stat-label">Within-File Dups Removed</div><div className="sa-stat-value" style={{color:'#f59e0b'}}>{result.duplicates_removed}</div></div>
             )}
-            <div className="sa-stat-card" style={{borderLeftColor:'#eab308'}}><div className="sa-stat-label">Cross-Batch Dups Removed</div><div className="sa-stat-value" style={{color:'#eab308'}}>{result.cross_batch_duplicates_removed}</div></div>
+            <div className="sa-stat-card" style={{borderLeftColor:'#eab308'}}><div className="sa-stat-label">Cross-Batch Dups Removed</div><div className="sa-stat-value" style={{color:'#eab308'}}>{result.cross_batch_duplicates ?? 0}</div></div>
             <div className="sa-stat-card" style={{borderLeftColor:'#10b981'}}><div className="sa-stat-label">{endpoint === '/data-import/upload-old' ? 'Imported to Donors' : 'Imported'}</div><div className="sa-stat-value" style={{color:'#10b981'}}>{result.imported}</div></div>
             {endpoint === '/data-import/upload-old' && (
               <div className="sa-stat-card" style={{borderLeftColor:'#8b5cf6'}}><div className="sa-stat-label">Profiles Created</div><div className="sa-stat-value" style={{color:'#8b5cf6'}}>{result.profiles_created || 0}</div></div>
