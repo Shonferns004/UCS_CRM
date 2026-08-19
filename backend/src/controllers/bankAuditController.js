@@ -665,7 +665,7 @@ export const editSuspenseReceipt = async (req, res) => {
     const updates = {};
     if (link) {
       Object.assign(updates, link.receipt);
-      if (donor_name !== undefined) updates.donor_name = donor_name || null;
+    if (donor_name !== undefined) updates.payer_name = donor_name || null;
       if (project_id !== undefined) updates.project_id = project_id || link.receipt.project_id || 'bsct';
       else if (!updates.project_id) updates.project_id = 'bsct';
     } else {
