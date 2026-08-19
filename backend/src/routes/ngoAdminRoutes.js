@@ -47,6 +47,7 @@ import {
   getNewData,
   distributeNewData,
   cleanupNewData,
+  resetFreshData,
   getDataOverview,
   getAlerts,
   acknowledgeAlert,
@@ -118,6 +119,7 @@ router.get('/new-data', getNewData);
 router.get('/data-overview', getDataOverview);
 router.post('/new-data/distribute', distributeNewData);
 router.post('/new-data/cleanup', cleanupNewData);
+router.post('/new-data/reset', resetFreshData);
 
 router.get('/alerts', getAlerts);
 router.put('/alerts/:id/acknowledge', acknowledgeAlert);
