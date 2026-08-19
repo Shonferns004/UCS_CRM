@@ -1,1 +1,0 @@
-SELECT COUNT(*) as total FROM receipts r WHERE r.donor_id IS NOT NULL AND r.log_id IS NULL AND (r.agent_name IS NULL OR r.agent_name = '' OR r.agent_name ILIKE '%suspense%') AND NOT EXISTS (SELECT 1 FROM bank_audit_entries be WHERE be.receipt_id = r.id);
