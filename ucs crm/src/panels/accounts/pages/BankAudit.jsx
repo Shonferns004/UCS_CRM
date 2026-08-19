@@ -235,13 +235,24 @@ function FroSearchPicker({ value, workers, onChange }){
   const [open,setOpen]=useState(false);
   const [q,setQ]=useState('');
   const boxRef=useRef(null);
+  const [localFros,setLocalFros]=useState([]);
+
+  useEffect(()=>{
+    if(localFros.length>0) return;
+    Promise.allSettled([apiGet('/workers?status=all'),apiGet('/auth/fro-workers')]).then(([a,b])=>{
+      const bList=(b.status==='fulfilled'&&b.value)?(Array.isArray(b.value)?b.value:(b.value.workers||[])):[];
+      const list=[...(a.status==='fulfilled'&&Array.isArray(a.value)?a.value:[]),...bList];
+      const froList=list.filter(w=>String(w.department||'').toLowerCase()==='fro');
+      const seen=new Set();setLocalFros(froList.filter(w=>{const wid=String(w.id||'');if(!wid||seen.has(wid))return false;seen.add(wid);return true}));
+    });
+  },[]);
 
   const staticFros=[{id:'static-priyank-shah',name:'Priyank Shah'},{id:'static-suspense',name:'Suspense'}];
-  const froWorkers=workers.filter(w=>String(w.department||'').toLowerCase()==='fro');
+  const allFros=localFros.length>0?localFros:workers.filter(w=>String(w.department||'').toLowerCase()==='fro');
   const kw=q.trim().toLowerCase();
-  const list=kw?froWorkers.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):froWorkers;
+  const list=kw?allFros.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):allFros;
   const staticList=staticFros.filter(s=>!kw||s.name.toLowerCase().includes(kw));
-  const selected=value&&value.startsWith('static-')?staticFros.find(s=>s.id===value):workers.find(w=>String(w.id)===String(value));
+  const selected=value&&value.startsWith('static-')?staticFros.find(s=>s.id===value):[...workers,...localFros].find(w=>String(w.id)===String(value));
 
   useEffect(()=>{
     const onDoc=(ev)=>{if(boxRef.current&&!boxRef.current.contains(ev.target))setOpen(false)};
