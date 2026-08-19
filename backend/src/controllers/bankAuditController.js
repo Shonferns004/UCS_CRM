@@ -999,7 +999,7 @@ export const manualVerifyEntry = async (req, res) => {
     const { id } = req.params;
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
-      donor_email, donor_city, donor_pin_code, donor_address_2,
+      donor_email, donor_city, donor_pin_code, donor_address_2, project_id,
     } = req.body || {};
 
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
@@ -1078,7 +1078,8 @@ export const manualVerifyEntry = async (req, res) => {
 
     const amount = Number(entry.amount || 0);
     const now = new Date().toISOString();
-    const project = entry.project_id || 'bsct';
+    const VALID_PROJECT_OVERRIDES = ['library', 'pg'];
+    const project = (project_id && VALID_PROJECT_OVERRIDES.includes(project_id)) ? project_id : (entry.project_id || 'bsct');
     const entryAddress = [entry.donor_address_1, entry.donor_address_2].filter(Boolean).join(', ') || null;
     const ngoId = await BankAudit.ngoIdFromProjectId(project);
 

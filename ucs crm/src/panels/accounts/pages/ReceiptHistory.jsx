@@ -664,6 +664,8 @@ export default function ReceiptHistory() {
             <option value="bsct">Being Sevak</option>
             <option value="mann">Mann Care</option>
             <option value="aflf">Ashray</option>
+            <option value="library">Library</option>
+            <option value="pg">PG</option>
           </select>
           <input
             className="search-input"
