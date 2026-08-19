@@ -29,8 +29,7 @@ export const getUnlinkedReceipts = async () => {
     FROM receipts r
     WHERE r.donor_id IS NULL
       AND r.log_id IS NULL
-      AND (r.agent_name IS NULL OR trim(r.agent_name) = '' OR lower(trim(r.agent_name)) IN ('na', 'suspense'))
-      AND (r.donor_mobile IS NULL OR trim(r.donor_mobile) = '' OR lower(trim(r.donor_mobile)) IN ('na', 'suspense'))
+      AND r.receipt_no IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
       )
