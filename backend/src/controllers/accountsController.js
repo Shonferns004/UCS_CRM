@@ -1608,6 +1608,9 @@ export const getReceiptList = async (req, res) => {
     if (link === 'others') {
       where.push(`lower(trim(agent_name)) IN ('priyank shah', 'priyank sir')`);
     }
+    if (!isSuspense) {
+      where.push('receipt_no IS NOT NULL');
+    }
 
     const period = (req.query.period || '').trim();
     const fromDate = (req.query.from_date || '').trim();
