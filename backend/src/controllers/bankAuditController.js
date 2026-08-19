@@ -359,6 +359,8 @@ export const listEntries = async (req, res) => {
         source_id: null,
         bank_audit_sources: { name: 'Suspense Receipt' },
         status: 'unverified',
+        verify_type: r.verify_type || null,
+        verify_fro_worker_id: r.verify_fro_worker_id || null,
       }));
       entries.push(...suspenseRows);
 
@@ -375,7 +377,7 @@ export const listEntries = async (req, res) => {
       const bankReceiptIds = [...new Set((bankRows || []).map((b) => b.receipt_id).filter(Boolean))];
       let claimedQuery = db
         .from('receipts')
-        .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, fro_donor_logs!receipts_log_id_fkey(id, accounts_status, fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name))')
+        .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, project_id, payment_id, agent_name, log_id, fro_donor_logs!receipts_log_id_fkey(id, accounts_status, fro_worker_id, workers!fro_donor_logs_fro_worker_id_fkey(name)), verify_type, verify_fro_worker_id')
         .not('log_id', 'is', null)
         .is('donor_id', null);
       if (bankReceiptIds.length > 0) claimedQuery = claimedQuery.not('id', 'in', bankReceiptIds);
@@ -409,6 +411,8 @@ export const listEntries = async (req, res) => {
           source_id: null,
           bank_audit_sources: { name: 'Claimed Suspense' },
           status: 'unverified',
+          verify_type: r.verify_type || null,
+          verify_fro_worker_id: r.verify_fro_worker_id || null,
         }));
       entries.push(...claimedRows);
     }
@@ -942,7 +946,42 @@ export const saveManualVerifyDetails = async (req, res) => {
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
       donor_email, donor_city, donor_pin_code, donor_address_2,
+      verify_type, verify_fro_worker_id,
     } = req.body || {};
+
+    const isSuspense = String(id).startsWith(SUSPENSE_PREFIX);
+    const receiptId = isSuspense ? parseInt(id.replace(SUSPENSE_PREFIX, ''), 10) : null;
+
+    if (isSuspense) {
+      const { data: receipt, error: rErr } = await db
+        .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+      if (rErr) throw rErr;
+      if (!receipt) return res.status(404).json({ message: 'Suspense receipt not found' });
+
+      const updates = {};
+      if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
+      if (donor_name !== undefined) updates.donor_name = donor_name || null;
+      if (donor_pan !== undefined) updates.pan_number = donor_pan || null;
+      if (donor_address !== undefined) updates.address = donor_address || null;
+      if (donor_email !== undefined) updates.email = donor_email || null;
+      if (donor_city !== undefined) updates.donor_city = donor_city || null;
+      if (donor_pin_code !== undefined) updates.donor_pin_code = donor_pin_code || null;
+
+      if (fro_worker_id) {
+        const isStaticFro = String(fro_worker_id).startsWith('static-');
+        if (!isStaticFro) {
+          const { data: worker } = await db.from('workers').select('name').eq('id', fro_worker_id).maybeSingle();
+          if (worker?.name) updates.agent_name = worker.name;
+        }
+      }
+      if (verify_type !== undefined) updates.verify_type = verify_type || null;
+      if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
+
+      if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
+      const { data: saved, error: uErr } = await db.from('receipts').update(updates).eq('id', receiptId).select().single();
+      if (uErr) throw uErr;
+      return res.json(saved);
+    }
 
     const { data: entry, error: eErr } = await db
       .from('bank_audit_entries')
