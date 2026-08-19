@@ -20,6 +20,7 @@ const CLAIM_BADGES = {
   pending: { text: 'Claimed · Pending', color: '#b45309', bg: '#fef3c7' },
   verified: { text: 'Claim Verified', color: '#166534', bg: '#dcfce7' },
   rejected: { text: 'Claim Rejected', color: '#b91c1c', bg: '#fee2e2' },
+  receipt_sent: { text: 'Receipt Sent · Awaiting FRO', color: '#0369a1', bg: '#e0f2fe' },
 };
 
 const NGO_LABELS = { bsct: 'Being Sevak', mann: 'Mann Care', aflf: 'Ashray' };
@@ -251,8 +252,8 @@ export default function FroSuspense() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {list.map(r => {
-              const badge = CLAIM_BADGES[r.my_claim_status];
-              const claimable = !r.my_claim_status;
+              const badge = r.kind === 'receipt_sent' ? CLAIM_BADGES.receipt_sent : CLAIM_BADGES[r.my_claim_status];
+              const claimable = !r.my_claim_status || r.kind === 'receipt_sent';
               return (
                 <div key={r.id} onClick={() => claimable && openClaimModal(r)}
                   onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
