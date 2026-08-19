@@ -411,6 +411,49 @@ export const listEntries = async (req, res) => {
           status: 'unverified',
         }));
       entries.push(...claimedRows);
+
+      // Orphaned receipts: receipts that have a donor identified (donor_id set)
+      // but no FRO lead (log_id NULL) and agent_name is blank/suspense. These
+      // were created before the receipt_sent feature existed and have no
+      // bank_audit_entry, so they are invisible. Surface them here so Accounts
+      // can see and manage them.
+      const { rows: orphanedRows } = await db._pool.query(`
+        SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount,
+               r.receipt_date, r.receipt_time, r.project_id, r.payment_id,
+               r.agent_name, r.mode, r.bank_name
+        FROM receipts r
+        WHERE r.donor_id IS NOT NULL
+          AND r.log_id IS NULL
+          AND (r.agent_name IS NULL OR trim(r.agent_name) = '' OR lower(trim(r.agent_name)) IN ('na', 'suspense'))
+          AND NOT EXISTS (
+            SELECT 1 FROM bank_audit_entries b WHERE b.receipt_id = r.id
+          )
+        ORDER BY r.receipt_date DESC
+      `);
+      const orphaned = (orphanedRows || []).filter((r) => inRange(r.receipt_date) && !alreadyShown(r));
+      if (orphaned.length > 0) {
+        const orphanedMapped = orphaned.map((r) => ({
+          id: `suspense-${r.id}`,
+          kind: 'receipt_sent',
+          receipt_id: r.id,
+          receipt_no: r.receipt_no,
+          project_id: r.project_id,
+          donor_mobile: r.donor_mobile,
+          transaction_date: r.receipt_date,
+          payment_time: r.receipt_time,
+          amount: r.amount,
+          payment_id: r.payment_id || null,
+          payer_name: r.donor_name,
+          agent_name: r.agent_name,
+          mode: r.mode || null,
+          bank_name: r.bank_name || null,
+          remarks: r.receipt_no ? `Receipt sent ${r.receipt_no}` : 'Receipt sent',
+          source_id: null,
+          bank_audit_sources: { name: 'Receipt Sent' },
+          status: 'receipt_sent',
+        }));
+        entries.push(...orphanedMapped);
+      }
     }
 
     return res.json(entries);
