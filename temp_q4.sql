@@ -1,1 +1,0 @@
-SELECT be.id, be.status, be.receipt_id, be.receipt_no, be.donor_id, be.agent_name, be.payer_name, r.receipt_no as r_no, r.donor_id as r_donor_id, r.log_id as r_log_id, r.agent_name as r_agent_name FROM bank_audit_entries be LEFT JOIN receipts r ON r.id = be.receipt_id WHERE be.receipt_id IS NOT NULL AND be.status != 'verified' ORDER BY be.id DESC LIMIT 15;
