@@ -475,10 +475,11 @@ export default function Receipts() {
   }, [filteredDonors])
 
   const handleDownloadSingle = async () => {
-    if (selectedIndex == null) return
+    const idx = previewIndex ?? selectedIndex
+    if (idx == null) return
     setDownloadSingle(true)
     try {
-      const donor = donors[selectedIndex]
+      const donor = donors[idx]
       await downloadSinglePDF(receiptRef.current, donor, donor['Project'] || 'bsct')
     } catch (e) { alert('Failed to download PDF: ' + e.message) }
     setDownloadSingle(false)
