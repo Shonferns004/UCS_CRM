@@ -231,36 +231,10 @@ function AgentPicker({ value, workers, onChange }){
 }
 
 // ─── FRO Search Picker (for Manual Verify) ─────────────────
-function FroSearchPicker({ value, onChange }){
+function FroSearchPicker({ value, fros = [], onChange }){
   const [open,setOpen]=useState(false);
   const [q,setQ]=useState('');
   const boxRef=useRef(null);
-  const [fros,setFros]=useState([]);
-  const [loading,setLoading]=useState(true);
-
-  useEffect(()=>{
-    let alive=true;
-    (async()=>{
-      try{
-        const [a,b]=await Promise.allSettled([apiGet('/workers?status=all'),apiGet('/auth/fro-workers')]);
-        const allA=(a.status==='fulfilled'&&Array.isArray(a.value))?a.value:[];
-        const bVal=b.status==='fulfilled'&&b.value;
-        const allB=Array.isArray(bVal)?bVal:(bVal&&bVal.workers?bVal.workers:[]);
-        const merged=[...allA,...allB];
-        const seen=new Set();
-        const froList=merged.filter(w=>{
-          if(String(w.department||'').toLowerCase()!=='fro') return false;
-          const wid=String(w.id||'');
-          if(!wid||seen.has(wid)) return false;
-          seen.add(wid);
-          return true;
-        }).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-        if(alive) setFros(froList);
-      }catch(_){}
-      if(alive) setLoading(false);
-    })();
-    return ()=>{alive=false};
-  },[]);
 
   const kw=q.trim().toLowerCase();
   const list=kw?fros.filter(w=>(w.name||'').toLowerCase().includes(kw)||(w.login_id||'').toLowerCase().includes(kw)):fros;
@@ -284,17 +258,15 @@ function FroSearchPicker({ value, onChange }){
 
   return <div ref={boxRef} style={{position:'relative'}}>
     <div style={{position:'relative'}}>
-      <input placeholder={loading?"Loading FROs...":"Search FRO by name or login..."} value={q}
+      <input placeholder={fros.length===0?"Loading FROs...":"Search FRO by name or login..."} value={q}
         onChange={e=>{setQ(e.target.value);setOpen(true)}}
-        onFocus={()=>setOpen(true)}
-        style={{width:'100%',padding:'9px 12px',paddingRight:28,borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',outline:'none',boxSizing:'border-box',transition:'border-color .15s, box-shadow .15s'}}
-        onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}}
+         style={{width:'100%',padding:'9px 12px',paddingRight:28,borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,background:'#fff',outline:'none',boxSizing:'border-box',transition:'border-color .15s, box-shadow .15s'}}
+         onFocus={e=>{setOpen(true);e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}}
         onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     </div>
     {open&&<div style={{position:'absolute',zIndex:40,top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',maxHeight:250,overflowY:'auto'}}>
-      {loading?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>Loading FROs...</div>
-        :list.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>{kw?'No FROs found':'No FRO workers available'}</div>
+      {list.length===0?<div style={{padding:14,fontSize:12,color:'#9ca3af',textAlign:'center'}}>{kw?'No FROs found':'No FRO workers available'}</div>
         :list.map(w=><button key={w.id} type="button" onClick={()=>{onChange(String(w.id));setOpen(false);setQ('')}}
           style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',width:'100%',textAlign:'left',padding:'9px 12px',border:'none',borderBottom:'1px solid #f3f4f6',background:'#fff',cursor:'pointer',fontSize:12}}
           onMouseOver={e=>e.currentTarget.style.background='#f0f7ef'} onMouseOut={e=>e.currentTarget.style.background='#fff'}>
@@ -876,7 +848,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
           <div style={{gridColumn:'1 / -1'}}>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>FRO <span style={{color:'#9ca3af',fontWeight:400,textTransform:'none',letterSpacing:0}}>— optional</span></label>
-            <FroSearchPicker value={mvFro} onChange={id=>{setMvFro(id);setMvErr('')}}/>
+             <FroSearchPicker value={mvFro} fros={wr.filter(w=>String(w.department||'').toLowerCase()==='fro')} onChange={id=>{setMvFro(id);setMvErr('')}}/>
           </div>
           <div ref={mvSearchRef} style={{position:'relative',gridColumn:'1 / -1'}}>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Donor Mobile <span style={{color:'#dc2626'}}>*</span></label>

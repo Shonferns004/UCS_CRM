@@ -397,7 +397,7 @@ export const getFroWorkersForImpersonation = async (req, res) => {
       .select('id, name, login_id, ngo_id, department')
       .ilike('department', 'fro');
 
-    if (!isSuper && req.user.ngo_id) {
+    if (!isSuper && !['super_admin','master','accounts'].includes(operatorRole) && req.user.ngo_id) {
       query = query.eq('ngo_id', req.user.ngo_id);
     }
 
