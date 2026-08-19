@@ -842,7 +842,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {renderEntryFields(true,se)}
 
-      {!isReceiptSuspense(se)&&st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div ref={mvFormRef} style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
+      {st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div ref={mvFormRef} style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{width:28,height:28,borderRadius:8,background:'#dcfce7',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -914,7 +914,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
-          {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<button title="Manual Verify (FRO + Donor)" style={{flex:1,height:42,padding:'0 14px',display:'flex',alignItems:'center',justifyContent:'center',gap:7,background:'#059669',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:600,whiteSpace:'nowrap',transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)';e.currentTarget.style.transform='translateY(-1px)'}} onMouseOut={e=>{e.currentTarget.style.filter='none';e.currentTarget.style.transform='none'}}>
+          {st==='unverified'&&!showMvForm&&!mv&&<button title="Manual Verify (FRO + Donor)" style={{flex:1,height:42,padding:'0 14px',display:'flex',alignItems:'center',justifyContent:'center',gap:7,background:'#059669',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:600,whiteSpace:'nowrap',transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)';e.currentTarget.style.transform='translateY(-1px)'}} onMouseOut={e=>{e.currentTarget.style.filter='none';e.currentTarget.style.transform='none'}}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Manual Verify
           </button>}
