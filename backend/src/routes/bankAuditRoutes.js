@@ -8,7 +8,7 @@ import {
   listFroSuspense, resolveSuspenseEntry,
   runAutoMatch, confirmMatch, clearMatch,
   editSuspenseReceipt, removeSuspenseReceipt,
-  searchPendingLeads, manualVerifyEntry, saveManualVerifyDetails,
+  searchPendingLeads, manualVerifyEntry, saveManualVerifyDetails, syncReceiptFields,
 } from '../controllers/bankAuditController.js';
 
 const router = Router();
@@ -40,6 +40,7 @@ router.post('/entries/:id/manual-verify', authenticateRole('accounts', 'super_ad
 router.put('/entries/:id/manual-verify-details', authenticateRole('accounts', 'super_admin'), saveManualVerifyDetails);
 
 router.get('/summary', authenticateRole('accounts', 'super_admin'), getSummary);
+router.post('/sync-receipt-fields', authenticateRole('accounts', 'super_admin'), syncReceiptFields);
 
 // NGO Admin routes
 router.get('/ngo-suspense', authenticateRole('admin', 'admin', 'super_admin'), listNgoSuspense);
