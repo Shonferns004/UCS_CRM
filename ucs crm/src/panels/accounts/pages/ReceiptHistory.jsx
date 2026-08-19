@@ -156,6 +156,7 @@ export default function ReceiptHistory() {
   const [cleanMode, setCleanMode] = useState('all');
   const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [goBackLoading, setGoBackLoading] = useState(false);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
@@ -435,6 +436,21 @@ export default function ReceiptHistory() {
   const closePreview = () => {
     setPreview(null);
     if (savedDetail) { setDonorDetail(savedDetail); setSavedDetail(null); }
+  };
+
+  const handleGoBack = async () => {
+    if (!preview?.receipt?.id || goBackLoading) return;
+    if (!window.confirm('This receipt will be returned to Bank Audit. Continue?')) return;
+    setGoBackLoading(true);
+    try {
+      await apiPost(`/accounts/receipts/${preview.receipt.id}/undo`);
+      setPreview(null);
+      loadHistory();
+    } catch (err) {
+      alert('Failed: ' + err.message);
+    } finally {
+      setGoBackLoading(false);
+    }
   };
 
   const buildFilterParams = (extra = {}) => {
@@ -779,6 +795,14 @@ export default function ReceiptHistory() {
                     {waResult.message}
                   </span>
                 )}
+                <button onClick={handleGoBack} disabled={goBackLoading} title="Return to Bank Audit"
+                  style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {goBackLoading ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                  )}
+                </button>
                 <button onClick={handleDownload} disabled={downloading} title="Download PDF"
                   style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {downloading ? (
