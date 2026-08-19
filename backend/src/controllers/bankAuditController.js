@@ -209,7 +209,9 @@ export const listEntries = async (req, res) => {
       // attached (FRO claim / import FSE / Accounts assignment), the money is
       // handled and leaves the Accounts suspense pool, consistent with the bare
       // suspense rule in getUnlinkedReceipts.
-      e.kind = (r && !r.donor_id && !r.log_id
+      // A receipt with a receipt_no is also never suspense — it has been
+      // accounted for regardless of the other fields.
+      e.kind = (r && !r.donor_id && !r.log_id && !r.receipt_no
                  && !BankAudit.isPriyankShahAgent(r.agent_name)
                  && BankAudit.isBlankSuspenseValue(r.agent_name)
                  && BankAudit.isBlankSuspenseValue(r.donor_mobile))
@@ -1019,6 +1021,22 @@ export const saveManualVerifyDetails = async (req, res) => {
     if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
 
     const saved = await BankAudit.updateEntry(id, updates);
+
+    // Sync the linked receipt so the kind check (listEntries) sees updated
+    // values and moves the entry out of the Suspense pool.
+    if (entry.receipt_id) {
+      const rcptUpdates = {};
+      if (updates.agent_name !== undefined) rcptUpdates.agent_name = updates.agent_name;
+      if (updates.donor_mobile !== undefined) rcptUpdates.donor_mobile = updates.donor_mobile;
+      if (updates.payer_name !== undefined) rcptUpdates.donor_name = updates.payer_name;
+      if (updates.donor_pan !== undefined) rcptUpdates.pan_number = updates.donor_pan;
+      if (updates.donor_address_1 !== undefined) rcptUpdates.address = updates.donor_address_1;
+      if (updates.donor_email !== undefined) rcptUpdates.email = updates.donor_email;
+      if (Object.keys(rcptUpdates).length > 0) {
+        await db.from('receipts').update(rcptUpdates).eq('id', entry.receipt_id);
+      }
+    }
+
     return res.json(saved);
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1089,6 +1107,17 @@ export const manualVerifyEntry = async (req, res) => {
       }
 
       await db.from('receipts').update(receiptPatch).eq('id', receiptId);
+
+      // If this receipt was claimed by an FRO (has a log_id), mark the lead
+      // as verified so it disappears from the pending Leads list.
+      if (receipt.log_id) {
+        try {
+          await db.from('fro_donor_logs')
+            .update({ accounts_status: 'verified', verified_at: new Date().toISOString(), verified_by: req.user?.id || null })
+            .eq('id', receipt.log_id)
+            .eq('accounts_status', 'pending');
+        } catch (e) { console.error('Failed to verify claimed lead from suspense receipt:', e.message); }
+      }
 
       return res.json({
         message: `Suspense receipt verified. Receipt No: ${receiptPatch.receipt_no || receipt.receipt_no || ''}`,
