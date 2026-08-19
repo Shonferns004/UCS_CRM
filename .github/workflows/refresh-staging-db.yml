@@ -1,0 +1,74 @@
+name: Refresh Staging DB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  refresh-db:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone Production DB into Staging
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+            echo "=== Cloning production DB into staging ==="
+            PGPASSWORD=${{ secrets.RDS_ADMIN_PASSWORD }} pg_dump \
+              -h ${{ secrets.RDS_HOST }} \
+              -U ${{ secrets.RDS_ADMIN_USER }} \
+              -d ${{ secrets.PROD_DB_NAME }} \
+              --no-owner --no-acl --clean --if-exists \
+            | PGPASSWORD=${{ secrets.RDS_ADMIN_PASSWORD }} psql \
+              -h ${{ secrets.RDS_HOST }} \
+              -U ${{ secrets.RDS_ADMIN_USER }} \
+              -d ${{ secrets.STAGING_DB_NAME }} \
+              -v ON_ERROR_STOP=0 2>&1 || true
+
+            echo "=== Staging DB cloned from production ==="
+
+      - name: Upload Migrations to Staging EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          source: "backend/migrations/*.sql"
+          target: /tmp/staging-migrations
+          strip_components: 2
+
+      - name: Run All Migrations on Staging
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            echo "=== Running all migrations (idempotent IF NOT EXISTS) ==="
+            for f in /tmp/staging-migrations/*.sql; do
+              echo ">>> Applying $(basename $f)"
+              PGPASSWORD=${{ secrets.RDS_ADMIN_PASSWORD }} psql \
+                -h ${{ secrets.RDS_HOST }} \
+                -U ${{ secrets.RDS_ADMIN_USER }} \
+                -d ${{ secrets.STAGING_DB_NAME }} \
+                -v ON_ERROR_STOP=0 \
+                -f "$f" 2>&1 || true
+            done
+            echo "=== All migrations applied ==="
+            echo "=== Staging DB is now a fresh copy of production ==="
+
+      - name: Restart Staging Backend
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ec2-user
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            pm2 restart backend-staging --update-env

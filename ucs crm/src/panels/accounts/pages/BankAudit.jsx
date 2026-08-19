@@ -26,7 +26,7 @@ const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id ==
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
-const MODE_OPTIONS=['Google Pay','razorpay','online','PUM','others'];
+const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','others'];
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
@@ -468,6 +468,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
             {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
             {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
+            {e.verify_type&&<span className="pill" style={{fontSize:10,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap',fontWeight:700}}>SAVED</span>}
             <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
             {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name||e.match_fro}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
@@ -638,7 +639,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select received bank...</option>
               {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-              <option value="freecharge">Freecharge</option>
             </select>
           </label>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
@@ -842,7 +842,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       {renderEntryFields(true,se)}
 
-      {!isReceiptSuspense(se)&&st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div ref={mvFormRef} style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
+      {st==='unverified'&&(showMvForm||mv)&&(mv||showMvForm)&&<div ref={mvFormRef} style={{margin:'16px 0',padding:'16px',background:'#f8fdf8',border:'1.5px solid #cfe3cb',borderRadius:10}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{width:28,height:28,borderRadius:8,background:'#dcfce7',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -914,7 +914,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
       <div style={{position:'sticky',bottom:-18,margin:'16px -18px -18px',padding:'12px 18px',background:'rgba(255,255,255,.97)',borderTop:'1px solid #e5e7eb',boxShadow:'0 -2px 12px rgba(0,0,0,.06)'}}>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
-          {!isReceiptSuspense(se)&&st==='unverified'&&!showMvForm&&!mv&&<button title="Manual Verify (FRO + Donor)" style={{flex:1,height:42,padding:'0 14px',display:'flex',alignItems:'center',justifyContent:'center',gap:7,background:'#059669',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:600,whiteSpace:'nowrap',transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)';e.currentTarget.style.transform='translateY(-1px)'}} onMouseOut={e=>{e.currentTarget.style.filter='none';e.currentTarget.style.transform='none'}}>
+          {st==='unverified'&&!showMvForm&&!mv&&<button title="Manual Verify (FRO + Donor)" style={{flex:1,height:42,padding:'0 14px',display:'flex',alignItems:'center',justifyContent:'center',gap:7,background:'#059669',color:'#fff',border:'none',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:600,whiteSpace:'nowrap',transition:'all .15s'}} onClick={()=>openManualVerify(se)} onMouseOver={e=>{e.currentTarget.style.filter='brightness(.92)';e.currentTarget.style.transform='translateY(-1px)'}} onMouseOut={e=>{e.currentTarget.style.filter='none';e.currentTarget.style.transform='none'}}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             Manual Verify
           </button>}
