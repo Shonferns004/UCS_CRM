@@ -985,6 +985,7 @@ export const saveManualVerifyDetails = async (req, res) => {
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
       donor_email, donor_city, donor_pin_code, donor_address_2,
+      verify_type, verify_fro_worker_id,
     } = req.body || {};
 
     const { data: entry, error: eErr } = await db
@@ -1012,6 +1013,9 @@ export const saveManualVerifyDetails = async (req, res) => {
       }
       if (froName) updates.agent_name = froName;
     }
+
+    if (verify_type !== undefined) updates.verify_type = verify_type || null;
+    if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
     if (donor_name !== undefined) updates.donor_name = donor_name || null;
@@ -1043,6 +1047,7 @@ export const manualVerifyEntry = async (req, res) => {
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
       donor_email, donor_city, donor_pin_code, donor_address_2, project_id,
+      verify_type, verify_fro_worker_id,
     } = req.body || {};
 
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
@@ -1297,6 +1302,8 @@ export const manualVerifyEntry = async (req, res) => {
         donor_city: donor_city || donor.city || null,
         donor_pin_code: donor_pin_code || donor.pin_code || null,
       };
+      if (verify_type) entryPatch.verify_type = verify_type;
+      if (verify_fro_worker_id) entryPatch.verify_fro_worker_id = verify_fro_worker_id;
       if (editableUntil) entryPatch.editable_until = editableUntil;
       if (isStaticFro) entryPatch.match_source = 'static_fro';
       await from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
