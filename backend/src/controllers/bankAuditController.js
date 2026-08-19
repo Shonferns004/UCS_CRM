@@ -964,8 +964,6 @@ export const saveManualVerifyDetails = async (req, res) => {
       if (donor_pan !== undefined) updates.pan_number = donor_pan || null;
       if (donor_address !== undefined) updates.address = donor_address || null;
       if (donor_email !== undefined) updates.email = donor_email || null;
-      if (donor_city !== undefined) updates.donor_city = donor_city || null;
-      if (donor_pin_code !== undefined) updates.donor_pin_code = donor_pin_code || null;
 
       if (fro_worker_id) {
         const isStaticFro = String(fro_worker_id).startsWith('static-');
