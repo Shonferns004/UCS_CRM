@@ -1,0 +1,1 @@
+SELECT be.id, be.donor_id as be_donor_id, be.agent_name as be_agent, r.id as r_id, r.donor_id as r_donor_id, r.log_id as r_log_id, r.agent_name as r_agent, r.receipt_no FROM bank_audit_entries be LEFT JOIN receipts r ON r.id = be.receipt_id WHERE be.donor_id IS NOT NULL AND (be.agent_name IS NULL OR be.agent_name = '') AND be.status != 'verified' ORDER BY be.id DESC LIMIT 10;

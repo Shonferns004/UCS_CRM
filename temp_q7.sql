@@ -1,0 +1,1 @@
+SELECT id, status, receipt_id, receipt_no, donor_id, agent_name, payer_name, amount, transaction_date FROM bank_audit_entries WHERE donor_id IS NOT NULL AND (agent_name IS NULL OR agent_name = '' OR agent_name ILIKE '%suspense%') AND status != 'verified' ORDER BY id DESC LIMIT 20;
