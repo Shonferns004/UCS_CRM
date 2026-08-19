@@ -1702,26 +1702,36 @@ export const getNewData = async (req, res) => {
         if (!latest[key]) latest[key] = row;
       }
       const entries = Object.values(latest);
-      const mobiles = [...new Set(entries.map(e => e.mobile_number))];
 
-      // Safety check: also exclude if donor_profile already exists (backward compat)
-      // Batch into groups of 500 to avoid Cloudflare 414 URI too large, run in parallel
-      const existingMobiles = new Set();
+      // Safety check: exclude only if donor_profile exists FOR THE SAME NGO (per-NGO isolation)
+      // Group mobiles by NGO, then check donor_profiles with ngo filter
+      const mobilesByNgo = {};
+      for (const e of entries) {
+        if (!mobilesByNgo[e.ngo]) mobilesByNgo[e.ngo] = [];
+        mobilesByNgo[e.ngo].push(e.mobile_number);
+      }
+
+      const existingMobilesByNgo = {};
       const BATCH_SIZE = 500;
-      const batchQueries = [];
-      for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
-        const batch = mobiles.slice(i, i + BATCH_SIZE);
-        batchQueries.push(
-          db.from('donor_profiles').select('mobile_number').in('mobile_number', batch)
-        );
-      }
-      const batchResults = await Promise.allSettled(batchQueries);
-      for (const r of batchResults) {
-        if (r.status === 'fulfilled' && r.value.data) {
-          r.value.data.forEach(p => existingMobiles.add(p.mobile_number));
+      for (const [ngo, mobiles] of Object.entries(mobilesByNgo)) {
+        const existingMobiles = new Set();
+        const batchQueries = [];
+        for (let i = 0; i < mobiles.length; i += BATCH_SIZE) {
+          const batch = mobiles.slice(i, i + BATCH_SIZE);
+          batchQueries.push(
+            db.from('donor_profiles').select('mobile_number').in('mobile_number', batch).eq('ngo', ngo)
+          );
         }
+        const batchResults = await Promise.allSettled(batchQueries);
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled' && r.value.data) {
+            r.value.data.forEach(p => existingMobiles.add(p.mobile_number));
+          }
+        }
+        existingMobilesByNgo[ngo] = existingMobiles;
       }
-      unassigned = entries.filter(e => !existingMobiles.has(e.mobile_number));
+
+      unassigned = entries.filter(e => !existingMobilesByNgo[e.ngo]?.has(e.mobile_number));
     }
 
     // 2. NGO's donor_profiles not yet FRO-assigned
@@ -1788,16 +1798,26 @@ export const distributeNewData = async (req, res) => {
       try {
       const batchId = crypto.randomUUID();
       console.log(`[${ngoName}] === Processing NGO: ${ngoName} (id=${ngoId}) ===`);
-      // Step 1: Create donor_profiles from new_data
-      const PROCESS_BATCH = 10000;
-      const { data: importedRows, error: irErr } = await db
-        .from('new_data')
-        .select('name, mobile_number, category, amount')
-        .eq('ngo', ngoName)
-        .not('mobile_number', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(PROCESS_BATCH);
-      console.log(`[${ngoName}] importedRows count:`, importedRows?.length, 'error:', irErr);
+      // Step 1: Create donor_profiles from new_data (fetch ALL rows, paginated)
+      const PAGE = 10000;
+      let importedRows = [];
+      let offset = 0;
+      for (;;) {
+        const { data, error } = await db
+          .from('new_data')
+          .select('name, mobile_number, category, amount')
+          .eq('ngo', ngoName)
+          .not('mobile_number', 'is', null)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(offset, offset + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        importedRows = importedRows.concat(data);
+        if (data.length < PAGE) break;
+        offset += PAGE;
+      }
+      console.log(`[${ngoName}] importedRows count:`, importedRows.length);
 
       let newProfileIds = [];
       let allMobiles = [];
