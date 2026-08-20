@@ -123,6 +123,9 @@ export default function Dashboard() {
   const [showCollections, setShowCollections] = useState(false)
   const [collectionsData, setCollectionsData] = useState(null)
   const [collectionsLoading, setCollectionsLoading] = useState(false)
+  const [selectedCollectionNgo, setSelectedCollectionNgo] = useState('all')
+  const [collectionsByNgo, setCollectionsByNgo] = useState({})
+  const [ngoMap, setNgoMap] = useState({})
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -208,10 +211,13 @@ export default function Dashboard() {
     setCollectionsLoading(true)
     try {
       const res = await getMyCollections()
-      setCollectionsData(res || { collections: [], month: '' })
+      setCollectionsByNgo(res?.collections || { all: [] })
+      setNgoMap(res?.ngoMap || {})
+      setSelectedCollectionNgo('all')
     } catch (err) {
       console.error('Error:', err.message)
-      setCollectionsData({ collections: [], month: '' })
+      setCollectionsByNgo({ all: [] })
+      setNgoMap({})
     } finally {
       setCollectionsLoading(false)
     }
@@ -781,25 +787,44 @@ export default function Dashboard() {
           onClick={() => setShowCollections(false)}>
           <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
-                  {collectionsLoading ? 'Loading…' : `${collectionsData?.month || ''} · ${collectionsData?.collections?.length || 0} collection${collectionsData?.collections?.length === 1 ? '' : 's'}`}
+                  {collectionsLoading ? 'Loading…' : `${collectionsByNgo[selectedCollectionNgo]?.length || 0} collections`}
                 </div>
               </div>
-              <button onClick={() => setShowCollections(false)}
-                style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
-                ×
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {/* NGO Tabs */}
+                <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+                  {['all', ...Object.keys(ngoMap)].map(ngoId => (
+                    <button
+                      key={ngoId}
+                      onClick={() => setSelectedCollectionNgo(ngoId)}
+                      style={{
+                        padding: '4px 10px', borderRadius: 4, border: 'none',
+                        fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                        background: selectedCollectionNgo === ngoId ? 'var(--sage)' : 'transparent',
+                        color: selectedCollectionNgo === ngoId ? '#fff' : 'var(--ink-soft)',
+                      }}
+                    >
+                      {ngoId === 'all' ? 'All' : ngoMap[ngoId]}
+                      <span style={{ marginLeft: 4, opacity: 0.7 }}>
+                        ({collectionsByNgo[ngoId]?.length || 0})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setShowCollections(false)} style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>×</button>
+              </div>
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
               {collectionsLoading ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
-              ) : (collectionsData?.collections || []).length === 0 ? (
+              ) : (collectionsByNgo[selectedCollectionNgo] || []).length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collections this month</div>
               ) : (
-                (collectionsData?.collections || []).map(c => (
+                (collectionsByNgo[selectedCollectionNgo] || []).map(c => (
                   <div key={c.id} style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
                     background: 'var(--bg)', border: '1px solid var(--line)',
