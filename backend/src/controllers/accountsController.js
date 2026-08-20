@@ -1317,8 +1317,6 @@ export const deleteLead = async (req, res) => {
       return res.status(400).json({ message: `Only pending leads can be deleted (this one is ${log.accounts_status || 'processed'})` });
     }
 
-    const assignmentId = log.fro_assignments?.id;
-
     // Release any suspense-claim receipt linked to this lead back to the pool
     // (also required to satisfy the receipts->fro_donor_logs FK before deleting).
     try {
@@ -1333,15 +1331,6 @@ export const deleteLead = async (req, res) => {
       .delete()
       .eq('id', logId);
     if (delError) throw delError;
-
-    // Revert the assignment so the FRO can rework this lead
-    if (assignmentId) {
-      const { error: asgnError } = await db
-        .from('fro_assignments')
-        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
-        .eq('id', assignmentId);
-      if (asgnError) throw asgnError;
-    }
 
     return res.json({ message: 'Lead deleted', log_id: logId });
   } catch (error) {
@@ -1361,7 +1350,6 @@ export const deleteAllPendingLeads = async (req, res) => {
     if (listError) throw listError;
 
     const ids = (logs || []).map(l => l.id);
-    const assignmentIds = [...new Set((logs || []).map(l => l.assignment_id).filter(Boolean))];
 
     if (ids.length > 0) {
       const { error: delError } = await db
@@ -1369,15 +1357,6 @@ export const deleteAllPendingLeads = async (req, res) => {
         .delete()
         .in('id', ids);
       if (delError) throw delError;
-    }
-
-    if (assignmentIds.length > 0) {
-      const { error: asgnError } = await db
-        .from('fro_assignments')
-        .update({ status: 'pending', last_contacted_at: new Date().toISOString() })
-        .in('id', assignmentIds)
-        .eq('status', 'lead_done');
-      if (asgnError) throw asgnError;
     }
 
     return res.json({ message: 'Pending leads deleted', deleted: ids.length });
