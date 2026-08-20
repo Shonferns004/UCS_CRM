@@ -34,7 +34,7 @@ export function KPICard({
     
     const duration = 800;
     const start = performance.now();
-    const animate = (now) => {
+    const tick = (now) => {
       const progress = Math.min((now - start) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
       const display = previous + (current - previous) * eased;
@@ -43,9 +43,9 @@ export function KPICard({
           ? '₹' + Math.round(display).toLocaleString('en-IN')
           : Math.round(display).toLocaleString('en-IN');
       }
-      if (progress < 1) requestAnimationFrame(animate);
+      if (progress < 1) requestAnimationFrame(tick);
     };
-    requestAnimationFrame(animate);
+    requestAnimationFrame(tick);
     prevValueRef.current = current;
   }, [value, animate, isCurrency]);
 
@@ -72,7 +72,7 @@ export function KPICard({
             color: iconColor,
             flexShrink: 0,
           }}>
-            {Icon}
+            {Icon ? (Icon.props ? Icon : <Icon size={20} />) : null}
           </div>
         )}
         <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontWeight: 500, flex: 1 }}>{label}</span>

@@ -47,7 +47,7 @@ export function DonationFunnel({ data, onStageClick, animate = true }) {
 
           return (
             <button
-              key={stage.stage}
+              key={`${stage.stage}-${index}`}
               onClick={() => onStageClick?.(stage.stage)}
               style={{
                 display: 'flex',
@@ -80,7 +80,7 @@ export function DonationFunnel({ data, onStageClick, animate = true }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{stage.stage}</span>
                   <span style={{ fontSize: 11, fontWeight: 600, color, background: color + '15', padding: '2px 8px', borderRadius: 999 }}>
-                    {stage.count.toLocaleString('en-IN')}
+                    {(stage.count || 0).toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div style={{ height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
@@ -98,7 +98,7 @@ export function DonationFunnel({ data, onStageClick, animate = true }) {
               
               <div style={{ textAlign: 'right', minWidth: 80, flexShrink: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
-                  {stage.count.toLocaleString('en-IN')}
+                  {(stage.count || 0).toLocaleString('en-IN')}
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 500 }}>
                   {pctOfTotal}% of total
@@ -109,7 +109,7 @@ export function DonationFunnel({ data, onStageClick, animate = true }) {
         })}
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes fadeInUp {
           to {
             opacity: 1;
