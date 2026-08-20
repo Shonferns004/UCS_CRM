@@ -37,6 +37,7 @@ export const getLeadList = async (req, res) => {
       `)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
+      .not('fro_worker_id', 'is', null)
       .order('created_at', { ascending: false });
 
     if (status) {
