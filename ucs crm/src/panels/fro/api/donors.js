@@ -63,8 +63,9 @@ export async function getMyDashboard() {
   return api('/fro/dashboard', { _prefix: 'ucs' })
 }
 
-export async function getMyCollections() {
-  return api('/fro/dashboard/collections', { _prefix: 'ucs' })
+export async function getMyCollections(ngoId) {
+  const params = ngoId ? `?ngo_id=${ngoId}` : ''
+  return api(`/fro/dashboard/collections${params}`, { _prefix: 'ucs' })
 }
 
 export async function getSuspenseReceipts() {

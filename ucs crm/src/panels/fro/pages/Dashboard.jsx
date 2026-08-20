@@ -123,6 +123,8 @@ export default function Dashboard() {
   const [showCollections, setShowCollections] = useState(false)
   const [collectionsData, setCollectionsData] = useState(null)
   const [collectionsLoading, setCollectionsLoading] = useState(false)
+  const [collectionNgoFilter, setCollectionNgoFilter] = useState(null)
+  const [collectionNgos, setCollectionNgos] = useState([])
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -203,12 +205,15 @@ export default function Dashboard() {
     }
   }
 
-  const openCollections = async () => {
+  const openCollections = async (ngoId) => {
     setShowCollections(true)
     setCollectionsLoading(true)
+    if (ngoId !== undefined) setCollectionNgoFilter(ngoId)
     try {
-      const res = await getMyCollections()
+      const activeNgo = ngoId !== undefined ? ngoId : collectionNgoFilter
+      const res = await getMyCollections(activeNgo)
       setCollectionsData(res || { collections: [], month: '' })
+      if (res?.ngos) setCollectionNgos(res.ngos)
     } catch (err) {
       console.error('Error:', err.message)
       setCollectionsData({ collections: [], month: '' })
@@ -781,17 +786,31 @@ export default function Dashboard() {
           onClick={() => setShowCollections(false)}>
           <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
-                  {collectionsLoading ? 'Loading…' : `${collectionsData?.month || ''} · ${collectionsData?.collections?.length || 0} collection${collectionsData?.collections?.length === 1 ? '' : 's'}`}
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
+                    {collectionsLoading ? 'Loading…' : `${collectionsData?.month || ''} · ${collectionsData?.collections?.length || 0} collection${collectionsData?.collections?.length === 1 ? '' : 's'}`}
+                  </div>
                 </div>
+                <button onClick={() => { setShowCollections(false); setCollectionNgoFilter(null) }}
+                  style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
+                  ×
+                </button>
               </div>
-              <button onClick={() => setShowCollections(false)}
-                style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
-                ×
-              </button>
+              {collectionNgos.length > 1 && (
+                <div style={{ display: 'flex', gap: 4, marginTop: 10, flexWrap: 'wrap' }}>
+                  {collectionNgos.map(n => (
+                    <button key={n.id} onClick={() => openCollections(n.id)}
+                      style={{ padding: '4px 10px', borderRadius: 999, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
+                        background: collectionNgoFilter === n.id ? 'var(--sage)' : 'var(--bg)',
+                        color: collectionNgoFilter === n.id ? '#fff' : 'var(--ink-soft)' }}>
+                      {n.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
               {collectionsLoading ? (
@@ -808,7 +827,12 @@ export default function Dashboard() {
                       {c.donor_name?.charAt(0) || '?'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</span>
+                        {c.ngo_name && (
+                          <span style={{ fontSize: 8, fontWeight: 700, color: '#6d28d9', background: '#ede9fe', border: '1px solid #ddd6fe', padding: '1px 5px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>{c.ngo_name}</span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{c.donor_mobile || '—'}</div>
                       {c.is_work_as && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3, fontSize: 8.5, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', padding: '1px 6px', borderRadius: 999 }}>
@@ -818,6 +842,9 @@ export default function Dashboard() {
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(c.amount_collected)}</div>
+                      {c.receipt_no && (
+                        <div style={{ fontSize: 9, fontWeight: 600, color: '#7c3aed' }}>#{c.receipt_no}</div>
+                      )}
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{fmtStamp(c.collected_at)}</div>
                     </div>
                   </div>
