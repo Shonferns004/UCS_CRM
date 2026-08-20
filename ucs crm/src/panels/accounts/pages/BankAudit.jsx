@@ -668,7 +668,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
-            <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} disabled />
+            <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
           </label>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payment Time {!isEdit&&<span style={{color:'#dc2626'}}>*</span>}</span>
