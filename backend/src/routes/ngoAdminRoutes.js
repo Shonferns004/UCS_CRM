@@ -69,6 +69,17 @@ import {
   cleanupOrphanedStations,
   uploadOldData,
   uploadOldDataForStation,
+  // NEW Dashboard APIs
+  getTLDashboard,
+  getDonationFunnel,
+  getHourlyPerformance,
+  getFollowups,
+  reassignFollowup,
+  updateFollowupDate,
+  getIdleAlerts,
+  getTopPerformers,
+  getBottomPerformers,
+  getAssignedData,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -83,6 +94,23 @@ router.use(authenticateRole('admin', 'super_admin'));
 router.get('/dashboard', getDashboard);
 router.get('/dashboard/daily-target', getDailyTarget);
 router.get('/dashboard/station-stats', getStationStats);
+
+// NEW TL Dashboard APIs
+router.get('/tl-dashboard', getTLDashboard);
+router.get('/dashboard/donation-funnel', getDonationFunnel);
+router.get('/dashboard/hourly-performance', getHourlyPerformance);
+router.get('/dashboard/idle-alerts', getIdleAlerts);
+router.get('/dashboard/top-performers', getTopPerformers);
+router.get('/dashboard/bottom-performers', getBottomPerformers);
+
+// Follow-up Management
+router.get('/followups', getFollowups);
+router.put('/followups/:assignmentId/reassign', reassignFollowup);
+router.put('/followups/:assignmentId/date', updateFollowupDate);
+
+// Assigned Data
+router.get('/assigned-data', getAssignedData);
+
 router.get('/ngos', getAccessibleNgos);
 router.get('/donors', getDonors);
 router.get('/donors/:donorId/credit', getDonorCreditLogs);

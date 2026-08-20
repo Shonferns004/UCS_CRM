@@ -6,6 +6,7 @@ import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
 import { cacheGet, cacheSet } from '../../../utils/cache'
 import { useCall } from '../CallContext'
+import { api } from '../api/auth'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
 
@@ -123,8 +124,9 @@ export default function Dashboard() {
   const [showCollections, setShowCollections] = useState(false)
   const [collectionsData, setCollectionsData] = useState(null)
   const [collectionsLoading, setCollectionsLoading] = useState(false)
-  const [collectionNgoFilter, setCollectionNgoFilter] = useState(null)
-  const [collectionNgos, setCollectionNgos] = useState([])
+  const [selectedCollectionNgo, setSelectedCollectionNgo] = useState('all')
+  const [collectionsByNgo, setCollectionsByNgo] = useState({})
+  const [ngoMap, setNgoMap] = useState({})
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
   const [reactivatedDonors, setReactivatedDonors] = useState([])
   const [reactivatedCount, setReactivatedCount] = useState(0)
@@ -210,13 +212,47 @@ export default function Dashboard() {
     setCollectionsLoading(true)
     if (ngoId !== undefined) setCollectionNgoFilter(ngoId)
     try {
-      const activeNgo = ngoId !== undefined ? ngoId : collectionNgoFilter
-      const res = await getMyCollections(activeNgo)
-      setCollectionsData(res || { collections: [], month: '' })
-      if (res?.ngos) setCollectionNgos(res.ngos)
+      const res = await getMyCollections()
+      let collectionsByNgo = res?.collections || { all: [] }
+      let ngoMap = res?.ngoMap || {}
+      
+      // Handle both API response formats:
+      // New format: { all: [...], ngoId1: [...], ngoId2: [...] }
+      // Old format: flat array [...]
+      if (Array.isArray(collectionsByNgo)) {
+        const allCollections = collectionsByNgo
+        // Build NGO map from collections if not provided
+        if (Object.keys(ngoMap).length === 0) {
+          const ngoIds = new Set()
+          for (const c of allCollections) {
+            if (c.ngo_id) ngoIds.add(c.ngo_id)
+          }
+          if (ngoIds.size > 0) {
+            const { data: ngos } = await api(`/ngo-admin/ngos`)
+            const allNgos = ngos || []
+            for (const nid of ngoIds) {
+              const ngo = allNgos.find(n => n.id === nid)
+              if (ngo) ngoMap[nid] = ngo.name
+            }
+          }
+        }
+        // Group by NGO
+        const byNgo = {}
+        for (const c of allCollections) {
+          const ngoId = c.ngo_id || null
+          if (!byNgo[ngoId]) byNgo[ngoId] = []
+          byNgo[ngoId].push(c)
+        }
+        collectionsByNgo = { all: allCollections, ...byNgo }
+      }
+      
+      setCollectionsByNgo(collectionsByNgo)
+      setNgoMap(ngoMap)
+      setSelectedCollectionNgo('all')
     } catch (err) {
       console.error('Error:', err.message)
-      setCollectionsData({ collections: [], month: '' })
+      setCollectionsByNgo({ all: [] })
+      setNgoMap({})
     } finally {
       setCollectionsLoading(false)
     }
@@ -786,39 +822,48 @@ export default function Dashboard() {
           onClick={() => setShowCollections(false)}>
           <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
-                    {collectionsLoading ? 'Loading…' : `${collectionsData?.month || ''} · ${collectionsData?.collections?.length || 0} collection${collectionsData?.collections?.length === 1 ? '' : 's'}`}
-                  </div>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
+                  {collectionsLoading ? 'Loading…' : `${collectionsByNgo[selectedCollectionNgo]?.length || 0} collections`}
                 </div>
                 <button onClick={() => { setShowCollections(false); setCollectionNgoFilter(null) }}
                   style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
                   ×
                 </button>
               </div>
-              {collectionNgos.length > 1 && (
-                <div style={{ display: 'flex', gap: 4, marginTop: 10, flexWrap: 'wrap' }}>
-                  {collectionNgos.map(n => (
-                    <button key={n.id} onClick={() => openCollections(n.id)}
-                      style={{ padding: '4px 10px', borderRadius: 999, border: 'none', fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', transition: 'all .15s',
-                        background: collectionNgoFilter === n.id ? 'var(--sage)' : 'var(--bg)',
-                        color: collectionNgoFilter === n.id ? '#fff' : 'var(--ink-soft)' }}>
-                      {n.name}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {/* NGO Tabs */}
+                <div style={{ display: 'flex', gap: 2, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+                  {['all', ...Object.keys(ngoMap)].map(ngoId => (
+                    <button
+                      key={ngoId}
+                      onClick={() => setSelectedCollectionNgo(ngoId)}
+                      style={{
+                        padding: '4px 10px', borderRadius: 4, border: 'none',
+                        fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                        background: selectedCollectionNgo === ngoId ? 'var(--sage)' : 'transparent',
+                        color: selectedCollectionNgo === ngoId ? '#fff' : 'var(--ink-soft)',
+                      }}
+                    >
+                      {ngoId === 'all' ? 'All' : ngoMap[ngoId]}
+                      <span style={{ marginLeft: 4, opacity: 0.7 }}>
+                        ({collectionsByNgo[ngoId]?.length || 0})
+                      </span>
                     </button>
                   ))}
                 </div>
-              )}
+                <button onClick={() => setShowCollections(false)} style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>×</button>
+              </div>
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
               {collectionsLoading ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
-              ) : (collectionsData?.collections || []).length === 0 ? (
+              ) : (collectionsByNgo[selectedCollectionNgo] || []).length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collections this month</div>
               ) : (
-                (collectionsData?.collections || []).map(c => (
+                (collectionsByNgo[selectedCollectionNgo] || []).map(c => (
                   <div key={c.id} style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
                     background: 'var(--bg)', border: '1px solid var(--line)',
