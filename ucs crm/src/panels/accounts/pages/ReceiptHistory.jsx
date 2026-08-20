@@ -519,12 +519,14 @@ export default function ReceiptHistory() {
     }
   };
 
-  const isRecentReceipt = (r) => {
-    if (!r.created_at) return false;
-    const created = new Date(r.created_at);
-    const today = new Date();
-    return created.toDateString() === today.toDateString();
-  };
+  const mostRecentPerNgo = useMemo(() => {
+    const map = {};
+    for (const r of receipts) {
+      const ngo = r.project_id || 'unknown';
+      if (!map[ngo]) map[ngo] = r.id;
+    }
+    return map;
+  }, [receipts]);
 
   const buildFilterParams = (extra = {}) => {
     const p = new URLSearchParams();
@@ -838,7 +840,7 @@ export default function ReceiptHistory() {
                         >
                           <Pencil size={14} strokeWidth={2} />
                         </button>
-                        {isRecentReceipt(r) && (
+                        {mostRecentPerNgo[r.project_id || 'unknown'] === r.id && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDeleteReceipt(r); }}
                             disabled={deletingId === r.id}
