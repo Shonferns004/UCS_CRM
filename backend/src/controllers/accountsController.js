@@ -37,6 +37,7 @@ export const getLeadList = async (req, res) => {
       `)
       .eq('action', 'disposition')
       .eq('disposition_detail', 'lead_done')
+      .not('fro_worker_id', 'is', null)
       .order('created_at', { ascending: false });
 
     if (status) {
@@ -3699,6 +3700,212 @@ export const updateDonor = async (req, res) => {
     if (updateErr) throw updateErr;
 
     return res.json({ donor, message: 'Donor updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Receipt Edit ─────────────────────────────────────────
+
+export const getFroWorkersList = async (req, res) => {
+  try {
+    const { data, error } = await db
+      .from('workers')
+      .select('id, name')
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active')
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateReceipt = async (req, res) => {
+  try {
+    const { receiptId } = req.params;
+    const updates = req.body;
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: 'No fields provided to update' });
+    }
+
+    const { data: receipt, error: rErr } = await db
+      .from('receipts').select('*').eq('id', receiptId).maybeSingle();
+    if (rErr) throw rErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    // Fields that can be edited on the receipt row
+    const RECEIPT_EDITABLE = [
+      'donor_name', 'donor_mobile', 'address', 'address_2', 'pan_number',
+      'email', 'mobile_2', 'station', 'account_of', 'mode', 'agent_name',
+      'project_id', 'caller_name', 'bank_name',
+    ];
+    const receiptPatch = {};
+    for (const field of RECEIPT_EDITABLE) {
+      if (field in updates) {
+        receiptPatch[field] = (updates[field] === '' || updates[field] === null) ? null : updates[field];
+      }
+    }
+
+    // Detect FRO change
+    const oldAgentName = (receipt.agent_name || '').trim();
+    const newAgentName = (receiptPatch.agent_name ?? receipt.agent_name ?? '').trim();
+    const froChanged = oldAgentName !== newAgentName && newAgentName !== '';
+
+    if (froChanged) {
+      // Find old FRO worker
+      const { data: oldWorker } = await db
+        .from('workers').select('id, name').eq('name', oldAgentName).maybeSingle();
+
+      // Find new FRO worker
+      const { data: newWorker } = await db
+        .from('workers').select('id, name').eq('name', newAgentName).maybeSingle();
+      if (!newWorker) {
+        return res.status(400).json({ message: `FRO worker "${newAgentName}" not found` });
+      }
+
+      const amount = Number(receipt.amount || 0);
+
+      // If there's a fro_donor_log linked, handle the assignment transfer
+      if (receipt.log_id) {
+        const { data: log } = await db
+          .from('fro_donor_logs')
+          .select('id, fro_worker_id, fro_assignments!inner(id, fro_worker_id, donor_id, ngo_id)')
+          .eq('id', receipt.log_id)
+          .maybeSingle();
+
+        if (log) {
+          const assignment = log.fro_assignments;
+
+          // Reverse credit from old FRO's donor profile
+          if (assignment?.donor_id && amount > 0) {
+            try {
+              const { data: donor } = await db
+                .from('donor_profiles')
+                .select('total_amount, donation_count')
+                .eq('id', assignment.donor_id)
+                .single();
+              await db.from('donor_profiles').update({
+                total_amount: Math.max(0, (donor?.total_amount || 0) - amount),
+                donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+                updated_at: new Date().toISOString(),
+              }).eq('id', assignment.donor_id);
+            } catch (err) {
+              console.error('Failed to reverse donor totals on receipt edit:', err.message);
+            }
+          }
+
+          // Update fro_donor_log FRO
+          await db.from('fro_donor_logs').update({
+            fro_worker_id: newWorker.id,
+          }).eq('id', log.id);
+
+          // Update fro_assignments FRO
+          if (assignment?.id) {
+            await db.from('fro_assignments').update({
+              fro_worker_id: newWorker.id,
+            }).eq('id', assignment.id);
+          }
+
+          // Credit to new FRO's donor profile
+          if (assignment?.donor_id && amount > 0) {
+            try {
+              const { data: donor } = await db
+                .from('donor_profiles')
+                .select('total_amount, donation_count')
+                .eq('id', assignment.donor_id)
+                .single();
+              await db.from('donor_profiles').update({
+                total_amount: Math.round(((donor?.total_amount || 0) + amount) * 100) / 100,
+                donation_count: (donor?.donation_count || 0) + 1,
+                updated_at: new Date().toISOString(),
+              }).eq('id', assignment.donor_id);
+            } catch (err) {
+              console.error('Failed to credit new FRO donor totals on receipt edit:', err.message);
+            }
+          }
+        }
+      } else if (receipt.donor_id && amount > 0) {
+        // No log_id but has donor_id — reverse and re-credit directly
+        try {
+          const { data: donor } = await db
+            .from('donor_profiles')
+            .select('total_amount, donation_count')
+            .eq('id', receipt.donor_id)
+            .single();
+          // Reverse old
+          await db.from('donor_profiles').update({
+            total_amount: Math.max(0, (donor?.total_amount || 0) - amount),
+            donation_count: Math.max(0, (donor?.donation_count || 0) - 1),
+            updated_at: new Date().toISOString(),
+          }).eq('id', receipt.donor_id);
+          // Credit new (same donor_id since no assignment转移)
+          await db.from('donor_profiles').update({
+            total_amount: Math.round(((donor?.total_amount || 0) - amount + amount) * 100) / 100,
+            donation_count: (donor?.donation_count || 0), // net zero since same profile
+            updated_at: new Date().toISOString(),
+          }).eq('id', receipt.donor_id);
+        } catch (err) {
+          console.error('Failed to handle no-log FRO change on receipt edit:', err.message);
+        }
+      }
+    }
+
+    // Update the receipt
+    const { data: updated, error: updErr } = await db
+      .from('receipts')
+      .update(receiptPatch)
+      .eq('id', receiptId)
+      .select()
+      .single();
+    if (updErr) throw updErr;
+
+    // Update linked bank_audit_entry
+    try {
+      const { data: entry } = await db
+        .from('bank_audit_entries')
+        .select('id')
+        .eq('receipt_id', receiptId)
+        .maybeSingle();
+      if (entry) {
+        const entryPatch = { updated_at: new Date().toISOString() };
+        if ('donor_name' in receiptPatch) entryPatch.payer_name = receiptPatch.donor_name;
+        if ('donor_mobile' in receiptPatch) entryPatch.donor_mobile = receiptPatch.donor_mobile;
+        if ('pan_number' in receiptPatch) entryPatch.donor_pan = receiptPatch.pan_number;
+        if ('address' in receiptPatch) entryPatch.donor_address_1 = receiptPatch.address;
+        if ('address_2' in receiptPatch) entryPatch.donor_address_2 = receiptPatch.address_2;
+        if ('email' in receiptPatch) entryPatch.donor_email = receiptPatch.email;
+        if ('agent_name' in receiptPatch) entryPatch.agent_name = receiptPatch.agent_name;
+        if ('bank_name' in receiptPatch) entryPatch.bank_name = receiptPatch.bank_name;
+        await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
+      }
+    } catch (err) {
+      console.error('Failed to update linked bank audit entry:', err.message);
+    }
+
+    // Update donor_profiles
+    if (receipt.donor_id) {
+      try {
+        const dpPatch = { updated_at: new Date().toISOString() };
+        const dpMap = {
+          donor_name: 'name', donor_mobile: 'mobile_number', pan_number: 'pan_number',
+          address: 'address_1', address_2: 'address_2', email: 'email',
+          mobile_2: 'mobile_2', station: 'station',
+        };
+        for (const [rField, dpField] of Object.entries(dpMap)) {
+          if (rField in receiptPatch) dpPatch[dpField] = receiptPatch[rField];
+        }
+        if (Object.keys(dpPatch).length > 1) {
+          await db.from('donor_profiles').update(dpPatch).eq('id', receipt.donor_id);
+        }
+      } catch (err) {
+        console.error('Failed to update donor profile on receipt edit:', err.message);
+      }
+    }
+
+    return res.json({ receipt: updated, message: 'Receipt updated' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
