@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet, apiPost, apiDelete } from '../api/auth'
+import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth'
+import { Pencil } from 'lucide-react'
 import { useRealtime } from '../../../hooks/useRealtime'
 import { formatIndianCurrency, formatReceiptDate, generateReceiptPDF, downloadSinglePDF, downloadAllPDFs } from '../services/pdfGenerator'
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar'
@@ -256,6 +257,11 @@ export default function Receipts() {
   const [showCleanModal, setShowCleanModal] = useState(false)
   const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10))
   const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [editingReceipt, setEditingReceipt] = useState(null)
+  const [editForm, setEditForm] = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+  const [froWorkers, setFroWorkers] = useState([])
+  const [confirmFroChange, setConfirmFroChange] = useState(false)
   const fileRef = useRef(null)
   const namesFileRef = useRef(null)
   const CHUNK_SIZE = 100
@@ -631,6 +637,48 @@ export default function Receipts() {
     }
   }
 
+  const handleEditReceipt = async (d) => {
+    setEditingReceipt(d)
+    setEditForm({
+      donor_name: d['Donor Name'] || '',
+      donor_mobile: d['Mobile No.'] || '',
+      address: d['Address 1'] || '',
+      pan_number: d['PAN No.'] || '',
+      email: d['Email ID'] || '',
+      agent_name: d['Agent Name'] || '',
+      mode: d['Mode of Payment (MOP)'] || '',
+      account_of: d['Account Of'] || '',
+    })
+    setConfirmFroChange(false)
+    try {
+      const workers = await apiGet('/accounts/receipts/fro-workers')
+      setFroWorkers(Array.isArray(workers) ? workers : [])
+    } catch (err) {
+      console.error('Failed to load FRO workers:', err.message)
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingReceipt) return
+    const oldFro = (editingReceipt['Agent Name'] || '').trim()
+    const newFro = (editForm.agent_name || '').trim()
+    if (oldFro !== newFro && newFro !== '' && !confirmFroChange) {
+      setConfirmFroChange(true)
+      return
+    }
+    setEditSaving(true)
+    try {
+      await apiPatch(`/accounts/receipts/${editingReceipt.receipt_id}`, editForm)
+      setEditingReceipt(null)
+      setConfirmFroChange(false)
+      loadPending()
+    } catch (err) {
+      alert('Failed to update receipt: ' + err.message)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const handleConfirmBulkSend = async () => {
     setConfirmBulk({ visible:false, donorCount:0 })
     const validDonors = getValidDonors()
@@ -964,11 +1012,15 @@ export default function Receipts() {
                             onClick={e => e.stopPropagation()} />
                         ) : d['Mobile No.'] || <span style={{ color:'#d1d5db' }}>Click to add</span>}
                       </td>
-                      <td style={{ display:'flex', gap:4 }}>
+                      <td style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 10px', background:'#25D366', color:'#fff', border:'none' }}
                           onClick={e => { e.stopPropagation(); handleSendSingle(d, realIdx) }}
                           disabled={sendingIndex === realIdx}>
                           {sendingIndex === realIdx ? '...' : 'Send'}
+                        </button>
+                        <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 6px', background:'#fff', color:'#6b7280', border:'1px solid #d1d5db', display:'flex', alignItems:'center', gap:4 }}
+                          onClick={e => { e.stopPropagation(); handleEditReceipt(d) }}>
+                          <Pencil size={11} strokeWidth={2} /> Edit
                         </button>
                         <button className="btn btn-sm" style={{ fontSize:11, padding:'4px 8px', background:'#fff', color:'#b45309', border:'1px solid #fcd34d' }}
                           onClick={e => { e.stopPropagation(); setGoBackRow(d) }}
@@ -1053,6 +1105,78 @@ export default function Receipts() {
               </div>
             </div>
           )}
+
+      {editingReceipt && (
+        <div className="modal-overlay" onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }} style={{ zIndex:4000 }}>
+          <div className="modal" style={{ maxWidth:520, width:'90%', maxHeight:'85vh', overflow:'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ fontSize:15 }}>Edit Receipt — {editingReceipt['Receipt No.'] || 'No number'}</h3>
+              <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                style={{ border:'none', background:'#e5e7eb', color:'#374151', borderRadius:6, width:32, height:32, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding:20 }}>
+              {confirmFroChange && (
+                <div style={{ background:'#fef3c7', border:'1px solid #f59e0b', borderRadius:8, padding:'10px 14px', marginBottom:14, fontSize:12, color:'#92400e' }}>
+                  <strong>FRO Change Detected</strong><br />
+                  Credit of {currency(editingReceipt['Amount'])} will be reversed from <strong>{editingReceipt['Agent Name'] || '\u2014'}</strong> and applied to <strong>{editForm.agent_name}</strong>.
+                </div>
+              )}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                {[
+                  { label:'Donor Name', key:'donor_name', colSpan:2 },
+                  { label:'Mobile', key:'donor_mobile' },
+                  { label:'Address', key:'address', colSpan:2, type:'textarea' },
+                  { label:'PAN Number', key:'pan_number' },
+                  { label:'Email', key:'email' },
+                  { label:'FRO / Agent', key:'agent_name', type:'select' },
+                  { label:'Mode', key:'mode', type:'mop' },
+                  { label:'Account Of', key:'account_of' },
+                ].map(({ label, key, colSpan, type }) => (
+                  <label key={key} style={{ gridColumn:colSpan === 2 ? '1 / -1' : undefined, fontSize:11, color:'#6b7280', fontWeight:600, display:'flex', flexDirection:'column', gap:4 }}>
+                    {label}
+                    {type === 'select' ? (
+                      <select value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
+                        style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, background:'#fff' }}>
+                        <option value="">Not assigned</option>
+                        {froWorkers.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                      </select>
+                    ) : type === 'mop' ? (
+                      <select value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
+                        style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, background:'#fff' }}>
+                        <option value="">\u2014</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="NEFT">NEFT</option>
+                        <option value="RTGS">RTGS</option>
+                      </select>
+                    ) : type === 'textarea' ? (
+                      <textarea value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
+                        rows={2} style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, resize:'vertical' }} />
+                    ) : (
+                      <input type={key === 'email' ? 'email' : 'text'} value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
+                        style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12 }} />
+                    )}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:18 }}>
+                <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                  style={{ padding:'7px 16px', borderRadius:8, border:'1px solid #d1d5db', background:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleSaveEdit} disabled={editSaving}
+                  style={{ padding:'7px 16px', borderRadius:8, border:'none', background:confirmFroChange ? '#f59e0b' : '#059669', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', opacity:editSaving ? 0.6 : 1 }}>
+                  {editSaving ? 'Saving...' : confirmFroChange ? 'Confirm & Save' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCleanModal && (
         <div className="modal-overlay" onClick={() => !deleting && setShowCleanModal(false)} style={{ zIndex:2000 }}>
