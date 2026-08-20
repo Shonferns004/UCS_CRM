@@ -762,16 +762,8 @@ export const getSuspenseReceipts = async (req, res) => {
       .from('bank_audit_entries')
       .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
       .eq('status', 'unverified')
+      .is('matched_lead_log_id', null)
       .or(`project_id.in.(${projectSet.join(',')}),project_id.is.null`);
-    if (eErr) throw eErr;
-
-    if (entries && entries.length > 0) {
-      console.log('[FRO-Suspense] entries found:', entries.length, 'sample:', JSON.stringify(entries[0]));
-    } else {
-      console.log('[FRO-Suspense] 0 entries. projectSet:', projectSet);
-      const { data: debugAll } = await db._pool.query(`SELECT count(*) AS total, count(*) FILTER (WHERE status = 'unverified') AS unverified FROM bank_audit_entries`);
-      console.log('[FRO-Suspense] DB counts:', debugAll?.rows?.[0]);
-    }
     if (eErr) throw eErr;
 
     const receiptLinked = (entries || []).filter(e => e.receipt_id);
