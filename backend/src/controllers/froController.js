@@ -668,9 +668,19 @@ export const getDashboard = async (req, res) => {
 // List this month's collections for the "Collected" card modal. For work-as
 // collections (from another FRO's donor) the owning FRO's identity is masked so
 // the operator cannot tell which FRO the donor belonged to.
+// Supports optional ?ngo_id= query param to filter by a specific NGO.
 export const getMyCollections = async (req, res) => {
   try {
     const workerId = req.user.id;
+    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
+
+    let effectiveScope = myScope;
+    let effectiveStations = stationNames;
+    if (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) {
+      effectiveScope = myScope.filter(s => s.ngo_id === req.query.ngo_id);
+      effectiveStations = effectiveScope.map(s => s.station);
+    }
+
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
@@ -678,7 +688,7 @@ export const getMyCollections = async (req, res) => {
     const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
 
-    const { data, error } = await db
+    let query = db
       .from('fro_donor_logs')
       .select(`
         id, donor_id, amount_collected, action, disposition_detail, accounts_status,
@@ -688,13 +698,36 @@ export const getMyCollections = async (req, res) => {
       `)
       .eq('fro_worker_id', workerId)
       .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+
+    if (effectiveStations.length > 0) {
+      query = query.in('fro_assignments.station', effectiveStations);
+      query = withStationNgoPairs(query, effectiveScope, 'fro_assignments.station', 'fro_assignments.ngo_id');
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
-    const collections = (data || [])
+    const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
+    const scoped = filterByScope(data, effectiveScope, pairOf);
+
+    const ngoMap = {};
+    for (const s of myScope) {
+      if (s.ngo_id && !ngoMap[s.ngo_id]) ngoMap[s.ngo_id] = null;
+    }
+    const ngoIds = Object.keys(ngoMap);
+    if (ngoIds.length > 0) {
+      const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', ngoIds);
+      for (const n of ngoRows || []) ngoMap[n.id] = n.name;
+    }
+    const ngos = Object.entries(ngoMap).map(([id, name]) => ({ id, name: name || 'Unknown' }));
+
+    const mapped = scoped
       .map((l) => {
         const amount = parseFloat(l.amount_collected || 0);
         const collected_at = logCollectionDate(l);
         const is_work_as = l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId;
+        const receiptArr = Array.isArray(l.receipts) ? l.receipts : (l.receipts ? [l.receipts] : []);
+        const receipt_no = receiptArr.find(r => r.receipt_no)?.receipt_no || null;
         return {
           id: l.id,
           donor_id: l.donor_id,
@@ -708,8 +741,27 @@ export const getMyCollections = async (req, res) => {
           is_work_as,
         };
       })
-      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd))
-      .sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
+
+    // Dedup: same receipt_no = same donation, keep only one.
+    // Fallback for logs without receipt_no: dedup by donor_id + amount + same day.
+    const dayKey = (d) => d ? String(d).slice(0, 10) : null;
+    const seenReceipts = new Set();
+    const seenFallback = new Set();
+    const collections = [];
+    for (const r of mapped) {
+      if (r.receipt_no) {
+        if (seenReceipts.has(r.receipt_no)) continue;
+        seenReceipts.add(r.receipt_no);
+      } else {
+        const fbKey = `${r.donor_id}|${r.amount_collected}|${dayKey(r.collected_at)}`;
+        if (seenFallback.has(fbKey)) continue;
+        seenFallback.add(fbKey);
+      }
+      collections.push(r);
+    }
+
+    collections.sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
 
     // Group collections by NGO
     const byNgo = {};
