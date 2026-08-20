@@ -760,7 +760,7 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
-      .select('id, receipt_id, receipt_no, payer_name, donor_name, donor_mobile, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
+      .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
       .eq('status', 'unverified')
       .gte('transaction_date', monthStart)
       .lte('transaction_date', monthEnd);
@@ -783,8 +783,8 @@ export const getSuspenseReceipts = async (req, res) => {
         id: e.receipt_id,
         entry_id: e.id,
         receipt_no: e.receipt_no || r.receipt_no || null,
-        donor_name: r.donor_name || e.donor_name || e.payer_name || null,
-        donor_mobile: r.donor_mobile || e.donor_mobile || null,
+        donor_name: r.donor_name || e.payer_name || null,
+        donor_mobile: r.donor_mobile || null,
         amount: r.amount || e.amount,
         receipt_date: r.receipt_date || e.transaction_date,
         receipt_time: r.receipt_time || e.payment_time,
@@ -799,8 +799,8 @@ export const getSuspenseReceipts = async (req, res) => {
         id: `entry-${e.id}`,
         entry_id: e.id,
         receipt_no: e.receipt_no || null,
-        donor_name: e.donor_name || e.payer_name || null,
-        donor_mobile: e.donor_mobile || null,
+        donor_name: e.payer_name || null,
+        donor_mobile: null,
         amount: e.amount,
         receipt_date: e.transaction_date,
         receipt_time: e.payment_time,
