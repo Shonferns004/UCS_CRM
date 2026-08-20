@@ -632,11 +632,10 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     <>
       <FieldSection title="NGO">
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          {Object.entries(NGO_LABELS).map(([k,v])=>(
-            <button key={k} type="button" onClick={()=>{setFm(p=>({...p,project_id:k}));if(fer)setFer('')}} style={{padding:'6px 16px',borderRadius:999,fontSize:12,fontWeight:600,border:'1.5px solid',(fm.project_id||'bsct')===k?{background:'#5B6B4E',color:'#fff',borderColor:'#5B6B4E'}:{background:'#fff',color:'#374151',borderColor:'#e5e7eb'},cursor:'pointer',transition:'all .15s'}}>
+          {Object.entries(NGO_LABELS).map(([k,v])=>{const active=(fm.project_id||'bsct')===k;return(
+            <button key={k} type="button" onClick={()=>setFm(p=>({...p,project_id:k}))} style={{padding:'6px 16px',borderRadius:999,fontSize:12,fontWeight:600,border:'1.5px solid',background:active?'#5B6B4E':'#fff',color:active?'#fff':'#374151',borderColor:active?'#5B6B4E':'#e5e7eb',cursor:'pointer',transition:'all .15s'}}>
               {v}
-            </button>
-          ))}
+            </button>)})}
         </div>
       </FieldSection>
 
