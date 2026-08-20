@@ -10,7 +10,7 @@ export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a da
   const inputRef = useRef(null);
 
   const sel = value ? new Date(value + 'T00:00:00') : undefined;
-  const maxDate = max ? new Date(max.getFullYear(), max.getMonth(), max.getDate()) : null;
+  const maxStr = max ? `${max.getFullYear()}-${String(max.getMonth()+1).padStart(2,'0')}-${String(max.getDate()).padStart(2,'0')}` : null;
 
   const updatePos = useCallback(() => {
     const el = inputRef.current;
@@ -71,7 +71,7 @@ export function ModernDateInput({ value, onChange, max, placeholder = 'Pick a da
               onChange(d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '');
               setOpen(false);
             }}
-            disabled={maxDate ? (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()) > maxDate : undefined}
+            disabled={maxStr ? (d) => { const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return ds > maxStr; } : undefined}
             defaultMonth={sel || new Date()}
             captionLayout="dropdown"
             showOutsideDays
