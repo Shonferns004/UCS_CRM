@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Send, Trash2, Download, FileText, RefreshCw } from 'lucide-react';
+import { Send, Trash2, FileText } from 'lucide-react';
 import { apiGet, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import LeadDetail from './LeadDetail';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
-import * as XLSX from 'xlsx';
-import { receivedMeta } from '../services/receivedSource';
-
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 const fmtDT = d => {
   if (!d) return '';
@@ -18,7 +15,6 @@ const fmtDT = d => {
   const h = dt.getHours(), m = dt.getMinutes();
   return `${day}-${mon}-${dt.getFullYear()} \u00B7 ${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 };
-const LEAD_EXPORT_HEADERS = ['Branch','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch'];
 
 const SkeletonNum = () => (
   <span className="sk-num" style={{ display:'inline-block',width:48,height:24,borderRadius:6,background:'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)',backgroundSize:'200% 100%',animation:'sk-shimmer 1.4s infinite'}} />
@@ -143,46 +139,6 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   useEffect(() => { setLeadPage(1); }, [searchQuery, ngoActive, statusFilter, amountFilter, dateFilter]);
   useEffect(() => { if (leadPage > pageCount) setLeadPage(pageCount); }, [pageCount, leadPage]);
 
-  const exportExcel = () => {
-    const na = v => (v === undefined || v === null || String(v).trim() === '') ? 'NA' : v;
-    const remark = l => l.accounts_status === 'rejected'
-      ? `Rejected${l.rejection_reason ? ' · ' + l.rejection_reason : ''}`
-      : l.claimed_receipt ? `Claimed · ${l.agent_name || 'Unknown'}` : (l.accounts_status || '');
-    const rows = [LEAD_EXPORT_HEADERS, ...filtered.map(l => {
-      const meta = receivedMeta(l.received_source);
-      const mop = meta ? na(meta.mop) : 'Bank';
-      const recvBank = meta ? na(meta.receivedBank) : na(l.donor_bank_name);
-      return [
-        'NA', na(l.transaction_datetime || l.verified_at), na(l.agent_name), na(l.donor_name), na(l.donor_mobile),
-        'NA', 'NA', 'NA', 'NA', na(l.donor_address),
-        na(l.donor_address_2), 'NA', 'NA', na(l.donor_city), na(l.donor_pin_code), na(l.donor_pan),
-        'NA', na(l.donor_email), 'NA', 'NA', 'NA',
-        'NA', 'NA', 'NA', na(l.agent_name), na(l.agent_name),
-        mop, recvBank, na(l.upi_transaction_id), 'NA', 'NA', na(l.donor_bank_name),
-        l.amount ?? 'NA', na(l.receipt_no), 'NA', na(l.transaction_datetime || l.verified_at),
-        'NA', 'NA', 'Corpus', na(remark(l)), 'NA',
-      ];
-    })];
-    if (filtered.length === 0) { alert('No leads to export'); return }
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    // Write real date cells with a fixed display format (d/mm/yyyy = "1/08/2026") so Excel
-    // never auto-converts the transaction date into a locale format like "1-Aug-26".
-    const DATE_COLS = [1, 35];
-    for (let r = 1; r < rows.length; r++) {
-      for (const c of DATE_COLS) {
-        const addr = XLSX.utils.encode_cell({ r, c });
-        const cell = ws[addr];
-        if (!cell) continue;
-        const m = String(cell.v == null ? '' : cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (!m) continue;
-        ws[addr] = { t: 'n', v: Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 + 25569, z: 'd/mm/yyyy' };
-      }
-    }
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Lead Verification');
-    XLSX.writeFile(wb, `lead-verification_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
   const sendToReceipts = () => {    const verified = leads.filter(l => l.accounts_status === 'verified');
     if (verified.length === 0) return;
 
@@ -259,7 +215,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       <div className="card">
         <div className="filter-bar">
           <input
-            placeholder="Search donor / phone / agent / amount..."
+            placeholder="Search..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 200, minWidth: 0 }}
@@ -285,14 +241,12 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               <option value="aflf">Ashray</option>
             </select>
           )}
-          <IconBtn on={rtLoad} ch={<RefreshCw size={14} strokeWidth={2.5} />} title="Refresh" />
           {statusFilter === 'verified' && leads.length > 0 && (
             <IconBtn on={sendToReceipts} ch={<><Send size={14} strokeWidth={2.5} /><span className="fb-count">{leads.length}</span></>} title={`Send to Receipts (${leads.length})`} bg="#1d6f42" fg="#fff" />
           )}
           {statusFilter === 'pending' && stats.pending.length > 0 && (
             <IconBtn on={() => setDeleteAllConfirm(true)} ch={<><Trash2 size={14} strokeWidth={2.5} /><span className="fb-count">{stats.pending.length}</span></>} title={`Delete all pending (${stats.pending.length})`} bg="#dc2626" fg="#fff" />
           )}
-          <IconBtn on={exportExcel} ch={<><Download size={14} strokeWidth={2.5} />{filtered.length > 0 && <span className="fb-count">{filtered.length}</span>}</>} title={`Export ${filtered.length} leads`} bg="#16a34a" fg="#fff" />
         </div>
         <div className="entry-scroll" ref={listRef} onScroll={onListScroll}>
           <div className="entry-grid">

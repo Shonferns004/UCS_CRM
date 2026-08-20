@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { RefreshCw, Zap, Download, Plus, ListFilter, X, Loader2, Landmark } from 'lucide-react';
+import { Plus, ListFilter, X, Landmark } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../api/auth';
 import { useRealtime } from '../../../hooks/useRealtime';
 import Toast from '../components/Toast';
 import DonorPicker from '../components/DonorPicker';
 import { ModernDateInput } from '../components/ModernDateInput';
-import { ModernMonthDateInput } from '../components/ModernMonthDateInput';
 import { ModernTimeInput } from '../components/ModernTimeInput';
 import RightPanel from '../components/RightPanel';
 import Pagination from '../components/Pagination';
@@ -15,7 +14,6 @@ import { receivedMeta } from '../services/receivedSource';
 import ReceiptTemplateManncar from '../components/ReceiptTemplateManncar';
 import ReceiptTemplateAshray from '../components/ReceiptTemplateAshray';
 import ReceiptTemplateBeingSevak from '../components/ReceiptTemplateBeingSevak';
-import * as XLSX from 'xlsx';
 
 const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u20B90';
 // A true suspense row is a bare suspense *receipt* (no bank_audit_entries row),
@@ -314,7 +312,7 @@ export function AuditStatCards({sources=[],summary={},loading=false,suspenseNgo=
 }
 
 // ─── Entries (Bank Audit Core) ─────────────────────────────
-function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,srcFilter,setSrcFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,onAutoMatch,am,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey,amountFilter='',dateFilter='',sharedListRef,onListScroll}){
+function EntrySection({loading,entries,sources,summary,error,statusTab,setStatusTab,selDate,setSelDate,selDay,setSelDay,doLoad,ngoFilter,setNgoFilter,hideNgoFilter,showAdd,setShowAdd,showSrc,setShowSrc,form,setForm,handleAdd,handleDelete,handleAddSrc,handleDelSrc,sn,setSn,getSrcName,filtered,SvgX,onOpen,selectedEntryId,onSelectEntry,selectionEnabled,leadFilterKey,amountFilter='',dateFilter='',sharedListRef,onListScroll}){
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
@@ -330,13 +328,13 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     [e.payer_name,e.donor_mobile,e.payment_id,e.check_id,e.receipt_no,e.amount,e.agent_name,e.transaction_date,e.bank_audit_sources?.name,getSrcName(e.source_id)]
       .some(v=>v!=null&&String(v).toLowerCase().includes(kw))
   ):claimVisible;
-  const visible=srcFilter?searched.filter(e=>e.source_id===Number(srcFilter)):searched;
+  const visible=searched;
   const dateVisible=dateFilter?visible.filter(e=>String(e.transaction_date||'').slice(0,10)===dateFilter):visible;
   const amountVisible=amountFilter!==''&&amountFilter!=null?dateVisible.filter(e=>Number(e.amount)===Number(amountFilter)):dateVisible;
   const suspenseCount=claimVisible.filter(e=>e.kind==='suspense').length;
   const pageCount=Math.max(1,Math.ceil(amountVisible.length/PAGE_SIZE));
   const pageItems=amountVisible.slice((pg-1)*PAGE_SIZE,pg*PAGE_SIZE);
-  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,srcFilter,ngoFilter,sq,amountFilter,dateFilter,stf]);
+  useEffect(()=>{setPg(1)},[statusTab,selDate,selDay,ngoFilter,sq,amountFilter,dateFilter,stf]);
   useEffect(()=>{if(pg>pageCount)setPg(pageCount)},[pageCount,pg]);
   const na=v=>(v===undefined||v===null||String(v).trim()==='')?'NA':v;
   const srcOf=e=>e.bank_audit_sources?.name||getSrcName(e.source_id);
@@ -349,44 +347,6 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
     if(/ashray|\baflf\b/.test(s))return 'aflf';
     if(/manncar|mann care|\bmann\b/.test(s))return 'mann';
     return '';
-  };
-  const exportExcel=()=>{
-    const HEADERS=['Branch Name','Transaction Date','Caller Name','Donor Name','Mobile No.','Len','Count','Mobil No. 2 / Tel','Len','Address 1','Address-2','Station','East / West','City','Pin Code','Pan. No.','Len','Mail Id','Birth Date','Data Category','Mobile','Station','Android No','Team','Agent Name','FSE Name','MOP','Received Bank','Payment Id No.','Len','Count','Donors Bank Name','Amount','Receipt No','Receipt Book No','Transaction Date','Time','Project Supported','Account of','Remark-1','Branch Name'];
-    const agent=v=>(v&&v!=='Suspense')?v:'NA';
-    const rows=[HEADERS,...visible.map(e=>{
-      const src=srcOf(e);
-      const meta=receivedMeta(src);
-      const mop=e.mode?na(e.mode):(meta?na(meta.mop):'Bank');
-      const recvBank=e.bank_name?na(e.bank_name):(meta?meta.receivedBank:na(src));
-      return [
-        'NA',na(e.transaction_date),na(e.donor_name||e.payer_name),na(e.payer_name),na(e.donor_mobile),
-        'NA','NA','NA','NA',na(e.donor_address_1),na(e.donor_address_2),
-        'NA','NA',na(e.donor_city),na(e.donor_pin_code),na(e.donor_pan),
-        'NA',na(e.donor_email),'NA','NA',na(e.donor_mobile),
-        'NA','NA','NA',agent(e.agent_name),agent(e.agent_name),
-        mop,recvBank,na(e.payment_id),'NA','NA',na(e.bank_name),
-        e.amount??'NA',na(e.receipt_no),'NA',na(e.transaction_date),
-        na(e.payment_time?fmtTime(e.payment_time):''),na(e.project_id),'Corpus',na(e.remarks),'NA',
-      ];
-    })];
-    if(visible.length===0){setTo({msg:'No entries to export',type:'error',vis:true});return}
-    const ws=XLSX.utils.aoa_to_sheet(rows);
-    // Write real date cells with a fixed display format (d/mm/yyyy = "1/08/2026") so Excel
-    // never auto-converts the transaction date into a locale format like "1-Aug-26".
-    const DATE_COLS=[1,35];
-    for(let r=1;r<rows.length;r++){
-      for(const c of DATE_COLS){
-        const addr=XLSX.utils.encode_cell({r,c});
-        const cell=ws[addr];
-        if(!cell)continue;
-        const m=String(cell.v==null?'':cell.v).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if(!m)continue;
-        ws[addr]={t:'n',v:Date.UTC(+m[1],+m[2]-1,+m[3])/86400000+25569,z:'d/mm/yyyy'};
-      }
-    }
-    const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,'Bank Audit');
-    XLSX.writeFile(wb,`bank-audit_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
   return <div>
     {error&&<div style={{display:'flex',alignItems:'center',gap:6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:13,color:'#991b1b'}}>
@@ -404,31 +364,13 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           )}
         </span>
         <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-          <span style={{fontSize:12,color:'#6b7280'}}>Month / Date</span>
-          <ModernMonthDateInput
-            value={selDay || selDate}
-            max={new Date()}
-            placeholder="Pick month or date..."
-            style={{width:160}}
-            onChange={v=>{
-              if(!v){setSelDate('');setSelDay('');doLoad('',statusTab);return}
-              if(v.length===10){setSelDay(v);setSelDate('');doLoad('',statusTab,v)}
-              else{setSelDate(v);setSelDay('');doLoad(v,statusTab)}
-            }}
-          />
+          <input type="date" value={selDay||selDate} max={new Date().toISOString().slice(0,10)} onChange={e=>{const v=e.target.value;if(!v){setSelDate('');setSelDay('');doLoad('',statusTab);return}setSelDay(v);setSelDate('');doLoad('',statusTab,v)}} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}/>
           {(selDate||selDay)&&<IconBtn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch={<X size={14} strokeWidth={2.5}/>} title="Clear date filter" bg="transparent" fg="#6b7280" style={{border:'1px solid #d1d5db'}}/>}
         </div>
         {!hideNgoFilter&&<select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
           <option value="">All NGOs</option><option value="bsct">Being Sevak</option><option value="mann">Mann Care</option><option value="aflf">Ashray</option>
         </select>}
-        <select value={srcFilter} onChange={e=>setSrcFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
-          <option value="">All Sources</option>
-          {sources.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <input placeholder="Search name / txn ID / amount..." value={sq} onChange={e=>setSq(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:190,minWidth:0}}/>
-        <IconBtn on={()=>doLoad(selDate,statusTab)} ch={<RefreshCw size={14} strokeWidth={2.5}/>} title="Refresh"/>
-        <IconBtn on={()=>onAutoMatch()} dis={am} ch={am?<Loader2 size={14} strokeWidth={2.5} style={{animation:'fb-spin 1s linear infinite'}}/>:<Zap size={14} strokeWidth={2.5}/>} title="Auto-match entries" bg="#2563eb" fg="#fff"/>
-        <IconBtn on={exportExcel} ch={<Download size={14} strokeWidth={2.5}/>} title="Export Excel" bg="#16a34a" fg="#fff"/>
+        <input placeholder="Search..." value={sq} onChange={e=>setSq(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:190,minWidth:0}}/>
         <IconBtn on={()=>{setForm({...EMPTY_FM});setShowAdd(true)}} ch={<Plus size={15} strokeWidth={2.5}/>} title="Add entry" bg="var(--sage)" fg="#fff" style={{marginLeft:'auto'}}/>
         <IconBtn on={()=>{setSn('');setShowSrc(true)}} ch={<ListFilter size={14} strokeWidth={2.5}/>} title="Manage sources" bg="transparent" fg="#374151" style={{border:'1px solid #d1d5db'}}/>
       </div>
@@ -488,12 +430,12 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
 // ─── Main ──────────────────────────────────────────────────
 export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEntry,selectionEnabled=true,leadFilter,globalNgo,suspenseNgo:cardSuspenseNgo,onView,amountFilter='',dateFilter='',listRef,onListScroll,onAmounts}){
   const[e,setE]=useState([]);const[sr,setSr]=useState([]);const[su,setSu]=useState({});const[ld,setLd]=useState(true);
-  const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[sf,setSf]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
+  const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({...EMPTY_FM});
   const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
-  const[cm,setCm]=useState(false);const[am,setAm]=useState(false);
+  const[cm,setCm]=useState(false);
   const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);const clickRef=useRef(null);
   const[mv,setMv]=useState(null);const[mvSub,setMvSub]=useState(false);const[mvErr,setMvErr]=useState('');
   const[mvFro,setMvFro]=useState('');const[mvType,setMvType]=useState('');const[mvMobile,setMvMobile]=useState('');const[mvName,setMvName]=useState('');const[mvAddr,setMvAddr]=useState('');const[mvPan,setMvPan]=useState('');const[mvEmail,setMvEmail]=useState('');const[mvCity,setMvCity]=useState('');const[mvPinCode,setMvPinCode]=useState('');const[mvAddr2,setMvAddr2]=useState('');
@@ -600,7 +542,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       try{await apiPut('/accounts/bank-audit/entries/'+mv.id+'/manual-verify-details',{fro_worker_id:mvFro||null,verify_type:mvType||null,verify_fro_worker_id:mvFro||null,donor_mobile:mvMobile||null,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null})}catch(_){}
     },600);
   },[mv,mvFro,mvType,mvMobile,mvName,mvAddr,mvPan,mvEmail,mvCity,mvPinCode,mvAddr2]);
-  const runAutoMatch=async()=>{setAm(true);try{const r=await apiPost('/accounts/bank-audit/auto-match');setTo({msg:r.matched?`Auto-match found ${r.matched} suggestion${r.matched===1?'':'s'}`:'Auto-match found no new matches',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setAm(false)}};
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){setTo({msg:'Failed to download PDF: '+e.message,type:'error',vis:true})}setDl(false)};
   const handlePrintReceipt=()=>{const pw=window.open('','_blank');if(!pw){setTo({msg:'Please allow pop-ups to print',type:'error',vis:true});return}pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`);pw.document.close();pw.focus();setTimeout(()=>pw.print(),500)};
   const SvgX=()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
@@ -734,14 +675,14 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       loading={ld} entries={e} sources={sr} summary={su} error={er}
       statusTab={st} setStatusTab={setSt}
       selDate={sd} setSelDate={setSd} selDay={dd} setSelDay={setDd} doLoad={load}
-      ngoFilter={ngoFilter} setNgoFilter={setNf} hideNgoFilter={useGlobalNgo} srcFilter={sf} setSrcFilter={setSf}
+      ngoFilter={ngoFilter} setNgoFilter={setNf} hideNgoFilter={useGlobalNgo}
       showAdd={sa} setShowAdd={setSa} showSrc={ss} setShowSrc={setSs}
       amountFilter={amountFilter} dateFilter={dateFilter} sharedListRef={listRef} onListScroll={onListScroll}
       form={fm} setForm={setFm}
       handleAdd={addEntry} handleDelete={setDci}
       handleAddSrc={addSrc} handleDelSrc={delSrc}
       sn={snn} setSn={setSnn} getSrcName={getSrc} filtered={fe} SvgX={SvgX} onOpen={openDetail}
-      onAutoMatch={runAutoMatch} am={am} confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
+      confirmMatch={confirmMatch} clearMatch={clearMatch} cm={cm}
       selectedEntryId={selectedEntryId} onSelectEntry={onSelectEntry} selectionEnabled={selectionEnabled}
       leadFilterKey={leadFilter ? `${leadFilter.amount}|${leadFilter.ngo || ''}` : ''}
     />
