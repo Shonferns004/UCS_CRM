@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Routes, Route, NavLink, useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { useUcs } from '../../store'
 import { themes, applyTheme } from '../hr/theme'
-import { useRealtime } from '../../hooks/useRealtime'
+import { usePolling } from './hooks/usePolling'
 import { api } from '../../api/auth'
 import { requestNotifPermission, showDesktopNotification } from '../../utils/desktopNotif'
 import { masterSearch } from './api/auth'
@@ -175,17 +175,23 @@ export default function NgoAdminPanel() {
     requestNotifPermission();
   }, [user?.id]);
 
-  useRealtime('rejected_lead_tickets', {
-    event: '*',
-    onInsert: () => loadRejectedCount(true),
-    enabled: true,
-  });
+  // Polling for rejected leads (replaces useRealtime)
+  usePolling(
+    () => loadRejectedCount(true),
+    30000,
+    {
+      enabled: true,
+    }
+  );
 
-  useRealtime('notification_log', {
-    filter: `worker_id=eq.${user?.id}`,
-    onInsert: () => loadNotifications(),
-    enabled: !!user?.id,
-  });
+  // Polling for notifications (replaces useRealtime)
+  usePolling(
+    () => loadNotifications(),
+    30000,
+    {
+      enabled: !!user?.id,
+    }
+  );
 
   useEffect(() => {
     const handler = (e) => {

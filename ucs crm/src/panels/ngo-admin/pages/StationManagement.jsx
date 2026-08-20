@@ -641,7 +641,18 @@ export default function StationManagement() {
                       />
                     </td>
                     <td>
-                      <span className="pill pill-blue">{s.donor_count}</span>
+                      {(() => {
+                        const dc = s.donor_count;
+                        if (!dc) return <span className="pill pill-blue">0</span>;
+                        if (typeof dc === 'number') return <span className="pill pill-blue">{dc}</span>;
+                        // Per-NGO breakdown: { ngo_id: count }
+                        const parts = Object.entries(dc).map(([ngoId, cnt]) => {
+                          const ngo = allNgos.find(n => String(n.id) === String(ngoId));
+                          const name = ngo?.name || ngoId;
+                          return <span key={ngoId} style={{ marginRight: 6, fontWeight: 600 }}>{name}: {cnt}</span>;
+                        });
+                        return <span className="pill pill-blue" style={{ whiteSpace: 'nowrap' }}>{parts}</span>;
+                      })()}
                     </td>
                     <td>
                       <button className="btn btn-sm btn-outline" onClick={() => setUploadStation(s.station)}
