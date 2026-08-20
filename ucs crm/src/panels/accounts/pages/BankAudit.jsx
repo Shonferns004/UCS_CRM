@@ -697,6 +697,23 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         </div>
       </FieldSection>
 
+      {isEdit&&<FieldSection title="Agent & Lead Link">
+        <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'start'}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
+            <span>Agent (FRO) <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <AgentPicker value={fm.agent_name||''} workers={wr} onChange={n=>setFm(p=>({...p,agent_name:n}))}/>
+          </label>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
+            <span>Log / Lead Verification <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <LeadPicker value={fm.log_id} locked={!!(isEdit&&seEntry&&!isReceiptSuspense(seEntry)&&seEntry.log_id)} onPick={pickLead} onClear={clearLead}/>
+          </label>
+        </div>
+        {fm.log_id&&fm._lead_amount!=null&&fm.amount!==''&&Number(fm.amount)!==Number(fm._lead_amount)&&
+          <div style={{marginTop:10,padding:'9px 12px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:12,color:'#92400e',display:'flex',alignItems:'center',gap:8}}>
+            <span style={{width:16,height:16,borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0}}>!</span>
+            <span>Amount <strong>{curr(fm.amount)}</strong> differs from the linked lead <strong>{curr(fm._lead_amount)}</strong></span>
+          </div>}
+      </FieldSection>}
     </>
   );
 
@@ -731,17 +748,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
     {/* Add Entry Modal */}
     {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden',borderTop:'3px solid var(--sage)'}}>
-      <div style={{padding:'18px 24px',borderBottom:'1px solid #eef0f3',display:'flex',alignItems:'center',justifyContent:'space-between',background:'#fff'}}>
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <div style={{width:40,height:40,borderRadius:12,background:isEdit?'#2563eb18':'#e8f0e4',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'inset 0 0 0 1px rgba(22,101,52,.08)'}}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isEdit?'#2563eb':'var(--sage)'} strokeWidth="2" strokeLinecap="round">{isEdit?<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>:<><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>}</svg>
-          </div>
-          <div>
-            <h3 style={{fontSize:16,fontWeight:700,margin:0,color:'#111827',letterSpacing:'-.01em'}}>{isEdit?'Edit Entry':'Bank Entry'}</h3>
-            <p style={{fontSize:12,color:'#6b7280',margin:0,marginTop:2}}>{isEdit?(se.kind==='suspense'?'Update suspense receipt details':'Update entry details'):''}</p>
-          </div>
-        </div>
-        <button onClick={()=>{isEdit?setSe(null):setSa(false);setFer('')}} style={{width:32,height:32,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
+      <div style={{padding:'12px 24px',borderBottom:'1px solid #eef0f3',display:'flex',alignItems:'center',justifyContent:'flex-end',background:'#fff'}}>
+        <button onClick={()=>{setSa(false);setFer('')}} style={{width:32,height:32,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
       </div>
       <div className="modal-body" style={{padding:'20px 24px',maxHeight:'72vh',overflowY:'auto'}}>
         {renderEntryFields(false,null)}
