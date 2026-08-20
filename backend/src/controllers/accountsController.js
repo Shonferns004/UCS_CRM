@@ -3742,7 +3742,7 @@ export const updateReceipt = async (req, res) => {
       'email', 'mobile_2', 'station', 'account_of', 'mode', 'agent_name',
       'project_id', 'caller_name', 'bank_name',
     ];
-    const receiptPatch = { updated_at: new Date().toISOString() };
+    const receiptPatch = {};
     for (const field of RECEIPT_EDITABLE) {
       if (field in updates) {
         receiptPatch[field] = (updates[field] === '' || updates[field] === null) ? null : updates[field];
