@@ -210,7 +210,7 @@ export default function Dashboard() {
   const openCollections = async (ngoId) => {
     setShowCollections(true)
     setCollectionsLoading(true)
-    if (ngoId !== undefined) setCollectionNgoFilter(ngoId)
+    if (ngoId !== undefined) setSelectedCollectionNgo(String(ngoId))
     try {
       const res = await getMyCollections()
       let collectionsByNgo = res?.collections || { all: [] }
@@ -828,7 +828,7 @@ export default function Dashboard() {
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
                   {collectionsLoading ? 'Loading…' : `${collectionsByNgo[selectedCollectionNgo]?.length || 0} collections`}
                 </div>
-                <button onClick={() => { setShowCollections(false); setCollectionNgoFilter(null) }}
+                <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all') }}
                   style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
                   ×
                 </button>
