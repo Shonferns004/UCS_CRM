@@ -211,10 +211,14 @@ export const listEntries = async (req, res) => {
       // suspense rule in getUnlinkedReceipts.
       // A receipt with a receipt_no is also never suspense — it has been
       // accounted for regardless of the other fields.
-      e.kind = (r && !r.donor_id && !r.log_id && !r.receipt_no
-                 && !BankAudit.isPriyankShahAgent(r.agent_name)
-                 && BankAudit.isBlankSuspenseValue(r.agent_name)
-                 && BankAudit.isBlankSuspenseValue(r.donor_mobile))
+      const hasReceipt = !!r;
+      e.kind = (
+        (hasReceipt && !r.donor_id && !r.log_id && !r.receipt_no
+          && !BankAudit.isPriyankShahAgent(r.agent_name)
+          && BankAudit.isBlankSuspenseValue(r.agent_name)
+          && BankAudit.isBlankSuspenseValue(r.donor_mobile))
+        || (!hasReceipt && !e.donor_id && !e.match_status && !e.matched_lead_log_id)
+      )
         ? 'suspense'
         : 'entry';
       delete e.receipts;
