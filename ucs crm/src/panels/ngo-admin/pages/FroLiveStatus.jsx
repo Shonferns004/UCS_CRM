@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useUcs } from '../../../store'
-import { useRealtime } from '../../../hooks/useRealtime'
+import { usePolling } from '../hooks/usePolling'
 import { api } from '../../../api/auth'
 import { fmt, STATUS_META } from '../../super-admin/components/froShared'
 
@@ -39,14 +39,14 @@ export default function FroLiveStatus() {
     loadStatuses()
   }, [selectedNgoId, froId])
 
-  useEffect(() => {
-    return useRealtime('fro_live_status', {
-      event: '*',
-      onInsert: () => loadStatuses(),
-      onUpdate: () => loadStatuses(),
-      onDelete: () => loadStatuses(),
-    })
-  }, [])
+  // Polling for live status (replaces useRealtime)
+  usePolling(
+    () => loadStatuses(),
+    10000,
+    {
+      enabled: !loading,
+    }
+  )
 
   useEffect(() => {
     if (!froId) return
