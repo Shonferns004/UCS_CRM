@@ -207,9 +207,10 @@ export default function Dashboard() {
     }
   }
 
-  const openCollections = async () => {
+  const openCollections = async (ngoId) => {
     setShowCollections(true)
     setCollectionsLoading(true)
+    if (ngoId !== undefined) setCollectionNgoFilter(ngoId)
     try {
       const res = await getMyCollections()
       let collectionsByNgo = res?.collections || { all: [] }
@@ -827,6 +828,10 @@ export default function Dashboard() {
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
                   {collectionsLoading ? 'Loading…' : `${collectionsByNgo[selectedCollectionNgo]?.length || 0} collections`}
                 </div>
+                <button onClick={() => { setShowCollections(false); setCollectionNgoFilter(null) }}
+                  style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
+                  ×
+                </button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 {/* NGO Tabs */}
@@ -867,7 +872,12 @@ export default function Dashboard() {
                       {c.donor_name?.charAt(0) || '?'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.donor_name}</span>
+                        {c.ngo_name && (
+                          <span style={{ fontSize: 8, fontWeight: 700, color: '#6d28d9', background: '#ede9fe', border: '1px solid #ddd6fe', padding: '1px 5px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>{c.ngo_name}</span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{c.donor_mobile || '—'}</div>
                       {c.is_work_as && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3, fontSize: 8.5, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', padding: '1px 6px', borderRadius: 999 }}>
@@ -877,6 +887,9 @@ export default function Dashboard() {
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(c.amount_collected)}</div>
+                      {c.receipt_no && (
+                        <div style={{ fontSize: 9, fontWeight: 600, color: '#7c3aed' }}>#{c.receipt_no}</div>
+                      )}
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{fmtStamp(c.collected_at)}</div>
                     </div>
                   </div>
