@@ -363,10 +363,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             <button key={v||'all'} onClick={()=>setStf(v)} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:6,border:'none',cursor:'pointer',background:stf===v?'#111827':'transparent',color:stf===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
           )}
         </span>
-        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-          <input type="date" value={selDay||selDate} max={new Date().toISOString().slice(0,10)} onChange={e=>{const v=e.target.value;if(!v){setSelDate('');setSelDay('');doLoad('',statusTab);return}setSelDay(v);setSelDate('');doLoad('',statusTab,v)}} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}/>
-          {(selDate||selDay)&&<IconBtn on={()=>{setSelDate('');setSelDay('');doLoad('',statusTab)}} ch={<X size={14} strokeWidth={2.5}/>} title="Clear date filter" bg="transparent" fg="#6b7280" style={{border:'1px solid #d1d5db'}}/>}
-        </div>
+        <input type="date" value={selDay||selDate} max={new Date().toISOString().slice(0,10)} onChange={e=>{const v=e.target.value;if(!v){setSelDate('');setSelDay('');doLoad('',statusTab);return}setSelDay(v);setSelDate('');doLoad('',statusTab,v)}} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}/>
         {!hideNgoFilter&&<select value={ngoFilter} onChange={e=>setNgoFilter(e.target.value)} style={{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db'}}>
           <option value="">All NGOs</option><option value="bsct">Being Sevak</option><option value="mann">Mann Care</option><option value="aflf">Ashray</option>
         </select>}
