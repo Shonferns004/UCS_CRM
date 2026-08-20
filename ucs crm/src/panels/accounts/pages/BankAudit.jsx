@@ -26,7 +26,7 @@ const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id ==
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
-const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:TODAY_IST,remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
+const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:TODAY_IST,remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
 const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','others'];
 
 const NGO_MAP = {
@@ -633,7 +633,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       <FieldSection title="NGO">
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           {Object.entries(NGO_LABELS).map(([k,v])=>{const active=(fm.project_id||'bsct')===k;return(
-            <button key={k} type="button" onClick={()=>setFm(p=>({...p,project_id:k}))} style={{padding:'6px 16px',borderRadius:999,fontSize:12,fontWeight:600,border:'1.5px solid',background:active?'#5B6B4E':'#fff',color:active?'#fff':'#374151',borderColor:active?'#5B6B4E':'#e5e7eb',cursor:'pointer',transition:'all .15s'}}>
+            <button key={k} type="button" onClick={()=>setFm(p=>({...p,project_id:k}))} style={{padding:'10px 28px',borderRadius:6,fontSize:13,fontWeight:700,border:'1.5px solid',background:active?'#2563eb':'#fff',color:active?'#fff':'#374151',borderColor:active?'#2563eb':'#d1d5db',cursor:'pointer',transition:'all .15s'}}>
               {v}
             </button>)})}
         </div>
@@ -645,8 +645,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <span>Mode of Payment <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
             <select className="field-input" value={MODE_OPTIONS.includes(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select mode...</option>
-              {MODE_OPTIONS.map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
-              <option value="others">Others (type any)</option>
+              {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
             </select>
             {fm.mode==='others'&&<input className="field-input" placeholder="Type your mode..." value={fm.modeCustom||''} onChange={e=>setFm(p=>({...p,modeCustom:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>}
           </label>
