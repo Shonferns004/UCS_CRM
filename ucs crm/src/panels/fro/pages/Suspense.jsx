@@ -252,8 +252,8 @@ export default function FroSuspense() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {list.map(r => {
-              const badge = r.kind === 'receipt_sent' ? CLAIM_BADGES.receipt_sent : CLAIM_BADGES[r.my_claim_status];
-              const claimable = !r.my_claim_status || r.kind === 'receipt_sent';
+              const badge = r.kind === 'no_receipt' ? { text: 'Awaiting Receipt', color: '#6b7280', bg: '#f3f4f6' } : r.kind === 'receipt_sent' ? CLAIM_BADGES.receipt_sent : CLAIM_BADGES[r.my_claim_status];
+              const claimable = r.kind !== 'no_receipt' && (!r.my_claim_status || r.kind === 'receipt_sent');
               return (
                 <div key={r.id} onClick={() => claimable && openClaimModal(r)}
                   onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--sage)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
