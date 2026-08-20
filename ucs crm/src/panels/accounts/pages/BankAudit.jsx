@@ -631,8 +631,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
-      {!isEdit&&<DonorPicker onPick={d=>setFm(p=>({...p,donor_id:d.id||p.donor_id,payer_name:d.name||p.payer_name,donor_name:d.name||p.donor_name,donor_mobile:d.mobile_number||p.donor_mobile,donor_email:d.email||p.donor_email,donor_pan:d.pan_number||p.donor_pan,donor_address_1:d.address_1||p.donor_address_1,donor_address_2:d.address_2||p.donor_address_2,donor_city:d.city||p.donor_city,donor_pin_code:d.pin_code||p.donor_pin_code,log_id:'',_lead_amount:null}))} prefill={isEdit?((fm.donor_mobile&&fm.donor_mobile!=='NA')?fm.donor_mobile:(fm.donor_name||'')):''}/>}
-
       <FieldSection title="Transaction Details">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
