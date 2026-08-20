@@ -397,9 +397,12 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           <div className="ec-main">
             <div className="ec-primary">
               <div className="ec-title">{e.payer_name||'\u2014'}</div>
-              <div className="ec-sub">{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}{e.receipt_no?' \u00B7 #'+e.receipt_no:''}</div>
+              <div className="ec-sub">{e.transaction_date?fmtDate(e.transaction_date):'\u2014'}{e.payment_time?' \u00B7 '+fmtTime(e.payment_time):''}</div>
             </div>
-            <div className="ec-amount">{curr(e.amount)}</div>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              {e.receipt_no&&<span style={{fontSize:15,fontWeight:800,color:'#16a34a',fontFamily:'monospace',letterSpacing:'.5px'}}>{e.receipt_no}</span>}
+              <div className="ec-amount">{curr(e.amount)}</div>
+            </div>
           </div>
           <div className="ec-meta">
             {e.match_status==='matched'&&<span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:9,fontWeight:700,letterSpacing:'.4px',padding:'3px 8px',borderRadius:4,background:e.match_source==='static_fro'?'#fef9c3':e.match_source==='manual'?'#fef3c7':'#dcfce7',color:e.match_source==='static_fro'?'#854d0e':e.match_source==='manual'?'#92400e':'#166534',whiteSpace:'nowrap'}}>{e.match_source==='static_fro'?'STATIC FRO':e.match_source==='manual'?'MATCHED MANUALLY':'MATCHED'}{e.match_no?` \u00B7 ${e.match_no}`:''}{e.match_donor?`\u00B7 ${e.match_donor}`:''}</span>}
