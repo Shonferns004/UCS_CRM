@@ -758,13 +758,11 @@ export const getSuspenseReceipts = async (req, res) => {
     if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
     const { month, monthStart, monthEnd } = currentMonthBoundsIST();
 
-    const projectFilter = `project_id.is.null,project_id.in.(${projectSet.map(p => `"${p}"`).join(',')})`;
+    const projectFilter = `project_id.in.(${projectSet.join(',')}),project_id.is.null`;
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
       .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
       .eq('status', 'unverified')
-      .gte('transaction_date', monthStart)
-      .lte('transaction_date', monthEnd)
       .or(projectFilter);
     if (eErr) throw eErr;
 
