@@ -694,8 +694,7 @@ export const getMyCollections = async (req, res) => {
         id, donor_id, amount_collected, action, disposition_detail, accounts_status,
         created_at, transaction_datetime, verified_at,
         donor_profiles!inner(id, name, mobile_number),
-        fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name)),
-        receipts!left(receipt_no, project_id)
+        fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name))
       `)
       .eq('fro_worker_id', workerId)
       .or(COLLECTION_DATE_OR(monthStart, monthEnd));
@@ -727,8 +726,6 @@ export const getMyCollections = async (req, res) => {
         const amount = parseFloat(l.amount_collected || 0);
         const collected_at = logCollectionDate(l);
         const is_work_as = l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId;
-        const receiptArr = Array.isArray(l.receipts) ? l.receipts : (l.receipts ? [l.receipts] : []);
-        const receipt_no = receiptArr.find(r => r.receipt_no)?.receipt_no || null;
         return {
           id: l.id,
           donor_id: l.donor_id,
@@ -736,7 +733,6 @@ export const getMyCollections = async (req, res) => {
           donor_mobile: l.donor_profiles?.mobile_number || '',
           amount_collected: amount,
           collected_at,
-          receipt_no,
           ngo_id: l.fro_assignments?.ngo_id || null,
           ngo_name: l.fro_assignments?.ngos?.name || null,
           owner_worker_id: is_work_as ? null : (l.fro_assignments?.fro_worker_id ?? null),
@@ -746,21 +742,14 @@ export const getMyCollections = async (req, res) => {
       })
       .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
 
-    // Dedup: same receipt_no = same donation, keep only one.
-    // Fallback for logs without receipt_no: dedup by donor_id + amount + same day.
+    // Dedup: fallback dedup by donor_id + amount + same day (two fro_donor_logs per donation).
     const dayKey = (d) => d ? String(d).slice(0, 10) : null;
-    const seenReceipts = new Set();
-    const seenFallback = new Set();
+    const seen = new Set();
     const collections = [];
     for (const r of mapped) {
-      if (r.receipt_no) {
-        if (seenReceipts.has(r.receipt_no)) continue;
-        seenReceipts.add(r.receipt_no);
-      } else {
-        const fbKey = `${r.donor_id}|${r.amount_collected}|${dayKey(r.collected_at)}`;
-        if (seenFallback.has(fbKey)) continue;
-        seenFallback.add(fbKey);
-      }
+      const key = `${r.donor_id}|${r.amount_collected}|${dayKey(r.collected_at)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       collections.push(r);
     }
 
