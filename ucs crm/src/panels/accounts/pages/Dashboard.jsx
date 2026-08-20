@@ -386,7 +386,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
             <div className="modal-body" style={{ padding: 20 }}>
               <p style={{ margin: '0 0 6px', fontSize: 14 }}>Delete this pending lead entry?</p>
               <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
-                <strong>{deleteConfirm.donor_name}</strong> ({currency(deleteConfirm.amount)}) will be removed and the assignment returned to the agent for rework. This cannot be undone.
+                <strong>{deleteConfirm.donor_name}</strong> ({currency(deleteConfirm.amount)}) will be permanently removed. This cannot be undone.
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
                 <button className="btn btn-sm" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</button>
@@ -406,7 +406,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
             <div className="modal-body" style={{ padding: 20 }}>
               <p style={{ margin: '0 0 6px', fontSize: 14 }}>Delete all {stats.pending.length} pending lead entries?</p>
               <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
-                Every pending entry ({currency(stats.pendingAmount)} total) will be removed and the assignments returned to their agents for rework. This cannot be undone.
+                Every pending entry ({currency(stats.pendingAmount)} total) will be permanently removed. This cannot be undone.
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
                 <button className="btn btn-sm" onClick={() => setDeleteAllConfirm(false)} disabled={deletingAll}>Cancel</button>
