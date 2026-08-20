@@ -694,7 +694,8 @@ export const getMyCollections = async (req, res) => {
         id, donor_id, amount_collected, action, disposition_detail, accounts_status,
         created_at, transaction_datetime, verified_at,
         donor_profiles!inner(id, name, mobile_number),
-        fro_assignments!inner(fro_worker_id, ngo_id, workers!left(id, name))
+        fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name)),
+        receipts!left(receipt_no, project_id)
       `)
       .eq('fro_worker_id', workerId)
       .or(COLLECTION_DATE_OR(monthStart, monthEnd));
@@ -735,7 +736,9 @@ export const getMyCollections = async (req, res) => {
           donor_mobile: l.donor_profiles?.mobile_number || '',
           amount_collected: amount,
           collected_at,
-          ngo_id: l.fro_assignments?.ngo_id ?? null,
+          receipt_no,
+          ngo_id: l.fro_assignments?.ngo_id || null,
+          ngo_name: l.fro_assignments?.ngos?.name || null,
           owner_worker_id: is_work_as ? null : (l.fro_assignments?.fro_worker_id ?? null),
           owner_name: is_work_as ? null : (l.fro_assignments?.workers?.name || null),
           is_work_as,
@@ -765,22 +768,19 @@ export const getMyCollections = async (req, res) => {
 
     // Group collections by NGO
     const byNgo = {};
-    const ngoIds = new Set();
+    const collectedNgoIds = new Set();
     for (const c of collections) {
       const ngoId = c.ngo_id;
       if (!byNgo[ngoId]) byNgo[ngoId] = [];
       byNgo[ngoId].push(c);
-      if (ngoId) ngoIds.add(ngoId);
+      if (ngoId) collectedNgoIds.add(ngoId);
     }
-
-    // Fetch NGO names for the FRO's scope
-    const { data: ngos } = await db.from('ngos').select('id, name').in('id', [...ngoIds]);
-    const ngoMap = Object.fromEntries((ngos || []).map(n => [n.id, n.name]));
 
     return res.json({ 
       month: monthStart.slice(0, 7), 
-      collections: { all: collections, ...byNgo },
-      ngoMap 
+      collections,
+      ngos,
+      ngoMap,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
