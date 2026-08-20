@@ -6,6 +6,7 @@ import { SkeletonDashboard } from '../../../components/Skeleton'
 import RecentNotices from '../../../components/RecentNotices'
 import { cacheGet, cacheSet } from '../../../utils/cache'
 import { useCall } from '../CallContext'
+import { api } from '../api/auth'
 
 const currency = n => n != null ? '₹' + Number(n).toLocaleString('en-IN') : '—'
 
@@ -211,8 +212,41 @@ export default function Dashboard() {
     setCollectionsLoading(true)
     try {
       const res = await getMyCollections()
-      setCollectionsByNgo(res?.collections || { all: [] })
-      setNgoMap(res?.ngoMap || {})
+      let collectionsByNgo = res?.collections || { all: [] }
+      let ngoMap = res?.ngoMap || {}
+      
+      // Handle both API response formats:
+      // New format: { all: [...], ngoId1: [...], ngoId2: [...] }
+      // Old format: flat array [...]
+      if (Array.isArray(collectionsByNgo)) {
+        const allCollections = collectionsByNgo
+        // Build NGO map from collections if not provided
+        if (Object.keys(ngoMap).length === 0) {
+          const ngoIds = new Set()
+          for (const c of allCollections) {
+            if (c.ngo_id) ngoIds.add(c.ngo_id)
+          }
+          if (ngoIds.size > 0) {
+            const { data: ngos } = await api(`/ngo-admin/ngos`)
+            const allNgos = ngos || []
+            for (const nid of ngoIds) {
+              const ngo = allNgos.find(n => n.id === nid)
+              if (ngo) ngoMap[nid] = ngo.name
+            }
+          }
+        }
+        // Group by NGO
+        const byNgo = {}
+        for (const c of allCollections) {
+          const ngoId = c.ngo_id || null
+          if (!byNgo[ngoId]) byNgo[ngoId] = []
+          byNgo[ngoId].push(c)
+        }
+        collectionsByNgo = { all: allCollections, ...byNgo }
+      }
+      
+      setCollectionsByNgo(collectionsByNgo)
+      setNgoMap(ngoMap)
       setSelectedCollectionNgo('all')
     } catch (err) {
       console.error('Error:', err.message)

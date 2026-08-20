@@ -4088,8 +4088,8 @@ export const getTLDashboard = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
 
-    // 1. Live status counts
-    const { data: liveStatus } = await db.from('fro_live_status').select('fro_worker_id, status').in('fro_worker_id', workerIds);
+    // 1. Live status counts (use the detailed query from later)
+    const { data: liveStatus } = await db.from('fro_live_status').select('fro_worker_id, status, today_talk_seconds, today_idle_seconds, updated_at').in('fro_worker_id', workerIds);
     const calling = (liveStatus || []).filter(s => s.status === 'on_call').length;
     const idle = (liveStatus || []).filter(s => s.status === 'idle').length;
     const online = (liveStatus || []).filter(s => s.status === 'online').length;
@@ -4194,8 +4194,7 @@ export const getTLDashboard = async (req, res) => {
       if (connectedStatuses.has(a.status)) workerAssignments[a.fro_worker_id].connected++;
     }
 
-    // Live status map for status/idle
-    const { data: liveStatus } = await db.from('fro_live_status').select('fro_worker_id, status, today_talk_seconds, today_idle_seconds, updated_at').in('fro_worker_id', workerIds);
+    // Live status map for status/idle (use liveStatus from earlier)
     const liveStatusMap = {};
     for (const ls of liveStatus || []) {
       liveStatusMap[ls.fro_worker_id] = ls;
