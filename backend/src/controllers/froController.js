@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getWorkerById, getWorkerBySession } from '../models/workerModel.js';
-import { isPriyankShahAgent, isBlankSuspenseValue, enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
+import { enrichDonorProfileFromReceipt } from '../models/bankAuditModel.js';
 import { findAutoMatches } from '../services/autoMatchService.js';
 import { getActiveSalaryByWorker } from '../models/salaryModel.js';
 import {
@@ -777,90 +777,58 @@ export const getSuspenseReceipts = async (req, res) => {
     if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
     const { month, monthStart, monthEnd } = currentMonthBoundsIST();
 
-    const { data: receipts, error } = await db
-      .from('receipts')
-      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id, agent_name, created_at')
-      .is('donor_id', null)
-      .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.suspense,agent_name.eq.NA,agent_name.eq.na')
-      .gte('receipt_date', monthStart)
-      .lte('receipt_date', monthEnd)
-      .in('project_id', projectSet)
-      .order('receipt_date', { ascending: false });
-    if (error) throw error;
-
-    // Truly suspense: BOTH the agent name and the donor mobile are missing.
-    const filtered = (receipts || []).filter(r =>
-      !isPriyankShahAgent(r.agent_name)
-      && isBlankSuspenseValue(r.agent_name)
-      && isBlankSuspenseValue(r.donor_mobile)
-    );
-
-    // Bank-audited suspense is also claimable suspense: Accounts sees it as an
-    // entry in Bank Audit, and FROs must see the same receipt here so they can
-    // claim it. No bank-audit exclusion.
-    const pool = filtered;
-
-    // "Receipt Sent" entries: Accounts verified the donor but did not select an
-    // FRO.  The receipt already exists; the FRO must claim to close the loop.
-    const { data: rsEntries } = await db
+    const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
-      .select('id, receipt_id, donor_name, donor_mobile, amount, transaction_date, payment_time, project_id, receipt_no')
-      .eq('status', 'receipt_sent')
-      .gte('transaction_date', monthStart)
-      .lte('transaction_date', monthEnd)
-      .in('project_id', projectSet);
-    if (rsEntries && rsEntries.length > 0) {
-      for (const e of rsEntries) {
-        pool.push({
-          id: e.receipt_id || e.id,
-          receipt_no: e.receipt_no,
-          donor_name: e.donor_name,
-          donor_mobile: e.donor_mobile,
-          amount: e.amount,
-          receipt_date: e.transaction_date,
-          receipt_time: e.payment_time,
-          project_id: e.project_id,
-          kind: 'receipt_sent',
-          _bank_audit_entry_id: e.id,
-        });
-      }
+      .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
+      .eq('status', 'unverified')
+      .is('matched_lead_log_id', null)
+      .or(`project_id.in.(${projectSet.join(',')}),project_id.is.null`);
+    if (eErr) throw eErr;
+
+    const receiptLinked = (entries || []).filter(e => e.receipt_id);
+    const receiptIds = [...new Set(receiptLinked.map(e => e.receipt_id))];
+    let receiptMap = {};
+    if (receiptIds.length > 0) {
+      const { data: receipts } = await db
+        .from('receipts')
+        .select('id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
+        .in('id', receiptIds);
+      for (const r of (receipts || [])) receiptMap[r.id] = r;
     }
 
-    // Orphaned receipts: receipts that have a donor identified (donor_id set)
-    // but no FRO lead (log_id NULL) and agent_name is blank/suspense. These
-    // were created before the receipt_sent feature existed and are invisible in
-    // both FRO Suspense and Bank Audit. Surface them as receipt_sent entries.
-    const existingPoolIds = new Set(pool.map(r => String(r.id)));
-    const { data: orphanedReceipts } = await db
-      .from('receipts')
-      .select('id, receipt_no, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
-      .not('donor_id', 'is', null)
-      .is('log_id', null)
-      .or('agent_name.is.null,agent_name.eq.,agent_name.eq.Suspense,agent_name.eq.suspense,agent_name.eq.NA,agent_name.eq.na')
-      .gte('receipt_date', monthStart)
-      .lte('receipt_date', monthEnd)
-      .in('project_id', projectSet);
-    if (orphanedReceipts && orphanedReceipts.length > 0) {
-      for (const r of orphanedReceipts) {
-        if (existingPoolIds.has(String(r.id))) continue;
-        if (isBlankSuspenseValue(r.donor_mobile)) {
-          pool.push({
-            id: r.id,
-            receipt_no: r.receipt_no,
-            donor_name: r.donor_name,
-            donor_mobile: r.donor_mobile,
-            amount: r.amount,
-            receipt_date: r.receipt_date,
-            receipt_time: r.receipt_time,
-            project_id: r.project_id,
-            kind: 'receipt_sent',
-          });
-        }
-      }
+    const pool = receiptLinked.map(e => {
+      const r = receiptMap[e.receipt_id] || {};
+      return {
+        id: e.receipt_id,
+        entry_id: e.id,
+        receipt_no: e.receipt_no || r.receipt_no || null,
+        donor_name: r.donor_name || e.payer_name || null,
+        donor_mobile: r.donor_mobile || null,
+        amount: r.amount || e.amount,
+        receipt_date: r.receipt_date || e.transaction_date,
+        receipt_time: r.receipt_time || e.payment_time,
+        project_id: r.project_id || e.project_id,
+        has_receipt: true,
+      };
+    });
+
+    for (const e of entries || []) {
+      if (e.receipt_id) continue;
+      pool.push({
+        id: `entry-${e.id}`,
+        entry_id: e.id,
+        receipt_no: e.receipt_no || null,
+        donor_name: e.payer_name || null,
+        donor_mobile: null,
+        amount: e.amount,
+        receipt_date: e.transaction_date,
+        receipt_time: e.payment_time,
+        project_id: e.project_id,
+        has_receipt: false,
+      });
     }
 
-    const poolIds = pool.map(r => r.id);
+    const poolIds = pool.filter(r => r.has_receipt).map(r => r.id);
     let claims = [];
     if (poolIds.length > 0) {
       const { data: c, error: cErr } = await db
@@ -889,8 +857,8 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_date: r.receipt_date,
       receipt_time: r.receipt_time,
       project_id: r.project_id,
-      kind: r.kind || 'suspense',
-      _bank_audit_entry_id: r._bank_audit_entry_id || null,
+      kind: r.has_receipt ? 'entry' : 'no_receipt',
+      _bank_audit_entry_id: r.entry_id,
       claim_count: claimCountByReceipt[r.id] || 0,
       my_claim_status: myClaimStatusByReceipt[r.id] || null,
     }));
@@ -1188,12 +1156,39 @@ export const claimSuspenseReceipt = async (req, res) => {
         .maybeSingle();
       if (existingDonor) {
         donorId = existingDonor.id;
+      } else if (donor_mobile) {
+        const { data: mobDonor } = await db
+          .from('donor_profiles')
+          .select('id')
+          .eq('mobile_number', donor_mobile)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (mobDonor) {
+          donorId = mobDonor.id;
+        } else {
+          const { data: createdDonor, error: donorErr } = await db
+            .from('donor_profiles')
+            .insert({
+              name: donorName,
+              mobile_number: donor_mobile || `NOCELL-${Date.now()}`,
+              city: donor_city || null,
+              email: donor_email || null,
+              pan_number: donor_pan || null,
+              address_1: donor_address || null,
+              project_supported: receipt.project_id,
+            })
+            .select()
+            .single();
+          if (donorErr) throw donorErr;
+          donorId = createdDonor.id;
+        }
       } else {
         const { data: createdDonor, error: donorErr } = await db
           .from('donor_profiles')
           .insert({
             name: donorName,
-            mobile_number: donor_mobile || `NOCELL-${Date.now()}`,
+            mobile_number: `NOCELL-${Date.now()}-${workerId}`,
             city: donor_city || null,
             email: donor_email || null,
             pan_number: donor_pan || null,
