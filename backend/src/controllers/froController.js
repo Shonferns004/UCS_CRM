@@ -760,11 +760,10 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
-      .select('id, receipt_id, receipt_no, payer_name, donor_name, donor_mobile, amount, transaction_date, payment_time, project_id, payment_id, check_id')
+      .select('id, receipt_id, receipt_no, payer_name, donor_name, donor_mobile, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
       .eq('status', 'unverified')
       .gte('transaction_date', monthStart)
-      .lte('transaction_date', monthEnd)
-      .in('project_id', projectSet);
+      .lte('transaction_date', monthEnd);
     if (eErr) throw eErr;
 
     const receiptLinked = (entries || []).filter(e => e.receipt_id);
