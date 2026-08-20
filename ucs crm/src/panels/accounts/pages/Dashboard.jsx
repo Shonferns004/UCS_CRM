@@ -50,7 +50,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
   const [leads, setLeads] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('pending');
+  const [statusFilter, setStatusFilter] = useState('claimed');
   const [ngoFilter, setNgoFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewingId, setViewingId] = useState(null);
