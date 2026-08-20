@@ -1,7 +1,7 @@
 let apiBase = (() => {
   const override = new URLSearchParams(window.location.search).get('api');
   if (override) return override.replace(/\/+$/, '');
-  return window.location.protocol === 'file:' ? 'https://api.beingsevak.org' : '';
+  return window.location.protocol === 'file:' ? 'http://localhost:5000' : '';
 })();
 let apiFallbackTried = false;
 
@@ -20,9 +20,9 @@ export async function api(path, opts) {
   try {
     return await attempt(apiBase);
   } catch (e) {
-    if (apiBase !== "https://13-207-47-116.sslip.io" && !apiFallbackTried) {
+    if (apiBase !== "http://localhost:5000" && !apiFallbackTried) {
       apiFallbackTried = true;
-      apiBase = "https://13-207-47-116.sslip.io";
+      apiBase = "http://localhost:5000";
       return await attempt(apiBase);
     }
     throw e;

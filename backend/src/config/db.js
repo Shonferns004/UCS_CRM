@@ -1142,7 +1142,14 @@ function getS3() {
   if (_s3) return _s3;
   try {
     const region = process.env.S3_REGION || process.env.AWS_REGION || 'ap-south-1';
-    _s3 = { client: new S3Client({ region }), region, bucket: process.env.S3_BUCKET };
+    const s3Config = { region };
+    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+      s3Config.credentials = {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      };
+    }
+    _s3 = { client: new S3Client(s3Config), region, bucket: process.env.S3_BUCKET };
     return _s3;
   } catch {
     return null;
@@ -1220,6 +1227,23 @@ const storage = {
 };
 
 // ---------------------------------------------------------------------------
+// Startup connection test — call once after server boots to verify the pool
+// can actually reach the database.  Logs a clear message on success/failure.
+// ---------------------------------------------------------------------------
+async function testConnection() {
+  try {
+    const res = await pgPool.query('SELECT current_database(), current_user, inet_server_addr() AS server_ip, now() AS server_time');
+    const row = res.rows[0];
+    console.log(`[DB] Connected to "${row.current_database}" as "${row.current_user}" | server: ${row.server_ip || 'local'} | time: ${row.server_time}`);
+    return true;
+  } catch (err) {
+    console.error(`[DB] CONNECTION FAILED: ${err.message}`);
+    console.error(`[DB] DATABASE_URL host: ${process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).host : 'not set'}`);
+    console.error('[DB] Ensure the RDS instance is running and your IP is allowed in the security group.');
+    return false;
+  }
+}
+
 const db = {
   from(table) { return new QueryBuilder(table); },
   async transaction(callback) {
@@ -1241,6 +1265,7 @@ const db = {
   rpc,
   auth,
   storage,
+  testConnection,
   _pool: pool,
 };
 

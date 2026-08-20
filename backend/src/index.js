@@ -761,8 +761,9 @@ async function checkLeavesTable() {
 }
 
 if (!process.env.VERCEL) {
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', async () => {
     _log(`Server running on port ${PORT}`);
+    await db.testConnection();
     checkLeavesTable();
     import('./services/notificationScheduler.js');
   });

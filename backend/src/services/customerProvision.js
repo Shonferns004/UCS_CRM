@@ -26,6 +26,17 @@ const BUCKET_PREFIX = (process.env.CUSTOMER_BUCKET_PREFIX || 'ucs').toLowerCase(
 const IAM_PREFIX = 'cust-';
 const DB_PREFIX = 'cust_';
 
+function awsConfig() {
+  const config = { region: REGION };
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    config.credentials = {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    };
+  }
+  return config;
+}
+
 function slugify(name) {
   return String(name)
     .toLowerCase()
@@ -46,13 +57,13 @@ function randHex(n) {
 
 let _s3 = null;
 function getS3() {
-  if (!_s3) _s3 = new S3Client({ region: REGION });
+  if (!_s3) _s3 = new S3Client(awsConfig());
   return _s3;
 }
 
 let _iam = null;
 function getIam() {
-  if (!_iam) _iam = new IAMClient({ region: REGION });
+  if (!_iam) _iam = new IAMClient(awsConfig());
   return _iam;
 }
 
