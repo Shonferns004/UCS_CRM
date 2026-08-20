@@ -689,9 +689,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
     {/* Add Entry Modal */}
     {sa&&(()=>{const isEdit=false;return <div className="modal-overlay" onClick={()=>{setSa(false);setFer('')}}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:760,borderRadius:14,overflow:'hidden',borderTop:'3px solid var(--sage)'}}>
-      <div style={{padding:'12px 24px',borderBottom:'1px solid #eef0f3',display:'flex',alignItems:'center',justifyContent:'flex-end',background:'#fff'}}>
-        <button onClick={()=>{setSa(false);setFer('')}} style={{width:32,height:32,borderRadius:8,border:'none',background:'#f3f4f6',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='#f3f4f6';e.currentTarget.style.color='#6b7280'}}><SvgX/></button>
-      </div>
       <div className="modal-body" style={{padding:'20px 24px',maxHeight:'72vh',overflowY:'auto'}}>
         {renderEntryFields(false,null)}
 
