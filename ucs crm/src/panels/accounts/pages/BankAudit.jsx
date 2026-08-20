@@ -25,7 +25,8 @@ const curr = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u
 const isReceiptSuspense = (r) => !!(r && r.kind === 'suspense' && typeof r.id === 'string' && String(r.id).indexOf('suspense-') === 0);
 const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F','#9B59B6'];
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
-const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:'',remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
+const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
+const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'',transaction_date:TODAY_IST,remarks:'',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
 const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','others'];
 
 const NGO_MAP = {
@@ -667,7 +668,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Transaction Date <span style={{color:'#dc2626'}}>*</span></span>
-            <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} />
+            <ModernDateInput value={fm.transaction_date} max={new Date(Date.now()+5.5*60*60*1000)} onChange={d=>{setFm(p=>({...p,transaction_date:d}));if(fer)setFer('')}} disabled />
           </label>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Payment Time {!isEdit&&<span style={{color:'#dc2626'}}>*</span>}</span>
