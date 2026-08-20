@@ -631,8 +631,27 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
+      <FieldSection title="NGO">
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {Object.entries(NGO_LABELS).map(([k,v])=>(
+            <button key={k} type="button" onClick={()=>{setFm(p=>({...p,project_id:k}));if(fer)setFer('')}} style={{padding:'6px 16px',borderRadius:999,fontSize:12,fontWeight:600,border:'1.5px solid',(fm.project_id||'bsct')===k?{background:'#5B6B4E',color:'#fff',borderColor:'#5B6B4E'}:{background:'#fff',color:'#374151',borderColor:'#e5e7eb'},cursor:'pointer',transition:'all .15s'}}>
+              {v}
+            </button>
+          ))}
+        </div>
+      </FieldSection>
+
       <FieldSection title="Transaction Details">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
+            <span>Mode of Payment <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
+            <select className="field-input" value={MODE_OPTIONS.includes(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
+              <option value="">Select mode...</option>
+              {MODE_OPTIONS.map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
+              <option value="others">Others (type any)</option>
+            </select>
+            {fm.mode==='others'&&<input className="field-input" placeholder="Type your mode..." value={fm.modeCustom||''} onChange={e=>setFm(p=>({...p,modeCustom:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>}
+          </label>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Received Bank <span style={{color:'#dc2626'}}>*</span></span>
             <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
@@ -640,25 +659,10 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
               {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
-            <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
-            <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
-          </label>
         </div>
         <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
-          <span>Mode of Payment <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-          <select className="field-input" value={MODE_OPTIONS.includes(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
-            <option value="">Select mode...</option>
-            {MODE_OPTIONS.map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
-            <option value="others">Others (type any)</option>
-          </select>
-          {fm.mode==='others'&&<input className="field-input" placeholder="Type your mode..." value={fm.modeCustom||''} onChange={e=>setFm(p=>({...p,modeCustom:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>}
-        </label>
-        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
-          <span>NGO</span>
-          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>{setFm(p=>({...p,project_id:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
-            {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
-          </select>
+          <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
+          <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
         </label>
       </FieldSection>
 
