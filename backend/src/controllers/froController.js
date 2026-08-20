@@ -758,12 +758,14 @@ export const getSuspenseReceipts = async (req, res) => {
     if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
     const { month, monthStart, monthEnd } = currentMonthBoundsIST();
 
+    const projectFilter = `project_id.is.null,project_id.in.(${projectSet.map(p => `"${p}"`).join(',')})`;
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
       .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
       .eq('status', 'unverified')
       .gte('transaction_date', monthStart)
-      .lte('transaction_date', monthEnd);
+      .lte('transaction_date', monthEnd)
+      .or(projectFilter);
     if (eErr) throw eErr;
 
     const receiptLinked = (entries || []).filter(e => e.receipt_id);
@@ -1137,12 +1139,39 @@ export const claimSuspenseReceipt = async (req, res) => {
         .maybeSingle();
       if (existingDonor) {
         donorId = existingDonor.id;
+      } else if (donor_mobile) {
+        const { data: mobDonor } = await db
+          .from('donor_profiles')
+          .select('id')
+          .eq('mobile_number', donor_mobile)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (mobDonor) {
+          donorId = mobDonor.id;
+        } else {
+          const { data: createdDonor, error: donorErr } = await db
+            .from('donor_profiles')
+            .insert({
+              name: donorName,
+              mobile_number: donor_mobile || `NOCELL-${Date.now()}`,
+              city: donor_city || null,
+              email: donor_email || null,
+              pan_number: donor_pan || null,
+              address_1: donor_address || null,
+              project_supported: receipt.project_id,
+            })
+            .select()
+            .single();
+          if (donorErr) throw donorErr;
+          donorId = createdDonor.id;
+        }
       } else {
         const { data: createdDonor, error: donorErr } = await db
           .from('donor_profiles')
           .insert({
             name: donorName,
-            mobile_number: donor_mobile || `NOCELL-${Date.now()}`,
+            mobile_number: `NOCELL-${Date.now()}-${workerId}`,
             city: donor_city || null,
             email: donor_email || null,
             pan_number: donor_pan || null,
