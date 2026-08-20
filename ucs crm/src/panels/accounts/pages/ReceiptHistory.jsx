@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { Download, FileSpreadsheet } from 'lucide-react';
-import { apiGet, apiPost, apiDelete } from '../api/auth';
+import { Download, FileSpreadsheet, Pencil } from 'lucide-react';
+import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
 import { generateReceiptPDF } from '../services/pdfGenerator';
@@ -157,6 +157,11 @@ export default function ReceiptHistory() {
   const [cleanFrom, setCleanFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [cleanTo, setCleanTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [goBackLoading, setGoBackLoading] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [froWorkers, setFroWorkers] = useState([]);
+  const [confirmFroChange, setConfirmFroChange] = useState(false);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
@@ -453,6 +458,53 @@ export default function ReceiptHistory() {
     }
   };
 
+  const handleEditReceipt = async (r) => {
+    setEditingReceipt(r);
+    setEditForm({
+      donor_name: r.donor_name || '',
+      donor_mobile: r.donor_mobile || '',
+      mobile_2: r.mobile_2 || '',
+      address: r.address || '',
+      address_2: r.address_2 || '',
+      pan_number: r.pan_number || '',
+      email: r.email || '',
+      agent_name: r.agent_name || '',
+      station: r.station || '',
+      mode: r.mode || '',
+      account_of: r.account_of || '',
+      caller_name: r.caller_name || '',
+      bank_name: r.bank_name || '',
+    });
+    setConfirmFroChange(false);
+    try {
+      const workers = await apiGet('/accounts/receipts/fro-workers');
+      setFroWorkers(Array.isArray(workers) ? workers : []);
+    } catch (err) {
+      console.error('Failed to load FRO workers:', err.message);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingReceipt) return;
+    const oldFro = (editingReceipt.agent_name || '').trim();
+    const newFro = (editForm.agent_name || '').trim();
+    if (oldFro !== newFro && newFro !== '' && !confirmFroChange) {
+      setConfirmFroChange(true);
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await apiPatch(`/accounts/receipts/${editingReceipt.id}`, editForm);
+      setEditingReceipt(null);
+      setConfirmFroChange(false);
+      load();
+    } catch (err) {
+      alert('Failed to update receipt: ' + err.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const buildFilterParams = (extra = {}) => {
     const p = new URLSearchParams();
     if (searchQuery.trim()) p.set('search', searchQuery.trim());
@@ -711,6 +763,7 @@ export default function ReceiptHistory() {
                 <th>Time</th>
                 <th>Amount</th>
                 <th>No. of Donations</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -728,7 +781,7 @@ export default function ReceiptHistory() {
                 ))
               ) : receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-soft)' }}>
                     {searchQuery ? 'No receipts match your search.' : 'No receipts found for this period.'}
                   </td>
                 </tr>
@@ -754,6 +807,17 @@ export default function ReceiptHistory() {
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
                       <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
+                      <td>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEditReceipt(r); }}
+                          title="Edit receipt"
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onMouseOver={e => e.currentTarget.style.background = '#f3f4f6'}
+                          onMouseOut={e => e.currentTarget.style.background = 'none'}
+                        >
+                          <Pencil size={14} strokeWidth={2} />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -889,6 +953,99 @@ export default function ReceiptHistory() {
             </div>
           </div>
         </>
+      )}
+
+      {editingReceipt && createPortal(
+        <>
+          <div className="modal-overlay" onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }} style={{ zIndex: 9999 }} />
+          <div className="modal" style={{ maxWidth: 520, width: '90%', maxHeight: '85vh', overflow: 'auto', zIndex: 10000 }}>
+            <div className="modal-header">
+              <h3>Edit Receipt — {editingReceipt.receipt_no}</h3>
+              <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                style={{ border: 'none', background: '#e5e7eb', color: '#374151', borderRadius: 6, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: 20 }}>
+              {confirmFroChange && (
+                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
+                  <strong>FRO Change Detected</strong><br />
+                  Credit of {currency(editingReceipt.amount)} will be reversed from <strong>{editingReceipt.agent_name || '—'}</strong> and applied to <strong>{editForm.agent_name}</strong>.
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  { label: 'Donor Name', key: 'donor_name', colSpan: 2 },
+                  { label: 'Mobile', key: 'donor_mobile' },
+                  { label: 'Mobile 2', key: 'mobile_2' },
+                  { label: 'Address', key: 'address', colSpan: 2, type: 'textarea' },
+                  { label: 'Address 2', key: 'address_2', colSpan: 2, type: 'textarea' },
+                  { label: 'PAN Number', key: 'pan_number' },
+                  { label: 'Email', key: 'email' },
+                  { label: 'FRO / Agent', key: 'agent_name', type: 'select' },
+                  { label: 'Station', key: 'station' },
+                  { label: 'Mode', key: 'mode', type: 'mop' },
+                  { label: 'Account Of', key: 'account_of' },
+                  { label: 'Caller Name', key: 'caller_name' },
+                  { label: 'Bank Name', key: 'bank_name' },
+                ].map(({ label, key, colSpan, type }) => (
+                  <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {label}
+                    {type === 'select' ? (
+                      <select
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                      >
+                        <option value="">Not assigned</option>
+                        {froWorkers.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                      </select>
+                    ) : type === 'mop' ? (
+                      <select
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                      >
+                        <option value="">—</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="NEFT">NEFT</option>
+                        <option value="RTGS">RTGS</option>
+                      </select>
+                    ) : type === 'textarea' ? (
+                      <textarea
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        rows={2}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, resize: 'vertical' }}
+                      />
+                    ) : (
+                      <input
+                        type={key === 'email' ? 'email' : 'text'}
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+                <button onClick={() => { setEditingReceipt(null); setConfirmFroChange(false); }}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={handleSaveEdit} disabled={editSaving}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: confirmFroChange ? '#f59e0b' : '#059669', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: editSaving ? 0.6 : 1 }}>
+                  {editSaving ? 'Saving...' : confirmFroChange ? 'Confirm & Save' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
       )}
 
       {showCleanModal && (
