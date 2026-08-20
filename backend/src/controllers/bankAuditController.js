@@ -1733,3 +1733,38 @@ export const searchPendingLeads = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// One-time batch sync: for every bank_audit_entries row whose linked receipt has
+// stale / blank fields, copy the entry's agent_name, payer_name, donor_mobile
+// etc. onto the receipt so the kind check classifies the entry correctly.
+export const syncReceiptFields = async (req, res) => {
+  try {
+    const { data: entries, error: eErr } = await db
+      .from('bank_audit_entries')
+      .select('id, receipt_id, payer_name, agent_name, donor_mobile, donor_pan, donor_address_1, donor_email')
+      .not('receipt_id', 'is', null);
+    if (eErr) throw eErr;
+
+    let synced = 0;
+    for (const e of entries || []) {
+      const { data: r } = await db.from('receipts').select('id, agent_name, donor_name, donor_mobile, pan_number, address, email').eq('id', e.receipt_id).maybeSingle();
+      if (!r) continue;
+
+      const patch = {};
+      if (BankAudit.isBlankSuspenseValue(r.agent_name) && e.agent_name && !BankAudit.isBlankSuspenseValue(e.agent_name)) patch.agent_name = e.agent_name;
+      if (BankAudit.isBlankSuspenseValue(r.donor_name) && e.payer_name) patch.donor_name = e.payer_name;
+      if (BankAudit.isBlankSuspenseValue(r.donor_mobile) && e.donor_mobile) patch.donor_mobile = e.donor_mobile;
+      if (BankAudit.isBlankSuspenseValue(r.pan_number) && e.donor_pan) patch.pan_number = e.donor_pan;
+      if (BankAudit.isBlankSuspenseValue(r.address) && e.donor_address_1) patch.address = e.donor_address_1;
+      if (BankAudit.isBlankSuspenseValue(r.email) && e.donor_email) patch.email = e.donor_email;
+
+      if (Object.keys(patch).length > 0) {
+        await db.from('receipts').update(patch).eq('id', r.id);
+        synced++;
+      }
+    }
+    return res.json({ message: `Synced ${synced} receipt(s)`, total: entries?.length || 0, synced });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
