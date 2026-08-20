@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import * as JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { Download, FileSpreadsheet, Pencil } from 'lucide-react';
+import { Download, FileSpreadsheet, Pencil, Trash2 } from 'lucide-react';
 import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
@@ -162,6 +162,7 @@ export default function ReceiptHistory() {
   const [editSaving, setEditSaving] = useState(false);
   const [froWorkers, setFroWorkers] = useState([]);
   const [confirmFroChange, setConfirmFroChange] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef(null);
   const namesFileRef = useRef(null);
   const CHUNK_SIZE = 100;
@@ -505,6 +506,26 @@ export default function ReceiptHistory() {
     }
   };
 
+  const handleDeleteReceipt = async (r) => {
+    if (!window.confirm(`Delete receipt ${r.receipt_no || '(no number)'} for ${currency(r.amount)}? The bank audit entry will return to the audit queue.`)) return;
+    setDeletingId(r.id);
+    try {
+      await apiPost(`/accounts/receipts/${r.id}/undo`);
+      load();
+    } catch (err) {
+      alert('Failed to delete receipt: ' + err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const isRecentReceipt = (r) => {
+    if (!r.created_at) return false;
+    const created = new Date(r.created_at);
+    const today = new Date();
+    return created.toDateString() === today.toDateString();
+  };
+
   const buildFilterParams = (extra = {}) => {
     const p = new URLSearchParams();
     if (searchQuery.trim()) p.set('search', searchQuery.trim());
@@ -807,7 +828,7 @@ export default function ReceiptHistory() {
                       <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtTime12(r.receipt_time) || '\u2014'}</td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: '#059669', whiteSpace: 'nowrap' }}>{currency(r.amount)}</td>
                       <td style={{ fontSize: 12, fontWeight: 600 }}>{info.count}</td>
-                      <td>
+                      <td style={{ display: 'flex', gap: 2 }}>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleEditReceipt(r); }}
                           title="Edit receipt"
@@ -817,6 +838,22 @@ export default function ReceiptHistory() {
                         >
                           <Pencil size={14} strokeWidth={2} />
                         </button>
+                        {isRecentReceipt(r) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteReceipt(r); }}
+                            disabled={deletingId === r.id}
+                            title="Delete receipt (returns to audit)"
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: deletingId === r.id ? '#d1d5db' : '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            onMouseOver={e => { if (deletingId !== r.id) e.currentTarget.style.background = '#fef2f2'; }}
+                            onMouseOut={e => e.currentTarget.style.background = 'none'}
+                          >
+                            {deletingId === r.id ? (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="30 10" transform="rotate(0 12 12)"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>
+                            ) : (
+                              <Trash2 size={14} strokeWidth={2} />
+                            )}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
