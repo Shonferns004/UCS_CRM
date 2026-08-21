@@ -4207,7 +4207,13 @@ export const getTLDashboard = async (req, res) => {
       .gte('created_at', todayStart.toISOString())
       .lte('created_at', todayEnd.toISOString());
 
-    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const connectedStatuses = new Set([
+      'donation_collected', 'promise_to_pay', 'lead_done', 'done',
+      'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated',
+      'pending', 'contacted', 'follow_up', 'scheduled',
+      'email_sent', 'whatsapp_sent', 'csr_inquiry',
+      'wants_80g_details', 'wants_trust_documents'
+    ]);
     const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
 
     const totalCalls = (callLogs || []).length;
@@ -4388,10 +4394,10 @@ export const getTLDashboard = async (req, res) => {
         calls: callCounts[w.id]?.month || 0,
         calls_today: callCounts[w.id]?.today || 0,
         calls_week: callCounts[w.id]?.week || 0,
-        connected: wa.connected,
+        connected: callCounts[w.id]?.monthConnected || 0,
         connected_today: callCounts[w.id]?.todayConnected || 0,
         connected_week: callCounts[w.id]?.weekConnected || 0,
-        interested: leads,
+        interested: callCounts[w.id]?.monthInterested || 0,
         interested_today: callCounts[w.id]?.todayInterested || 0,
         interested_week: callCounts[w.id]?.weekInterested || 0,
         stations: froStationMap[w.id] || [],

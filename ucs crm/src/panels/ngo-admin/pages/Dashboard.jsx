@@ -17,7 +17,7 @@ const DISPOSITION_LABELS = {
   wrong_person: 'Wrong Person', call_disconnected: 'Call Disconnected',
   language_barrier: 'Language Barrier', transferred_senior: 'Transferred to Senior',
   query_complaint: 'Query/Complaint', receipt_request: 'Receipt Request',
-  donation_collected: 'Donation Collected',
+  donation_collected: 'Lead Done',
 };
 
 const DISPOSITION_GROUPS = [
@@ -551,7 +551,7 @@ function FroDetailModal({ froId, froName, filterType, perfPeriod, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680 }}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>{froName}</h3>
@@ -562,7 +562,7 @@ function FroDetailModal({ froId, froName, filterType, perfPeriod, onClose }) {
           </div>
           <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body">
+        <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
           {loadingDonors ? (
             <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading donors...</div>
           ) : total === 0 ? (
@@ -708,6 +708,7 @@ export default function Dashboard() {
   const [weakLoading, setWeakLoading] = useState(false);
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
   const [perfPeriod, setPerfPeriod] = useState('today');
+  const [froSearch, setFroSearch] = useState('');
   const [selectedFro, setSelectedFro] = useState(null);
   const [callAnalytics, setCallAnalytics] = useState(null);
   const todayStr = new Date().toISOString().slice(0,10);
@@ -1429,9 +1430,16 @@ export default function Dashboard() {
             <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
               Telecaller Performance
-              <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}> — {tlData.performance.length} FROs</span>
+              <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}> — {froSearch ? tlData.performance.filter(p => p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())).length : tlData.performance.length} FROs</span>
             </h3>
-            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 'auto' }}>
+              <input
+                type="text"
+                placeholder="Search FRO name..."
+                value={froSearch}
+                onChange={e => setFroSearch(e.target.value)}
+                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', outline: 'none', width: 160, background: 'var(--bg)', color: 'var(--ink)' }}
+              />
               {[{ key: 'today', label: 'Today' }, { key: 'week', label: 'This Week' }, { key: 'month', label: 'This Month' }].map(opt => (
                 <button key={opt.key} onClick={() => setPerfPeriod(opt.key)} style={{
                   padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
@@ -1462,7 +1470,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {tlData.performance.map((p, i) => {
+                {tlData.performance.filter(p => !froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())).map((p, i) => {
                   const statusColors = { on_call: '#16a34a', online: '#3b82f6', idle: '#f59e0b', offline: '#9ca3af' };
                   const statusLabels = { on_call: 'Calling', online: 'Online', idle: 'Idle', offline: 'Offline' };
                   const sc = statusColors[p.status] || '#9ca3af';
