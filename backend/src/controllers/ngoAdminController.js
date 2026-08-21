@@ -4190,7 +4190,7 @@ export const getTLDashboard = async (req, res) => {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
     // 1. Live status counts (use the detailed query from later)
     const { data: liveStatus } = await db.from('fro_live_status').select('fro_worker_id, status, today_talk_seconds, today_idle_seconds, updated_at').in('fro_worker_id', workerIds);
@@ -4331,7 +4331,7 @@ export const getTLDashboard = async (req, res) => {
     const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
     const { data: callCountLogs } = await db
       .from('fro_donor_logs')
-      .select('fro_worker_id, created_at, disposition_detail')
+      .select('fro_worker_id, created_at, disposition_detail, fro_assignments!inner(ngo_id)')
       .in('fro_assignments.ngo_id', ngoIds)
       .in('fro_worker_id', workerIds)
       .gte('created_at', monthStart)
