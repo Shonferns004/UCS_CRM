@@ -137,9 +137,8 @@ export default function ReceiptHistory() {
   const [ngoId, setNgoId] = useState('');
   const [ngoOptions, setNgoOptions] = useState([]);
   const [page, setPage] = useState(1);
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const [fromDate, setFromDate] = useState(todayStr);
-  const [toDate, setToDate] = useState(todayStr);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [receiptNgo, setReceiptNgo] = useState('');
   const [suspenseMode, setSuspenseMode] = useState(false);
   const [todayDownloading, setTodayDownloading] = useState(false);
