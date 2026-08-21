@@ -5046,3 +5046,66 @@ export const getAssignedData = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// Restore wrong cross-FRO assignments: find fro_assignments where station IS NULL
+// and the donor has another assignment with station IS NOT NULL for the same ngo_id.
+export const restoreWrongAssignments = async (req, res) => {
+  try {
+    // Find all assignments with station NULL (manually created, potentially wrong)
+    const { data: nullStationAsns } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, fro_worker_id, ngo_id, station, status')
+      .is('station', null)
+      .not('status', 'eq', 'reassigned');
+
+    if (!nullStationAsns || nullStationAsns.length === 0) {
+      return res.json({ restored: 0, details: [] });
+    }
+
+    const details = [];
+    let restoredCount = 0;
+
+    for (const asn of nullStationAsns) {
+      // Check if this donor has another assignment with station for the same ngo_id
+      const { data: correctAsns } = await db
+        .from('fro_assignments')
+        .select('id, fro_worker_id, station')
+        .eq('donor_id', asn.donor_id)
+        .eq('ngo_id', asn.ngo_id)
+        .not('id', 'eq', asn.id)
+        .not('status', 'eq', 'reassigned')
+        .not('station', 'is', null);
+
+      if (correctAsns && correctAsns.length > 0) {
+        // This is a wrong assignment — delete it and its fro_donor_logs
+        const { data: logs } = await db
+          .from('fro_donor_logs')
+          .select('id, amount_collected')
+          .eq('assignment_id', asn.id);
+
+        // Delete fro_donor_logs first
+        if (logs && logs.length > 0) {
+          await db.from('fro_donor_logs').delete().eq('assignment_id', asn.id);
+        }
+
+        // Delete the wrong assignment
+        await db.from('fro_assignments').delete().eq('id', asn.id);
+
+        restoredCount++;
+        details.push({
+          assignment_id: asn.id,
+          donor_id: asn.donor_id,
+          fro_worker_id: asn.fro_worker_id,
+          ngo_id: asn.ngo_id,
+          logs_deleted: logs?.length || 0,
+          correct_assignment_id: correctAsns[0]?.id,
+        });
+      }
+    }
+
+    return res.json({ restored: restoredCount, details });
+  } catch (error) {
+    console.error('restoreWrongAssignments error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
