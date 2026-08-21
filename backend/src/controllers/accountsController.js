@@ -1332,6 +1332,16 @@ export const deleteLead = async (req, res) => {
       .eq('id', logId);
     if (delError) throw delError;
 
+    // Delete the orphaned assignment
+    const assignmentId = log.fro_assignments?.id;
+    if (assignmentId) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .delete()
+        .eq('id', assignmentId);
+      if (asgnError) throw asgnError;
+    }
+
     return res.json({ message: 'Lead deleted', log_id: logId });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1350,13 +1360,28 @@ export const deleteAllPendingLeads = async (req, res) => {
     if (listError) throw listError;
 
     const ids = (logs || []).map(l => l.id);
+    const assignmentIds = [...new Set((logs || []).map(l => l.assignment_id).filter(Boolean))];
 
     if (ids.length > 0) {
+      // Release any linked receipts to satisfy FK before deleting logs
+      try {
+        await db.from('receipts').update({ log_id: null, donor_id: null }).in('log_id', ids);
+      } catch (e) { console.warn('Failed to release receipts on bulk delete:', e.message); }
+
       const { error: delError } = await db
         .from('fro_donor_logs')
         .delete()
         .in('id', ids);
       if (delError) throw delError;
+    }
+
+    // Delete orphaned assignments
+    if (assignmentIds.length > 0) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .delete()
+        .in('id', assignmentIds);
+      if (asgnError) throw asgnError;
     }
 
     return res.json({ message: 'Pending leads deleted', deleted: ids.length });
