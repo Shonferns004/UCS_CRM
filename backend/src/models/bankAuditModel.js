@@ -381,7 +381,47 @@ export const getEntryByPaymentId = async (paymentId, status = 'unverified') => {
   return data || null;
 };
 
+export const ensureReceiptNumber = async (entryId) => {
+  const { data: entry } = await db
+    .from('bank_audit_entries')
+    .select('id, receipt_id, project_id, amount, payer_name, payment_id, transaction_date, payment_time, source_id')
+    .eq('id', entryId)
+    .single();
+  if (!entry) return;
+
+  const project = entry.project_id || 'bsct';
+
+  if (entry.receipt_id) {
+    const { data: receipt } = await db
+      .from('receipts')
+      .select('id, receipt_no, project_id')
+      .eq('id', entry.receipt_id)
+      .single();
+    if (receipt && !receipt.receipt_no) {
+      const receiptNo = await getNextReceiptNo(receipt.project_id || project);
+      await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', receipt.id);
+      await db.from('bank_audit_entries').update({ receipt_no: receiptNo }).eq('id', entryId);
+    }
+  } else {
+    const receiptNo = await getNextReceiptNo(project);
+    const { data: newReceipt } = await db.from('receipts').insert({
+      receipt_no: receiptNo,
+      project_id: project,
+      donor_name: entry.payer_name || 'Unknown',
+      amount: entry.amount,
+      receipt_date: entry.transaction_date,
+      receipt_time: entry.payment_time,
+      purpose: 'Bank Audit Entry',
+      agent_name: 'Suspense',
+    }).select().single();
+    if (newReceipt) {
+      await db.from('bank_audit_entries').update({ receipt_id: newReceipt.id, receipt_no: receiptNo }).eq('id', entryId);
+    }
+  }
+};
+
 export const verifyEntry = async (id) => {
+  await ensureReceiptNumber(id);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({ status: 'verified', updated_at: new Date().toISOString() })
@@ -432,6 +472,7 @@ export const assignSuspenseToFro = async (id, froId, notes) => {
 };
 
 export const resolveSuspense = async (id, screenshotUrl, donorDetails) => {
+  await ensureReceiptNumber(id);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -483,6 +524,7 @@ export const searchFroDispositions = async (froId, searchTerm) => {
 };
 
 export const linkSuspenseToDonor = async (entryId, donorId) => {
+  await ensureReceiptNumber(entryId);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
@@ -500,6 +542,7 @@ export const linkSuspenseToDonor = async (entryId, donorId) => {
 };
 
 export const markSuspenseUnmatched = async (entryId, markedBy) => {
+  await ensureReceiptNumber(entryId);
   const { data, error } = await db
     .from('bank_audit_entries')
     .update({
