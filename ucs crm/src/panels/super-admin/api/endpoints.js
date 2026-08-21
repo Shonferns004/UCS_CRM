@@ -30,3 +30,4 @@ export const rejectTicketSA = (id, remark) => api(`/attendance-corrections/${id}
 export const getNgoAdminTargets = () => api('/super-admin/ngo-admin-targets')
 export const setNgoAdminTarget = (workerId, daily_target) => api(`/super-admin/ngo-admin-targets/${workerId}`, { method:'PUT', body:JSON.stringify({ daily_target }) })
 export const getSuperAdminAlerts = () => api('/dashboard/super-admin-alerts')
+export const getReceiptStats = () => api('/accounts/receipts?limit=1')

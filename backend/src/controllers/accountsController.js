@@ -1553,6 +1553,35 @@ export const getReceiptList = async (req, res) => {
       `SELECT project_id, count(*)::int AS n FROM receipts GROUP BY project_id ORDER BY n DESC`
     );
 
+    // Month-scoped stats (honours from_date / to_date if provided).
+    const monthFrom = (req.query.from_date || '').trim();
+    const monthTo = (req.query.to_date || '').trim();
+    let monthStatsByProject = statsRes.rows;
+    if (monthFrom || monthTo) {
+      const mw = []; const mp = [];
+      if (monthFrom) { mp.push(monthFrom); mw.push(`receipt_date >= $${mp.length}::date`); }
+      if (monthTo)   { mp.push(monthTo);   mw.push(`receipt_date <= $${mp.length}::date`); }
+      const mRes = await db._pool.query(
+        `SELECT project_id,
+                count(*)::int AS count,
+                COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
+                count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
+         FROM receipts WHERE ${mw.join(' AND ')}
+         GROUP BY project_id ORDER BY count(*) DESC`, mp
+      );
+      monthStatsByProject = mRes.rows;
+    }
+
+    // Today stats (IST) per project.
+    const todayRes = await db._pool.query(
+      `SELECT project_id,
+              count(*)::int AS count,
+              COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+       FROM receipts
+       WHERE receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+       GROUP BY project_id`
+    );
+
     const where = [];
     const params = [];
     if (search) {
@@ -1645,6 +1674,8 @@ export const getReceiptList = async (req, res) => {
         data: rowsRes.rows,
         total: totalRes.rows[0].n,
         statsByProject: statsRes.rows,
+        monthStatsByProject,
+        todayStats: todayRes.rows,
         projects: projectsRes.rows.map(p => p.project_id),
       });
     }
@@ -1674,6 +1705,8 @@ export const getReceiptList = async (req, res) => {
       data: rowsRes.rows,
       total: totalRes.rows[0].n,
       statsByProject: statsRes.rows,
+      monthStatsByProject,
+      todayStats: todayRes.rows,
       projects: projectsRes.rows.map(p => p.project_id),
     });
   } catch (error) {
