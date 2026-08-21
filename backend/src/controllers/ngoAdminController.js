@@ -1654,6 +1654,110 @@ export const getDonorsByStation = async (req, res) => {
   }
 };
 
+export const getDonorsByFro = async (req, res) => {
+  try {
+    const { fro_worker_id, status, period } = req.query;
+    if (!fro_worker_id) {
+      return res.status(400).json({ message: 'fro_worker_id query param is required' });
+    }
+    const access = await getUserNgoAccess(req.user.id);
+    const ngoIds = access.map(a => a.ngo_id).filter(Boolean);
+    if (ngoIds.length === 0 && req.user.ngo_id) ngoIds.push(req.user.ngo_id);
+    if (ngoIds.length === 0) return res.json([]);
+
+    if (period && period !== 'all') {
+      const now = new Date();
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+      let startDate, endDate;
+      if (period === 'today') {
+        startDate = todayStart; endDate = todayEnd;
+      } else if (period === 'week') {
+        const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0, 0, 0, 0);
+        startDate = weekStart; endDate = todayEnd;
+      } else {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      }
+
+      const { data: logs, error: logErr } = await db
+        .from('fro_donor_logs')
+        .select('donor_id, disposition_detail, created_at')
+        .eq('fro_worker_id', fro_worker_id)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString());
+
+      if (logErr) throw logErr;
+
+      const donorIds = [...new Set((logs || []).map(l => l.donor_id).filter(Boolean))];
+      if (donorIds.length === 0) return res.json([]);
+
+      let query = db
+        .from('fro_assignments')
+        .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
+        .in('ngo_id', ngoIds)
+        .eq('fro_worker_id', fro_worker_id)
+        .not('status', 'eq', 'reassigned')
+        .in('donor_id', donorIds);
+
+      if (status) query = query.eq('status', status);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const logStatusMap = {};
+      for (const l of logs || []) {
+        if (!logStatusMap[l.donor_id]) logStatusMap[l.donor_id] = l.disposition_detail;
+      }
+
+      const result = (data || []).map(a => ({
+        id: a.id,
+        donor_id: a.donor_id,
+        donor_mobile: a.donor_profiles?.mobile_number || '',
+        donor_name: a.donor_profiles?.name || 'Unknown',
+        donor_city: a.donor_profiles?.city || '',
+        status: a.status,
+        call_status: logStatusMap[a.donor_id] || a.status,
+        station: a.station || '',
+        notes: a.notes || '',
+        next_follow_up: a.next_follow_up,
+        assigned_at: a.assigned_at,
+      }));
+
+      return res.json(result);
+    }
+
+    let query = db
+      .from('fro_assignments')
+      .select('*, donor_profiles(*), workers!fro_assignments_fro_worker_id_fkey(id, name, login_id)')
+      .in('ngo_id', ngoIds)
+      .eq('fro_worker_id', fro_worker_id)
+      .not('status', 'eq', 'reassigned');
+
+    if (status) query = query.eq('status', status);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const result = (data || []).map(a => ({
+      id: a.id,
+      donor_id: a.donor_id,
+      donor_mobile: a.donor_profiles?.mobile_number || '',
+      donor_name: a.donor_profiles?.name || 'Unknown',
+      donor_city: a.donor_profiles?.city || '',
+      status: a.status,
+      station: a.station || '',
+      notes: a.notes || '',
+      next_follow_up: a.next_follow_up,
+      assigned_at: a.assigned_at,
+    }));
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getNewData = async (req, res) => {
   try {
     const access = await getUserNgoAccess(req.user.id);
@@ -4217,7 +4321,8 @@ export const getTLDashboard = async (req, res) => {
       else if (log.accounts_status === 'rejected') claimStatusMap[log.fro_worker_id].rejected++;
     }
 
-    // Actual call counts per FRO (for today and month)
+    // Actual call counts per FRO (for today, week, and month)
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
     const { data: callCountLogs } = await db
       .from('fro_donor_logs')
       .select('fro_worker_id, created_at, disposition_detail')
@@ -4228,10 +4333,36 @@ export const getTLDashboard = async (req, res) => {
     
     const callCounts = {};
     for (const log of callCountLogs || []) {
-      if (!callCounts[log.fro_worker_id]) callCounts[log.fro_worker_id] = { month: 0, today: 0 };
+      if (!callCounts[log.fro_worker_id]) callCounts[log.fro_worker_id] = { month: 0, today: 0, week: 0, monthConnected: 0, todayConnected: 0, weekConnected: 0, monthInterested: 0, todayInterested: 0, weekInterested: 0 };
       callCounts[log.fro_worker_id].month++;
-      if (new Date(log.created_at) >= todayStart && new Date(log.created_at) <= todayEnd) {
-        callCounts[log.fro_worker_id].today++;
+      const isToday = new Date(log.created_at) >= todayStart && new Date(log.created_at) <= todayEnd;
+      const isWeek = new Date(log.created_at) >= weekStart && new Date(log.created_at) <= todayEnd;
+      if (isToday) callCounts[log.fro_worker_id].today++;
+      if (isWeek) callCounts[log.fro_worker_id].week++;
+      if (connectedStatuses.has(log.disposition_detail)) {
+        callCounts[log.fro_worker_id].monthConnected++;
+        if (isToday) callCounts[log.fro_worker_id].todayConnected++;
+        if (isWeek) callCounts[log.fro_worker_id].weekConnected++;
+      }
+      if (interestedStatuses.has(log.disposition_detail)) {
+        callCounts[log.fro_worker_id].monthInterested++;
+        if (isToday) callCounts[log.fro_worker_id].todayInterested++;
+        if (isWeek) callCounts[log.fro_worker_id].weekInterested++;
+      }
+    }
+
+    // Station info per FRO
+    const { data: froStationData } = await db
+      .from('fro_station_assignments')
+      .select('fro_worker_id, station')
+      .in('ngo_id', ngoIds);
+    const froStationMap = {};
+    for (const row of froStationData || []) {
+      if (row.fro_worker_id && row.station) {
+        if (!froStationMap[row.fro_worker_id]) froStationMap[row.fro_worker_id] = [];
+        if (!froStationMap[row.fro_worker_id].includes(row.station)) {
+          froStationMap[row.fro_worker_id].push(row.station);
+        }
       }
     }
 
@@ -4256,8 +4387,14 @@ export const getTLDashboard = async (req, res) => {
         fro_login_id: w.login_id || '',
         calls: callCounts[w.id]?.month || 0,
         calls_today: callCounts[w.id]?.today || 0,
+        calls_week: callCounts[w.id]?.week || 0,
         connected: wa.connected,
+        connected_today: callCounts[w.id]?.todayConnected || 0,
+        connected_week: callCounts[w.id]?.weekConnected || 0,
         interested: leads,
+        interested_today: callCounts[w.id]?.todayInterested || 0,
+        interested_week: callCounts[w.id]?.weekInterested || 0,
+        stations: froStationMap[w.id] || [],
         receivedDonors: leads, // approximate
         receivedAmount: coll,
         targetPct: targetPct,

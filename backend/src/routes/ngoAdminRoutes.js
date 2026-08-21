@@ -44,6 +44,7 @@ import {
   updateStationNgos,
   getStationStats,
   getDonorsByStation,
+  getDonorsByFro,
   getNewData,
   distributeNewData,
   cleanupNewData,
@@ -117,6 +118,7 @@ router.get('/donors/:donorId/credit', getDonorCreditLogs);
 router.put('/credit-logs/:logId/transfer', transferDonorCredit);
 router.get('/donors/:mobile', getDonorDetail);
 router.get('/donors-by-station', getDonorsByStation);
+router.get('/donors-by-fro', getDonorsByFro);
 router.get('/fro-workers', getFroWorkers);
 router.get('/assignments', getAssignments);
 router.get('/targets', getTargets);

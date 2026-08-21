@@ -123,12 +123,12 @@ const getClaimableLog = async (logId, currentLogId = null) => {
     if (!logs || logs.length === 0) throw new Error('Selected lead not found');
     const log = logs[0];
 
-  const { data: existingReceipt } = await db
+  const { data: existingReceipt, error: receiptErr } = await db
     .from('receipts')
     .select('id')
     .eq('log_id', logId)
     .maybeSingle();
-  if (error) throw error;
+  if (receiptErr) throw receiptErr;
   log.existing_receipt_id = existingReceipt?.id || null;
 
   if (String(logId) !== String(currentLogId) && log.accounts_status !== 'pending') {

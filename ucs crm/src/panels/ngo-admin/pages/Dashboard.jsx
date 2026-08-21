@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { apiGet } from '../api/auth';
+import { apiGet, apiPut } from '../api/auth';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import RecentNotices from '../../../components/RecentNotices';
 
@@ -432,6 +432,266 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
   );
 }
 
+function FroDetailModal({ froId, froName, filterType, perfPeriod, onClose }) {
+  const [allDonors, setAllDonors] = useState([]);
+  const [loadingDonors, setLoadingDonors] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  useEffect(() => {
+    if (!froId) return;
+    setLoadingDonors(true);
+    apiGet(`/ngo-admin/donors-by-fro?fro_worker_id=${froId}&period=${perfPeriod || 'today'}`)
+      .then(data => setAllDonors(data || []))
+      .catch(() => setAllDonors([]))
+      .finally(() => setLoadingDonors(false));
+  }, [froId, perfPeriod]);
+
+  const isNonConnected = filterType === 'non_connected';
+  const filterColor = isNonConnected ? '#dc2626' : '#16a34a';
+  const filterBg = isNonConnected ? '#fef2f2' : '#f0fdf4';
+  const filterLabel = isNonConnected ? 'Non-Connected' : 'Connected';
+
+  const hasPeriodData = perfPeriod && perfPeriod !== 'all';
+
+  const baseList = useMemo(() => {
+    const getKey = (d) => hasPeriodData && d.call_status ? d.call_status : d.status;
+    if (isNonConnected) {
+      return allDonors.filter(d => {
+        const grp = DISPOSITION_GROUPS.find(g => g.statuses.includes(getKey(d)));
+        return !grp || grp.label === 'Negative' || grp.label === 'Other';
+      });
+    }
+    return allDonors.filter(d => {
+      const grp = DISPOSITION_GROUPS.find(g => g.statuses.includes(getKey(d)));
+      return grp && (grp.label === 'Converted' || grp.label === 'In Progress');
+    });
+  }, [allDonors, isNonConnected, hasPeriodData]);
+
+  const total = baseList.length;
+
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    for (const d of baseList) {
+      const key = hasPeriodData && d.call_status ? d.call_status : d.status;
+      if (!counts[key]) counts[key] = 0;
+      counts[key]++;
+    }
+    const result = [];
+    for (const g of DISPOSITION_GROUPS) {
+      for (const s of g.statuses) {
+        if (counts[s] > 0) result.push({ status: s, count: counts[s], group: g });
+      }
+    }
+    return result;
+  }, [baseList, hasPeriodData]);
+
+  const groupData = useMemo(() => {
+    const grouped = {};
+    for (const { group, count } of statusCounts) {
+      if (!grouped[group.label]) grouped[group.label] = { label: group.label, color: group.color, bg: group.bg, total: 0 };
+      grouped[group.label].total += count;
+    }
+    return Object.values(grouped).filter(g => g.total > 0);
+  }, [statusCounts]);
+
+  const donorsRef = useRef(null);
+  const fetchDonors = useCallback(async (status) => {
+    if (donorsRef.current) donorsRef.current.abort();
+    const controller = new AbortController();
+    donorsRef.current = controller;
+    setStatusFilter(status || '');
+    setPage(1);
+    try {
+      const params = new URLSearchParams({ fro_worker_id: froId });
+      if (status) params.set('status', status);
+      const data = await apiGet(`/ngo-admin/donors-by-fro?${params}`, { signal: controller.signal, timeout: 30000 });
+      if (!controller.signal.aborted) setAllDonors(data || []);
+    } catch {
+      if (!controller.signal.aborted) setAllDonors([]);
+    }
+  }, [froId]);
+
+  const filtered = useMemo(() => {
+    let list = baseList;
+    if (statusFilter) {
+      list = list.filter(d => {
+        const key = hasPeriodData && d.call_status ? d.call_status : d.status;
+        return key === statusFilter;
+      });
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(d =>
+        (d.donor_name && d.donor_name.toLowerCase().includes(q)) ||
+        (d.donor_mobile && d.donor_mobile.includes(q)) ||
+        (d.station && d.station.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [baseList, statusFilter, search]);
+
+  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+  const paginated = useMemo(() => {
+    const start = (page - 1) * PER_PAGE;
+    return filtered.slice(start, start + PER_PAGE);
+  }, [filtered, page]);
+
+  useEffect(() => { setPage(1); }, [search, statusFilter]);
+
+  const handleStatusClick = (status) => {
+    setStatusFilter(prev => prev === status ? '' : status);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680 }}>
+        <div className="modal-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>{froName}</h3>
+            <span style={{ fontSize: 12, fontWeight: 600, color: filterColor, background: filterBg, padding: '2px 10px', borderRadius: 12 }}>
+              {total} {filterLabel}
+            </span>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>of {allDonors.length} total</span>
+          </div>
+          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {loadingDonors ? (
+            <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading donors...</div>
+          ) : total === 0 ? (
+            <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {filterLabel.toLowerCase()} donors found</div>
+          ) : (
+            <>
+              {groupData.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ height: 8, borderRadius: 4, background: '#e5e7eb', display: 'flex', overflow: 'hidden' }}>
+                    {groupData.map(g => (
+                      <div key={g.label} style={{ width: `${(g.total / total) * 100}%`, height: '100%', background: g.color, opacity: 0.6 }} />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+                    {groupData.map(g => (
+                      <span key={g.label} style={{ fontSize: 11, fontWeight: 600, color: g.color, background: g.bg, padding: '2px 10px', borderRadius: 10 }}>
+                        {g.label}: {g.total}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-soft)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Disposition Breakdown
+                <span style={{ marginLeft: 8, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                  — click a status to view donors
+                </span>
+              </div>
+
+              {statusCounts.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
+                  {statusCounts.map(({ status, count, group }) => (
+                    <button key={status} onClick={() => handleStatusClick(status)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '3px 10px', borderRadius: 20, border: `1px solid ${statusFilter === status ? group.color : 'transparent'}`,
+                        background: statusFilter === status ? group.bg : 'var(--bg)',
+                        cursor: 'pointer', fontSize: 12, fontWeight: statusFilter === status ? 700 : 500,
+                        color: statusFilter === status ? group.color : 'var(--ink-soft)',
+                        transition: 'all .15s',
+                      }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: group.color, flexShrink: 0 }} />
+                      {DISPOSITION_LABELS[status] || status}
+                      <span style={{ fontWeight: 700, color: group.color, marginLeft: 2 }}>{count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, marginTop: 4 }}>
+                <div className="filter-bar" style={{ marginBottom: 12 }}>
+                  <input placeholder="Search name, phone, station..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: 240 }} />
+                  {statusFilter && (
+                    <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: '#f0f2ee', color: 'var(--ink-soft)', fontWeight: 500 }}>
+                      {DISPOSITION_LABELS[statusFilter] || statusFilter}
+                    </span>
+                  )}
+                  <span className="count">{loadingDonors ? 'Loading...' : `${filtered.length} donors`}</span>
+                  {statusFilter && (
+                    <button className="btn btn-sm btn-outline" onClick={() => { setStatusFilter(''); setSearch(''); setPage(1); }}>Clear</button>
+                  )}
+                </div>
+
+                {paginated.length > 0 ? (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Name</th>
+                          <th>Phone</th>
+                          <th>Station</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginated.map((d, i) => {
+                          const displayStatus = hasPeriodData && d.call_status ? d.call_status : d.status;
+                          const grp = DISPOSITION_GROUPS.find(gr => gr.statuses.includes(displayStatus));
+                          return (
+                            <tr key={d.id || d.donor_id}>
+                              <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{(page - 1) * PER_PAGE + i + 1}</td>
+                              <td style={{ fontWeight: 500 }}>{d.donor_name || '—'}</td>
+                              <td>{d.donor_mobile || '—'}</td>
+                              <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{d.station || '—'}</td>
+                              <td><span className="pill" style={{
+                                background: grp ? grp.bg : '#f3f4f6',
+                                color: grp ? grp.color : '#6b7280',
+                              }}>{DISPOSITION_LABELS[displayStatus] || displayStatus}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>
+                    No donors match this filter.
+                  </div>
+                )}
+
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '12px 0 4px' }}>
+                    <button className="btn btn-sm btn-outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                      Previous
+                    </button>
+                    {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                      const p = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(page - 2, totalPages - 4)) + i;
+                      return (
+                        <button key={p} className={`btn btn-sm ${p === page ? 'btn-primary' : 'btn-outline'}`} onClick={() => setPage(p)} style={{ minWidth: 32 }}>
+                          {p}
+                        </button>
+                      );
+                    })}
+                    <button className="btn btn-sm btn-outline" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                      Next
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [stationStats, setStationStats] = useState(null);
@@ -446,9 +706,9 @@ export default function Dashboard() {
   const [weakPeriod, setWeakPeriod] = useState('today');
   const [weakPerformers, setWeakPerformers] = useState([]);
   const [weakLoading, setWeakLoading] = useState(false);
-  const [stationDateFrom, setStationDateFrom] = useState('');
-  const [stationDateTo, setStationDateTo] = useState('');
   const [showAllLowPerformers, setShowAllLowPerformers] = useState(false);
+  const [perfPeriod, setPerfPeriod] = useState('today');
+  const [selectedFro, setSelectedFro] = useState(null);
   const [callAnalytics, setCallAnalytics] = useState(null);
   const todayStr = new Date().toISOString().slice(0,10);
   const monthStart = new Date().toISOString().slice(0,7) + '-01';
@@ -484,18 +744,46 @@ export default function Dashboard() {
     return () => { cancelled = true };
   }, [selectedNgoId]);
 
+  const [tlData, setTlData] = useState(null);
+  const [followups, setFollowups] = useState([]);
+  const [followupTab, setFollowupTab] = useState('overdue');
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [showFollowups, setShowFollowups] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+    const fetchTl = () => {
+      apiGet(`/ngo-admin/tl-dashboard${ngoParam}`)
+        .then(d => { if (!cancelled) setTlData(d); })
+        .catch(() => { if (!cancelled) setTlData(null); });
+    };
+    fetchTl();
+    const interval = setInterval(fetchTl, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [selectedNgoId]);
+
+  useEffect(() => {
+    if (!showFollowups) return;
+    let cancelled = false;
+    setFollowupLoading(true);
+    const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
+    apiGet(`/ngo-admin/followups${ngoParam}`)
+      .then(d => { if (!cancelled) setFollowups(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setFollowups([]); })
+      .finally(() => { if (!cancelled) setFollowupLoading(false); });
+    return () => { cancelled = true };
+  }, [showFollowups, selectedNgoId]);
+
   const fetchDashboard = useCallback(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     const ngoParam = selectedNgoId !== 'all' ? `?ngo_id=${selectedNgoId}` : '';
-    const dateParam = stationDateFrom || stationDateTo
-      ? `${ngoParam ? '&' : '?'}from=${stationDateFrom}&to=${stationDateTo}`
-      : '';
     const opts = { signal: controller.signal, timeout: 180000 };
     Promise.all([
       apiGet(`/ngo-admin/dashboard${ngoParam}`, opts),
-      apiGet(`/ngo-admin/dashboard/station-stats${ngoParam}${dateParam}`, opts),
+      apiGet(`/ngo-admin/dashboard/station-stats${ngoParam}`, opts),
       apiGet('/ngo-admin/stations', opts),
     ])
       .then(([d, s, st]) => {
@@ -514,7 +802,7 @@ export default function Dashboard() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return controller;
-  }, [selectedNgoId, stationDateFrom, stationDateTo]);
+  }, [selectedNgoId]);
 
   useEffect(() => {
     const controller = fetchDashboard();
@@ -797,6 +1085,168 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ===== NEW SECTIONS FROM TL DASHBOARD ===== */}
+
+      {/* Section 1: Idle Alert Banner */}
+      {tlData?.idle_alerts?.length > 0 && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 14 }}>⚠️</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>Idle Alerts:</span>
+          {tlData.idle_alerts.map(a => (
+            <span key={a.fro_id} style={{ fontSize: 11, fontWeight: 500, color: '#78350f', background: '#fff', padding: '2px 10px', borderRadius: 12, border: '1px solid #fde68a' }}>
+              {a.fro_name} — {a.idle_minutes}m idle
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Section 2: Telecaller Live Status Bar */}
+      {tlData?.kpis && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 16 }}>
+          {[
+            { label: 'Telecallers', value: tlData.kpis.total_fros || 0, color: '#1e40af', bg: '#eff6ff' },
+            { label: 'Calling', value: tlData.kpis.calling || 0, color: '#16a34a', bg: '#f0fdf4' },
+            { label: 'Idle', value: tlData.kpis.idle || 0, color: '#d97706', bg: '#fffbeb' },
+            { label: 'Offline', value: tlData.kpis.offline || 0, color: '#dc2626', bg: '#fef2f2' },
+            { label: 'Total Calls', value: tlData.kpis.total_calls || 0, color: '#7c3aed', bg: '#f5f3ff' },
+            { label: 'Connected', value: tlData.kpis.connected || 0, color: '#0891b2', bg: '#ecfeff' },
+            { label: 'Interested', value: tlData.kpis.interested || 0, color: '#db2777', bg: '#fdf2f8' },
+            { label: 'Received', value: '₹' + Number(tlData.kpis.received_amount || 0).toLocaleString('en-IN'), color: '#16a34a', bg: '#f0fdf4', isAmount: true },
+            { label: 'Follow-ups Due', value: tlData.kpis.followups_due || 0, color: '#ea580c', bg: '#fff7ed' },
+            { label: 'Target %', value: (tlData.kpis.target_pct || 0) + '%', color: tlData.kpis.target_pct >= 75 ? '#16a34a' : '#dc2626', bg: tlData.kpis.target_pct >= 75 ? '#f0fdf4' : '#fef2f2' },
+          ].map((s, i) => (
+            <div key={i} className="card" style={{ marginBottom: 0, padding: '12px 14px', textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Section 3: Donation Funnel */}
+      {tlData?.funnel?.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, padding: '16px 18px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            Donation Funnel — Where Donors Drop Off
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, overflowX: 'auto', padding: '4px 0' }}>
+            {tlData.funnel.map((stage, i) => {
+              const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#ec4899', '#16a34a'];
+              const color = colors[i] || '#94a3b8';
+              const isLast = i === tlData.funnel.length - 1;
+              const maxCount = Math.max(...tlData.funnel.map(s => s.count), 1);
+              return (
+                <div key={stage.stage} style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  <div style={{ minWidth: 90, textAlign: 'center', padding: '8px 10px', borderRadius: 8, background: color + '12', border: `1px solid ${color}30` }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: 4 }}>{stage.stage}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color }}>{(stage.count || 0).toLocaleString('en-IN')}</div>
+                    <div style={{ fontSize: 9, color: 'var(--ink-soft)', marginTop: 2 }}>{stage.pct}% of assigned</div>
+                    <div style={{ height: 4, borderRadius: 2, background: '#e5e7eb', marginTop: 6, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 2, background: color, width: `${(stage.count / maxCount) * 100}%`, transition: 'width .6s ease' }} />
+                    </div>
+                  </div>
+                  {!isLast && (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Section 4+5: Hourly Performance + Top/Bottom Performers */}
+      <div style={{ display: 'grid', gridTemplateColumns: tlData?.hourly?.length > 0 ? '2fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
+        {/* Hourly Performance Table */}
+        {tlData?.hourly?.length > 0 && (
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="card-head">
+              <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Hourly Performance
+              </h3>
+            </div>
+            <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Time</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Calls</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Connected</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Interested</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Donations</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tlData.hourly.map(h => {
+                    const peakCalls = Math.max(...tlData.hourly.map(x => x.calls || 0), 1);
+                    const intensity = (h.calls || 0) / peakCalls;
+                    return (
+                      <tr key={h.hour} style={{ background: intensity > 0.7 ? '#f0fdf4' : intensity < 0.3 && h.calls === 0 ? '#fef2f2' : 'transparent' }}>
+                        <td style={{ padding: '6px 10px', fontWeight: 600 }}>{h.hour}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{h.calls || 0}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', color: '#16a34a' }}>{h.connected || 0}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', color: '#ec4899' }}>{h.interested || 0}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', color: '#8b5cf6' }}>{h.donations || 0}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: (h.amount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
+                          ₹{Number(h.amount || 0).toLocaleString('en-IN')}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Top/Bottom Performers */}
+        {(tlData?.top_performers || tlData?.bottom_performers) && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {tlData.top_performers?.amount?.length > 0 && (
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-head">
+                  <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: '#f59e0b' }}>🏆</span> Top by Collection
+                  </h3>
+                </div>
+                <div className="card-pad" style={{ padding: 0 }}>
+                  {tlData.top_performers.amount.map((p, i) => (
+                    <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.top_performers.amount.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', minWidth: 16 }}>#{i + 1}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>₹{Number(p.collection_amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {tlData.bottom_performers?.target?.length > 0 && (
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-head">
+                  <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>⚠️</span> Bottom by Target
+                  </h3>
+                </div>
+                <div className="card-pad" style={{ padding: 0 }}>
+                  {tlData.bottom_performers.target.map((p, i) => (
+                    <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.bottom_performers.target.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: p.target_pct < 30 ? '#dc2626' : '#f59e0b' }}>{p.target_pct || 0}%</span>
+                      <div style={{ width: 40, height: 4, borderRadius: 2, background: '#e5e7eb', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(100, p.target_pct || 0)}%`, height: '100%', borderRadius: 2, background: p.target_pct < 30 ? '#dc2626' : '#f59e0b' }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card" style={{ marginBottom: 0, padding: '16px 18px' }}>
@@ -972,6 +1422,206 @@ export default function Dashboard() {
 
       <style>{`@keyframes weakSpin { to { transform: rotate(360deg); } } .weak-spin { animation: weakSpin .6s linear infinite; transform-origin: center; }`}</style>
 
+      {/* Section 6: Telecaller Performance Table */}
+      {tlData?.performance?.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              Telecaller Performance
+              <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}> — {tlData.performance.length} FROs</span>
+            </h3>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+              {[{ key: 'today', label: 'Today' }, { key: 'week', label: 'This Week' }, { key: 'month', label: 'This Month' }].map(opt => (
+                <button key={opt.key} onClick={() => setPerfPeriod(opt.key)} style={{
+                  padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
+                  border: `1px solid ${perfPeriod === opt.key ? 'var(--sage)' : 'var(--line)'}`,
+                  background: perfPeriod === opt.key ? 'var(--sage)' : 'var(--bg)',
+                  color: perfPeriod === opt.key ? '#fff' : 'var(--ink-soft)',
+                  cursor: 'pointer',
+                }}>{opt.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 440, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>#</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Name</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Station</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Status</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Calls{perfPeriod === 'today' ? ' (Today)' : perfPeriod === 'week' ? ' (Week)' : ' (Month)'}</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Connected</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Non-Connected</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Interested</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Received</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Target %</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Claims</th>
+                  <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Conv %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tlData.performance.map((p, i) => {
+                  const statusColors = { on_call: '#16a34a', online: '#3b82f6', idle: '#f59e0b', offline: '#9ca3af' };
+                  const statusLabels = { on_call: 'Calling', online: 'Online', idle: 'Idle', offline: 'Offline' };
+                  const sc = statusColors[p.status] || '#9ca3af';
+                  const periodCalls = perfPeriod === 'today' ? (p.calls_today || 0) : perfPeriod === 'week' ? (p.calls_week || 0) : (p.calls || 0);
+                  const periodConnected = perfPeriod === 'today' ? (p.connected_today || 0) : perfPeriod === 'week' ? (p.connected_week || 0) : (p.connected || 0);
+                  const periodInterested = perfPeriod === 'today' ? (p.interested_today || 0) : perfPeriod === 'week' ? (p.interested_week || 0) : (p.interested || 0);
+                  const periodNonConnected = Math.max(0, periodCalls - periodConnected);
+                  return (
+                    <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      <td style={{ padding: '10px', color: 'var(--ink-soft)', fontSize: 11 }}>{i + 1}</td>
+                      <td style={{ padding: '10px', fontWeight: 600 }}>
+                        {p.fro_name}
+                        <span className="perf-show-inline" style={{ fontSize: 10, color: sc, fontWeight: 500, marginLeft: 6 }}>
+                          {statusLabels[p.status] || 'Offline'}
+                        </span>
+                        {p.stations?.length > 0 && (
+                          <span className="perf-show-inline" style={{ display: 'block', fontSize: 9, color: 'var(--ink-soft)', fontWeight: 400, marginTop: 1 }}>
+                            {p.stations.join(', ')}
+                          </span>
+                        )}
+                      </td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', fontSize: 11, color: 'var(--ink-soft)' }}>
+                        {p.stations?.length > 0 ? p.stations.map(s => (
+                          <span key={s} style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 4, background: '#f3f4f6', fontWeight: 500, marginRight: 3, marginBottom: 2 }}>{s}</span>
+                        )) : '—'}
+                      </td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'center' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color: sc }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: sc, display: 'inline-block' }} />
+                          {statusLabels[p.status] || 'Offline'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 600 }}>{periodCalls}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#16a34a', fontWeight: 600, cursor: 'pointer', textDecoration: periodConnected > 0 ? 'underline' : 'none' }}
+                        onClick={(e) => { e.stopPropagation(); if (periodConnected > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'connected' }); }}>{periodConnected}</td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'right', color: '#dc2626', fontWeight: 600, cursor: 'pointer', textDecoration: periodNonConnected > 0 ? 'underline' : 'none' }}
+                        onClick={(e) => { e.stopPropagation(); if (periodNonConnected > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected' }); }}>{periodNonConnected}</td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'right', color: '#ec4899' }}>{periodInterested}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (p.receivedAmount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
+                        ₹{Number(p.receivedAmount || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'right' }}>
+                        <span style={{ fontWeight: 700, color: (p.target_pct || 0) >= 75 ? '#16a34a' : (p.target_pct || 0) >= 50 ? '#f59e0b' : '#dc2626' }}>
+                          {p.target_pct || 0}%
+                        </span>
+                      </td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'center', fontSize: 11 }}>
+                        {p.claims_pending > 0 && <span style={{ background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginRight: 3 }}>{p.claims_pending}p</span>}
+                        {p.claims_verified > 0 && <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '1px 6px', borderRadius: 8, fontWeight: 600, marginRight: 3 }}>{p.claims_verified}v</span>}
+                        {p.claims_rejected > 0 && <span style={{ background: '#fef2f2', color: '#dc2626', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>{p.claims_rejected}r</span>}
+                        {(!p.claims_pending && !p.claims_verified && !p.claims_rejected) && <span style={{ color: 'var(--ink-soft)' }}>—</span>}
+                      </td>
+                      <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'center', fontWeight: 600, color: (p.conversion_pct || 0) >= 50 ? '#16a34a' : '#f59e0b' }}>
+                        {p.conversion_pct || 0}%
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <style>{`
+            .perf-show-inline { display: none; }
+            @media (max-width: 768px) {
+              .perf-hide-mobile { display: none !important; }
+              .perf-show-inline { display: inline !important; }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {/* Section 7: Follow-up Management */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head" style={{ cursor: 'pointer' }} onClick={() => setShowFollowups(!showFollowups)}>
+          <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Follow-up Management
+            <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}>{showFollowups ? '▲ collapse' : '▼ expand'}</span>
+          </h3>
+        </div>
+        {showFollowups && (
+          <div className="card-pad">
+            {followupLoading ? (
+              <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>Loading follow-ups...</div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'overdue', label: 'Overdue', color: '#dc2626', bg: '#fef2f2' },
+                    { key: 'today', label: 'Today', color: '#ea580c', bg: '#fff7ed' },
+                    { key: 'tomorrow', label: 'Tomorrow', color: '#2563eb', bg: '#eff6ff' },
+                    { key: 'future', label: 'Future', color: '#6b7280', bg: '#f9fafb' },
+                  ].map(tab => {
+                    const count = followups.filter(f => f.bucket === tab.key).length;
+                    return (
+                      <button key={tab.key} onClick={() => setFollowupTab(tab.key)} style={{
+                        padding: '5px 14px', borderRadius: 20, border: followupTab === tab.key ? `2px solid ${tab.color}` : '1px solid var(--line)',
+                        fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+                        background: followupTab === tab.key ? tab.bg : '#fff', color: followupTab === tab.key ? tab.color : 'var(--ink-soft)',
+                      }}>
+                        {tab.label} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const filtered = followups.filter(f => f.bucket === followupTab);
+                  if (filtered.length === 0) return <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: 'var(--ink-soft)' }}>No {followupTab} follow-ups</div>;
+                  return (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Donor</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Telecaller</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Date</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.slice(0, 20).map(f => (
+                            <tr key={f.assignment_id} style={{ borderBottom: '1px solid var(--line)' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 500 }}>{f.donor_name || '—'}</td>
+                              <td style={{ padding: '8px 10px', color: 'var(--ink-soft)' }}>{f.telecaller || '—'}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', fontSize: 11 }}>{f.followup_date || '—'}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const newDate = prompt('New follow-up date (YYYY-MM-DD):', f.followup_date);
+                                  if (newDate && newDate !== f.followup_date) {
+                                    try {
+                                      await apiPut(`/ngo-admin/followups/${f.assignmentId || f.assignment_id}/date`, { followup_date: newDate });
+                                      setFollowups(prev => prev.map(x => x.assignment_id === f.assignment_id ? { ...x, followup_date: newDate } : x));
+                                    } catch (err) { alert('Failed: ' + err.message); }
+                                  }
+                                }} style={{ fontSize: 10, padding: '3px 8px', border: '1px solid var(--line)', borderRadius: 4, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                                  Change Date
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {filtered.length > 20 && (
+                        <div style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>
+                          Showing 20 of {filtered.length} — go to Donor CRM for full list
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Call Connectivity Widget */}
       {(() => {
         const s = callAnalytics?.summary
@@ -1070,130 +1720,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {stationNames.length > 0 && (
-        <>
-          <div className="card desktop-only" style={{ marginBottom: 16 }}>
-            <div className="card-head">
-              <h3>Stations</h3>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <button onClick={() => { setStationDateFrom(todayStr); setStationDateTo(todayStr); }}
-                  style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === todayStr && stationDateTo === todayStr ? '#fff' : 'var(--ink)' }}>
-                  Today
-                </button>
-                <button onClick={() => { setStationDateFrom(monthStart); setStationDateTo(monthEnd); }}
-                  style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === monthStart && stationDateTo === monthEnd ? '#fff' : 'var(--ink)' }}>
-                  Monthly
-                </button>
-                {(stationDateFrom || stationDateTo) && (
-                  <button onClick={() => { setStationDateFrom(''); setStationDateTo(''); }}
-                    style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink-soft)' }}>
-                    Clear
-                  </button>
-                )}
-                <span style={{ fontSize:12, color:'var(--ink-soft)', fontWeight:500 }}>From</span>
-                <input type="date" value={stationDateFrom} onChange={e => setStationDateFrom(e.target.value)}
-                  style={{ fontSize:12, padding:'4px 8px', border:'1px solid var(--line)', borderRadius:6, fontFamily:'inherit', outline:'none', background:'var(--bg)', color:'var(--ink)' }} />
-                <span style={{ fontSize:12, color:'var(--ink-soft)' }}>to</span>
-                <input type="date" value={stationDateTo} onChange={e => setStationDateTo(e.target.value)}
-                  style={{ fontSize:12, padding:'4px 8px', border:'1px solid var(--line)', borderRadius:6, fontFamily:'inherit', outline:'none', background:'var(--bg)', color:'var(--ink)' }} />
-                <span className="count">{stationNames.length} total</span>
-              </div>
-            </div>
-            <div className="card-pad" style={{ padding: 0 }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Station</th>
-                    <th>Donors</th>
-                    <th>Connected</th>
-                    <th>Non Connected</th>
-                    <th>Lead Done</th>
-                    <th>NGOs</th>
-                    <th>FRO</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stationNames.map(st => {
-                    const total = getStationTotal(st);
-                    const info = stationInfoMap[st];
-                    const cnv = ['donation_collected','promise_to_pay','visit_donate','payment_pending','already_donated'].reduce((t, s) => t + getCell(st, s), 0);
-                    const leadDone = getCell(st, 'lead_done');
-                    const nonConnected = DISPOSITION_GROUPS[2].statuses.reduce((t, s) => t + getCell(st, s), 0);
-                    return (
-                      <tr key={st} onClick={() => setSelectedStation(st)} style={{ cursor: 'pointer' }}>
-                        <td style={{ fontWeight: 600 }}>{st}</td>
-                        <td>{total}</td>
-                        <td style={{ color: '#16a34a', fontWeight: 600 }}>{cnv}</td>
-                        <td style={{ color: '#dc2626', fontWeight: 600 }}>{nonConnected}</td>
-                        <td style={{ color: '#7c3aed', fontWeight: 600 }}>{leadDone}</td>
-                        <td style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{info?.ngos?.map(n => n.ngo_name).join(', ') || '—'}</td>
-                        <td style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{info?.fro_worker_name || '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="mobile-only" style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10, padding: '0 2px' }}>
-              <h3 style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>Stations</h3>
-              <button onClick={() => { setStationDateFrom(todayStr); setStationDateTo(todayStr); }}
-                style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === todayStr && stationDateTo === todayStr ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === todayStr && stationDateTo === todayStr ? '#fff' : 'var(--ink)' }}>
-                Today
-              </button>
-              <button onClick={() => { setStationDateFrom(monthStart); setStationDateTo(monthEnd); }}
-                style={{ padding:'4px 10px', borderRadius:6, border:`1px solid ${stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--line)'}`, fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background: stationDateFrom === monthStart && stationDateTo === monthEnd ? 'var(--sage)' : 'var(--bg)', color: stationDateFrom === monthStart && stationDateTo === monthEnd ? '#fff' : 'var(--ink)' }}>
-                Monthly
-              </button>
-              {(stationDateFrom || stationDateTo) && (
-                <button onClick={() => { setStationDateFrom(''); setStationDateTo(''); }}
-                  style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--line)', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--bg)', color:'var(--ink-soft)' }}>
-                  Clear
-                </button>
-              )}
-              <span style={{ fontSize:12, color:'var(--ink-soft)', fontWeight:500 }}>From</span>
-              <input type="date" value={stationDateFrom} onChange={e => setStationDateFrom(e.target.value)}
-                style={{ fontSize:12, padding:'4px 8px', border:'1px solid var(--line)', borderRadius:6, fontFamily:'inherit', outline:'none', background:'var(--bg)', color:'var(--ink)' }} />
-              <span style={{ fontSize:12, color:'var(--ink-soft)' }}>to</span>
-              <input type="date" value={stationDateTo} onChange={e => setStationDateTo(e.target.value)}
-                style={{ fontSize:12, padding:'4px 8px', border:'1px solid var(--line)', borderRadius:6, fontFamily:'inherit', outline:'none', background:'var(--bg)', color:'var(--ink)' }} />
-              <span className="count">{stationNames.length} total</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {stationNames.map(st => {
-                const total = getStationTotal(st);
-                const info = stationInfoMap[st];
-                const cnv = ['donation_collected','promise_to_pay','visit_donate','payment_pending','already_donated'].reduce((t, s) => t + getCell(st, s), 0);
-                const leadDone = getCell(st, 'lead_done');
-                const nonConnected = DISPOSITION_GROUPS[2].statuses.reduce((t, s) => t + getCell(st, s), 0);
-                return (
-                  <div key={st} className="card" style={{ marginBottom: 0, padding: '12px 14px', cursor: 'pointer' }}
-                    onClick={() => setSelectedStation(st)}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{st}</span>
-                      <span style={{ fontWeight: 700, fontSize: 16 }}>{total} donors</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>C: {cnv}</span>
-                      <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>NC: {nonConnected}</span>
-                      <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600 }}>LD: {leadDone}</span>
-                    </div>
-                    {info?.ngos?.length > 0 && (
-                      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>NGOs: {info.ngos.map(n => n.ngo_name).join(', ')}</div>
-                    )}
-                    {info?.fro_worker_name && (
-                      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>FRO: {info.fro_worker_name}</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
-
+    
       {selectedStation && (
         <StationDetailModal
           station={selectedStation}
@@ -1219,6 +1746,16 @@ export default function Dashboard() {
           todayAmount={selectedStatus === 'verified' ? verified_today_amount : unverified_today_amount}
           todayCount={selectedStatus === 'verified' ? verified_today_count : unverified_today_count}
           onClose={() => setSelectedStatus(null)}
+        />
+      )}
+
+      {selectedFro && (
+        <FroDetailModal
+          froId={selectedFro.froId}
+          froName={selectedFro.froName}
+          filterType={selectedFro.filterType}
+          perfPeriod={perfPeriod}
+          onClose={() => setSelectedFro(null)}
         />
       )}
 
