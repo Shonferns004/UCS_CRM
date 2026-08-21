@@ -1700,11 +1700,7 @@ export const getReceiptList = async (req, res) => {
                  ORDER BY b.id LIMIT 1) AS verify_type,
                 (SELECT b.verify_fro_worker_id FROM bank_audit_entries b
                  WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
-                 ORDER BY b.id LIMIT 1) AS verify_fro_worker_id,
-                (SELECT w.name FROM bank_audit_entries b
-                 JOIN workers w ON w.id = b.verify_fro_worker_id
-                 WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
-                 ORDER BY b.id LIMIT 1) AS verifier_name
+                 ORDER BY b.id LIMIT 1) AS verify_fro_worker_id
          FROM receipts ${whereSql}
          ${orderSql}`,
         params
@@ -1743,11 +1739,7 @@ export const getReceiptList = async (req, res) => {
                ORDER BY b.id LIMIT 1) AS verify_type,
               (SELECT b.verify_fro_worker_id FROM bank_audit_entries b
                WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
-               ORDER BY b.id LIMIT 1) AS verify_fro_worker_id,
-              (SELECT w.name FROM bank_audit_entries b
-               JOIN workers w ON w.id = b.verify_fro_worker_id
-               WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
-               ORDER BY b.id LIMIT 1) AS verifier_name
+               ORDER BY b.id LIMIT 1) AS verify_fro_worker_id
        FROM receipts ${whereSql}
        ${orderSql}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
