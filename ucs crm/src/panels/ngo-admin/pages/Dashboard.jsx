@@ -299,7 +299,7 @@ function CollectionDetailModal({ period: defaultPeriod, totalAmount, onClose, st
 
   const displayAmount = isVerification
     ? (period === 'month' ? (monthAmount || 0) : (todayAmount || 0))
-    : (totalAmount || 0);
+    : rows.reduce((s, r) => s + (r.collection_amount || 0), 0);
   const totalLeads = rows.reduce((s, r) => s + (r.count || 0), 0);
 
   return (
@@ -1463,7 +1463,7 @@ export default function Dashboard() {
                   <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Connected</th>
                   <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Non-Connected</th>
                   <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Interested</th>
-                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Received</th>
+                  <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Received{perfPeriod === 'today' ? ' (Today)' : perfPeriod === 'week' ? ' (Week)' : ' (Month)'}</th>
                   <th style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Target %</th>
                   <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Claims</th>
                   <th className="perf-hide-mobile" style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg, #fff)', padding: '10px', textAlign: 'center', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600, borderBottom: '2px solid var(--line)' }}>Conv %</th>
@@ -1477,6 +1477,7 @@ export default function Dashboard() {
                   const periodCalls = perfPeriod === 'today' ? (p.calls_today || 0) : perfPeriod === 'week' ? (p.calls_week || 0) : (p.calls || 0);
                   const periodConnected = perfPeriod === 'today' ? (p.connected_today || 0) : perfPeriod === 'week' ? (p.connected_week || 0) : (p.connected || 0);
                   const periodInterested = perfPeriod === 'today' ? (p.interested_today || 0) : perfPeriod === 'week' ? (p.interested_week || 0) : (p.interested || 0);
+                  const periodReceived = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
                   const periodNonConnected = Math.max(0, periodCalls - periodConnected);
                   return (
                     <tr key={p.fro_id} style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
@@ -1511,8 +1512,8 @@ export default function Dashboard() {
                       <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'right', color: '#dc2626', fontWeight: 600, cursor: 'pointer', textDecoration: periodNonConnected > 0 ? 'underline' : 'none' }}
                         onClick={(e) => { e.stopPropagation(); if (periodNonConnected > 0) setSelectedFro({ froId: p.fro_id, froName: p.fro_name, filterType: 'non_connected' }); }}>{periodNonConnected}</td>
                       <td className="perf-hide-mobile" style={{ padding: '10px', textAlign: 'right', color: '#ec4899' }}>{periodInterested}</td>
-                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (p.receivedAmount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
-                        ₹{Number(p.receivedAmount || 0).toLocaleString('en-IN')}
+                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: (periodReceived || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
+                        ₹{Number(periodReceived || 0).toLocaleString('en-IN')}
                       </td>
                       <td style={{ padding: '10px', textAlign: 'right' }}>
                         <span style={{ fontWeight: 700, color: (p.target_pct || 0) >= 75 ? '#16a34a' : (p.target_pct || 0) >= 50 ? '#f59e0b' : '#dc2626' }}>

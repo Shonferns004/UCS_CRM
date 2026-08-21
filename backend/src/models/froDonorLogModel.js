@@ -88,7 +88,12 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
   let total = 0;
   for (const d of data || []) {
     if (!inRange(logCollectionDate(d), monthStart, monthEnd)) continue;
-    total += parseFloat(d.amount_collected || 0);
+    const isDonation = d.action === 'donation';
+    const isDoneDirect = d.action === 'disposition' && d.disposition_detail === 'done';
+    const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
+    if (isDonation || isDoneDirect || isVerifiedLead) {
+      total += parseFloat(d.amount_collected || 0);
+    }
   }
   return total;
 };
@@ -119,7 +124,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     for (const id of workerIds) zero[id] = 0;
     const zeroV = {};
     for (const id of workerIds) zeroV[id] = { amount: 0, count: 0 };
-    return { monthCollection: zero, todayCollection: zero, verifiedMonth: zeroV, unverifiedMonth: zeroV, verifiedToday: zeroV, unverifiedToday: zeroV };
+    return { monthCollection: zero, todayCollection: zero, weekCollection: zero, verifiedMonth: zeroV, unverifiedMonth: zeroV, verifiedToday: zeroV, unverifiedToday: zeroV };
   }
 
   let query = db
@@ -140,10 +145,16 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
   const init = () => ({ amount: 0, count: 0 });
   const monthCollection = {}; for (const id of workerIds) monthCollection[id] = 0;
   const todayCollection = {}; for (const id of workerIds) todayCollection[id] = 0;
+  const weekCollection = {}; for (const id of workerIds) weekCollection[id] = 0;
   const verifiedMonth = {}; for (const id of workerIds) verifiedMonth[id] = init();
   const unverifiedMonth = {}; for (const id of workerIds) unverifiedMonth[id] = init();
   const verifiedToday = {}; for (const id of workerIds) verifiedToday[id] = init();
   const unverifiedToday = {}; for (const id of workerIds) unverifiedToday[id] = init();
+
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6); weekEnd.setHours(23, 59, 59, 999);
+  const weekStartIso = weekStart.toISOString();
+  const weekEndIso = weekEnd.toISOString();
 
   for (const d of data || []) {
     const wId = d.fro_worker_id;
@@ -162,6 +173,13 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     }
     if (isVerifiedLead && inRange(collectDate, monthStart, monthEnd)) {
       monthCollection[wId] += amount;
+    }
+
+    if ((isDonation || isDoneDirect) && inRange(collectDate, weekStartIso, weekEndIso)) {
+      weekCollection[wId] += amount;
+    }
+    if (isVerifiedLead && inRange(collectDate, weekStartIso, weekEndIso)) {
+      weekCollection[wId] += amount;
     }
 
     if ((isDonation || isDoneDirect) && inRange(collectDate, todayStart, todayEnd)) {
@@ -189,7 +207,7 @@ export const getBatchCollectionStats = async (workerIds, monthStart, monthEnd, t
     }
   }
 
-  return { monthCollection, todayCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
+  return { monthCollection, todayCollection, weekCollection, verifiedMonth, unverifiedMonth, verifiedToday, unverifiedToday };
 };
 
 export const findLogsByDonorAndWorker = async (donorId, workerId) => {
