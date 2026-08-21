@@ -264,6 +264,7 @@ export default function Receipts() {
   const [confirmFroChange, setConfirmFroChange] = useState(false)
   const fileRef = useRef(null)
   const namesFileRef = useRef(null)
+  const rtTimerRef = useRef(null)
   const CHUNK_SIZE = 100
 
   useEffect(() => {
@@ -309,8 +310,8 @@ export default function Receipts() {
     setSelectedIndex(null)
   }, [])
 
-  const loadPending = useCallback(async () => {
-    setLoading(true)
+  const loadPending = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const data = await apiGet('/accounts/receipts/pending')
       const pending = (Array.isArray(data) ? data : []).filter(receipt => {
@@ -323,6 +324,7 @@ export default function Receipts() {
   }, [])
 
   useEffect(() => { loadPending() }, [loadPending])
+  useEffect(() => { return () => clearTimeout(rtTimerRef.current) }, [])
 
   useEffect(() => {
     apiGet('/accounts/receipts?limit=1').then(res => {
@@ -472,8 +474,8 @@ export default function Receipts() {
 
   useRealtime('fro_donor_logs', {
     filter: 'action=eq.disposition',
-    onInsert: () => loadPending(),
-    onUpdate: () => loadPending(),
+    onInsert: () => { clearTimeout(rtTimerRef.current); rtTimerRef.current = setTimeout(() => loadPending(true), 400) },
+    onUpdate: () => { clearTimeout(rtTimerRef.current); rtTimerRef.current = setTimeout(() => loadPending(true), 400) },
   })
 
   const getValidDonors = useCallback(() => {
