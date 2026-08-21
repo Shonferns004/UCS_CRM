@@ -63,6 +63,7 @@ import quizRoutes from './routes/quizRoutes.js';
 import envAdminRoutes from './routes/envAdminRoutes.js';
 import tempCleanupRoutes from './routes/tempCleanupRoutes.js';
 import ngoAllocationRoutes from './routes/ngoAllocationRoutes.js';
+import whatsappEnhancementsRoutes from './routes/whatsappEnhancementsRoutes.js';
 import { whatsappLogin } from './controllers/froWhatsAppAuthController.js';
 import { authenticate } from './middleware/authMiddleware.js';
 
@@ -191,6 +192,7 @@ app.use('/api/accounts/email-import', emailImportRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/accounts/bank-statement', bankStatementRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp', whatsappEnhancementsRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/event-head', eventHeadRoutes);

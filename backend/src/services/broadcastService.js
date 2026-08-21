@@ -203,6 +203,7 @@ async function sendBatch(broadcast, recipients) {
             status_updated_at: new Date().toISOString(),
           })
           .eq('id', recipient.id);
+        await db._pool.query('UPDATE whatsapp_broadcasts SET sent_count = sent_count + 1 WHERE id = $1', [broadcast.id]);
         sent++;
       } else {
         await db
@@ -213,6 +214,7 @@ async function sendBatch(broadcast, recipients) {
             status_updated_at: new Date().toISOString(),
           })
           .eq('id', recipient.id);
+        await db._pool.query('UPDATE whatsapp_broadcasts SET failed_count = failed_count + 1 WHERE id = $1', [broadcast.id]);
         failed++;
       }
     } catch (err) {
@@ -220,16 +222,9 @@ async function sendBatch(broadcast, recipients) {
         .from('whatsapp_broadcast_recipients')
         .update({ status: 'failed', failure_reason: err.message, status_updated_at: new Date().toISOString() })
         .eq('id', recipient.id);
+      await db._pool.query('UPDATE whatsapp_broadcasts SET failed_count = failed_count + 1 WHERE id = $1', [broadcast.id]);
       failed++;
     }
-
-    await db
-      .from('whatsapp_broadcasts')
-      .update({
-        sent_count: broadcast.sent_count + sent,
-        failed_count: broadcast.failed_count + failed,
-      })
-      .eq('id', broadcast.id);
 
     await new Promise((r) => setTimeout(r, delayMs));
   }
