@@ -138,6 +138,38 @@ export async function sendDocumentMessage(to, documentUrl, caption, filename, ac
   }, resolved);
 }
 
+export function buildInteractivePayload({ type = 'button', bodyText, headerText, footerText, buttons = [], sections = [], listButtonTitle }) {
+  const interactive = { type };
+
+  if (headerText) interactive.header = { type: 'text', text: String(headerText) };
+  interactive.body = { text: String(bodyText || '') };
+  if (footerText) interactive.footer = { text: String(footerText) };
+
+  if (type === 'button') {
+    if (!buttons.length || buttons.length > 3) throw new Error('button replies need 1-3 buttons');
+    interactive.action = {
+      buttons: buttons.map((b) => ({ type: 'reply', reply: { id: String(b.id), title: String(b.title).slice(0, 20) } })),
+    };
+  } else if (type === 'list') {
+    if (!sections.length) throw new Error('list replies need at least one section');
+    interactive.action = {
+      button: String(listButtonTitle || 'Options').slice(0, 20),
+      sections: sections.map((s, i) => ({
+        title: String(s.title || `Section ${i + 1}`).slice(0, 24),
+        rows: (s.rows || []).slice(0, 10).map((r) => ({
+          id: String(r.id),
+          title: String(r.title).slice(0, 24),
+          ...(r.description ? { description: String(r.description).slice(0, 72) } : {}),
+        })),
+      })),
+    };
+  } else {
+    throw new Error('type must be "button" or "list"');
+  }
+
+  return interactive;
+}
+
 async function sendWithHeaderMedia(to, templateName, params, headerMediaUrl, account) {
   const resolved = account || await resolveAccount();
   if (!resolved) throw new Error('WhatsApp not configured');
