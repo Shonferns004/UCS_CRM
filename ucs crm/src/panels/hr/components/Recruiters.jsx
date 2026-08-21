@@ -212,7 +212,7 @@ export default function Recruiters() {
                 const isTop = i === 0;
                 const rate = r.leadsCount > 0 ? Math.round(r.joined / r.leadsCount * 100) : 0;
                 return (
-                  <div key={r.id} className={`ro-lb-card ${isTop ? 'ro-lb-top' : ''}`} onClick={() => setRecruiterFilter(String(r.id))} style={{ cursor: 'pointer' }}>
+                  <div key={r.id} className={`ro-lb-card ${isTop ? 'ro-lb-top' : ''}`}>
                     {isTop && <div className="ro-lb-trophy">🏆</div>}
                     <div className="ro-lb-medal">{medal || `#${i + 1}`}</div>
                     <div className="ro-lb-name">{r.name}</div>
@@ -225,11 +225,7 @@ export default function Recruiters() {
                   </div>
                 );
               })}
-              {recruiterFilter && (
-                <button className="btn btn-sm" onClick={() => setRecruiterFilter('')} style={{ alignSelf: 'center' }}>
-                  Clear filter
-                </button>
-              )}
+
             </div>
           )}
         </div>
@@ -247,10 +243,6 @@ export default function Recruiters() {
           <div className="card-head">
             <h3>Leads {filteredLeads.length !== leads.length && <span className="sub">({filteredLeads.length} of {leads.length})</span>}</h3>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <Dropdown className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 130 }}
-                options={[{value:'',label:'All statuses'}, ...STATUSES.map(s => ({value:s.key, label:s.label}))]} />
-              <Dropdown className="filter-select" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={{ width: '100%', maxWidth: 130 }}
-                options={[{value:'',label:'All sources'}, ...SOURCES.map(s => ({value:s, label:s}))]} />
               <input className="filter-select" placeholder="Search name or phone…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 200 }} />
             </div>
           </div>
@@ -265,7 +257,6 @@ export default function Recruiters() {
                   <th>Status</th>
                   <th>Created by</th>
                   <th>Date</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -289,7 +280,7 @@ export default function Recruiters() {
                     const st = STATUSES.find(s => s.key === cleanField(lead.status)) || { label: cleanField(lead.status) || '—', color: '#9ca3af' };
                     const displayAge = lead.dob ? calcAge(lead.dob) : lead.age;
                     return (
-                      <tr key={lead.id} className="rec-lead-row" onClick={() => openForm(lead)} style={{ cursor: 'pointer' }}>
+                      <tr key={lead.id} className="rec-lead-row">
                         <td><strong>{lead.name}</strong></td>
                         <td>{lead.phone || '\u2014'}</td>
                         <td>{displayAge || '\u2014'}</td>
@@ -300,9 +291,6 @@ export default function Recruiters() {
                         </td>
                         <td className="ink-soft">{lead.created_by_name || '\u2014'}</td>
                         <td className="ink-soft">{lead.created_at?.slice(0, 10)}</td>
-                        <td>
-                          <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openForm(lead); }}>Edit</button>
-                        </td>
                       </tr>
                     );
                   })
@@ -329,7 +317,6 @@ export default function Recruiters() {
                   <th>Scheduled by</th>
                   <th>Scheduled at</th>
                   <th>Source</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -349,16 +336,13 @@ export default function Recruiters() {
                   <tr><td colSpan={7}><div className="empty">No scheduled interviews.</div></td></tr>
                 ) : (
                   scheduledLeads.map(lead => (
-                    <tr key={lead.id} className="rec-lead-row" onClick={() => openForm(lead)} style={{ cursor: 'pointer' }}>
+                    <tr key={lead.id} className="rec-lead-row">
                       <td><strong>{lead.name}</strong></td>
                       <td>{lead.phone || '\u2014'}</td>
                       <td>{lead.scheduled_date ? new Date(lead.scheduled_date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '\u2014'}</td>
                       <td>{lead.scheduled_by_name || lead.created_by_name || '\u2014'}</td>
                       <td className="ink-soft">{formatDT(lead.scheduled_at)}</td>
                       <td><Pill label={cleanField(lead.source)} /></td>
-                      <td>
-                        <button className="btn btn-sm" onClick={e => { e.stopPropagation(); openForm(lead); }}>Edit</button>
-                      </td>
                     </tr>
                   ))
                 )}
