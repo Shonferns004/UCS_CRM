@@ -642,7 +642,8 @@ export const getDashboard = async (req, res) => {
     let monthCollection = 0;
     for (const w of froWorkers) {
       const actual = batchStats.monthCollection[w.id] || 0;
-      monthCollection += achievedMap[w.id] != null ? achievedMap[w.id] : actual;
+      const achieved = achievedMap[w.id];
+      monthCollection += (achieved != null && achieved > 0) ? achieved : actual;
     }
 
     // Data used / unused — per unique donor
