@@ -316,7 +316,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
   const PAGE_SIZE=30;
   const[pg,setPg]=useState(1);
   const[sq,setSq]=useState('');
-  const[stf,setStf]=useState('pending');
+  const[stf,setStf]=useState('');
   const listRef=useRef(null);
   const clickRef=useRef(null);
   useEffect(()=>{if(listRef.current)listRef.current.scrollTop=0},[leadFilterKey]);
