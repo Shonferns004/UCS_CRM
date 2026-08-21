@@ -799,13 +799,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
                   {a.station&&<span style={{fontSize:10,color:'#92400e'}}>({a.station})</span>}
                 </div>
               ))}
-              <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8}}>
-                <label style={{fontSize:11,fontWeight:600}}>Assign credit to:</label>
-                <select value={mvConflictFro} onChange={e=>setMvConflictFro(e.target.value)} style={{padding:'4px 8px',borderRadius:6,border:'1px solid #f59e0b',fontSize:12,background:'#fff'}}>
-                  {mvConflict.map((a,i)=>(<option key={i} value={a.fro_worker_id}>{a.fro_name} ({a.ngo_name||'?'})</option>))}
-                  <option value="new">New — Assign to current FRO</option>
-                </select>
-              </div>
+              <div style={{marginTop:6,fontSize:11,fontWeight:600}}>Credit will go to you.</div>
             </div>
           )}
           <div ref={mvSearchRef} style={{position:'relative',gridColumn:'1 / -1'}}>
