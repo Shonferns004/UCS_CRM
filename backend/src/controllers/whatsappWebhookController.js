@@ -4,8 +4,10 @@ import { getAccountByPhoneNumberId } from '../models/whatsappAccountModel.js';
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'ucscompany123';
 
 export function verifyWhatsAppWebhook(req, res) {
-  const { mode, verify_token, challenge } = req.query;
-  if (mode === 'subscribe' && verify_token === VERIFY_TOKEN) {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     res.status(200).send(challenge);
   } else {
     res.status(403).send('Forbidden');
