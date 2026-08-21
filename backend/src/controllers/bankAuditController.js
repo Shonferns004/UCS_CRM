@@ -426,6 +426,8 @@ export const addEntry = async (req, res) => {
       payment_time: payment_time || null,
       project_id: link?.receipt.project_id || ngo,
       ...entryDonorFields,
+      mode: req.body.mode || null,
+      agent_name: suspenseAgent || null,
       created_by: req.user.id,
       receipt_no: receiptNo,
       receipt_id: receiptId,
@@ -576,7 +578,9 @@ export const editSuspenseReceipt = async (req, res) => {
         const effAgent = realAgentName(agent_name);
         updates.agent_name = (effAgent && donor_name) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
       }
-      if (project_id !== undefined) updates.project_id = project_id;
+    if (project_id !== undefined) updates.project_id = project_id;
+    if (mode !== undefined) updates.mode = mode || null;
+    if (agent_name !== undefined) updates.agent_name = agent_name || null;
     }
     if (amount !== undefined) updates.amount = amount;
     if (receipt_date !== undefined) updates.receipt_date = receipt_date;
