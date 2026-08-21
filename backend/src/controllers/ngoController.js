@@ -12,8 +12,14 @@ export const getNgoSummary = async (req, res) => {
 
     const { data: people, error: pErr } = await db
       .from('worker_people_allocations')
-      .select('ngo_id, allocation_percentage');
+      .select('worker_id, ngo_id, allocation_percentage');
     if (pErr) throw pErr;
+
+    const { data: workers, error: wErr } = await db
+      .from('workers')
+      .select('id, ngo_id')
+      .eq('is_active', true);
+    if (wErr) throw wErr;
 
     const { data: salary, error: sErr } = await db
       .from('salary_allocations')
@@ -42,10 +48,21 @@ export const getNgoSummary = async (req, res) => {
     const salaryAmt = amtBy(salary, 'ngo_id');
     const peoplePct = pctBy(people, 'ngo_id');
 
+    // Volunteers = distinct active workers linked to the NGO, either via their
+    // primary ngo_id (set automatically when the member is added) or via a
+    // manual people-allocation row.
+    const volSets = {};
+    const addVol = (ngoId, workerId) => {
+      if (ngoId == null || workerId == null) return;
+      (volSets[ngoId] = volSets[ngoId] || new Set()).add(workerId);
+    };
+    for (const w of workers || []) addVol(w.ngo_id, w.id);
+    for (const p of people || []) addVol(p.ngo_id, p.worker_id);
+
     return res.json(
       ngos.map((ngo) => ({
         ...ngo,
-        volunteers: peopleCount[ngo.id] || 0,
+        volunteers: volSets[ngo.id] ? volSets[ngo.id].size : (peopleCount[ngo.id] || 0),
         allocation_percentage: Math.round((peoplePct[ngo.id] || 0) * 100) / 100,
         salary_employees: salaryCount[ngo.id] || 0,
         salary_amount: Math.round((salaryAmt[ngo.id] || 0) * 100) / 100,

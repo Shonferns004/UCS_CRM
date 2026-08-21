@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useHR } from '../store';
 import { Dropdown, SkeletonRows } from './ui';
 import { api } from '../../../api/auth';
@@ -57,7 +57,6 @@ function NgoManagementTab({ ngos, onChanged, onAddNgo, onEditNgo }) {
     <div className="card">
       <div className="card-head">
         <h3>NGO Management</h3>
-        <button className="btn btn-primary btn-sm" onClick={() => setModal({ mode: 'add', name: '', code: '' })}>+ Add NGO</button>
       </div>
       <table>
         <thead>
@@ -123,29 +122,90 @@ function SettingsTab({ settings, ngos, onSave }) {
   const [rows, setRows] = useState([]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [mode, setMode] = useState('auto');
+  const msgTimer = useRef(null);
+
+  useEffect(() => { return () => { if (msgTimer.current) clearTimeout(msgTimer.current); }; }, []);
+
+  const showMsg = (text) => {
+    if (msgTimer.current) clearTimeout(msgTimer.current);
+    setMsg(text);
+    msgTimer.current = setTimeout(() => { setMsg(''); msgTimer.current = null; }, 1000);
+  };
 
   useEffect(() => {
-    if (!settings.length) return;
-    setRows(settings.map(s => ({ ngo_id: s.ngo_id, ngo_name: s.ngos?.name || s.ngo_name || '', code: s.ngos?.code || '', allocation_percentage: parseFloat(s.allocation_percentage || 0) })));
-  }, [settings]);
+    const savedRows = settings.map(s => ({ ngo_id: s.ngo_id, ngo_name: s.ngos?.name || s.ngo_name || '', code: s.ngos?.code || '', allocation_percentage: parseFloat(s.allocation_percentage || 0) }));
+    const savedIds = new Set(savedRows.map(r => r.ngo_id));
+    const missing = (ngos || [])
+      .filter(n => !savedIds.has(n.id))
+      .map(n => ({ ngo_id: n.id, ngo_name: n.name || '', code: n.code || '', allocation_percentage: 0 }));
+    setRows([...savedRows, ...missing]);
+  }, [settings, ngos]);
 
   const sum = rows.reduce((s, r) => s + (parseFloat(r.allocation_percentage) || 0), 0);
   const remaining = Math.round((100 - sum) * 100) / 100;
-  const canSave = rows.length > 0 && Math.abs(remaining) < 0.01;
+  const canSave = rows.length > 0 && Math.abs(remaining) <= 0.5;
 
-  const setPct = (id, val) => setRows(rows.map(r => r.ngo_id === id ? { ...r, allocation_percentage: Math.max(0, parseFloat(val) || 0) } : r));
+  const setPctAuto = (id, val) => {
+    const newVal = Math.max(0, parseFloat(val) || 0);
+    const oldRow = rows.find(r => r.ngo_id === id);
+    const oldVal = oldRow ? parseFloat(oldRow.allocation_percentage) || 0 : 0;
+    const diff = newVal - oldVal;
+    if (Math.abs(diff) < 0.001) {
+      setRows(rows.map(r => r.ngo_id === id ? { ...r, allocation_percentage: newVal } : r));
+      return;
+    }
+    const others = rows.filter(r => r.ngo_id !== id);
+    const othersTotal = others.reduce((s, r) => s + (parseFloat(r.allocation_percentage) || 0), 0);
+    const adjusted = rows.map(r => {
+      if (r.ngo_id === id) return { ...r, allocation_percentage: newVal };
+      const cur = parseFloat(r.allocation_percentage) || 0;
+      if (othersTotal === 0) {
+        const share = diff / others.length;
+        return { ...r, allocation_percentage: Math.max(0, Math.round((cur - share) * 100) / 100) };
+      }
+      const portion = cur / othersTotal;
+      const adj = cur - diff * portion;
+      return { ...r, allocation_percentage: Math.max(0, Math.round(adj * 100) / 100) };
+    });
+    const adjSum = adjusted.reduce((s, r) => s + (parseFloat(r.allocation_percentage) || 0), 0);
+    const drift = Math.round((100 - adjSum) * 100) / 100;
+    if (Math.abs(drift) > 0.001 && others.length > 0) {
+      const lastIdx = adjusted.findIndex(r => r.ngo_id !== id);
+      const lastCur = parseFloat(adjusted[lastIdx].allocation_percentage) || 0;
+      adjusted[lastIdx] = { ...adjusted[lastIdx], allocation_percentage: Math.max(0, Math.round((lastCur + drift) * 100) / 100) };
+    }
+    setRows(adjusted);
+  };
+
+  const setPctCustom = (id, val) => {
+    setRows(rows.map(r => r.ngo_id === id ? { ...r, allocation_percentage: Math.max(0, parseFloat(val) || 0) } : r));
+  };
+
+  const setPct = mode === 'auto' ? setPctAuto : setPctCustom;
+
+  const toggleStyle = { display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', fontSize: 13, fontWeight: 600 };
+  const toggleBtn = (active) => ({ padding: '5px 14px', border: 'none', cursor: 'pointer', background: active ? 'var(--sage)' : 'transparent', color: active ? '#fff' : 'var(--ink-soft)', fontWeight: 600, fontSize: 13 });
 
   return (
     <div className="card">
       <div className="card-head">
         <h3>Allocation Settings</h3>
-        <span className="sub" style={{ fontSize: 12 }}>
-          Remaining: <strong style={{ color: Math.abs(remaining) < 0.01 ? 'var(--sage)' : 'var(--danger)' }}>{remaining}%</strong>
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span className="sub" style={{ fontSize: 12 }}>
+            Remaining: <strong style={{ color: Math.abs(remaining) <= 0.5 ? 'var(--sage)' : 'var(--danger)' }}>{remaining}%</strong>
+          </span>
+          <div style={toggleStyle}>
+            <button style={toggleBtn(mode === 'auto')} onClick={() => setMode('auto')}>Auto</button>
+            <button style={toggleBtn(mode === 'customize')} onClick={() => setMode('customize')}>Customize</button>
+          </div>
+        </div>
       </div>
       <div className="card-pad">
         <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 12 }}>
-          Org-wide default / target allocation % per NGO. This is a target only — it never overwrites an individual employee's allocation.
+          {mode === 'auto'
+            ? 'Auto mode: changing one NGO adjusts the others proportionally to keep the total at 100%.'
+            : 'Customize mode: set each NGO % manually. You must ensure the total equals 100% to save.'}
         </p>
         {rows.length === 0 && <div className="empty-state"><p>No settings yet — saving will create them.</p></div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 480 }}>
@@ -162,7 +222,7 @@ function SettingsTab({ settings, ngos, onSave }) {
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           <button className="btn btn-primary" disabled={!canSave || saving} onClick={async () => {
             setSaving(true); setMsg('');
-            try { await onSave(rows.map(r => ({ ngo_id: r.ngo_id, allocation_percentage: r.allocation_percentage }))); setMsg('Saved'); }
+            try { await onSave(rows.map(r => ({ ngo_id: r.ngo_id, allocation_percentage: r.allocation_percentage }))); showMsg('Saved'); }
             catch (e) { setMsg(e.message); }
             setSaving(false);
           }}>{saving ? '...' : 'Save Settings'}</button>
@@ -175,7 +235,7 @@ function SettingsTab({ settings, ngos, onSave }) {
 
 /* ─── NGO Salary Report ─── */
 function ReportTab({ month, setMonth, ngos, workers }) {
-  const { fetchNgoSalaryReport, fetchNgoReport } = useHR();
+  const { fetchNgoSalaryReport, fetchNgoSalaryReportFallback, fetchNgoReport, generateAllSalaryAllocations } = useHR();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ngoId, setNgoId] = useState('');
@@ -187,9 +247,16 @@ function ReportTab({ month, setMonth, ngos, workers }) {
 
   useEffect(() => {
     setLoading(true);
-    fetchNgoSalaryReport({ month, ngo_id: ngoId || undefined, worker_id: workerId || undefined, status: status || undefined })
+    generateAllSalaryAllocations(month)
+      .catch(e => console.warn('[NGO Salary Report] generate-all unavailable:', e.message))
+      .then(() => fetchNgoSalaryReport({ month, ngo_id: ngoId || undefined, worker_id: workerId || undefined, status: status || undefined }))
       .then(data => setRows((data && data.rows) || []))
-      .catch(e => { console.error('Error:', e.message); setRows([]); })
+      .catch(e => {
+        console.error('[NGO Salary Report] load failed:', e.message);
+        return fetchNgoSalaryReportFallback({ month, ngo_id: ngoId || undefined, worker_id: workerId || undefined, status: status || undefined })
+          .then(rows => setRows(rows || []))
+          .catch(e2 => { console.error('[NGO Salary Report] fallback failed:', e2.message); setRows([]); });
+      })
       .finally(() => setLoading(false));
   }, [month, ngoId, workerId, status, refresh]);
 

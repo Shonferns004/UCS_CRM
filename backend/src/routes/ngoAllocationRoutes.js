@@ -7,6 +7,7 @@ import {
   getWorkerSalaryAlloc,
   putWorkerSalaryAlloc,
   postGenerateSalaryAlloc,
+  postGenerateAllSalaryAlloc,
   getPayments,
   postPayment,
   putPaymentStatus,
@@ -33,6 +34,7 @@ router.put('/workers/:id/people', adminOrHrOrHo, putWorkerPeople);
 router.get('/workers/:id/salary', adminOrHrOrHo, getWorkerSalaryAlloc);
 router.put('/workers/:id/salary', adminOrHrOrHo, putWorkerSalaryAlloc);
 router.post('/workers/:id/salary/generate', adminOrHrOrHo, postGenerateSalaryAlloc);
+router.post('/salary/generate-all', adminOrHrOrHo, postGenerateAllSalaryAlloc);
 
 // Payments
 router.get('/payments', adminOrHrOrHo, getPayments);

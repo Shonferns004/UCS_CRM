@@ -444,6 +444,8 @@ class QueryBuilder {
   not(col, op, value) { this.filters.push({ col, op: `not_${op}`, value }); return this; }
   or(str) { this.orGroups.push(String(str)); return this; }
   order(col, opts = {}) {
+    const m = /^(\w+)\(([^)]+)\)$/.exec(String(col));
+    if (m) col = `${m[1]}.${m[2]}`;
     this.orders.push({ col, ascending: opts.ascending !== false, nullsFirst: opts.nullsFirst });
     return this;
   }
