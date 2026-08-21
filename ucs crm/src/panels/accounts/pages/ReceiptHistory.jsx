@@ -161,6 +161,7 @@ export default function ReceiptHistory() {
   const [editForm, setEditForm] = useState({});
   const [editSaving, setEditSaving] = useState(false);
   const [froWorkers, setFroWorkers] = useState([]);
+  const [editSources, setEditSources] = useState([]);
   const [confirmFroChange, setConfirmFroChange] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const fileRef = useRef(null);
@@ -470,18 +471,22 @@ export default function ReceiptHistory() {
       pan_number: r.pan_number || '',
       email: r.email || '',
       agent_name: r.agent_name || '',
-      station: r.station || '',
       mode: r.mode || '',
-      account_of: r.account_of || '',
-      caller_name: r.caller_name || '',
-      bank_name: r.bank_name || '',
+      payment_id: r.payment_id || '',
+      receipt_date: r.receipt_date || '',
+      receipt_time: r.receipt_time || '',
+      received_bank: r.received_bank || '',
     });
     setConfirmFroChange(false);
     try {
-      const workers = await apiGet('/accounts/receipts/fro-workers');
+      const [workers, srcs] = await Promise.all([
+        apiGet('/accounts/receipts/fro-workers'),
+        apiGet('/accounts/bank-audit/sources'),
+      ]);
       setFroWorkers(Array.isArray(workers) ? workers : []);
+      setEditSources(Array.isArray(srcs) ? srcs : []);
     } catch (err) {
-      console.error('Failed to load FRO workers:', err.message);
+      console.error('Failed to load edit data:', err.message);
     }
   };
 
@@ -1022,11 +1027,11 @@ export default function ReceiptHistory() {
                   { label: 'PAN Number', key: 'pan_number' },
                   { label: 'Email', key: 'email' },
                   { label: 'FRO / Agent', key: 'agent_name', type: 'select' },
-                  { label: 'Station', key: 'station' },
-                  { label: 'Mode', key: 'mode', type: 'mop' },
-                  { label: 'Account Of', key: 'account_of' },
-                  { label: 'Caller Name', key: 'caller_name' },
-                  { label: 'Bank Name', key: 'bank_name' },
+                  { label: 'Mode of Payment', key: 'mode', type: 'mop' },
+                  { label: 'Payment ID', key: 'payment_id' },
+                  { label: 'Received Bank', key: 'received_bank', type: 'sources' },
+                  { label: 'Receipt Date', key: 'receipt_date', type: 'date' },
+                  { label: 'Receipt Time', key: 'receipt_time', type: 'time' },
                 ].map(({ label, key, colSpan, type }) => (
                   <label key={key} style={{ gridColumn: colSpan === 2 ? '1 / -1' : undefined, fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {label}
@@ -1038,6 +1043,15 @@ export default function ReceiptHistory() {
                       >
                         <option value="">Not assigned</option>
                         {froWorkers.map(w => <option key={w.id} value={w.name}>{w.name}</option>)}
+                      </select>
+                    ) : type === 'sources' ? (
+                      <select
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                      >
+                        <option value="">—</option>
+                        {editSources.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                       </select>
                     ) : type === 'mop' ? (
                       <select
@@ -1059,6 +1073,21 @@ export default function ReceiptHistory() {
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
                         rows={2}
                         style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, resize: 'vertical' }}
+                      />
+                    ) : type === 'date' ? (
+                      <input
+                        type="date"
+                        value={editForm[key] ? String(editForm[key]).slice(0, 10) : ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
+                      />
+                    ) : type === 'time' ? (
+                      <input
+                        type="text"
+                        placeholder="HH:MM"
+                        value={editForm[key] || ''}
+                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}
                       />
                     ) : (
                       <input

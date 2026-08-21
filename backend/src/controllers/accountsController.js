@@ -1690,7 +1690,11 @@ export const getReceiptList = async (req, res) => {
                 sent, sent_at, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
                  WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
-                 ORDER BY b.id LIMIT 1) AS audit_payer_name
+                 ORDER BY b.id LIMIT 1) AS audit_payer_name,
+                (SELECT bs.name FROM bank_audit_entries b
+                 JOIN bank_audit_sources bs ON b.source_id = bs.id
+                 WHERE b.receipt_id = receipts.id
+                 ORDER BY b.id LIMIT 1) AS received_bank
          FROM receipts ${whereSql}
          ${orderSql}`,
         params
@@ -1719,7 +1723,11 @@ export const getReceiptList = async (req, res) => {
               sent, sent_at, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
                WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
-               ORDER BY b.id LIMIT 1) AS audit_payer_name
+               ORDER BY b.id LIMIT 1) AS audit_payer_name,
+              (SELECT bs.name FROM bank_audit_entries b
+               JOIN bank_audit_sources bs ON b.source_id = bs.id
+               WHERE b.receipt_id = receipts.id
+               ORDER BY b.id LIMIT 1) AS received_bank
        FROM receipts ${whereSql}
        ${orderSql}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -3777,7 +3785,7 @@ export const updateReceipt = async (req, res) => {
     const RECEIPT_EDITABLE = [
       'donor_name', 'donor_mobile', 'address', 'address_2', 'pan_number',
       'email', 'mobile_2', 'station', 'account_of', 'mode', 'agent_name',
-      'project_id', 'caller_name', 'bank_name',
+      'project_id', 'caller_name', 'bank_name', 'payment_id', 'receipt_date', 'receipt_time',
     ];
     const receiptPatch = {};
     for (const field of RECEIPT_EDITABLE) {
@@ -3916,6 +3924,14 @@ export const updateReceipt = async (req, res) => {
         if ('email' in receiptPatch) entryPatch.donor_email = receiptPatch.email;
         if ('agent_name' in receiptPatch) entryPatch.agent_name = receiptPatch.agent_name;
         if ('bank_name' in receiptPatch) entryPatch.bank_name = receiptPatch.bank_name;
+        if ('mode' in receiptPatch) entryPatch.mode = receiptPatch.mode;
+        if ('payment_id' in receiptPatch) entryPatch.payment_id = receiptPatch.payment_id;
+        if ('receipt_date' in receiptPatch) entryPatch.transaction_date = receiptPatch.receipt_date;
+        if ('receipt_time' in receiptPatch) entryPatch.payment_time = receiptPatch.receipt_time;
+        if (updates.received_bank) {
+          const { data: src } = await db.from('bank_audit_sources').select('id').ilike('name', updates.received_bank).maybeSingle();
+          if (src) entryPatch.source_id = src.id;
+        }
         await db.from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
       }
     } catch (err) {
