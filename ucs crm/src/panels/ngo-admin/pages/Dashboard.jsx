@@ -1157,93 +1157,68 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Section 4+5: Hourly Performance + Top/Bottom Performers */}
-      <div style={{ display: 'grid', gridTemplateColumns: tlData?.hourly?.length > 0 ? '2fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
-        {/* Hourly Performance Table */}
+      {/* Section 4+5: Hourly Performance + Top by Collection side by side */}
+      <div style={{ display: 'grid', gridTemplateColumns: (tlData?.top_performers?.amount?.length > 0 && tlData?.hourly?.length > 0) ? '2fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
+        {/* Hourly Performance */}
         {tlData?.hourly?.length > 0 && (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-head">
+                <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Hourly Performance
+                </h3>
+              </div>
+              <div className="card-pad" style={{ padding: 0, overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Time</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Calls</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Connected</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Interested</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Donations</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)', background: 'var(--bg)' }}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tlData.hourly.map(h => {
+                      const hasData = (h.calls || 0) > 0 || (h.connected || 0) > 0 || (h.donations || 0) > 0;
+                      return (
+                        <tr key={h.hour} style={{ background: !hasData ? '#f9fafb' : 'transparent' }}>
+                          <td style={{ padding: '5px 10px', fontWeight: 600 }}>{h.hour}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 600 }}>{h.calls || 0}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#16a34a' }}>{h.connected || 0}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#ec4899' }}>{h.interested || 0}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#8b5cf6' }}>{h.donations || 0}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 600, color: (h.amount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
+                            ₹{Number(h.amount || 0).toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+        )}
+
+        {/* Top by Collection */}
+        {tlData?.top_performers?.amount?.length > 0 && (
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-head">
               <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                Hourly Performance
+                <span style={{ color: '#f59e0b' }}>🏆</span> Top by Collection
               </h3>
             </div>
-            <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead>
-                  <tr>
-                    <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Time</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Calls</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Connected</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Interested</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Donations</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tlData.hourly.map(h => {
-                    const peakCalls = Math.max(...tlData.hourly.map(x => x.calls || 0), 1);
-                    const intensity = (h.calls || 0) / peakCalls;
-                    return (
-                      <tr key={h.hour} style={{ background: intensity > 0.7 ? '#f0fdf4' : intensity < 0.3 && h.calls === 0 ? '#fef2f2' : 'transparent' }}>
-                        <td style={{ padding: '6px 10px', fontWeight: 600 }}>{h.hour}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>{h.calls || 0}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', color: '#16a34a' }}>{h.connected || 0}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', color: '#ec4899' }}>{h.interested || 0}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', color: '#8b5cf6' }}>{h.donations || 0}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600, color: (h.amount || 0) > 0 ? '#16a34a' : 'var(--ink-soft)' }}>
-                          ₹{Number(h.amount || 0).toLocaleString('en-IN')}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="card-pad" style={{ padding: 0 }}>
+              {tlData.top_performers.amount.map((p, i) => (
+                <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.top_performers.amount.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', minWidth: 16 }}>#{i + 1}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>₹{Number(p.collection_amount || 0).toLocaleString('en-IN')}</span>
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-
-        {/* Top/Bottom Performers */}
-        {(tlData?.top_performers || tlData?.bottom_performers) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {tlData.top_performers?.amount?.length > 0 && (
-              <div className="card" style={{ marginBottom: 0 }}>
-                <div className="card-head">
-                  <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ color: '#f59e0b' }}>🏆</span> Top by Collection
-                  </h3>
-                </div>
-                <div className="card-pad" style={{ padding: 0 }}>
-                  {tlData.top_performers.amount.map((p, i) => (
-                    <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.top_performers.amount.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#b45309' : 'var(--ink-soft)', minWidth: 16 }}>#{i + 1}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>₹{Number(p.collection_amount || 0).toLocaleString('en-IN')}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {tlData.bottom_performers?.target?.length > 0 && (
-              <div className="card" style={{ marginBottom: 0 }}>
-                <div className="card-head">
-                  <h3 style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>⚠️</span> Bottom by Target
-                  </h3>
-                </div>
-                <div className="card-pad" style={{ padding: 0 }}>
-                  {tlData.bottom_performers.target.map((p, i) => (
-                    <div key={p.fro_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: i < tlData.bottom_performers.target.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{p.fro_name}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: p.target_pct < 30 ? '#dc2626' : '#f59e0b' }}>{p.target_pct || 0}%</span>
-                      <div style={{ width: 40, height: 4, borderRadius: 2, background: '#e5e7eb', overflow: 'hidden' }}>
-                        <div style={{ width: `${Math.min(100, p.target_pct || 0)}%`, height: '100%', borderRadius: 2, background: p.target_pct < 30 ? '#dc2626' : '#f59e0b' }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -1350,6 +1325,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Low Performance (right column) */}
         {weakPerformers.length > 0 && (
           <div className="card" style={{ marginBottom: 0 }}>
             <div className="card-head">
@@ -1369,46 +1345,38 @@ export default function Dashboard() {
                 </span>}
               </div>
             </div>
-            <div className="card-pad" style={{ padding:0 }}>
-              <table>
+            <div className="card-pad" style={{ padding: 0, overflowX: 'auto' }}>
+              <table style={{ fontSize: 11 }}>
                 <thead>
                   <tr>
-                    <th style={{width:30}}>#</th>
-                    <th>FRO</th>
-                    <th style={{textAlign:'right'}}>Collection</th>
-                    <th style={{textAlign:'right'}}>Talk Time</th>
-                    <th style={{textAlign:'center'}}>Leads</th>
-                    <th style={{textAlign:'center'}}>Used</th>
-                    <th style={{textAlign:'center'}}>Att.</th>
-                    <th style={{textAlign:'center'}}>Score</th>
+                    <th style={{width:24, fontSize:10}}>#</th>
+                    <th style={{fontSize:10}}>FRO</th>
+                    <th style={{textAlign:'right', fontSize:10}}>Collection</th>
+                    <th style={{textAlign:'center', fontSize:10}}>Att.</th>
+                    <th style={{textAlign:'center', fontSize:10}}>Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {weakPerformers.slice(0, showAllLowPerformers ? weakPerformers.length : 10).map((p, i) => (
+                  {weakPerformers.slice(0, showAllLowPerformers ? weakPerformers.length : 8).map((p, i) => (
                     <tr key={p.fro_id}>
-                      <td style={{color:'var(--ink-soft)', fontSize:11}}>{i + 1}</td>
-                      <td style={{fontWeight:600}}>{p.fro_name}</td>
-                      <td style={{textAlign:'right', fontWeight:600}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
-                      <td style={{textAlign:'right', fontSize:12, color:'var(--ink-soft)'}}>
-                        {p.avg_talk_seconds > 0 ? `${Math.floor(p.avg_talk_seconds / 60)}m ${p.avg_talk_seconds % 60}s` : '—'}
-                      </td>
-                      <td style={{textAlign:'center'}}>{p.lead_done_count}</td>
-                      <td style={{textAlign:'center'}}>{p.data_used}</td>
+                      <td style={{color:'var(--ink-soft)', fontSize:10}}>{i + 1}</td>
+                      <td style={{fontWeight:600, fontSize:11}}>{p.fro_name}</td>
+                      <td style={{textAlign:'right', fontWeight:600, fontSize:11}}>₹{p.collection_amount.toLocaleString('en-IN')}</td>
                       <td style={{textAlign:'center'}}>
                         {p.attendance_pct != null
-                          ? <span style={{color: p.attendance_pct < 50 ? '#dc2626' : p.attendance_pct < 75 ? '#f59e0b' : '#16a34a', fontWeight:600}}>{p.attendance_pct}%</span>
+                          ? <span style={{color: p.attendance_pct < 50 ? '#dc2626' : p.attendance_pct < 75 ? '#f59e0b' : '#16a34a', fontWeight:600, fontSize:11}}>{p.attendance_pct}%</span>
                           : '—'}
                       </td>
-                      <td style={{textAlign:'center', fontWeight:700, color:p.score < 0.2 ? '#dc2626' : '#f59e0b'}}>{p.score.toFixed(2)}</td>
+                      <td style={{textAlign:'center', fontWeight:700, color:p.score < 0.2 ? '#dc2626' : '#f59e0b', fontSize:11}}>{p.score.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
-                {weakPerformers.length > 10 && !showAllLowPerformers && (
+                {weakPerformers.length > 8 && !showAllLowPerformers && (
                   <tfoot>
                     <tr>
-                      <td colSpan={8} style={{padding:0}}>
+                      <td colSpan={5} style={{padding:0}}>
                         <button onClick={() => setShowAllLowPerformers(true)}
-                          style={{width:'100%', padding:'10px 14px', border:'none', fontSize:12, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center', letterSpacing:.3}}>
+                          style={{width:'100%', padding:'8px 12px', border:'none', fontSize:11, fontWeight:600, fontFamily:'inherit', cursor:'pointer', background:'var(--sage-soft)', color:'var(--sage)', textAlign:'center'}}>
                           View All {weakPerformers.length} FROs →
                         </button>
                       </td>
