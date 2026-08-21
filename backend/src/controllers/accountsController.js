@@ -1617,10 +1617,10 @@ export const getReceiptList = async (req, res) => {
 
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
 
-    // Ascending by receipt number when searching, otherwise newest first.
+    // Ascending by receipt number when searching, otherwise highest receipt number first.
     const orderSql = search
       ? 'ORDER BY receipt_no ASC, receipt_date ASC'
-      : (hasDateFilter ? 'ORDER BY receipt_date DESC, created_at DESC' : 'ORDER BY created_at DESC');
+      : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
 
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
