@@ -1694,7 +1694,17 @@ export const getReceiptList = async (req, res) => {
                 (SELECT bs.name FROM bank_audit_entries b
                  JOIN bank_audit_sources bs ON b.source_id = bs.id
                  WHERE b.receipt_id = receipts.id
-                 ORDER BY b.id LIMIT 1) AS received_bank
+                 ORDER BY b.id LIMIT 1) AS received_bank,
+                (SELECT b.verify_type FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+                 ORDER BY b.id LIMIT 1) AS verify_type,
+                (SELECT b.verify_fro_worker_id FROM bank_audit_entries b
+                 WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+                 ORDER BY b.id LIMIT 1) AS verify_fro_worker_id,
+                (SELECT w.name FROM bank_audit_entries b
+                 JOIN workers w ON w.id = b.verify_fro_worker_id
+                 WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+                 ORDER BY b.id LIMIT 1) AS verifier_name
          FROM receipts ${whereSql}
          ${orderSql}`,
         params
@@ -1727,7 +1737,17 @@ export const getReceiptList = async (req, res) => {
               (SELECT bs.name FROM bank_audit_entries b
                JOIN bank_audit_sources bs ON b.source_id = bs.id
                WHERE b.receipt_id = receipts.id
-               ORDER BY b.id LIMIT 1) AS received_bank
+               ORDER BY b.id LIMIT 1) AS received_bank,
+              (SELECT b.verify_type FROM bank_audit_entries b
+               WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+               ORDER BY b.id LIMIT 1) AS verify_type,
+              (SELECT b.verify_fro_worker_id FROM bank_audit_entries b
+               WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+               ORDER BY b.id LIMIT 1) AS verify_fro_worker_id,
+              (SELECT w.name FROM bank_audit_entries b
+               JOIN workers w ON w.id = b.verify_fro_worker_id
+               WHERE b.receipt_id = receipts.id AND b.verify_type = 'cross_fro'
+               ORDER BY b.id LIMIT 1) AS verifier_name
        FROM receipts ${whereSql}
        ${orderSql}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
