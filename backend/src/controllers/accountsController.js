@@ -1631,7 +1631,7 @@ export const getReceiptList = async (req, res) => {
                    ORDER BY b.id LIMIT 1)
                 ) AS donor_mobile,
                 amount,
-                receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
+                receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
                 donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
                 sent, sent_at, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
@@ -1658,7 +1658,7 @@ export const getReceiptList = async (req, res) => {
                  ORDER BY b.id LIMIT 1)
               ) AS donor_mobile,
               amount,
-              receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
+              receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
               donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
               sent, sent_at, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
