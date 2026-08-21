@@ -4190,7 +4190,7 @@ export const getTLDashboard = async (req, res) => {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
     // 1. Live status counts (use the detailed query from later)
     const { data: liveStatus } = await db.from('fro_live_status').select('fro_worker_id, status, today_talk_seconds, today_idle_seconds, updated_at').in('fro_worker_id', workerIds);
@@ -4207,7 +4207,13 @@ export const getTLDashboard = async (req, res) => {
       .gte('created_at', todayStart.toISOString())
       .lte('created_at', todayEnd.toISOString());
 
-    const connectedStatuses = new Set(['contacted', 'lead_done', 'done', 'donation_collected', 'follow_up', 'scheduled', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending', 'already_donated', 'email_sent', 'whatsapp_sent', 'csr_inquiry', 'wants_80g_details', 'wants_trust_documents', 'language_barrier', 'transferred_senior', 'query_complaint', 'receipt_request', 'not_interested_now', 'not_interested', 'dnd', 'wrong_person', 'call_disconnected', 'callback']);
+    const connectedStatuses = new Set([
+      'donation_collected', 'promise_to_pay', 'lead_done', 'done',
+      'visit_donate', 'will_donate_online', 'payment_pending', 'already_donated',
+      'pending', 'contacted', 'follow_up', 'scheduled',
+      'email_sent', 'whatsapp_sent', 'csr_inquiry',
+      'wants_80g_details', 'wants_trust_documents'
+    ]);
     const interestedStatuses = new Set(['lead_done', 'donation_collected', 'visit_donate', 'will_donate_online', 'promise_to_pay', 'payment_pending']);
 
     const totalCalls = (callLogs || []).length;
@@ -4325,7 +4331,7 @@ export const getTLDashboard = async (req, res) => {
     const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
     const { data: callCountLogs } = await db
       .from('fro_donor_logs')
-      .select('fro_worker_id, created_at, disposition_detail')
+      .select('fro_worker_id, created_at, disposition_detail, fro_assignments!inner(ngo_id)')
       .in('fro_assignments.ngo_id', ngoIds)
       .in('fro_worker_id', workerIds)
       .gte('created_at', monthStart)
@@ -4388,10 +4394,10 @@ export const getTLDashboard = async (req, res) => {
         calls: callCounts[w.id]?.month || 0,
         calls_today: callCounts[w.id]?.today || 0,
         calls_week: callCounts[w.id]?.week || 0,
-        connected: wa.connected,
+        connected: callCounts[w.id]?.monthConnected || 0,
         connected_today: callCounts[w.id]?.todayConnected || 0,
         connected_week: callCounts[w.id]?.weekConnected || 0,
-        interested: leads,
+        interested: callCounts[w.id]?.monthInterested || 0,
         interested_today: callCounts[w.id]?.todayInterested || 0,
         interested_week: callCounts[w.id]?.weekInterested || 0,
         stations: froStationMap[w.id] || [],
@@ -5037,6 +5043,69 @@ export const getAssignedData = async (req, res) => {
     return res.json({ summary, stations: result });
   } catch (error) {
     console.error('getAssignedData error:', error.message);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Restore wrong cross-FRO assignments: find fro_assignments where station IS NULL
+// and the donor has another assignment with station IS NOT NULL for the same ngo_id.
+export const restoreWrongAssignments = async (req, res) => {
+  try {
+    // Find all assignments with station NULL (manually created, potentially wrong)
+    const { data: nullStationAsns } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, fro_worker_id, ngo_id, station, status')
+      .is('station', null)
+      .not('status', 'eq', 'reassigned');
+
+    if (!nullStationAsns || nullStationAsns.length === 0) {
+      return res.json({ restored: 0, details: [] });
+    }
+
+    const details = [];
+    let restoredCount = 0;
+
+    for (const asn of nullStationAsns) {
+      // Check if this donor has another assignment with station for the same ngo_id
+      const { data: correctAsns } = await db
+        .from('fro_assignments')
+        .select('id, fro_worker_id, station')
+        .eq('donor_id', asn.donor_id)
+        .eq('ngo_id', asn.ngo_id)
+        .not('id', 'eq', asn.id)
+        .not('status', 'eq', 'reassigned')
+        .not('station', 'is', null);
+
+      if (correctAsns && correctAsns.length > 0) {
+        // This is a wrong assignment — delete it and its fro_donor_logs
+        const { data: logs } = await db
+          .from('fro_donor_logs')
+          .select('id, amount_collected')
+          .eq('assignment_id', asn.id);
+
+        // Delete fro_donor_logs first
+        if (logs && logs.length > 0) {
+          await db.from('fro_donor_logs').delete().eq('assignment_id', asn.id);
+        }
+
+        // Delete the wrong assignment
+        await db.from('fro_assignments').delete().eq('id', asn.id);
+
+        restoredCount++;
+        details.push({
+          assignment_id: asn.id,
+          donor_id: asn.donor_id,
+          fro_worker_id: asn.fro_worker_id,
+          ngo_id: asn.ngo_id,
+          logs_deleted: logs?.length || 0,
+          correct_assignment_id: correctAsns[0]?.id,
+        });
+      }
+    }
+
+    return res.json({ restored: restoredCount, details });
+  } catch (error) {
+    console.error('restoreWrongAssignments error:', error.message);
     return res.status(500).json({ message: error.message });
   }
 };
