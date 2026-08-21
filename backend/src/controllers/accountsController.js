@@ -3564,7 +3564,7 @@ export const exportDonors = async (req, res) => {
 
     const donorIds = donors.map(d => d.id).filter(Boolean);
 
-    // Chunked assignment fetch to avoid the Postgres parameter limit on large donor sets.
+    // Chunked assignment fetch
     const latestByDonor = new Map();
     const ASSIGN_BATCH = 1000;
     for (let i = 0; i < donorIds.length; i += ASSIGN_BATCH) {
@@ -3601,18 +3601,46 @@ export const exportDonors = async (req, res) => {
       for (const n of ngos || []) ngoMap[n.id] = n.name;
     }
 
+    // Fetch receipt details per donor (chunked)
+    const receiptsByDonor = new Map();
+    const RECEIPT_BATCH = 500;
+    for (let i = 0; i < donorIds.length; i += RECEIPT_BATCH) {
+      const chunk = donorIds.slice(i, i + RECEIPT_BATCH);
+      const { data: recs } = await db
+        .from('receipts')
+        .select('donor_id, receipt_no, amount, receipt_date, mode, payment_id, project_id')
+        .in('donor_id', chunk)
+        .order('receipt_date', { ascending: false });
+      for (const r of recs || []) {
+        if (!receiptsByDonor.has(r.donor_id)) receiptsByDonor.set(r.donor_id, []);
+        receiptsByDonor.get(r.donor_id).push(r);
+      }
+    }
+
     const rows = donors.map(d => {
       const a = latestByDonor.get(d.id);
+      const recs = receiptsByDonor.get(d.id) || [];
+      const receiptNos = recs.map(r => r.receipt_no).filter(Boolean).join(', ');
+      const totalReceiptAmount = recs.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
       return {
         'Donor Name': d.name || d.bank_donor_name || d.agent_donor_name || '',
         'Mobile': d.mobile_number || '',
+        'Email': d.email || '',
+        'PAN': d.pan_number || '',
+        'Address': d.address_1 || '',
+        'Address 2': d.address_2 || '',
         'City': d.city || '',
+        'Pin Code': d.pin_code || '',
         'NGO': a?.ngo_id ? (ngoMap[a.ngo_id] || d.ngo || '') : (d.ngo || ''),
         'Assigned To': a?.fro_worker_id ? (workerMap[a.fro_worker_id] || '') : '',
+        'Station': a?.station || d.station || '',
+        'Project': d.project_supported || '',
         'Total Amount': d.total_amount != null ? Number(d.total_amount) : 0,
         'Donations': d.donation_count != null ? Number(d.donation_count) : 0,
         'Last Donation': d.last_donation_date || '',
-        'New Station': a?.station || d.station || 'suspense',
+        'Receipt Numbers': receiptNos,
+        'Receipt Count': recs.length,
+        'Total Receipt Amount': totalReceiptAmount,
       };
     });
 
