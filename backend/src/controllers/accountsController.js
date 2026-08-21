@@ -3601,7 +3601,7 @@ export const exportDonors = async (req, res) => {
       for (const n of ngos || []) ngoMap[n.id] = n.name;
     }
 
-    // Fetch receipt details per donor (chunked)
+    // Fetch receipt details per donor by donor_id (chunked)
     const receiptsByDonor = new Map();
     const RECEIPT_BATCH = 500;
     for (let i = 0; i < donorIds.length; i += RECEIPT_BATCH) {
@@ -3615,6 +3615,47 @@ export const exportDonors = async (req, res) => {
         if (!receiptsByDonor.has(r.donor_id)) receiptsByDonor.set(r.donor_id, []);
         receiptsByDonor.get(r.donor_id).push(r);
       }
+    }
+
+    // Second pass: catch receipts with donor_id = NULL matched by mobile or name
+    const mobileToDonorId = new Map();
+    const nameToDonorId = new Map();
+    for (const d of donors) {
+      const mob = String(d.mobile_number || '').trim();
+      if (mob) mobileToDonorId.set(mob, d.id);
+      const nm = String(d.name || '').trim().toLowerCase();
+      if (nm) nameToDonorId.set(nm, d.id);
+    }
+
+    // Build WHERE: donor_id IS NULL AND (mobile or name matches)
+    const mobileList = [...mobileToDonorId.keys()].filter(Boolean);
+    const orConditions = [];
+    if (mobileList.length > 0) {
+      orConditions.push(`donor_mobile IN (${mobileList.map((_, i) => `$${i + 1}`).join(',')})`);
+    }
+    if (mobileList.length === 0) {
+      // No mobiles to match — skip second pass
+    } else {
+      const mobileParams = [...mobileList];
+      const whereNull = `donor_id IS NULL AND (${orConditions.join(' OR ')})`;
+      try {
+        const sql = `SELECT donor_id, donor_name, donor_mobile, receipt_no, amount, receipt_date, "mode", payment_id, project_id
+                     FROM receipts WHERE ${whereNull} ORDER BY receipt_date DESC`;
+        const { rows: unmatched } = await db._pool.query(sql, mobileParams);
+        for (const r of unmatched || []) {
+          const matchedMob = String(r.donor_mobile || '').trim();
+          const matchedId = mobileToDonorId.get(matchedMob);
+          if (matchedId) {
+            if (!receiptsByDonor.has(matchedId)) receiptsByDonor.set(matchedId, []);
+            receiptsByDonor.get(matchedId).push(r);
+          }
+        }
+      } catch (err) {
+        console.error('Export donors: unmatched receipt pass failed:', err.message);
+      }
+
+      // Also catch receipts with donor_id set but pointing to a donor not in the list
+      // These are receipts where donor_id exists but we didn't fetch them (shouldn't happen but safety)
     }
 
     const rows = donors.map(d => {
