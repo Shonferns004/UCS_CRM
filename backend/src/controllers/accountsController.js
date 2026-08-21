@@ -1332,6 +1332,16 @@ export const deleteLead = async (req, res) => {
       .eq('id', logId);
     if (delError) throw delError;
 
+    // Delete the orphaned assignment
+    const assignmentId = log.fro_assignments?.id;
+    if (assignmentId) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .delete()
+        .eq('id', assignmentId);
+      if (asgnError) throw asgnError;
+    }
+
     return res.json({ message: 'Lead deleted', log_id: logId });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1350,13 +1360,28 @@ export const deleteAllPendingLeads = async (req, res) => {
     if (listError) throw listError;
 
     const ids = (logs || []).map(l => l.id);
+    const assignmentIds = [...new Set((logs || []).map(l => l.assignment_id).filter(Boolean))];
 
     if (ids.length > 0) {
+      // Release any linked receipts to satisfy FK before deleting logs
+      try {
+        await db.from('receipts').update({ log_id: null, donor_id: null }).in('log_id', ids);
+      } catch (e) { console.warn('Failed to release receipts on bulk delete:', e.message); }
+
       const { error: delError } = await db
         .from('fro_donor_logs')
         .delete()
         .in('id', ids);
       if (delError) throw delError;
+    }
+
+    // Delete orphaned assignments
+    if (assignmentIds.length > 0) {
+      const { error: asgnError } = await db
+        .from('fro_assignments')
+        .delete()
+        .in('id', assignmentIds);
+      if (asgnError) throw asgnError;
     }
 
     return res.json({ message: 'Pending leads deleted', deleted: ids.length });
@@ -1646,10 +1671,10 @@ export const getReceiptList = async (req, res) => {
 
     const totalRes = await db._pool.query(`SELECT count(*)::int AS n FROM receipts ${whereSql}`, params);
 
-    // Ascending by receipt number when searching, otherwise newest first.
+    // Ascending by receipt number when searching, otherwise highest receipt number first.
     const orderSql = search
       ? 'ORDER BY receipt_no ASC, receipt_date ASC'
-      : (hasDateFilter ? 'ORDER BY receipt_date DESC, created_at DESC' : 'ORDER BY created_at DESC');
+      : 'ORDER BY CAST(receipt_no AS INTEGER) DESC, receipt_date DESC';
 
     if (hasDateFilter) {
       const rowsRes = await db._pool.query(
@@ -1660,7 +1685,7 @@ export const getReceiptList = async (req, res) => {
                    ORDER BY b.id LIMIT 1)
                 ) AS donor_mobile,
                 amount,
-                receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
+                receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
                 donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
                 sent, sent_at, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
@@ -1689,7 +1714,7 @@ export const getReceiptList = async (req, res) => {
                  ORDER BY b.id LIMIT 1)
               ) AS donor_mobile,
               amount,
-              receipt_date, receipt_time, mode, payment_id, bank_name, bank_payer_name, address, pan_number, email,
+              receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
               donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
               sent, sent_at, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
