@@ -87,19 +87,22 @@ export default function LeadAudit() {
         <span className="lead-audit-filter-help">Filters both Lead Verification and Bank Audit</span>
       </div>
       {receiptNums && receiptNums.length > 0 && (
-        <div className="card" style={{ marginBottom: 14, borderRadius: 10 }}>
-          <div className="filter-bar" style={{ gap: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', whiteSpace: 'nowrap' }}>Receipt Numbers</span>
-            {receiptNums.map(n => (
-              <span key={n.project_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 7, background: '#f9fafb', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>
-                <span style={{ color: '#374151' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
-                <span style={{ color: '#9ca3af' }}>Last</span>
-                <span style={{ color: '#111827', fontVariantNumeric: 'tabular-nums' }}>{n.last_no || '\u2014'}</span>
-                <span style={{ color: '#9ca3af' }}>Next</span>
-                <span style={{ color: 'var(--sage)', fontVariantNumeric: 'tabular-nums' }}>{n.next_no || '\u2014'}</span>
-              </span>
-            ))}
-          </div>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+          {receiptNums.map(n => (
+            <div key={n.project_id} className="card" style={{ flex: 1, borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{NGO_LABELS[n.project_id] || n.project_id}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, fontWeight: 600 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ color: '#9ca3af', fontSize: 9, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Last</div>
+                  <div style={{ color: '#111827', fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{n.last_no || '\u2014'}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ color: '#9ca3af', fontSize: 9, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase' }}>Next</div>
+                  <div style={{ color: 'var(--sage)', fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 800 }}>{n.next_no || '\u2014'}</div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
       <div className="two-col lead-audit-columns" style={{ alignItems: 'flex-start' }}>

@@ -336,15 +336,31 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       {deleteConfirm && (
         <div className="modal-overlay" onClick={() => !deleting && setDeleteConfirm(null)}>
           <div className="modal" style={{ maxWidth: 420, width: '90%' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><h3>Delete Lead</h3></div>
+            <div className="modal-header">
+              <h3>Delete Lead</h3>
+              <button className="btn btn-sm btn-icon" onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ padding: 4 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
             <div className="modal-body" style={{ padding: 20 }}>
-              <p style={{ margin: '0 0 6px', fontSize: 14 }}>Delete this pending lead entry?</p>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
-                <strong>{deleteConfirm.donor_name}</strong> ({currency(deleteConfirm.amount)}) will be permanently removed. This cannot be undone.
-              </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-                <button className="btn btn-sm" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</button>
-                <button className="btn btn-sm" onClick={handleDelete} disabled={deleting} style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#111827' }}>Permanently delete this lead?</p>
+                  <p style={{ margin: 0, fontSize: 13, color: '#6b7280', lineHeight: 1.5 }}>
+                    <strong>{deleteConfirm.donor_name}</strong> ({currency(deleteConfirm.amount)}) will be removed. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+                <button className="btn btn-sm" onClick={() => setDeleteConfirm(null)} disabled={deleting}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button className="btn btn-sm" onClick={handleDelete} disabled={deleting}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: deleting ? 0.6 : 1 }}>
                   {deleting ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
@@ -356,15 +372,31 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
       {deleteAllConfirm && (
         <div className="modal-overlay" onClick={() => !deletingAll && setDeleteAllConfirm(false)}>
           <div className="modal" style={{ maxWidth: 440, width: '90%' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><h3>Delete All Pending Leads</h3></div>
+            <div className="modal-header">
+              <h3>Delete All Pending Leads</h3>
+              <button className="btn btn-sm btn-icon" onClick={() => setDeleteAllConfirm(false)} disabled={deletingAll} style={{ padding: 4 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
             <div className="modal-body" style={{ padding: 20 }}>
-              <p style={{ margin: '0 0 6px', fontSize: 14 }}>Delete all {stats.pending.length} pending lead entries?</p>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-soft)' }}>
-                Every pending entry ({currency(stats.pendingAmount)} total) will be permanently removed. This cannot be undone.
-              </p>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-                <button className="btn btn-sm" onClick={() => setDeleteAllConfirm(false)} disabled={deletingAll}>Cancel</button>
-                <button className="btn btn-sm" onClick={handleDeleteAll} disabled={deletingAll} style={{ background: '#dc2626', color: '#fff', border: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#111827' }}>Permanently delete all {stats.pending.length} leads?</p>
+                  <p style={{ margin: 0, fontSize: 13, color: '#6b7280', lineHeight: 1.5 }}>
+                    All pending leads ({currency(stats.pendingAmount)} total) will be removed. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 18 }}>
+                <button className="btn btn-sm" onClick={() => setDeleteAllConfirm(false)} disabled={deletingAll}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button className="btn btn-sm" onClick={handleDeleteAll} disabled={deletingAll}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: deletingAll ? 0.6 : 1 }}>
                   {deletingAll ? 'Deleting...' : `Delete All (${stats.pending.length})`}
                 </button>
               </div>
