@@ -6,6 +6,7 @@ import {
   getSalaryAllocations,
   setSalaryAllocations,
   generateSalaryAllocations,
+  generateAllSalaryAllocations,
   listPayments,
   createPayment,
   updatePaymentStatus,
@@ -30,8 +31,8 @@ function validatePeopleAllocations(allocations) {
     return { valid: false, message: 'At least one NGO allocation is required' };
   }
   const total = allocations.reduce((sum, a) => sum + round2(a.allocation_percentage), 0);
-  if (Math.abs(total - 100) > 0.01) {
-    return { valid: false, message: `Allocation percentages (${total}%) must sum to 100%` };
+  if (Math.abs(total - 100) > 0.5) {
+    return { valid: false, message: `Allocation percentages (${total}%) must sum to ~100%` };
   }
   for (const a of allocations) {
     if (round2(a.allocation_percentage) < 0) {
@@ -76,8 +77,8 @@ export const putNgoSettings = async (req, res) => {
     if (allocations.length === 0) {
       return res.status(400).json({ message: 'At least one allocation is required' });
     }
-    if (Math.abs(total - 100) > 0.01) {
-      return res.status(400).json({ message: `Allocation percentages (${total}%) must sum to 100%` });
+    if (Math.abs(total - 100) > 0.5) {
+      return res.status(400).json({ message: `Allocation percentages (${total}%) must sum to ~100%` });
     }
     for (const a of allocations) {
       if (round2(a.allocation_percentage) < 0) {
@@ -171,6 +172,16 @@ export const postGenerateSalaryAlloc = async (req, res) => {
     if (error.code === 'PGRST116') return res.status(404).json({ message: 'Worker not found' });
     if (error.code === 'NO_ACTIVE_SALARY' || error.code === 'NO_ALLOCATIONS') return res.status(400).json({ message: error.message });
     if (error.code === 'EXISTS') return res.status(409).json({ message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const postGenerateAllSalaryAlloc = async (req, res) => {
+  try {
+    const month = req.query.month || null;
+    const generated = await generateAllSalaryAllocations(month);
+    return res.json({ message: `Generated ${generated} salary allocation(s)`, generated });
+  } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };

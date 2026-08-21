@@ -22,9 +22,9 @@ export function useHR() {
     fetchSettings, updateSettings,
     fetchNgoSalarySummary, fetchNgoAllocationSettings, saveNgoAllocationSettings, fetchNgoSummaryList,
     fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations,
-    fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc,
+    fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc, generateAllSalaryAllocations,
     fetchPayments, createPayment, updatePaymentStatus,
-    fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport,
+    fetchNgoSalaryReport, fetchEmployeeReport, fetchNgoReport, fetchNgoSalaryReportFallback,
   }
 }
 
@@ -123,6 +123,7 @@ export const saveWorkerPeopleAllocations = (workerId, allocations) => apiPut('/n
 export const fetchWorkerSalaryAlloc = (workerId, month) => apiGet('/ngo-allocations/workers/' + workerId + '/salary' + (month ? '?month=' + month : ''));
 export const saveWorkerSalaryAlloc = (workerId, allocations, month) => apiPut('/ngo-allocations/workers/' + workerId + '/salary' + (month ? '?month=' + month : ''), { allocations, month });
 export const generateWorkerSalaryAlloc = (workerId, month) => apiPost('/ngo-allocations/workers/' + workerId + '/salary/generate' + (month ? '?month=' + month : ''));
+export const generateAllSalaryAllocations = (month) => apiPost('/ngo-allocations/salary/generate-all' + (month ? '?month=' + month : ''));
 export const fetchPayments = (filters = {}) => {
   const params = new URLSearchParams();
   if (filters.month) params.set('month', filters.month);
@@ -142,6 +143,23 @@ export const fetchNgoSalaryReport = (filters = {}) => {
   if (filters.status) params.set('status', filters.status);
   const q = params.toString();
   return apiGet('/ngo-allocations/report/ngo-salary' + (q ? '?' + q : ''));
+};
+// TEMPORARY fallback for NGO Salary Report only: used when /report/ngo-salary
+// fails on servers that do not yet include the QueryBuilder embedded-order fix.
+// Remove once the backend fix is deployed.
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
+export const fetchNgoSalaryReportFallback = async (filters = {}) => {
+  const month = String(filters.month || '').replace(/[^0-9-]/g, '');
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('Invalid month');
+  const sql = "SELECT sa.worker_id, w.name AS \"worker_name\", w.employee_id, w.department, sa.ngo_id, n.name AS \"ngo_name\", n.code AS \"ngo_code\", sa.salary_month, sa.allocation_percentage, sa.allocation_amount, COALESCE(p.paid, 0) AS \"paid_amount\", COALESCE(p.st, 'unpaid') AS \"payment_status\" FROM salary_allocations sa LEFT JOIN workers w ON w.id = sa.worker_id LEFT JOIN ngos n ON n.id = sa.ngo_id LEFT JOIN (SELECT worker_id, ngo_id, salary_month, SUM(amount) AS paid, CASE WHEN SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) > 0 THEN 'paid' WHEN SUM(CASE WHEN payment_status = 'processing' THEN 1 ELSE 0 END) > 0 THEN 'processing' ELSE 'unpaid' END AS st FROM salary_payments GROUP BY worker_id, ngo_id, salary_month) p ON p.worker_id = sa.worker_id AND p.ngo_id = sa.ngo_id AND p.salary_month = sa.salary_month WHERE sa.salary_month = '" + month + "-01' ORDER BY n.name ASC";
+  const res = await fetch(API_BASE + '/db/query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sql }) });
+  if (!res.ok) throw new Error('Fallback query failed: ' + res.status);
+  const data = await res.json();
+  let rows = data.rows || [];
+  if (filters.ngo_id) rows = rows.filter(r => r.ngo_id === filters.ngo_id);
+  if (filters.worker_id) rows = rows.filter(r => r.worker_id === filters.worker_id);
+  if (filters.status) rows = rows.filter(r => (r.payment_status || 'unpaid') === filters.status);
+  return rows;
 };
 export const fetchEmployeeReport = (workerId) => apiGet('/ngo-allocations/report/employee/' + workerId);
 export const fetchNgoReport = (ngoId, month) => apiGet('/ngo-allocations/report/ngo/' + ngoId + (month ? '?month=' + month : ''));
