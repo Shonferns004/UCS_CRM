@@ -623,7 +623,7 @@ export const getDashboard = async (req, res) => {
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
     const monthStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-01';
     const achievedMap = {};
@@ -884,7 +884,7 @@ export const getFroWiseCollection = async (req, res) => {
       endDate = new Date(); endDate.setHours(23, 59, 59, 999);
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
     const achievedMap = {};
@@ -950,7 +950,7 @@ export const getFroPerformance = async (req, res) => {
       endDate = todayEnd;
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
     const workerIds = froWorkers.map(w => w.id);
@@ -4398,11 +4398,13 @@ export const getTLDashboard = async (req, res) => {
         connected_today: callCounts[w.id]?.todayConnected || 0,
         connected_week: callCounts[w.id]?.weekConnected || 0,
         interested: callCounts[w.id]?.monthInterested || 0,
-        interested_today: callCounts[w.id]?.todayInterested || 0,
+        interested_today: callCounts[w.id]?.todayConnected || 0,
         interested_week: callCounts[w.id]?.weekInterested || 0,
         stations: froStationMap[w.id] || [],
-        receivedDonors: leads, // approximate
+        receivedDonors: leads,
         receivedAmount: coll,
+        receivedAmount_today: bs.todayCollection[w.id] || 0,
+        receivedAmount_week: bs.weekCollection[w.id] || 0,
         targetPct: targetPct,
         target_amount: targetAmt,
         target_pct: targetPct,
@@ -4415,6 +4417,8 @@ export const getTLDashboard = async (req, res) => {
         data_total: wa.total,
         conversion_pct: conversion,
         collection_amount: coll,
+        collection_amount_today: bs.todayCollection[w.id] || 0,
+        collection_amount_week: bs.weekCollection[w.id] || 0,
         lead_done_count: leads,
       };
     });
@@ -4790,10 +4794,9 @@ export const getTopPerformers = async (req, res) => {
 
     const monthStr = new Date().toISOString().slice(0, 7) + '-01';
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString();
+    const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
     const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
     
     const { data: faRows } = await db
@@ -4874,10 +4877,9 @@ export const getBottomPerformers = async (req, res) => {
 
     const monthStr = new Date().toISOString().slice(0, 7) + '-01';
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString();
+    const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
-
     const batchStats = await getBatchCollectionStats(workerIds, monthStart, monthEnd, todayStart.toISOString(), todayEnd.toISOString(), ngoIds);
     
     const { data: faRows } = await db
@@ -4944,13 +4946,13 @@ export const getAssignedData = async (req, res) => {
       endDate = new Date(); endDate.setHours(23, 59, 59, 999);
     } else if (period === 'month') {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     } else if (from && to) {
       startDate = new Date(from);
       endDate = new Date(to);
     } else {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
     const startISO = startDate.toISOString();
