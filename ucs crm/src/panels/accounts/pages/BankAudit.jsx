@@ -571,15 +571,6 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
 
   const renderEntryFields=(isEdit,seEntry)=>(
     <>
-      <FieldSection title="NGO">
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          {Object.entries(NGO_LABELS).map(([k,v])=>{const active=(fm.project_id||'bsct')===k;return(
-            <button key={k} type="button" onClick={()=>setFm(p=>({...p,project_id:k}))} style={{padding:'10px 28px',borderRadius:6,fontSize:13,fontWeight:700,border:'1.5px solid',background:active?'#2563eb':'#fff',color:active?'#fff':'#374151',borderColor:active?'#2563eb':'#d1d5db',cursor:'pointer',transition:'all .15s'}}>
-              {v}
-            </button>)})}
-        </div>
-      </FieldSection>
-
       <FieldSection title="Transaction Details">
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
@@ -601,6 +592,12 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
           <span>Amount (₹) <span style={{color:'#dc2626'}}>*</span></span>
           <input className="field-input" type="number" min="0.01" step="0.01" placeholder="0.00" value={fm.amount} onChange={e=>{setFm(p=>({...p,amount:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>
+        </label>
+        <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5,marginTop:14}}>
+          <span>NGO</span>
+          <select className="field-input" value={fm.project_id||'bsct'} onChange={e=>setFm(p=>({...p,project_id:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
+            {Object.entries(NGO_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+          </select>
         </label>
       </FieldSection>
 
