@@ -1011,6 +1011,12 @@ export default function ReceiptHistory() {
               </button>
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
+              {editingReceipt.verify_type === 'cross_fro' && (
+                <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Cross-FRO Receipt</div>
+                  <div>Credit went to <strong>{editingReceipt.verifier_name || 'the verifier'}</strong>, not <strong>{editingReceipt.agent_name || 'the owner'}</strong>. Changing the FRO/Agent will update the receipt but credit stays with the verifier.</div>
+                </div>
+              )}
               {confirmFroChange && (
                 <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e' }}>
                   <strong>FRO Change Detected</strong><br />
