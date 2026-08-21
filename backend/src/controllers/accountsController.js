@@ -3824,6 +3824,17 @@ export const updateReceipt = async (req, res) => {
         if (log) {
           const assignment = log.fro_assignments;
 
+          // Detect cross-FRO receipt: verify_type = 'cross_fro' on the linked bank_audit_entry
+          let isCrossFro = false;
+          try {
+            const { data: linkedEntry } = await db
+              .from('bank_audit_entries')
+              .select('verify_type')
+              .eq('receipt_id', receiptId)
+              .maybeSingle();
+            isCrossFro = linkedEntry?.verify_type === 'cross_fro';
+          } catch (_) {}
+
           // Reverse credit from old FRO's donor profile
           if (assignment?.donor_id && amount > 0) {
             try {
@@ -3842,13 +3853,14 @@ export const updateReceipt = async (req, res) => {
             }
           }
 
-          // Update fro_donor_log FRO
+          // Update fro_donor_log FRO (credit always moves)
           await db.from('fro_donor_logs').update({
             fro_worker_id: newWorker.id,
           }).eq('id', log.id);
 
-          // Update fro_assignments FRO
-          if (assignment?.id) {
+          // For cross-FRO receipts: do NOT transfer the assignment — the donor stays
+          // under their original FRO. Only credit moves via the log update above.
+          if (!isCrossFro && assignment?.id) {
             await db.from('fro_assignments').update({
               fro_worker_id: newWorker.id,
             }).eq('id', assignment.id);

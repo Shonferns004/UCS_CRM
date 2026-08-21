@@ -9,6 +9,7 @@ import {
   runAutoMatch, confirmMatch, clearMatch,
   editSuspenseReceipt, removeSuspenseReceipt,
   searchPendingLeads, manualVerifyEntry, saveManualVerifyDetails, syncReceiptFields,
+  checkDonorAssignment,
 } from '../controllers/bankAuditController.js';
 
 const router = Router();
@@ -38,6 +39,7 @@ router.post('/entries/:id/confirm-match', authenticateRole('accounts', 'super_ad
 router.post('/entries/:id/clear-match', authenticateRole('accounts', 'super_admin'), clearMatch);
 router.post('/entries/:id/manual-verify', authenticateRole('accounts', 'super_admin'), manualVerifyEntry);
 router.put('/entries/:id/manual-verify-details', authenticateRole('accounts', 'super_admin'), saveManualVerifyDetails);
+router.get('/check-donor-assignment', authenticateRole('accounts', 'super_admin'), checkDonorAssignment);
 
 router.get('/summary', authenticateRole('accounts', 'super_admin'), getSummary);
 router.post('/sync-receipt-fields', authenticateRole('accounts', 'super_admin'), syncReceiptFields);
