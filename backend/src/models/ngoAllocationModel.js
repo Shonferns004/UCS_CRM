@@ -181,6 +181,68 @@ export const generateSalaryAllocations = async (workerId, month) => {
   });
 };
 
+// Generate salary allocations for ALL active workers for a given month.
+// Workers that already have allocations for the month, or have no salary / NGO
+// split, are silently skipped.  Returns the count of newly created allocations.
+export const generateAllSalaryAllocations = async (month) => {
+  const m = monthFirst(month);
+
+  const { data: workers, error: wErr } = await db
+    .from('workers')
+    .select('id')
+    .eq('employment_status', 'active');
+  if (wErr) throw wErr;
+
+  const rowsToInsert = [];
+
+  for (const w of workers || []) {
+    const { data: existing } = await db
+      .from('salary_allocations')
+      .select('id')
+      .eq('worker_id', w.id)
+      .eq('salary_month', m)
+      .limit(1);
+    if (existing && existing.length > 0) continue;
+
+    const { data: salary } = await db
+      .from('salary_history')
+      .select('*')
+      .eq('worker_id', w.id)
+      .order('from_month', { ascending: false })
+      .limit(1);
+    const activeSalary = salary && salary.length > 0 ? salary[0] : null;
+    if (!activeSalary || parseFloat(activeSalary.salary) <= 0) continue;
+
+    const { data: allocs } = await db
+      .from('worker_ngo_allocations')
+      .select('*')
+      .eq('worker_id', w.id);
+    if (!allocs || allocs.length === 0) continue;
+
+    const total = parseFloat(activeSalary.salary);
+    for (const a of allocs) {
+      const amount = parseFloat(a.salary_portion) || 0;
+      rowsToInsert.push({
+        worker_id: w.id,
+        ngo_id: a.ngo_id,
+        salary_month: m,
+        allocation_percentage: total > 0 ? Math.round((amount / total) * 10000) / 100 : 0,
+        allocation_amount: amount,
+        status: 'active',
+      });
+    }
+  }
+
+  if (rowsToInsert.length === 0) return 0;
+
+  const { error: insErr } = await db
+    .from('salary_allocations')
+    .insert(rowsToInsert);
+  if (insErr) throw insErr;
+
+  return rowsToInsert.length;
+};
+
 // ---------------------------------------------------------------------------
 // Salary payments
 // ---------------------------------------------------------------------------
