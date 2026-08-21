@@ -426,6 +426,8 @@ export const addEntry = async (req, res) => {
       payment_time: payment_time || null,
       project_id: link?.receipt.project_id || ngo,
       ...entryDonorFields,
+      mode: req.body.mode || null,
+      agent_name: suspenseAgent || null,
       created_by: req.user.id,
       receipt_no: receiptNo,
       receipt_id: receiptId,
@@ -576,7 +578,9 @@ export const editSuspenseReceipt = async (req, res) => {
         const effAgent = realAgentName(agent_name);
         updates.agent_name = (effAgent && donor_name) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
       }
-      if (project_id !== undefined) updates.project_id = project_id;
+    if (project_id !== undefined) updates.project_id = project_id;
+    if (mode !== undefined) updates.mode = mode || null;
+    if (agent_name !== undefined) updates.agent_name = agent_name || null;
     }
     if (amount !== undefined) updates.amount = amount;
     if (receipt_date !== undefined) updates.receipt_date = receipt_date;
@@ -953,7 +957,7 @@ export const manualVerifyEntry = async (req, res) => {
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
       donor_email, donor_city, donor_pin_code, donor_address_2, project_id,
-      verify_type, verify_fro_worker_id,
+      verify_type, verify_fro_worker_id, credit_to_fro_worker_id,
     } = req.body || {};
 
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
@@ -1108,6 +1112,17 @@ export const manualVerifyEntry = async (req, res) => {
       }
     }
 
+    // Resolve the original owner's name for cross-FRO verify notes.
+    let credit_to_fro_worker_name = null;
+    if (credit_to_fro_worker_id && credit_to_fro_worker_id !== fro_worker_id) {
+      const { data: ownerWorker } = await db
+        .from('workers')
+        .select('name')
+        .eq('id', credit_to_fro_worker_id)
+        .maybeSingle();
+      credit_to_fro_worker_name = ownerWorker?.name || null;
+    }
+
     const amount = Number(entry.amount || 0);
     const now = new Date().toISOString();
     const VALID_PROJECT_OVERRIDES = ['library', 'pg'];
@@ -1203,30 +1218,59 @@ export const manualVerifyEntry = async (req, res) => {
       // ── FRO provided → existing full-verify path ───────────────────────────
       let logId = null;
       if (!isStaticFro) {
-        // Find or create an open assignment linking donor + FRO + NGO.
-        let asgnQuery = from('fro_assignments')
-          .select('id')
-          .eq('donor_id', donorId)
-          .eq('fro_worker_id', fro_worker_id)
-          .not('status', 'eq', 'reassigned')
-          .order('assigned_at', { ascending: false })
-          .limit(1);
-        if (ngoId) asgnQuery = asgnQuery.eq('ngo_id', ngoId);
-        const { data: existingAsgn } = await asgnQuery.maybeSingle();
-        let assignment = existingAsgn || null;
-        if (!assignment) {
-          const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
-            donor_id: donorId,
-            fro_worker_id: fro_worker_id,
-            ngo_id: ngoId,
-            status: 'donation_collected',
-            assigned_by: null,
-          }).select().single();
-          if (asErr) throw asErr;
-          assignment = createdAsgn;
+        // CROSS-FRO VERIFY: when credit_to_fro_worker_id is provided and differs
+        // from fro_worker_id, the donor already belongs to another FRO (the original
+        // owner). We use the original owner's existing assignment for the log, but
+        // credit goes to the verifying FRO (fro_worker_id). No new assignment is created.
+        let isCrossFro = !!(credit_to_fro_worker_id && credit_to_fro_worker_id !== fro_worker_id);
+        let assignment = null;
+
+        if (isCrossFro) {
+          // Find the ORIGINAL OWNER's existing assignment.
+          let ownerAsgnQuery = from('fro_assignments')
+            .select('id')
+            .eq('donor_id', donorId)
+            .eq('fro_worker_id', credit_to_fro_worker_id)
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1);
+          if (ngoId) ownerAsgnQuery = ownerAsgnQuery.eq('ngo_id', ngoId);
+          const { data: ownerAsgn } = await ownerAsgnQuery.maybeSingle();
+          if (ownerAsgn) {
+            assignment = ownerAsgn;
+          } else {
+            // Original owner has no assignment — fall back to normal flow.
+            isCrossFro = false;
+          }
         }
 
-        // Write the verified donation log -> credits FRO + adds to donor history.
+        if (!isCrossFro) {
+          // Normal flow: find or create an open assignment linking donor + FRO + NGO.
+          let asgnQuery = from('fro_assignments')
+            .select('id')
+            .eq('donor_id', donorId)
+            .eq('fro_worker_id', fro_worker_id)
+            .not('status', 'eq', 'reassigned')
+            .order('assigned_at', { ascending: false })
+            .limit(1);
+          if (ngoId) asgnQuery = asgnQuery.eq('ngo_id', ngoId);
+          const { data: existingAsgn } = await asgnQuery.maybeSingle();
+          assignment = existingAsgn || null;
+          if (!assignment) {
+            const { data: createdAsgn, error: asErr } = await from('fro_assignments').insert({
+              donor_id: donorId,
+              fro_worker_id: fro_worker_id,
+              ngo_id: ngoId,
+              status: 'donation_collected',
+              assigned_by: null,
+            }).select().single();
+            if (asErr) throw asErr;
+            assignment = createdAsgn;
+          }
+        }
+
+        // Write the verified donation log -> credits the VERIFYING FRO.
+        // In cross-FRO mode: assignment_id = original owner's, fro_worker_id = verifier.
         const { data: log, error: lErr } = await from('fro_donor_logs').insert({
           assignment_id: assignment.id,
           donor_id: donorId,
@@ -1241,7 +1285,9 @@ export const manualVerifyEntry = async (req, res) => {
           verified_at: now,
           verified_by: req.user.id,
           created_by: req.user.id,
-          notes: `Manually verified from bank audit entry (${entry.payment_id || 'N/A'})`,
+          notes: isCrossFro
+            ? `Cross-FRO verify: ${froName} verified donor of ${credit_to_fro_worker_name || 'another FRO'} (${entry.payment_id || 'N/A'})`
+            : `Manually verified from bank audit entry (${entry.payment_id || 'N/A'})`,
         }).select().single();
         if (lErr) throw lErr;
         logId = log.id;
@@ -1278,6 +1324,10 @@ export const manualVerifyEntry = async (req, res) => {
       };
       if (verify_type) entryPatch.verify_type = verify_type;
       if (verify_fro_worker_id) entryPatch.verify_fro_worker_id = verify_fro_worker_id;
+      if (credit_to_fro_worker_id && credit_to_fro_worker_id !== fro_worker_id) {
+        entryPatch.verify_type = 'cross_fro';
+        entryPatch.verify_fro_worker_id = credit_to_fro_worker_id;
+      }
       if (editableUntil) entryPatch.editable_until = editableUntil;
       if (isStaticFro) entryPatch.match_source = 'static_fro';
       await from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
@@ -1368,6 +1418,66 @@ export const manualVerifyEntry = async (req, res) => {
     });
   } catch (error) {
     return res.status(error.status || 500).json({ message: error.message });
+  }
+};
+
+// Check if a donor (by mobile) already has active fro_assignments from other FROs.
+// Returns the list of existing assignments so the frontend can detect conflicts
+// during manual verify.
+export const checkDonorAssignment = async (req, res) => {
+  try {
+    const { mobile } = req.query;
+    if (!mobile) return res.status(400).json({ message: 'Mobile is required' });
+
+    const cleanMobile = String(mobile).replace(/[^\d]/g, '');
+    if (cleanMobile.length < 10) return res.json({ assigned: false, assignments: [] });
+
+    // Find all donor_profiles with this mobile
+    const { data: profiles } = await db
+      .from('donor_profiles')
+      .select('id')
+      .eq('mobile_number', cleanMobile);
+
+    if (!profiles || profiles.length === 0) return res.json({ assigned: false, assignments: [] });
+
+    const donorIds = profiles.map(p => p.id);
+
+    // Find active fro_assignments for these donors
+    const { data: assignments } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, fro_worker_id, ngo_id, station, status, assigned_at')
+      .in('donor_id', donorIds)
+      .not('status', 'eq', 'reassigned')
+      .order('assigned_at', { ascending: false });
+
+    if (!assignments || assignments.length === 0) return res.json({ assigned: false, assignments: [] });
+
+    // Resolve worker names and NGO names
+    const workerIds = [...new Set(assignments.map(a => a.fro_worker_id).filter(Boolean))];
+    const ngoIds = [...new Set(assignments.map(a => a.ngo_id).filter(Boolean))];
+
+    const [workersRes, ngosRes] = await Promise.all([
+      workerIds.length > 0 ? db.from('workers').select('id, name').in('id', workerIds) : { data: [] },
+      ngoIds.length > 0 ? db.from('ngos').select('id, name').in('id', ngoIds) : { data: [] },
+    ]);
+
+    const workerMap = Object.fromEntries((workersRes.data || []).map(w => [w.id, w.name]));
+    const ngoMap = Object.fromEntries((ngosRes.data || []).map(n => [n.id, n.name]));
+
+    const enriched = assignments.map(a => ({
+      assignment_id: a.id,
+      donor_id: a.donor_id,
+      fro_worker_id: a.fro_worker_id,
+      fro_name: workerMap[a.fro_worker_id] || 'Unknown',
+      ngo_id: a.ngo_id,
+      ngo_name: ngoMap[a.ngo_id] || null,
+      station: a.station || null,
+      status: a.status,
+    }));
+
+    return res.json({ assigned: true, assignments: enriched });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 };
 

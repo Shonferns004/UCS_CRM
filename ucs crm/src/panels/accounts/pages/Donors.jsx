@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet } from '../api/auth'
+import { apiGet, apiPost } from '../api/auth'
 
 const currency = (n) => {
   if (n == null || isNaN(n)) return '\u20B90'
@@ -143,6 +143,7 @@ export default function Donors() {
   const [exporting, setExporting] = useState(false)
   const [ngoFilter, setNgoFilter] = useState('')
   const [ngoOptions, setNgoOptions] = useState([])
+  const [restoring, setRestoring] = useState(false)
   const limit = 100
 
   useEffect(() => {
@@ -210,6 +211,20 @@ export default function Donors() {
     }
   }
 
+  const handleRestoreWrong = async () => {
+    if (!window.confirm('This will remove donors who were manually assigned to FROs they don\'t belong to (no station). Continue?')) return
+    setRestoring(true)
+    try {
+      const res = await apiPost('/accounts/donors/restore-wrong-assignments')
+      alert(`Restored ${res?.restored || 0} wrong assignments`)
+      load(search, page, ngoFilter)
+    } catch (e) {
+      alert('Failed: ' + e.message)
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   return (
     <div>
       <div className="stats-grid">
@@ -236,6 +251,9 @@ export default function Donors() {
             <button className="btn" onClick={handleExport} disabled={exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               {exporting ? 'Exporting...' : 'Export Excel'}
+            </button>
+            <button className="btn" onClick={handleRestoreWrong} disabled={restoring} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, background: restoring ? '#e5e7eb' : '#fef3c7', color: '#92400e', border: '1px solid #f59e0b' }}>
+              {restoring ? 'Restoring...' : 'Restore Wrong Assignments'}
             </button>
           </div>
         </div>

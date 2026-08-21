@@ -81,6 +81,7 @@ import {
   getTopPerformers,
   getBottomPerformers,
   getAssignedData,
+  restoreWrongAssignments,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -183,5 +184,7 @@ router.post('/stations/seed', seedStations);
 router.post('/stations/cleanup', cleanupOrphanedStations);
 router.post('/stations/:station/upload-old-data', upload.single('file'), uploadOldDataForStation);
 router.post('/old-data/upload', upload.single('file'), uploadOldData);
+
+router.post('/restore-wrong-assignments', restoreWrongAssignments);
 
 export default router;
