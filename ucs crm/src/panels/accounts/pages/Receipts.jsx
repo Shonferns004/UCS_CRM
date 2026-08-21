@@ -816,27 +816,6 @@ export default function Receipts() {
         <MonthYearPicker value={filterMonth} onChange={setFilterMonth} />
       </div>
 
-      {displayStats.length > 0 && (
-        <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
-          {displayStats.map(group => {
-            const today = todayMap[group.project_id] || {};
-            return (
-              <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-                  {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
-                </div>
-                <div style={{ width: '100%' }}>
-                  <StatRow label="Total Receipts" value={(group.count || 0).toLocaleString('en-IN')} color="#5B6B4E" />
-                  <StatRow label="Total Donors" value={(group.donors || 0).toLocaleString('en-IN')} color="#8b5cf6" />
-                  <StatRow label="Total Amount" value={currency(group.total_amount)} color="#16a34a" />
-                  <StatRow label="Receipts Today" value={(today.count || 0).toLocaleString('en-IN')} color="#2563eb" />
-                  <StatRow label="Amount Today" value={currency(today.total_amount)} color="#0ea5e9" />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
       <div className="card" style={{ marginBottom: 16 }}>
         <div
           onClick={() => setUploadOpen(o => !o)}
