@@ -359,7 +359,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
           {suspenseCount} Suspense
         </span>
         <span style={{display:'inline-flex',alignItems:'center',gap:4,padding:'2px',borderRadius:7,background:'#f3f4f6',flexWrap:'wrap'}}>
-          {[['pending','Pending'],['claimed','Claimed']].map(([v,l])=>
+          {[['','All'],['pending','Pending'],['claimed','Claimed']].map(([v,l])=>
             <button key={v||'all'} onClick={()=>setStf(v)} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:6,border:'none',cursor:'pointer',background:stf===v?'#111827':'transparent',color:stf===v?'#fff':'#4b5563',transition:'background .12s'}}>{l}</button>
           )}
         </span>
