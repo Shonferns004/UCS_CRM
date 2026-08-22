@@ -1171,7 +1171,7 @@ export const undoLeadVerification = async (req, res) => {
         if (eErr) console.error('Failed to revert bank audit entry on undo:', eErr.message);
       }
 
-      if (receipt.purpose === 'General Donation' && !entry && !receipt.sent) {
+      if ((receipt.purpose === 'General Donation' || entry) && !receipt.sent) {
         try { await db.from('receipts').delete().eq('id', receipt.id); }
         catch (err) { console.error('Failed to delete receipt on undo:', err.message); }
       } else {
