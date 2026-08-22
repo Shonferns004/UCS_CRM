@@ -353,7 +353,7 @@ export const addEntry = async (req, res) => {
       .from('donor_profiles')
       .select('id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name')
       .eq('mobile_number', donorMobile)
-      .maybeSingle()).data || null) : null;
+      .maybeSingle()).data || null : null);
 
     // The receipt's project decides its number sequence. The linked receipt /
     // picked donor win; the form value is next; never silently force 'bsct'
@@ -509,7 +509,7 @@ export const editEntry = async (req, res) => {
       .from('donor_profiles')
       .select('id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name')
       .eq('mobile_number', editDonorMobile)
-      .maybeSingle()).data || null) : null;
+      .maybeSingle()).data || null : null);
 
     if (existing.receipt_id) {
       const receiptUpdate = {};
