@@ -1598,18 +1598,25 @@ export const getReceiptList = async (req, res) => {
     }
 
     // Today stats (IST) per project — use selected date if provided, else today.
-    const todayDate = (monthFrom || monthTo)
-      ? (monthFrom || monthTo)
-      : `(now() AT TIME ZONE 'Asia/Kolkata')::date`;
-    const todayRes = await db._pool.query(
-      `SELECT project_id,
-              count(*)::int AS count,
-              COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
-       FROM receipts
-       WHERE receipt_date = ${typeof todayDate === 'string' && todayDate.startsWith('(') ? todayDate : `$1::date`}
-       GROUP BY project_id`,
-      (monthFrom || monthTo) ? [todayDate] : []
-    );
+    const todayDateParam = (monthFrom || monthTo) || null;
+    const todayRes = todayDateParam
+      ? await db._pool.query(
+          `SELECT project_id,
+                  count(*)::int AS count,
+                  COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+           FROM receipts
+           WHERE receipt_date = $1::date
+           GROUP BY project_id`,
+          [todayDateParam]
+        )
+      : await db._pool.query(
+          `SELECT project_id,
+                  count(*)::int AS count,
+                  COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
+           FROM receipts
+           WHERE receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+           GROUP BY project_id`
+        );
 
     const where = [];
     const params = [];
