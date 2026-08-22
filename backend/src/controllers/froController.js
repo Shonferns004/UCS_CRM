@@ -3128,7 +3128,7 @@ export const getDonorHistory = async (req, res) => {
       myScope
     );
     if (!checkAccess || checkAccess.length === 0) {
-      return res.json({ donor: null, logs: [] });
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     const assignmentIds = checkAccess.map(a => a.id);
@@ -3665,10 +3665,8 @@ export const getDonorDonations = async (req, res) => {
         .maybeSingle();
       assignment = data;
     }
-    // No personally-owned assignment (pool/unclaimed/colleague's donor):
-    // degrade gracefully like getDonorLogs instead of erroring.
     if (!assignment) {
-      return res.json([]);
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     let project = null;
@@ -3778,11 +3776,7 @@ export const getDonorReceipts = async (req, res) => {
     if (!ngoId) return res.status(400).json({ message: 'ngo_id is required' });
 
     const assignment = await getFroAssignment(donorId, req.user.id, ngoId);
-    // No personally-owned assignment (pool/unclaimed/colleague's donor):
-    // return an empty payload instead of 403.
-    if (!assignment) {
-      return res.json({ receipts: [], count: 0, totalAmount: 0 });
-    }
+    if (!assignment) return res.status(403).json({ message: 'Access denied' });
 
     const { data: ngo } = await db
       .from('ngos')
