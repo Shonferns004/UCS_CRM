@@ -295,7 +295,7 @@ export const updateAttendanceRecord = async (req, res) => {
 export const listAll = async (req, res) => {
   try {
     let records = await getAllAttendance();
-    const ngoId = req.user.role === 'hr' ? null : (req.user.ngo_id || req.query.ngo_id);
+    const ngoId = ['hr', 'accounts'].includes(req.user.role) ? null : (req.user.ngo_id || req.query.ngo_id);
     if (ngoId) {
       const workers = await getAllWorkers(ngoId);
       const workerIds = new Set(workers.map((w) => w.id));
