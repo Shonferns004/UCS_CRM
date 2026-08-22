@@ -6,6 +6,12 @@ import { getDonorByMobile } from '../models/donorProfileModel.js';
 import { createReceipt } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 
+async function getSourceBankName(sourceId) {
+  if (!sourceId) return null;
+  const { data } = await db.from('bank_audit_sources').select('name').eq('id', sourceId).maybeSingle();
+  return data?.name || null;
+}
+
 export const listSources = async (req, res) => {
   try {
     const sources = await BankAudit.getSources();
@@ -332,6 +338,9 @@ export const addEntry = async (req, res) => {
     let receiptId = link?.existing_receipt_id || null;
     let receiptNo = null;
 
+    // Resolve the received bank name from the selected source.
+    const receivedBankName = await getSourceBankName(source_id);
+
     // When no lead is linked but a donor was picked from the donor directory,
     // the donor profile is the authoritative source for donor details (DB name,
     // not the text typed into the audit form).
@@ -379,6 +388,7 @@ export const addEntry = async (req, res) => {
         ...donorFields,
         mode: req.body.mode || donorFields.mode || null,
         payment_id: payment_id || null,
+        bank_name: receivedBankName || donorFields.bank_name || null,
         receipt_date: transaction_date,
         receipt_time: payment_time || null,
       };
@@ -401,6 +411,7 @@ export const addEntry = async (req, res) => {
         log_id: link?.receipt.log_id || null,
         amount,
         payment_id: payment_id || null,
+        bank_name: receivedBankName || donorFields.bank_name || null,
         receipt_date: transaction_date,
         receipt_time: payment_time || null,
         purpose: 'Bank Audit Entry',
@@ -427,6 +438,7 @@ export const addEntry = async (req, res) => {
       project_id: link?.receipt.project_id || ngo,
       ...entryDonorFields,
       mode: req.body.mode || null,
+      bank_name: receivedBankName || null,
       agent_name: suspenseAgent || null,
       created_by: req.user.id,
       receipt_no: receiptNo,
@@ -446,6 +458,7 @@ export const editEntry = async (req, res) => {
     const { source_id, amount, payment_id, check_id, transaction_date, remarks, payer_name, payment_time, project_id, agent_name, log_id, donor_id, mode } = req.body;
     const updates = {};
     if (source_id !== undefined) updates.source_id = source_id;
+    if (source_id !== undefined) updates.bank_name = await getSourceBankName(source_id);
     if (amount !== undefined) updates.amount = amount;
     if (payment_id !== undefined) updates.payment_id = payment_id;
     if (check_id !== undefined) updates.check_id = check_id;
@@ -487,6 +500,10 @@ export const editEntry = async (req, res) => {
       const receiptUpdate = {};
       if (amount !== undefined) receiptUpdate.amount = amount;
       if (mode !== undefined) receiptUpdate.mode = mode || null;
+      if (source_id !== undefined) {
+        const bankName = await getSourceBankName(source_id);
+        if (bankName) receiptUpdate.bank_name = bankName;
+      }
       if (link) {
         Object.assign(receiptUpdate, link.receipt);
         if (!receiptUpdate.project_id) receiptUpdate.project_id = project_id || 'bsct';
