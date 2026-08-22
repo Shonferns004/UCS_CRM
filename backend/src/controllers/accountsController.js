@@ -3289,10 +3289,15 @@ export const getReceiptByMobile = async (req, res) => {
       return res.status(400).json({ message: 'A valid mobile number is required' });
     }
     const { rows } = await db._pool.query(
-      `SELECT donor_name, address, pan_number, donor_mobile, donor_id, receipt_no, receipt_date
-       FROM receipts
-       WHERE right(regexp_replace(donor_mobile, '[^0-9]', '', 'g'), 10) = $1
-       ORDER BY receipt_date DESC NULLS LAST, id DESC
+      `SELECT r.donor_name, r.address, r.pan_number, r.donor_mobile, r.donor_id, r.receipt_no, r.receipt_date,
+              r.email,
+              COALESCE(dp.address_2, '') AS address_2,
+              COALESCE(dp.city, '') AS city,
+              COALESCE(dp.pin_code, '') AS pin_code
+       FROM receipts r
+       LEFT JOIN donor_profiles dp ON dp.id = r.donor_id
+       WHERE right(regexp_replace(r.donor_mobile, '[^0-9]', '', 'g'), 10) = $1
+       ORDER BY r.receipt_date DESC NULLS LAST, r.id DESC
        LIMIT 1`,
       [mobile]
     );
