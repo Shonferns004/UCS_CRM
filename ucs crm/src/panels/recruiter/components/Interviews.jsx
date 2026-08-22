@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useRec, INTERVIEW_ROUNDS, INTERVIEW_MODES, RECOMMENDATIONS, REMINDER_OPTIONS, INTERVIEW_STATUS_COLOR } from '../store';
 import { Who, Dropdown } from './ui';
-import { Cal, Plus, X, Pencil, Eye, Check } from '../icons';
+import { Cal, X, Pencil, Eye, Check } from '../icons';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'iv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
 const todayStr = () => {
@@ -71,27 +71,27 @@ const StatusPill = ({ status }) => {
 function Row({ iv, onView, onEdit, onComplete, onCancel }) {
   const active = STATUS_ACTIVE.includes(iv.status);
   return (
-    <tr>
-      <td><div style={{ fontWeight: 600 }}>{fmtDate(iv.date)}</div><div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{fmtDay(iv.date)}</div></td>
-      <td style={{ whiteSpace: 'nowrap' }}>{fmtTime(iv.startTime)}–{fmtTime(iv.endTime)}</td>
-      <td><Who name={iv.candidateName} role={iv.jobRole} /></td>
-      <td style={{ color: 'var(--ink-soft)' }}>{iv.jobRole || '—'}</td>
-      <td style={{ color: 'var(--ink-soft)' }}>{iv.round || '—'}</td>
-      <td style={{ color: 'var(--ink-soft)' }}>{iv.interviewer || '—'}</td>
-      <td>
-        <span className="pill" style={{ background: '#ECE7DA', color: 'var(--ink-soft)' }}>
+    <tr style={{ borderBottom: '1px solid var(--line)' }}>
+      <td style={{ padding: '8px 12px', fontSize: 13 }}><div style={{ fontWeight: 600 }}>{fmtDate(iv.date)}</div><div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtDay(iv.date)}</div></td>
+      <td style={{ padding: '8px 12px', fontSize: 13, whiteSpace: 'nowrap' }}>{fmtTime(iv.startTime)}–{fmtTime(iv.endTime)}</td>
+      <td style={{ padding: '8px 12px' }}><Who name={iv.candidateName} role={iv.jobRole} /></td>
+      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--ink-soft)' }}>{iv.jobRole || '—'}</td>
+      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--ink-soft)' }}>{iv.round || '—'}</td>
+      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--ink-soft)' }}>{iv.interviewer || '—'}</td>
+      <td style={{ padding: '8px 12px' }}>
+        <span className="pill" style={{ background: '#ECE7DA', color: 'var(--ink-soft)', fontSize: 11, padding: '2px 8px' }}>
           {iv.mode || '—'}{iv.mode === 'Online' && iv.link ? ' · link' : ''}{iv.mode === 'Offline' && iv.location ? ' · place' : ''}
         </span>
       </td>
-      <td><StatusPill status={iv.status} /></td>
-      <td>
+      <td style={{ padding: '8px 12px' }}><StatusPill status={iv.status} /></td>
+      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          <button type="button" className="btn btn-icon" title="View" onClick={() => onView(iv)}><Eye width={15} /></button>
-          <button type="button" className="btn btn-icon" title="Edit / Reschedule" onClick={() => onEdit(iv)}><Pencil width={15} /></button>
+          <button type="button" className="btn btn-icon btn-sm" title="View" onClick={() => onView(iv)}><Eye width={14} /></button>
+          <button type="button" className="btn btn-icon btn-sm" title="Edit / Reschedule" onClick={() => onEdit(iv)}><Pencil width={14} /></button>
           {active && (
             <>
-              <button type="button" className="btn btn-icon" title="Mark completed" onClick={() => onComplete(iv)}><Check width={15} /></button>
-              <button type="button" className="btn btn-icon" title="Cancel interview" onClick={() => onCancel(iv)}><X width={15} /></button>
+              <button type="button" className="btn btn-icon btn-sm" title="Mark completed" onClick={() => onComplete(iv)}><Check width={14} /></button>
+              <button type="button" className="btn btn-icon btn-sm" title="Cancel interview" onClick={() => onCancel(iv)}><X width={14} /></button>
             </>
           )}
         </div>
@@ -162,86 +162,86 @@ function ScheduleForm({ title, editing, initial, candidates, candidateOptions, j
   const selCandidate = candidates.find(c => c.id === f.candidateId);
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="card-head" style={{ padding: '18px 22px', position: 'sticky', top: 0, background: '#fff', zIndex: 2 }}>
-        <h3 style={{ margin: 0 }}>{title}</h3>
+    <Overlay onClose={onClose} width={700}>
+      <div className="card-head" style={{ padding: '16px 20px', position: 'sticky', top: 0, background: '#fff', zIndex: 2, borderBottom: '1px solid var(--line)' }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{title}</h3>
         <button type="button" className="btn btn-icon" onClick={onClose}><X width={16} /></button>
       </div>
-      <form className="card-pad" onSubmit={submit}>
-        <div className="form-row">
+      <form className="card-pad" onSubmit={submit} style={{ padding: '16px 20px' }}>
+        <div className="form-row" style={{ gap: 16 }}>
           {editing ? (
             <label className="field" style={{ flex: 1.4 }}>
-              <span>Candidate</span>
-              <div className="dropdown-trigger" style={{ opacity: .75 }}>{selCandidate ? selCandidate.name : '—'}</div>
+              <span style={{ fontSize: 12, marginBottom: 4 }}>Candidate</span>
+              <div className="dropdown-trigger" style={{ opacity: .75, padding: '10px 12px' }}>{selCandidate ? selCandidate.name : '—'}</div>
             </label>
           ) : (
             <label className="field" style={{ flex: 1.4 }}>
-              <span>Candidate *</span>
+              <span style={{ fontSize: 12, marginBottom: 4 }}>Candidate *</span>
               <Dropdown value={f.candidateId} onChange={e => set('candidateId', e.target.value)} options={candidateOptions} placeholder="Select candidate" />
               {errBox('candidateId')}
             </label>
           )}
           <label className="field" style={{ flex: 1 }}>
-            <span>Position *</span>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Position *</span>
             <Dropdown value={f.jobRole} onChange={e => set('jobRole', e.target.value)} options={jobOptions} customTrigger="Other" customValue={customJob} onCustomChange={setCustomJob} placeholder="Select position" />
             {errBox('jobRole')}
           </label>
         </div>
-        <div className="form-row" style={{ marginTop: 12 }}>
+        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
           <label className="field" style={{ flex: 1 }}>
-            <span>Round *</span>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Round *</span>
             <Dropdown value={f.round} onChange={e => set('round', e.target.value)} options={INTERVIEW_ROUNDS.map(r => ({ value: r, label: r }))} placeholder="Select round" />
             {errBox('round')}
           </label>
           <label className="field" style={{ flex: 1 }}>
-            <span>Interviewer *</span>
-            <input value={f.interviewer} onChange={e => set('interviewer', e.target.value)} placeholder="Interviewer name" />
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Interviewer *</span>
+            <input value={f.interviewer} onChange={e => set('interviewer', e.target.value)} placeholder="Interviewer name" style={{ height: 42 }} />
             {errBox('interviewer')}
           </label>
         </div>
-        <div className="form-row" style={{ marginTop: 12 }}>
-          <label className="field">
-            <span>Date *</span>
-            <input type="date" value={f.date} onChange={e => set('date', e.target.value)} />
+        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
+          <label className="field" style={{ flex: 1 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Date *</span>
+            <input type="date" value={f.date} onChange={e => set('date', e.target.value)} style={{ height: 42 }} />
             {errBox('date')}
           </label>
-          <label className="field">
-            <span>Start time *</span>
-            <input type="time" value={f.startTime} onChange={e => set('startTime', e.target.value)} />
+          <label className="field" style={{ flex: 1 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Start time *</span>
+            <input type="time" value={f.startTime} onChange={e => set('startTime', e.target.value)} style={{ height: 42 }} />
             {errBox('startTime')}
           </label>
-          <label className="field">
-            <span>End time *</span>
-            <input type="time" value={f.endTime} onChange={e => set('endTime', e.target.value)} />
+          <label className="field" style={{ flex: 1 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>End time *</span>
+            <input type="time" value={f.endTime} onChange={e => set('endTime', e.target.value)} style={{ height: 42 }} />
             {errBox('endTime')}
           </label>
-          <label className="field">
-            <span>Mode *</span>
+          <label className="field" style={{ flex: 1 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Mode *</span>
             <Dropdown value={f.mode} onChange={e => set('mode', e.target.value)} options={INTERVIEW_MODES.map(m => ({ value: m, label: m }))} />
           </label>
         </div>
         {f.mode === 'Offline' && (
-          <div className="form-row" style={{ marginTop: 12 }}>
-            <label className="field">
-              <span>Location *</span>
-              <input value={f.location} onChange={e => set('location', e.target.value)} placeholder="Office address / venue" />
+          <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
+            <label className="field" style={{ flex: 1 }}>
+              <span style={{ fontSize: 12, marginBottom: 4 }}>Location *</span>
+              <input value={f.location} onChange={e => set('location', e.target.value)} placeholder="Office address / venue" style={{ height: 42 }} />
               {errBox('location')}
             </label>
           </div>
         )}
-        <div className="form-row" style={{ marginTop: 12 }}>
-          <label className="field">
-            <span>Reminder</span>
+        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
+          <label className="field" style={{ flex: 1 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Reminder</span>
             <Dropdown value={f.reminder} onChange={e => set('reminder', e.target.value)} options={REMINDER_OPTIONS} />
           </label>
         </div>
-        <div className="form-row" style={{ marginTop: 12 }}>
-          <label className="field">
-            <span>Notes</span>
-            <textarea rows={3} value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="Preparation notes, instructions…" />
+        <div className="form-row" style={{ marginTop: 12, gap: 16 }}>
+          <label className="field" style={{ flex: 1 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Notes</span>
+            <textarea rows={3} value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="Preparation notes, instructions…" style={{ minHeight: 80, resize: 'vertical' }} />
           </label>
         </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : (editing ? 'Save changes' : 'Schedule interview')}</button>
         </div>
@@ -286,7 +286,6 @@ function DetailView({ iv, onEdit, onConfirm, onNoShow, onComplete, onCancel, onC
           <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
             <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600 }}>Interview feedback</h4>
             {row('Result', iv.result)}
-            {row('Rating', iv.rating ? '\u2605'.repeat(iv.rating) : '—')}
             {row('Recommendation', iv.recommendation)}
             {iv.feedback && row('Feedback', iv.feedback)}
             {iv.strengths && row('Strengths', iv.strengths)}
@@ -337,17 +336,9 @@ function CompleteForm({ iv, saving, onSave, onClose }) {
           <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{fmtDate(iv.date)} · {fmtTime(iv.startTime)}–{fmtTime(iv.endTime)}</div>
         </div>
         <div className="form-row">
-          <label className="field" style={{ flex: 1.4 }}>
+          <label className="field" style={{ flex: 1 }}>
             <span>Result</span>
             <input value={f.result} onChange={e => set('result', e.target.value)} placeholder="e.g. Cleared, Round cleared…" />
-          </label>
-          <label className="field" style={{ flex: 1 }}>
-            <span>Rating</span>
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center', height: 40 }}>
-              {[1, 2, 3, 4, 5].map(n => (
-                <button key={n} type="button" onClick={() => set('rating', n === f.rating ? 0 : n)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, padding: 0, lineHeight: 1, color: n <= f.rating ? '#C08A2E' : '#d6d3cd' }}>\u2605</button>
-              ))}
-            </div>
           </label>
         </div>
         <div className="form-row" style={{ marginTop: 12 }}>
@@ -412,18 +403,30 @@ function CancelForm({ iv, saving, onSave, onClose }) {
 export default function Interviews() {
   const { candidates, interviews, saveInterview, updateCandidateStatus, user } = useRec();
 
-  const [form, setForm] = useState(null);
   const [detail, setDetail] = useState(null);
   const [complete, setComplete] = useState(null);
   const [cancel, setCancel] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [formMode, setFormMode] = useState('schedule');
+  const [formInitial, setFormInitial] = useState(null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
 
   const candidateOptions = useMemo(() => candidates.map(c => ({ value: c.id, label: c.name + (c.role && c.role !== '—' ? ' · ' + c.role : '') })), [candidates]);
   const jobOptions = useMemo(() => [...new Set(candidates.map(c => c.role).filter(r => r && r !== '—'))].sort(), [candidates]);
 
-  const upcoming = useMemo(() => interviews.filter(iv => ['today', 'tomorrow', 'upcoming'].includes(sectionOf(iv))), [interviews]);
+  const getCandidateLatestInterview = (candidateId) => {
+    const candInterviews = interviews.filter(iv => iv.candidateId === candidateId);
+    if (candInterviews.length === 0) return null;
+    return candInterviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+  };
+
+  const getCandidateUpcomingInterview = (candidateId) => {
+    const candInterviews = interviews.filter(iv => iv.candidateId === candidateId && ['today', 'tomorrow', 'upcoming'].includes(sectionOf(iv)));
+    if (candInterviews.length === 0) return null;
+    return candInterviews.sort((a, b) => new Date(a.date + 'T' + a.startTime) - new Date(b.date + 'T' + b.startTime))[0];
+  };
 
   const notify = (ok, text) => {
     setMsg(ok ? text : '');
@@ -437,7 +440,7 @@ export default function Interviews() {
       const nowIso = new Date().toISOString();
       let iv;
       if (editing) {
-        const prev = form.initial;
+        const prev = formInitial;
         const timesChanged = prev.date !== data.date || prev.startTime !== data.startTime || prev.endTime !== data.endTime || prev.interviewer !== data.interviewer;
         iv = {
           ...data,
@@ -463,7 +466,8 @@ export default function Interviews() {
           await updateCandidateStatus(data.candidateId, 'scheduled');
         }
       }
-      setForm(null);
+      setShowFormModal(false);
+      setFormInitial(null);
       notify(true, editing ? 'Interview updated.' : 'Interview scheduled.');
     } catch (e) {
       notify(false, (e && e.message) || 'Failed to save interview');
@@ -514,41 +518,104 @@ export default function Interviews() {
 
   return (
     <>
-      <div className="card">
-        <div className="card-head">
-          <h3><Cal width={18} style={{ color: 'var(--sage)', verticalAlign: -3, marginRight: 6 }} />Upcoming interviews</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span className="sub">{upcoming.length} scheduled</span>
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => setForm({ mode: 'schedule', initial: emptyForm() })}>
-              <Plus width={14} style={{ verticalAlign: -2, marginRight: 4 }} />Schedule interview
-            </button>
-          </div>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-head" style={{ padding: '10px 16px' }}>
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}><Cal width={16} style={{ color: 'var(--sage)', verticalAlign: -2 }} />Candidates</h3>
+          <span className="sub" style={{ marginLeft: 'auto' }}>{candidates.length} candidates</span>
         </div>
-        {upcoming.length === 0 ? (
-          <div className="empty">No upcoming interviews.</div>
+        {(candidates.length === 0) ? (
+          <div className="empty" style={{ padding: '20px 16px' }}>No candidates found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr><th>When</th><th>Time</th><th>Candidate</th><th>Position</th><th>Round</th><th>Interviewer</th><th>Mode</th><th>Status</th><th></th></tr>
+                <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Candidate</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Phone</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Source</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Status</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Position</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Next Interview</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Action</th>
+                </tr>
               </thead>
               <tbody>
-                {upcoming.map(iv => <Row key={iv.id} iv={iv} onView={setDetail} onEdit={(x) => setForm({ mode: 'edit', initial: ivToForm(x) })} onComplete={setComplete} onCancel={setCancel} />)}
+                {candidates.map(c => {
+                  const upcomingIv = getCandidateUpcomingInterview(c.id);
+                  const latestIv = getCandidateLatestInterview(c.id);
+                  const displayIv = upcomingIv || latestIv;
+                  return (
+                    <tr key={c.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{c.email || '—'}</div>
+                      </td>
+                      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--ink-soft)' }}>{c.phone || '—'}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--ink-soft)' }}>{c.source || '—'}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <span className="pill" style={{ background: '#ECE7DA', color: 'var(--ink-soft)', fontSize: 11, padding: '2px 8px' }}>
+                          {c.stage || c.status || '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--ink-soft)' }}>{c.role || '—'}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 13 }}>
+                        {displayIv ? (
+                          <>
+                            <div style={{ fontWeight: 500 }}>{displayIv.date ? fmtDate(displayIv.date) : 'Not scheduled'}</div>
+                            {displayIv.startTime && displayIv.endTime && (
+                              <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{fmtTime(displayIv.startTime)}–{fmtTime(displayIv.endTime)} · {displayIv.round || ''}</div>
+                            )}
+                            {displayIv.interviewer && <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{displayIv.interviewer}</div>}
+                          </>
+                        ) : (
+                          <span style={{ color: 'var(--ink-soft)' }}>Not scheduled</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <button type="button" className="btn btn-icon btn-sm" title="Schedule / Edit Interview" onClick={() => {
+                            const initial = {
+                              candidateId: c.id,
+                              jobRole: c.role || '',
+                              round: '',
+                              interviewer: '',
+                              date: '',
+                              startTime: '',
+                              endTime: '',
+                              mode: 'Online',
+                              link: '',
+                              location: '',
+                              notes: '',
+                              reminder: 'none',
+                            };
+                            setFormInitial(initial);
+                            setFormMode('schedule');
+                            setShowFormModal(true);
+                          }}><Pencil width={14} /></button>
+                          {displayIv && (
+                            <button type="button" className="btn btn-icon btn-sm" title="View Interview" onClick={() => setDetail(displayIv)}><Eye width={14} /></button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {form && (
-        <ScheduleForm title={form.mode === 'edit' ? 'Edit / Reschedule interview' : 'Schedule interview'}
-          editing={form.mode === 'edit'} initial={form.initial} candidates={candidates}
+      {showFormModal && (
+        <ScheduleForm title={formMode === 'edit' ? 'Edit interview' : 'Schedule interview'}
+          editing={formMode === 'edit'} initial={formInitial} candidates={candidates}
           candidateOptions={candidateOptions} jobOptions={jobOptions} interviews={interviews} saving={busy}
-          onSave={(data) => handleFormSave(data, form.mode === 'edit')} onClose={() => setForm(null)} />
+          onSave={(data) => handleFormSave(data, formMode === 'edit')} onClose={() => setShowFormModal(false)} />
       )}
+
       {detail && (
         <DetailView iv={detail}
-          onEdit={() => { const iv = detail; setDetail(null); setForm({ mode: 'edit', initial: ivToForm(iv) }); }}
+          onEdit={() => { const iv = detail; setDetail(null); setFormInitial(ivToForm(iv)); setFormMode('edit'); setShowFormModal(true); }}
           onConfirm={() => handleSetStatus(detail, 'Confirmed')}
           onNoShow={() => handleSetStatus(detail, 'No Show')}
           onComplete={() => { const iv = detail; setDetail(null); setComplete(iv); }}
