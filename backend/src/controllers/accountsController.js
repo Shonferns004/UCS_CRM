@@ -3613,7 +3613,7 @@ export const exportDonors = async (req, res) => {
       const chunk = donorIds.slice(i, i + RECEIPT_BATCH);
       const { data: recs } = await db
         .from('receipts')
-        .select('donor_id, receipt_no, amount, receipt_date, mode, payment_id, project_id')
+        .select('donor_id, receipt_no, amount, receipt_date, mode, payment_id, project_id, bank_name')
         .in('donor_id', chunk)
         .order('receipt_date', { ascending: false });
       for (const r of recs || []) {
@@ -3668,6 +3668,7 @@ export const exportDonors = async (req, res) => {
       const recs = receiptsByDonor.get(d.id) || [];
       const receiptNos = recs.map(r => r.receipt_no).filter(Boolean).join(', ');
       const totalReceiptAmount = recs.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+      const receivedBanks = [...new Set(recs.map(r => r.bank_name).filter(Boolean))].join(', ');
       return {
         'Donor Name': d.name || d.bank_donor_name || d.agent_donor_name || '',
         'Mobile': d.mobile_number || '',
@@ -3687,6 +3688,7 @@ export const exportDonors = async (req, res) => {
         'Receipt Numbers': receiptNos,
         'Receipt Count': recs.length,
         'Total Receipt Amount': totalReceiptAmount,
+        'Received Bank': receivedBanks,
       };
     });
 
