@@ -23,9 +23,9 @@ export async function api(path, opts) {
   try {
     return await attempt(apiBase);
   } catch (e) {
-    if (apiBase !== "http://localhost:5000" && !apiFallbackTried) {
+    if (apiBase !== "https://api.beingsevak.org" && !apiFallbackTried) {
       apiFallbackTried = true;
-      apiBase = "http://localhost:5000";
+      apiBase = "https://api.beingsevak.org";
       return await attempt(apiBase);
     }
     throw e;
