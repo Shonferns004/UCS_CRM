@@ -236,7 +236,11 @@ export default function Receipts() {
   const [statsByProject, setStatsByProject] = useState([])
   const [monthStatsByProject, setMonthStatsByProject] = useState([])
   const [todayStats, setTodayStats] = useState([])
-  const [filterDate, setFilterDate] = useState(null)
+  const [filterDate, setFilterDate] = useState(() => {
+    const now = new Date();
+    const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
+    return ist.toISOString().slice(0, 10);
+  })
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -781,35 +785,32 @@ export default function Receipts() {
   const currentTpl = getNgoSettings(currentNgo)
   const TemplateComp = currentTpl.comp
 
-  const displayStats = filterDate ? monthStatsByProject : statsByProject;
-  const todayMap = {};
-  todayStats.forEach(s => { todayMap[s.project_id] = s; });
+  const ALL_PROJECTS = ['bsct', 'aflf', 'mann'];
+  const statsMap = {};
+  (filterDate ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
 
   return (
     <div>
-      {/* Month / Year Picker */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <DayPicker value={filterDate} onChange={setFilterDate} />
       </div>
 
-      {displayStats.length > 0 && (
-        <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
-          {displayStats.map(group => {
-            const today = todayMap[group.project_id] || {};
-            return (
-              <div key={group.project_id || 'unknown'} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-                  {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
-                </div>
-                <div style={{ width: '100%' }}>
-                  <StatRow label="Receipts" value={(today.count || 0).toLocaleString('en-IN')} color="#2563eb" />
-                  <StatRow label="Amount" value={currency(today.total_amount)} color="#0ea5e9" />
-                </div>
+      <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
+        {ALL_PROJECTS.map(pid => {
+          const s = statsMap[pid] || {};
+          return (
+            <div key={pid} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
+                {PROJECT_LABELS[pid] || pid}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div style={{ width: '100%' }}>
+                <StatRow label="Receipts" value={(s.count || 0).toLocaleString('en-IN')} color="#2563eb" />
+                <StatRow label="Amount" value={currency(s.total_amount)} color="#0ea5e9" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div
