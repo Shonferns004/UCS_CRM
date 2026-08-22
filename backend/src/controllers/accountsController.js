@@ -1007,7 +1007,7 @@ export const goBackLead = async (req, res) => {
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
       }
 
-      if (receipt.purpose === 'General Donation' && !entry) {
+      if (receipt.purpose === 'General Donation' || entry) {
         try { await db.from('receipts').delete().eq('id', receipt.id); }
         catch (err) { console.error('Failed to delete verification receipt on go-back:', err.message); }
       } else {
