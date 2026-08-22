@@ -346,23 +346,32 @@ export const addEntry = async (req, res) => {
     // not the text typed into the audit form).
     const pickedDonor = await fetchDonorProfile(donor_id);
 
+    // If no explicit donor_id but a mobile number was provided, reverse-lookup
+    // the donor profile by mobile so the entry is linked to an existing donor.
+    const donorMobile = String(req.body.donor_mobile || '').replace(/[^\d]/g, '');
+    const resolvedDonor = pickedDonor || (donorMobile.length >= 10 ? (await db
+      .from('donor_profiles')
+      .select('id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name')
+      .eq('mobile_number', donorMobile)
+      .maybeSingle()).data || null) : null;
+
     // The receipt's project decides its number sequence. The linked receipt /
     // picked donor win; the form value is next; never silently force 'bsct'
     // (that is what gave Ashray money the next BSCT number).
-    const ngo = link?.receipt?.project_id || pickedDonor?.project_supported || project_id || 'bsct';
+    const ngo = link?.receipt?.project_id || resolvedDonor?.project_supported || project_id || 'bsct';
 
     // Donor-derived fields for the receipt + bank_audit_entries row. A linked
     // lead wins; a picked donor profile is next; otherwise fall back to the
     // form values.
     const donorFields = link?.receipt
       ? { donor_mobile: link.receipt.donor_mobile, pan_number: link.receipt.pan_number, address: link.receipt.address, email: link.receipt.email, mode: link.receipt.mode, bank_name: link.receipt.bank_name, donor_id: link.receipt.donor_id }
-      : pickedDonor
-      ? donorProfileReceipt(pickedDonor)
+      : resolvedDonor
+      ? donorProfileReceipt(resolvedDonor)
       : { donor_mobile: req.body.donor_mobile || null, pan_number: req.body.donor_pan || null, address: req.body.donor_address_1 || null, email: req.body.donor_email || null, mode: null, bank_name: null, donor_id: null };
     const entryDonorFields = link?.entry
       ? { ...link.entry, donor_id: link.receipt.donor_id }
-      : pickedDonor
-      ? donorProfileEntry(pickedDonor)
+      : resolvedDonor
+      ? donorProfileEntry(resolvedDonor)
       : { donor_mobile: req.body.donor_mobile || null, donor_email: req.body.donor_email || null, donor_pan: req.body.donor_pan || null, donor_address_1: req.body.donor_address_1 || null, donor_address_2: req.body.donor_address_2 || null, donor_city: req.body.donor_city || null, donor_pin_code: req.body.donor_pin_code || null, donor_id: null };
 
     // A bank-audit-created receipt is a suspense donation unless the creator
@@ -371,8 +380,8 @@ export const addEntry = async (req, res) => {
     // suspense pool for an FRO to claim instead of being treated as a known
     // donation. When a lead is linked, the lead's donor + FRO are authoritative
     // (never suspense).
-    const donorName = link?.receipt.donor_name || pickedDonor?.name || payer_name || null;
-    const donorKnown = !!(link || pickedDonor);
+    const donorName = link?.receipt.donor_name || resolvedDonor?.name || payer_name || null;
+    const donorKnown = !!(link || resolvedDonor);
     const priyankAgent = BankAudit.isPriyankShahAgent(agent_name);
     const agentKnown = link?.receipt.agent_name || realAgentName(agent_name);
     const suspenseAgent = (donorKnown || priyankAgent) ? (agentKnown || 'Priyank Shah') : 'Suspense';
@@ -495,6 +504,12 @@ export const editEntry = async (req, res) => {
     // the donor profile is authoritative for donor details (DB name, not the
     // text typed into the audit form).
     const pickedDonor = await fetchDonorProfile(donor_id);
+    const editDonorMobile = String(req.body.donor_mobile || '').replace(/[^\d]/g, '');
+    const resolvedDonor = pickedDonor || (editDonorMobile.length >= 10 ? (await db
+      .from('donor_profiles')
+      .select('id, name, mobile_number, email, pan_number, address_1, address_2, city, pin_code, project_supported, mop, donors_bank_name')
+      .eq('mobile_number', editDonorMobile)
+      .maybeSingle()).data || null) : null;
 
     if (existing.receipt_id) {
       const receiptUpdate = {};
@@ -508,11 +523,11 @@ export const editEntry = async (req, res) => {
         Object.assign(receiptUpdate, link.receipt);
         if (!receiptUpdate.project_id) receiptUpdate.project_id = project_id || 'bsct';
         if (payment_time !== undefined) receiptUpdate.receipt_time = payment_time || null;
-      } else if (pickedDonor) {
-        Object.assign(receiptUpdate, donorProfileReceipt(pickedDonor));
+      } else if (resolvedDonor) {
+        Object.assign(receiptUpdate, donorProfileReceipt(resolvedDonor));
         if (agent_name !== undefined) {
           const effAgent = realAgentName(agent_name);
-          receiptUpdate.agent_name = (effAgent && pickedDonor.name) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
+          receiptUpdate.agent_name = (effAgent && resolvedDonor.name) ? effAgent : (BankAudit.isPriyankShahAgent(agent_name) ? 'Priyank Shah' : 'Suspense');
         }
         if (project_id !== undefined) receiptUpdate.project_id = project_id || 'bsct';
       } else {
@@ -536,8 +551,8 @@ export const editEntry = async (req, res) => {
       for (const f of ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code']) {
         updates[f] = link.entry[f];
       }
-    } else if (pickedDonor) {
-      Object.assign(updates, donorProfileEntry(pickedDonor));
+    } else if (resolvedDonor) {
+      Object.assign(updates, donorProfileEntry(resolvedDonor));
     } else {
       for (const f of ['donor_mobile', 'donor_email', 'donor_pan', 'donor_address_1', 'donor_address_2', 'donor_city', 'donor_pin_code']) {
         if (req.body[f] !== undefined) updates[f] = req.body[f] || null;
@@ -863,7 +878,7 @@ export const saveManualVerifyDetails = async (req, res) => {
     const { id } = req.params;
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
-      donor_email, donor_city, donor_pin_code, donor_address_2,
+      donor_email, donor_city, donor_pin_code, donor_address_2, donor_id,
       verify_type, verify_fro_worker_id,
     } = req.body || {};
 
@@ -936,6 +951,7 @@ export const saveManualVerifyDetails = async (req, res) => {
     if (donor_email !== undefined) updates.donor_email = donor_email || null;
     if (donor_city !== undefined) updates.donor_city = donor_city || null;
     if (donor_pin_code !== undefined) updates.donor_pin_code = donor_pin_code || null;
+    if (donor_id !== undefined) updates.donor_id = donor_id || null;
 
     if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
 
@@ -951,6 +967,7 @@ export const saveManualVerifyDetails = async (req, res) => {
       if (updates.donor_pan !== undefined) rcptUpdates.pan_number = updates.donor_pan;
       if (updates.donor_address_1 !== undefined) rcptUpdates.address = updates.donor_address_1;
       if (updates.donor_email !== undefined) rcptUpdates.email = updates.donor_email;
+      if (updates.donor_id !== undefined) rcptUpdates.donor_id = updates.donor_id || null;
       if (Object.keys(rcptUpdates).length > 0) {
         await db.from('receipts').update(rcptUpdates).eq('id', entry.receipt_id);
       }
@@ -974,7 +991,7 @@ export const manualVerifyEntry = async (req, res) => {
     const {
       fro_worker_id, donor_mobile, donor_name, donor_address, donor_pan,
       donor_email, donor_city, donor_pin_code, donor_address_2, project_id,
-      verify_type, verify_fro_worker_id, credit_to_fro_worker_id,
+      verify_type, verify_fro_worker_id, credit_to_fro_worker_id, donor_id,
     } = req.body || {};
 
     const mobile = String(donor_mobile || '').replace(/[^\d]/g, '');
@@ -1154,8 +1171,9 @@ export const manualVerifyEntry = async (req, res) => {
     })() : null;
 
     const result = await db.transaction(async ({ from }) => {
-      // Resolve or create the donor profile.
-      let donor = await getDonorByMobile(mobile);
+      // Resolve or create the donor profile — prefer explicit donor_id if provided.
+      let donor = donor_id ? (await db.from('donor_profiles').select('*').eq('id', donor_id).maybeSingle()).data : null;
+      if (!donor) donor = await getDonorByMobile(mobile);
       if (!donor) {
         const { data: created, error: dErr } = await from('donor_profiles').insert({
           name: (donor_name || entry.payer_name || 'Unknown').trim(),
