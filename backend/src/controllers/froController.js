@@ -714,26 +714,54 @@ export const getMyCollections = async (req, res) => {
     // ── Cross-NGO collections: donations the user collected for NGOs outside
     // their assigned scope (e.g. an FRO verifying BSCT entries while assigned
     // to AFLF/MANN). These show under the "Others" tab in the Collected modal.
-    const crossNgoMapped = (data || [])
-      .filter(l => l.fro_assignments?.ngo_id && !allowedNgoIds.includes(l.fro_assignments.ngo_id))
-      .map((l) => {
-        const amount = parseFloat(l.amount_collected || 0);
-        const collected_at = logCollectionDate(l);
-        return {
-          id: l.id,
-          donor_id: l.donor_id,
-          donor_name: l.donor_profiles?.name || 'Unknown',
-          donor_mobile: l.donor_profiles?.mobile_number || '',
-          amount_collected: amount,
-          collected_at,
-          ngo_id: 'others',
-          ngo_name: 'Others',
-          owner_worker_id: null,
-          owner_name: null,
-          is_work_as: false,
-        };
-      })
-      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
+    // We need a separate query because the main query filters by station at the
+    // DB level, which removes cross-NGO rows before they reach JS.
+    let crossNgoMapped = [];
+    {
+      const { data: crossData, error: crossErr } = await db
+        .from('fro_donor_logs')
+        .select(`
+          id, donor_id, amount_collected, action, disposition_detail, accounts_status,
+          created_at, transaction_datetime, verified_at,
+          donor_profiles!inner(id, name, mobile_number),
+          fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name))
+        `)
+        .eq('fro_worker_id', workerId)
+        .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+      if (!crossErr && crossData) {
+        const crossDayKey = (d) => d ? String(d).slice(0, 10) : null;
+        const seen = new Set();
+        crossNgoMapped = crossData
+          .filter(l => l.fro_assignments?.ngo_id && !allowedNgoIds.includes(l.fro_assignments.ngo_id))
+          .map((l) => {
+            const amount = parseFloat(l.amount_collected || 0);
+            const collected_at = logCollectionDate(l);
+            return {
+              id: l.id,
+              donor_id: l.donor_id,
+              donor_name: l.donor_profiles?.name || 'Unknown',
+              donor_mobile: l.donor_profiles?.mobile_number || '',
+              amount_collected: amount,
+              collected_at,
+              ngo_id: 'others',
+              ngo_name: 'Others',
+              owner_worker_id: null,
+              owner_name: null,
+              is_work_as: false,
+            };
+          })
+          .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
+        // Dedup cross-NGO entries too
+        const deduped = [];
+        for (const r of crossNgoMapped) {
+          const key = `${r.donor_id}|${r.amount_collected}|${crossDayKey(r.collected_at)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push(r);
+        }
+        crossNgoMapped = deduped;
+      }
+    }
 
     const ngoMap = {};
     for (const s of myScope) {
