@@ -20,6 +20,7 @@ import {
   findLogsByDonorAndWorker,
   findLogsByAssignment,
   getTotalCollectedByWorker,
+  getCollectedByNgo,
   getTotalCollectedByAssignment,
   getTotalCollectedByDonorAndWorker,
   getVerifiedCollection,
@@ -2572,7 +2573,22 @@ export const getMyTarget = async (req, res) => {
 
     const achieved_target = manualTarget?.achieved_target != null ? parseFloat(manualTarget.achieved_target) : null;
 
+    const { allowedNgoIds } = await getMyStationScope(workerId);
     const collected = await getTotalCollectedByWorker(workerId, monthStart, monthEnd);
+    const collectedByNgo = await getCollectedByNgo(workerId, monthStart, monthEnd, allowedNgoIds);
+
+    // Resolve NGO names for the breakdown
+    const collectedNgoIds = Object.keys(collectedByNgo).filter(id => id !== 'others');
+    const collectedNgoMap = {};
+    if (collectedNgoIds.length > 0) {
+      const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', collectedNgoIds);
+      for (const n of ngoRows || []) collectedNgoMap[n.id] = n.name;
+    }
+    const collected_by_ngo = Object.entries(collectedByNgo).map(([id, amount]) => ({
+      ngo_id: id,
+      ngo_name: id === 'others' ? 'Others' : (collectedNgoMap[id] || 'Unknown'),
+      amount,
+    })).filter(r => r.amount > 0).sort((a, b) => b.amount - a.amount);
 
     const stats = await getDashboardStats(workerId);
 
@@ -2620,6 +2636,7 @@ export const getMyTarget = async (req, res) => {
       target,
       target_source: targetSource,
       collected,
+      collected_by_ngo: collected_by_ngo,
       achieved_target,
       remaining: Math.max(0, target - collected),
       salary: currentSalary,
