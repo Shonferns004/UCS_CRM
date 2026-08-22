@@ -710,6 +710,30 @@ export const getMyCollections = async (req, res) => {
     const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
     const scoped = filterByScope(data, effectiveScope, pairOf);
 
+    // ── Cross-NGO collections: donations the user collected for NGOs outside
+    // their assigned scope (e.g. an FRO verifying BSCT entries while assigned
+    // to AFLF/MANN). These show under the "Others" tab in the Collected modal.
+    const crossNgoMapped = (data || [])
+      .filter(l => l.fro_assignments?.ngo_id && !allowedNgoIds.includes(l.fro_assignments.ngo_id))
+      .map((l) => {
+        const amount = parseFloat(l.amount_collected || 0);
+        const collected_at = logCollectionDate(l);
+        return {
+          id: l.id,
+          donor_id: l.donor_id,
+          donor_name: l.donor_profiles?.name || 'Unknown',
+          donor_mobile: l.donor_profiles?.mobile_number || '',
+          amount_collected: amount,
+          collected_at,
+          ngo_id: 'others',
+          ngo_name: 'Others',
+          owner_worker_id: null,
+          owner_name: null,
+          is_work_as: false,
+        };
+      })
+      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
+
     const ngoMap = {};
     for (const s of myScope) {
       if (s.ngo_id && !ngoMap[s.ngo_id]) ngoMap[s.ngo_id] = null;
@@ -746,7 +770,7 @@ export const getMyCollections = async (req, res) => {
     const dayKey = (d) => d ? String(d).slice(0, 10) : null;
     const seen = new Set();
     const collections = [];
-    for (const r of mapped) {
+    for (const r of [...mapped, ...crossNgoMapped]) {
       const key = `${r.donor_id}|${r.amount_collected}|${dayKey(r.collected_at)}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -763,6 +787,10 @@ export const getMyCollections = async (req, res) => {
       if (!byNgo[ngoId]) byNgo[ngoId] = [];
       byNgo[ngoId].push(c);
       if (ngoId) collectedNgoIds.add(ngoId);
+    }
+
+    if (crossNgoMapped.length > 0) {
+      ngoMap['others'] = 'Others';
     }
 
     return res.json({ 
