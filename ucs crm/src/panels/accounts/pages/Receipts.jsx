@@ -207,38 +207,16 @@ function ExcelUpload({ onDataLoaded }) {
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-function MonthYearPicker({ value, onChange }) {
-  const now = new Date();
-  const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
-  const curYear = ist.getUTCFullYear();
-  const curMonth = ist.getUTCMonth() + 1;
-  const months = [];
-  for (let y = curYear; y >= curYear - 1; y--) {
-    const end = y === curYear ? curMonth : 12;
-    const start = y === curYear ? curMonth : 12;
-    for (let m = start; m >= (y === curYear ? 1 : 1); m--) {
-      months.push({ year: y, month: m });
-      if (months.length >= 13) break;
-    }
-    if (months.length >= 13) break;
-  }
+function DayPicker({ value, onChange }) {
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Month</span>
-      <select
-        value={value ? `${value.year}-${value.month}` : ''}
-        onChange={e => {
-          if (!e.target.value) { onChange(null); return; }
-          const [y, m] = e.target.value.split('-').map(Number);
-          onChange({ year: y, month: m });
-        }}
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Day</span>
+      <input
+        type="date"
+        value={value || ''}
+        onChange={e => onChange(e.target.value || null)}
         style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
-      >
-        <option value="">All Time</option>
-        {months.map(({ year: y, month: m }) => (
-          <option key={`${y}-${m}`} value={`${y}-${m}`}>{MONTH_NAMES[m - 1]} {y}</option>
-        ))}
-      </select>
+      />
     </div>
   );
 }
@@ -258,7 +236,7 @@ export default function Receipts() {
   const [statsByProject, setStatsByProject] = useState([])
   const [monthStatsByProject, setMonthStatsByProject] = useState([])
   const [todayStats, setTodayStats] = useState([])
-  const [filterMonth, setFilterMonth] = useState(null)
+  const [filterDate, setFilterDate] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -368,19 +346,15 @@ export default function Receipts() {
 
   useEffect(() => {
     let url = '/accounts/receipts?limit=1'
-    if (filterMonth) {
-      const y = filterMonth.year, m = filterMonth.month
-      const from = `${y}-${String(m).padStart(2,'0')}-01`
-      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
-      const to = `${y}-${String(m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
-      url += `&from_date=${from}&to_date=${to}`
+    if (filterDate) {
+      url += `&from_date=${filterDate}&to_date=${filterDate}`
     }
     apiGet(url).then(res => {
       setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
-      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : (filterMonth ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
+      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : (filterDate ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
       setTodayStats(Array.isArray(res?.todayStats) ? res.todayStats : [])
     }).catch(e => console.error('Stats fetch error:', e.message))
-  }, [filterMonth])
+  }, [filterDate])
 
   const refreshHistory = () => {
     window.dispatchEvent(new CustomEvent('ucs:receipts-refresh'))
@@ -807,7 +781,7 @@ export default function Receipts() {
   const currentTpl = getNgoSettings(currentNgo)
   const TemplateComp = currentTpl.comp
 
-  const displayStats = filterMonth ? monthStatsByProject : statsByProject;
+  const displayStats = filterDate ? monthStatsByProject : statsByProject;
   const todayMap = {};
   todayStats.forEach(s => { todayMap[s.project_id] = s; });
 
@@ -815,7 +789,7 @@ export default function Receipts() {
     <div>
       {/* Month / Year Picker */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <MonthYearPicker value={filterMonth} onChange={setFilterMonth} />
+        <DayPicker value={filterDate} onChange={setFilterDate} />
       </div>
 
       {displayStats.length > 0 && (
@@ -828,8 +802,8 @@ export default function Receipts() {
                   {PROJECT_LABELS[group.project_id] || group.project_id || 'Unknown NGO'}
                 </div>
                 <div style={{ width: '100%' }}>
-                  <StatRow label="Receipts Today" value={(today.count || 0).toLocaleString('en-IN')} color="#2563eb" />
-                  <StatRow label="Amount Today" value={currency(today.total_amount)} color="#0ea5e9" />
+                  <StatRow label="Receipts" value={(today.count || 0).toLocaleString('en-IN')} color="#2563eb" />
+                  <StatRow label="Amount" value={currency(today.total_amount)} color="#0ea5e9" />
                 </div>
               </div>
             );
