@@ -18,18 +18,20 @@ import { authenticateRole, authenticate, authenticateSalary } from '../middlewar
 const router = Router();
 
 const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
+// Volunteer detail page is also rendered inside the Accounts panel.
+const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
-router.get('/workers-summary', adminOrHrOrHo, getWorkersSummary);
+router.get('/workers-summary', adminHrAccounts, getWorkersSummary);
 router.get('/payroll', adminOrHrOrHo, getPayrollExport);
 router.get('/present-days', authenticateSalary, getPresentDaysExport);
 router.get('/attendance', authenticateSalary, getWorkerAttendance);
 router.patch('/attendance', authenticateSalary, updateWorkerAttendance);
-router.get('/worker/:workerId', adminOrHrOrHo, getWorkerSalaries);
-router.post('/', adminOrHrOrHo, addSalary);
-router.put('/:id', adminOrHrOrHo, editSalary);
+router.get('/worker/:workerId', adminHrAccounts, getWorkerSalaries);
+router.post('/', adminHrAccounts, addSalary);
+router.put('/:id', adminHrAccounts, editSalary);
 router.put('/:id/pay', adminOrHrOrHo, paySalary);
-router.delete('/:id', adminOrHrOrHo, removeSalary);
+router.delete('/:id', adminHrAccounts, removeSalary);
 router.get('/my-breakdown', authenticate, getMySalaryBreakdown);
-router.get('/worker/:workerId/allocations', adminOrHrOrHo, getWorkerSalaryWithAllocations);
+router.get('/worker/:workerId/allocations', adminHrAccounts, getWorkerSalaryWithAllocations);
 
 export default router;
