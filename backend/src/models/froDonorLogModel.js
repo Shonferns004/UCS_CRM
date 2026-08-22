@@ -77,6 +77,34 @@ export function inRange(date, start, end) {
   return dk >= dayKey(start) && dk <= dayKey(end);
 }
 
+export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedNgoIds) => {
+  const { data, error } = await db
+    .from('fro_donor_logs')
+    .select(`
+      amount_collected, action, disposition_detail, accounts_status,
+      created_at, transaction_datetime, verified_at,
+      fro_assignments!inner(ngo_id)
+    `)
+    .eq('fro_worker_id', workerId)
+    .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+  if (error) throw error;
+
+  const byNgo = {};
+  for (const d of data || []) {
+    if (!inRange(logCollectionDate(d), monthStart, monthEnd)) continue;
+    const isDonation = d.action === 'donation';
+    const isDoneDirect = d.action === 'disposition' && d.disposition_detail === 'done';
+    const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
+    if (!isDonation && !isDoneDirect && !isVerifiedLead) continue;
+    const amount = parseFloat(d.amount_collected || 0);
+    if (amount <= 0) continue;
+    const ngoId = d.fro_assignments?.ngo_id;
+    const key = (ngoId && allowedNgoIds.includes(ngoId)) ? ngoId : 'others';
+    byNgo[key] = (byNgo[key] || 0) + amount;
+  }
+  return byNgo;
+};
+
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')

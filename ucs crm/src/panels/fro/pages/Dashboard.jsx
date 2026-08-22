@@ -303,6 +303,7 @@ export default function Dashboard() {
   const totalAKI = ts.incentive?.totalCollectionAKI != null ? ts.incentive.totalCollectionAKI : akiPerDay.reduce((s, r) => s + (r.aki || 0), 0)
   const achieved_target = ts.achieved_target != null ? ts.achieved_target : (ds.achieved_target != null ? ds.achieved_target : null)
   const displayCollected = collected
+  const collectedByNgo = ts.collected_by_ngo || []
   const remaining = Math.max(0, target - displayCollected)
   const progress = target > 0 ? Math.min(100, (displayCollected / target) * 100) : 0
 
@@ -376,6 +377,15 @@ export default function Dashboard() {
           </div>
           {achieved_target != null && (
             <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 500 }}>Admin target: ₹{Number(achieved_target).toLocaleString('en-IN')}</div>
+          )}
+          {collectedByNgo.length > 1 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+              {collectedByNgo.map(item => (
+                <span key={item.ngo_id} style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: item.ngo_id === 'others' ? '#fef3c7' : '#f0fdf4', color: item.ngo_id === 'others' ? '#92400e' : '#166534', border: `1px solid ${item.ngo_id === 'others' ? '#fde68a' : '#bbf7d0'}` }}>
+                  {item.ngo_name}: ₹{Number(item.amount).toLocaleString('en-IN')}
+                </span>
+              ))}
+            </div>
           )}
           <div style={{ fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
             View collections →
