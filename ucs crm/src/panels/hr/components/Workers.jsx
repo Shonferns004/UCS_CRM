@@ -105,7 +105,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
   );
 }
 
-export default function Workers({ onSelect, onOffboard }) {
+export default function Workers({ onSelect, onOffboard, showAddForm = true }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
@@ -508,7 +508,7 @@ export default function Workers({ onSelect, onOffboard }) {
     <>
       <div className="card" style={{ marginBottom:20 }}>
         <div className="card-head">
-          <h3>Add a volunteer</h3>
+          <h3>{showAddForm ? 'Add a volunteer' : 'Volunteers by NGO'}</h3>
           <div style={{ display:'flex', alignItems:'center', gap:'8px 16px', flexWrap:'wrap' }}>
             <span style={{ fontSize:12, fontWeight:600 }}>Volunteers by NGO</span>
             <div style={{ display:'flex', height:12, borderRadius:6, overflow:'hidden', background:'var(--line)', width:180 }}>
@@ -528,6 +528,7 @@ export default function Workers({ onSelect, onOffboard }) {
             {clientTotal === 0 && <span style={{ fontSize:12, color:'var(--ink-soft)' }}>No volunteers yet.</span>}
           </div>
         </div>
+        {showAddForm && (
         <div className="card-pad">
           <div className="form-row">
             <label className="field">Full name
@@ -578,6 +579,7 @@ export default function Workers({ onSelect, onOffboard }) {
             </div>
           )}
         </div>
+        )}
       </div>
 
       <div className="card" ref={tableRef}>

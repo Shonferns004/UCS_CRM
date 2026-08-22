@@ -36,8 +36,8 @@ router.delete('/admin/policies/:id', adminAuth, adminRemovePolicy);
 // Worker: upload digital signature
 router.post('/upload-signature', authenticate, uploadWorkerSignature);
 
-// Admin: upload photo for any worker
-router.post('/admin/upload-photo/:workerId', adminAuth, adminUploadPhoto);
+// Admin: upload photo for any worker (also used by the Accounts panel volunteer detail)
+router.post('/admin/upload-photo/:workerId', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), adminUploadPhoto);
 
 // Admin: upload digital signature for a worker
 router.post('/admin/upload-signature/:workerId', adminAuth, uploadSignature);
