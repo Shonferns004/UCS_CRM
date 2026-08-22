@@ -1564,13 +1564,17 @@ export const getReceiptList = async (req, res) => {
     const filterMonth = parseInt(req.query.filter_month, 10) || 0;
     const filterYear  = parseInt(req.query.filter_year, 10) || 0;
 
-    // Cheap per-NGO aggregates + project options (unfiltered).
+    // Cheap per-NGO aggregates + project options. Kept in sync with the visible
+    // list below (receipt_no IS NOT NULL) so the cards always equal the sum of
+    // the rows actually shown — suspense/unnumbered receipts are counted on the
+    // bank-audit side instead of silently inflating a project's total here.
     const statsRes = await db._pool.query(
       `SELECT project_id,
               count(*)::int AS count,
               COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
               count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
        FROM receipts
+       WHERE receipt_no IS NOT NULL
        GROUP BY project_id
        ORDER BY count(*) DESC`
     );
@@ -1591,7 +1595,7 @@ export const getReceiptList = async (req, res) => {
                 count(*)::int AS count,
                 COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
                 count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
-         FROM receipts WHERE ${mw.join(' AND ')}
+         FROM receipts WHERE receipt_no IS NOT NULL AND (${mw.join(' AND ')})
          GROUP BY project_id ORDER BY count(*) DESC`, mp
       );
       monthStatsByProject = mRes.rows;
@@ -1605,7 +1609,7 @@ export const getReceiptList = async (req, res) => {
                   count(*)::int AS count,
                   COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
            FROM receipts
-           WHERE receipt_date = $1::date
+           WHERE receipt_no IS NOT NULL AND receipt_date = $1::date
            GROUP BY project_id`,
           [todayDateParam]
         )
@@ -1614,7 +1618,7 @@ export const getReceiptList = async (req, res) => {
                   count(*)::int AS count,
                   COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
            FROM receipts
-           WHERE receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+           WHERE receipt_no IS NOT NULL AND receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
            GROUP BY project_id`
         );
 
@@ -2708,6 +2712,22 @@ export const importReceipts = async (req, res) => {
             }
             const activeWorkers = workerRows.filter(w => w.is_active !== false);
 
+            // Printed-name variants (extra/missing middle names, spacing) that
+            // fuzzy matching cannot settle are curated in worker_aliases and
+            // loaded once per import.
+            const aliasByNorm = new Map();
+            const aliasWorkerIds = [...new Set(activeWorkers.map(w => w.id))];
+            for (let i = 0; i < aliasWorkerIds.length; i += 500) {
+              const { data: al, error: alerr } = await from('worker_aliases')
+                .select('alias_name, worker_id')
+                .in('worker_id', aliasWorkerIds.slice(i, i + 500));
+              if (alerr) throw new Error(alerr.message);
+              for (const a of (al || [])) {
+                const key = String(a.alias_name || '').trim().toLowerCase();
+                if (key && !aliasByNorm.has(key)) aliasByNorm.set(key, a.worker_id);
+              }
+            }
+
             const { data: stationRows, error: stErr } = await from('fro_station_assignments')
               .select('fro_worker_id, station')
               .eq('ngo_id', ngo_id);
@@ -2719,13 +2739,53 @@ export const importReceipts = async (req, res) => {
               }
             }
 
-            // Fuzzy FRO-name match: exact first, then close name matches.
-            const resolveWorker = (agentName) => {
-              if (!agentName) return null;
-              const an = String(agentName).trim().toLowerCase();
-              const exact = activeWorkers.find(w => String(w.name || '').trim().toLowerCase() === an);
-              if (exact) return exact;
-              return activeWorkers.find(w => nameMatch(agentName, w.name)) || null;
+            // FRO-name match, most-specific tier first. Every tier after the
+            // alias lookup must resolve UNIQUELY — the old first-match-wins
+            // fuzzy credited same-first-name colleagues (two Ravinas, five
+            // Poojas), so anything ambiguous stays uncredited instead.
+            // Tiers: raw exact → normalized exact → curated alias →
+            // "(annotation)" stripped repeat → token-subset unique → fuzzy unique.
+            const normName = (v) => String(v || '')
+              .toLowerCase()
+              .replace(/\s*\(.*?\)\s*/g, ' ')
+              .replace(/[^a-z0-9\s]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const normWorkerNames = activeWorkers.map(w => ({ id: w.id, nn: normName(w.name), toks: normName(w.name).split(' ').filter(Boolean) }));
+            const resolveWorker = (rawAgentName) => {
+              if (!rawAgentName) return null;
+              const anRaw = String(rawAgentName).trim().toLowerCase();
+              const byId = (id) => activeWorkers.find(w => w.id === id) || null;
+              const attempt = (agentName) => {
+                const anNorm = normName(agentName);
+                if (!anNorm) return null;
+                const rawExact = activeWorkers.find(w => String(w.name || '').trim().toLowerCase() === anRaw);
+                if (rawExact) return rawExact.id;
+                const normExact = normWorkerNames.find(w => w.nn === anNorm);
+                if (normExact) return normExact.id;
+                const aliasId = aliasByNorm.get(anNorm);
+                if (aliasId && activeWorkers.some(w => w.id === aliasId)) return aliasId;
+                const toks = anNorm.split(' ').filter(Boolean);
+                let hit = null;
+                if (toks.length >= 2) {
+                  let subsetHits = 0;
+                  for (const w of normWorkerNames) {
+                    if (toks.every(t => w.toks.includes(t))) { subsetHits++; hit = w.id; }
+                  }
+                  if (subsetHits === 1) return hit;
+                  if (subsetHits > 1) return null;
+                }
+                let fuzzyHits = 0;
+                hit = null;
+                for (const w of activeWorkers) {
+                  if (!nameMatch(agentName, w.name)) continue;
+                  fuzzyHits++;
+                  if (fuzzyHits > 1) return null;
+                  hit = w.id;
+                }
+                return fuzzyHits === 1 ? hit : null;
+              };
+              return byId(attempt(rawAgentName)) || byId(attempt(String(rawAgentName).replace(/\s*\(.*?\)\s*/g, ' ')));
             };
 
             // Pre-load the donors' existing assignments for this NGO so money can
@@ -2823,7 +2883,15 @@ export const importReceipts = async (req, res) => {
                 assignmentsByDonor.set(donorId, assignment);
               }
 
-              const froWorkerId = assignment.fro_worker_id;
+              // Credit the FRO actually named on the receipt. Reusing an existing
+              // assignment only settles (and closes) the donor relationship — it
+              // must not move the money to whoever owns the assignment today,
+              // otherwise receipts collected by one FRO land in another FRO's
+              // collection list after a batch/reassignment (e.g. Deepali's
+              // receipts showing in Mahima's BSCT tab).
+              const froWorkerId = worker.id !== assignment.fro_worker_id
+                ? worker.id
+                : assignment.fro_worker_id;
               if (!froWorkerId) continue;
 
               const amount = parseFloat(r.amount || 0);

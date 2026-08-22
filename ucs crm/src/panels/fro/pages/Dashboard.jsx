@@ -125,6 +125,7 @@ export default function Dashboard() {
   const [collectionsData, setCollectionsData] = useState(null)
   const [collectionsLoading, setCollectionsLoading] = useState(false)
   const [selectedCollectionNgo, setSelectedCollectionNgo] = useState('all')
+  const [collectionSearch, setCollectionSearch] = useState('')
   const [collectionsByNgo, setCollectionsByNgo] = useState({})
   const [ngoMap, setNgoMap] = useState({})
   const [reactivatedFilter, setReactivatedFilter] = useState('today')
@@ -320,6 +321,12 @@ export default function Dashboard() {
     { name: 'Collected', amount: displayCollected, fill: '#34d399' },
     { name: 'Remaining', amount: remaining, fill: '#f87171' },
   ] : []
+
+  const cq = collectionSearch.trim().toLowerCase()
+  const visibleCollections = (collectionsByNgo[selectedCollectionNgo] || []).filter(c => !cq ||
+    (c.donor_name || '').toLowerCase().includes(cq) ||
+    String(c.donor_mobile || '').includes(cq) ||
+    String(c.receipt_no || '').includes(cq))
 
   return (
     <div>
@@ -829,16 +836,16 @@ export default function Dashboard() {
 
       {showCollections && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.4)' }}
-          onClick={() => setShowCollections(false)}>
+          onClick={() => { setShowCollections(false); setCollectionSearch('') }}>
           <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '75vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,.15)' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>My Collections</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-soft)' }}>
-                  {collectionsLoading ? 'Loading…' : `${collectionsByNgo[selectedCollectionNgo]?.length || 0} collections`}
+                  {collectionsLoading ? 'Loading…' : `${(collectionsByNgo[selectedCollectionNgo] || []).length} collections`}
                 </div>
-                <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all') }}
+                <button onClick={() => { setShowCollections(false); setSelectedCollectionNgo('all'); setCollectionSearch('') }}
                   style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>
                   ×
                 </button>
@@ -864,16 +871,26 @@ export default function Dashboard() {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => setShowCollections(false)} style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>×</button>
+                <button onClick={() => { setShowCollections(false); setCollectionSearch('') }} style={{ width: 28, height: 28, border: 'none', borderRadius: 6, background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>×</button>
               </div>
+            </div>
+            <div style={{ padding: '8px 18px 0' }}>
+              <input
+                value={collectionSearch}
+                onChange={e => setCollectionSearch(e.target.value)}
+                placeholder="Search donor, mobile or receipt #"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', fontSize: 12, fontFamily: 'inherit', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--ink)', outline: 'none' }}
+              />
             </div>
             <div style={{ overflow: 'auto', padding: 8, flex: 1 }}>
               {collectionsLoading ? (
                 <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>Loading collections…</div>
-              ) : (collectionsByNgo[selectedCollectionNgo] || []).length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>No collections this month</div>
+              ) : visibleCollections.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 12, color: 'var(--ink-soft)' }}>
+                  {collectionSearch.trim() ? 'No matching collections' : 'No collections this month'}
+                </div>
               ) : (
-                (collectionsByNgo[selectedCollectionNgo] || []).map(c => (
+                visibleCollections.map(c => (
                   <div key={c.id} style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', marginBottom: 4, borderRadius: 8,
                     background: 'var(--bg)', border: '1px solid var(--line)',
