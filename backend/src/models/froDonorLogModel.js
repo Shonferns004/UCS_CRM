@@ -81,7 +81,7 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
   const { data, error } = await db
     .from('fro_donor_logs')
     .select(`
-      amount_collected, action, disposition_detail, accounts_status,
+      donor_id, amount_collected, action, disposition_detail, accounts_status,
       created_at, transaction_datetime, verified_at,
       fro_assignments!inner(ngo_id)
     `)
@@ -89,6 +89,8 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
+  const dayKey = (d) => d ? String(d).slice(0, 10) : null;
+  const seen = new Set();
   const byNgo = {};
   for (const d of data || []) {
     if (!inRange(logCollectionDate(d), monthStart, monthEnd)) continue;
@@ -98,6 +100,9 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
     if (!isDonation && !isDoneDirect && !isVerifiedLead) continue;
     const amount = parseFloat(d.amount_collected || 0);
     if (amount <= 0) continue;
+    const dedupKey = `${d.donor_id}|${amount}|${dayKey(logCollectionDate(d))}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
     const ngoId = d.fro_assignments?.ngo_id;
     const key = (ngoId && allowedNgoIds.includes(ngoId)) ? ngoId : 'others';
     byNgo[key] = (byNgo[key] || 0) + amount;
@@ -108,11 +113,13 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
+    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
     .eq('fro_worker_id', workerId)
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
+  const dayKey = (d) => d ? String(d).slice(0, 10) : null;
+  const seen = new Set();
   let total = 0;
   for (const d of data || []) {
     if (!inRange(logCollectionDate(d), monthStart, monthEnd)) continue;
@@ -120,6 +127,9 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
     const isDoneDirect = d.action === 'disposition' && d.disposition_detail === 'done';
     const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
     if (isDonation || isDoneDirect || isVerifiedLead) {
+      const dedupKey = `${d.donor_id}|${d.amount_collected}|${dayKey(logCollectionDate(d))}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
       total += parseFloat(d.amount_collected || 0);
     }
   }
@@ -129,11 +139,12 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
+    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id')
     .eq('fro_worker_id', workerId)
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
 
+  const seen = new Set();
   const byDay = {};
   for (const d of data || []) {
     const amount = parseFloat(d.amount_collected || 0);
@@ -141,6 +152,9 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
     const date = logCollectionDate(d);
     if (!inRange(date, monthStart, monthEnd)) continue;
     const day = dayKey(date);
+    const dedupKey = `${d.donor_id}|${amount}|${day}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
     byDay[day] = (byDay[day] || 0) + amount;
   }
   return byDay;
