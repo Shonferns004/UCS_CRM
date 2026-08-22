@@ -5,9 +5,11 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 const router = Router();
 
 const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
+// Read access for the Volunteers tab in the Accounts panel.
+const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
-router.get('/', adminOrHrOrHo, listNgos);
-router.get('/summary', adminOrHrOrHo, getNgoSummary);
+router.get('/', adminHrAccounts, listNgos);
+router.get('/summary', adminHrAccounts, getNgoSummary);
 router.post('/', adminOrHrOrHo, addNgo);
 router.get('/:id', adminOrHrOrHo, getNgo);
 router.put('/:id', adminOrHrOrHo, editNgo);

@@ -21,19 +21,21 @@ import { authenticateRole } from '../middleware/authMiddleware.js';
 const router = Router();
 
 const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
+// Volunteer detail page is also rendered inside the Accounts panel.
+const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
 // Settings (org-wide default/target % per NGO)
 router.get('/settings', adminOrHrOrHo, getNgoSettings);
 router.put('/settings', adminOrHrOrHo, putNgoSettings);
 
 // People (employment) allocations
-router.get('/workers/:id/people', adminOrHrOrHo, getWorkerPeople);
-router.put('/workers/:id/people', adminOrHrOrHo, putWorkerPeople);
+router.get('/workers/:id/people', adminHrAccounts, getWorkerPeople);
+router.put('/workers/:id/people', adminHrAccounts, putWorkerPeople);
 
 // Salary allocations (monthly snapshots)
-router.get('/workers/:id/salary', adminOrHrOrHo, getWorkerSalaryAlloc);
-router.put('/workers/:id/salary', adminOrHrOrHo, putWorkerSalaryAlloc);
-router.post('/workers/:id/salary/generate', adminOrHrOrHo, postGenerateSalaryAlloc);
+router.get('/workers/:id/salary', adminHrAccounts, getWorkerSalaryAlloc);
+router.put('/workers/:id/salary', adminHrAccounts, putWorkerSalaryAlloc);
+router.post('/workers/:id/salary/generate', adminHrAccounts, postGenerateSalaryAlloc);
 router.post('/salary/generate-all', adminOrHrOrHo, postGenerateAllSalaryAlloc);
 
 // Payments
