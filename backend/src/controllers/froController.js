@@ -522,44 +522,34 @@ export const getDashboard = async (req, res) => {
     const reactivatedToday = [...todayDonorSet].filter(id => !fyBeforeTodayDonors.has(id)).length;
     const reactivatedMonthly = [...monthDonorSet].filter(id => !fyBeforeMonthDonors.has(id)).length;
 
-    // FRO-specific reactivations: donors THIS worker reactivated (donated today/month but no prior donation in FY)
+    // FRO-specific reactivations: donors THIS worker reactivated (donated today/month but no prior donation in FY).
+    // Own-money rule: match on the log's collector only. Cross-FRO verifications reuse
+    // another FRO's assignment, so station-pair scoping used to hide them here.
     let froReactivatedToday = 0, froReactivatedMonthly = 0;
-    if (stationNames.length > 0) {
+    {
       // Get donations by this FRO worker today
-      const { data: froTodayDonors } = await withStationNgoPairs(
-        db
-          .from('fro_donor_logs')
-          .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
-          .in('fro_assignments.station', stationNames)
-          .eq('fro_assignments.fro_worker_id', workerId)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', todayStart.toISOString())
-          .lte('created_at', todayEnd.toISOString()),
-        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-      );
+      const { data: froTodayDonors } = await db
+        .from('fro_donor_logs')
+        .select('donor_id')
+        .eq('fro_worker_id', workerId)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', todayStart.toISOString())
+        .lte('created_at', todayEnd.toISOString());
 
-      const { data: froMonthDonors } = await withStationNgoPairs(
-        db
-          .from('fro_donor_logs')
-          .select('donor_id, fro_assignments!inner(station, fro_worker_id)')
-          .in('fro_assignments.station', stationNames)
-          .eq('fro_assignments.fro_worker_id', workerId)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd),
-        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-      );
+      const { data: froMonthDonors } = await db
+        .from('fro_donor_logs')
+        .select('donor_id')
+        .eq('fro_worker_id', workerId)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', monthStart)
+        .lte('created_at', monthEnd);
 
-      const { data: froFyDonors } = await withStationNgoPairs(
-        db
-          .from('fro_donor_logs')
-          .select('donor_id, created_at, fro_assignments!inner(station, fro_worker_id)')
-          .in('fro_assignments.station', stationNames)
-          .eq('fro_assignments.fro_worker_id', workerId)
-          .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
-          .gte('created_at', fyStart.toISOString()),
-        myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-      );
+      const { data: froFyDonors } = await db
+        .from('fro_donor_logs')
+        .select('donor_id, created_at')
+        .eq('fro_worker_id', workerId)
+        .or('action.eq.donation,and(disposition_detail.eq.lead_done,action.eq.disposition,accounts_status.eq.verified)')
+        .gte('created_at', fyStart.toISOString());
 
       const todayStr = todayStart.toISOString();
       const fyBeforeTodayDonorsSet = new Set();
@@ -666,21 +656,21 @@ export const getDashboard = async (req, res) => {
   }
 };
 
-// List this month's collections for the "Collected" card modal. For work-as
-// collections (from another FRO's donor) the owning FRO's identity is masked so
-// the operator cannot tell which FRO the donor belonged to.
-// Supports optional ?ngo_id= query param to filter by a specific NGO.
+// List this month's collections for the "Collected" card modal.
+// Own-money rule: every fro_donor_logs row credited to this worker (fro_worker_id)
+// is THEIR collection, regardless of which (station, ngo) assignment the donor sits
+// in — cross-FRO manual verifies, work-as and receipt auto-credits reuse another
+// FRO's assignment, so filtering by the assignment pair used to hide them here.
+// Rows whose assignment belongs to another FRO, or whose NGO is outside this
+// worker's access, are grouped under the "Others" tab; the rest keep their real
+// NGO tab. For work-as rows the owning FRO's identity is masked so the operator
+// cannot tell which FRO the donor belonged to.
+// Supports optional ?ngo_id= query param to return only that tab's rows.
 export const getMyCollections = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
-
-    let effectiveScope = myScope;
-    let effectiveStations = stationNames;
-    if (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) {
-      effectiveScope = myScope.filter(s => s.ngo_id === req.query.ngo_id);
-      effectiveStations = effectiveScope.map(s => s.station);
-    }
+    const { scope: myScope, allowedNgoIds } = await getMyStationScope(workerId);
+    const ngoFilter = (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) ? req.query.ngo_id : null;
 
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
@@ -689,7 +679,7 @@ export const getMyCollections = async (req, res) => {
     const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
 
-    let query = db
+    const { data, error } = await db
       .from('fro_donor_logs')
       .select(`
         id, donor_id, amount_collected, action, disposition_detail, accounts_status,
@@ -699,70 +689,9 @@ export const getMyCollections = async (req, res) => {
       `)
       .eq('fro_worker_id', workerId)
       .or(COLLECTION_DATE_OR(monthStart, monthEnd));
-
-    if (effectiveStations.length > 0) {
-      query = query.in('fro_assignments.station', effectiveStations);
-      query = withStationNgoPairs(query, effectiveScope, 'fro_assignments.station', 'fro_assignments.ngo_id');
-    }
-
-    const { data, error } = await query;
     if (error) throw error;
 
-    const pairOf = l => `${l.fro_assignments?.station}|${l.fro_assignments?.ngo_id}`;
-    const scoped = filterByScope(data, effectiveScope, pairOf);
-
-    // ── Cross-NGO collections: donations the user collected for NGOs outside
-    // their assigned scope (e.g. an FRO verifying BSCT entries while assigned
-    // to AFLF/MANN). These show under the "Others" tab in the Collected modal.
-    // We need a separate query because the main query filters by station at the
-    // DB level, which removes cross-NGO rows before they reach JS.
-    let crossNgoMapped = [];
-    {
-      const { data: crossData, error: crossErr } = await db
-        .from('fro_donor_logs')
-        .select(`
-          id, donor_id, amount_collected, action, disposition_detail, accounts_status,
-          created_at, transaction_datetime, verified_at,
-          donor_profiles!inner(id, name, mobile_number),
-          fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name))
-        `)
-        .eq('fro_worker_id', workerId)
-        .or(COLLECTION_DATE_OR(monthStart, monthEnd));
-      if (!crossErr && crossData) {
-        const crossDayKey = (d) => d ? String(d).slice(0, 10) : null;
-        const seen = new Set();
-        crossNgoMapped = crossData
-          .filter(l => l.fro_assignments?.ngo_id && !allowedNgoIds.includes(l.fro_assignments.ngo_id))
-          .map((l) => {
-            const amount = parseFloat(l.amount_collected || 0);
-            const collected_at = logCollectionDate(l);
-            return {
-              id: l.id,
-              donor_id: l.donor_id,
-              donor_name: l.donor_profiles?.name || 'Unknown',
-              donor_mobile: l.donor_profiles?.mobile_number || '',
-              amount_collected: amount,
-              collected_at,
-              ngo_id: 'others',
-              ngo_name: 'Others',
-              owner_worker_id: null,
-              owner_name: null,
-              is_work_as: false,
-            };
-          })
-          .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
-        // Dedup cross-NGO entries too
-        const deduped = [];
-        for (const r of crossNgoMapped) {
-          const key = `${r.donor_id}|${r.amount_collected}|${crossDayKey(r.collected_at)}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          deduped.push(r);
-        }
-        crossNgoMapped = deduped;
-      }
-    }
-
+    // NGO id -> name map for the caller's assigned NGOs ("Others" added below when needed).
     const ngoMap = {};
     for (const s of myScope) {
       if (s.ngo_id && !ngoMap[s.ngo_id]) ngoMap[s.ngo_id] = null;
@@ -772,58 +701,56 @@ export const getMyCollections = async (req, res) => {
       const { data: ngoRows } = await db.from('ngos').select('id, name').in('id', ngoIds);
       for (const n of ngoRows || []) ngoMap[n.id] = n.name;
     }
-    const ngos = Object.entries(ngoMap).map(([id, name]) => ({ id, name: name || 'Unknown' }));
 
-    const mapped = scoped
-      .map((l) => {
-        const amount = parseFloat(l.amount_collected || 0);
-        const collected_at = logCollectionDate(l);
-        const is_work_as = l.fro_assignments?.fro_worker_id != null && l.fro_assignments.fro_worker_id !== workerId;
-        return {
-          id: l.id,
-          donor_id: l.donor_id,
-          donor_name: l.donor_profiles?.name || 'Unknown',
-          donor_mobile: l.donor_profiles?.mobile_number || '',
-          amount_collected: amount,
-          collected_at,
-          ngo_id: l.fro_assignments?.ngo_id || null,
-          ngo_name: l.fro_assignments?.ngos?.name || null,
-          owner_worker_id: is_work_as ? null : (l.fro_assignments?.fro_worker_id ?? null),
-          owner_name: is_work_as ? null : (l.fro_assignments?.workers?.name || null),
-          is_work_as,
-        };
-      })
-      .filter((r) => r.amount_collected > 0 && inRange(r.collected_at, monthStart, monthEnd));
-
-    // Dedup: fallback dedup by donor_id + amount + same day (two fro_donor_logs per donation).
     const dayKey = (d) => d ? String(d).slice(0, 10) : null;
     const seen = new Set();
     const collections = [];
-    for (const r of [...mapped, ...crossNgoMapped]) {
-      const key = `${r.donor_id}|${r.amount_collected}|${dayKey(r.collected_at)}`;
+    let hasOthers = false;
+    for (const l of data || []) {
+      const amount = parseFloat(l.amount_collected || 0);
+      const collected_at = logCollectionDate(l);
+      if (!(amount > 0)) continue;
+      if (!inRange(collected_at, monthStart, monthEnd)) continue;
+
+      const asgn = l.fro_assignments || {};
+      const isOwnAssignment = asgn.fro_worker_id != null && asgn.fro_worker_id === workerId;
+      const ngoInScope = asgn.ngo_id != null && allowedNgoIds.includes(asgn.ngo_id);
+      const is_work_as = asgn.fro_worker_id != null && asgn.fro_worker_id !== workerId;
+
+      // Own assignments under an allowed NGO keep their real NGO tab; anything
+      // else (another FRO's donor / foreign or stale NGO) lands in Others.
+      const tabNgoId = (isOwnAssignment && ngoInScope) ? asgn.ngo_id : 'others';
+      if (tabNgoId === 'others') hasOthers = true;
+      if (ngoFilter && tabNgoId !== ngoFilter) continue;
+
+      // Dedup by donor + amount + same day (duplicate donation logs per payment).
+      const key = `${l.donor_id}|${amount}|${dayKey(collected_at)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      collections.push(r);
+
+      collections.push({
+        id: l.id,
+        donor_id: l.donor_id,
+        donor_name: l.donor_profiles?.name || 'Unknown',
+        donor_mobile: l.donor_profiles?.mobile_number || '',
+        amount_collected: amount,
+        collected_at,
+        ngo_id: tabNgoId,
+        ngo_name: tabNgoId === 'others' ? 'Others' : (asgn.ngos?.name || null),
+        owner_worker_id: is_work_as ? null : (asgn.fro_worker_id ?? null),
+        owner_name: is_work_as ? null : (asgn.workers?.name || null),
+        is_work_as,
+      });
     }
+
+    if (hasOthers) ngoMap['others'] = 'Others';
 
     collections.sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
 
-    // Group collections by NGO
-    const byNgo = {};
-    const collectedNgoIds = new Set();
-    for (const c of collections) {
-      const ngoId = c.ngo_id;
-      if (!byNgo[ngoId]) byNgo[ngoId] = [];
-      byNgo[ngoId].push(c);
-      if (ngoId) collectedNgoIds.add(ngoId);
-    }
+    const ngos = Object.entries(ngoMap).map(([id, name]) => ({ id, name: name || 'Unknown' }));
 
-    if (crossNgoMapped.length > 0) {
-      ngoMap['others'] = 'Others';
-    }
-
-    return res.json({ 
-      month: monthStart.slice(0, 7), 
+    return res.json({
+      month: monthStart.slice(0, 7),
       collections,
       ngos,
       ngoMap,
@@ -2810,19 +2737,15 @@ export const getFroCallbacks = async (req, res) => {
 export const getMyHistory = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const { scope: myScope, stationNames, allowedNgoIds } = await getMyStationScope(workerId);
-    if (stationNames.length === 0) return res.json([]);
-
-    const { data: logs, error } = await withStationNgoPairs(
-      db
-        .from('fro_donor_logs')
-        .select('*, fro_assignments!inner(fro_worker_id, donor_id, station)')
-        .eq('fro_worker_id', workerId)
-        .in('fro_assignments.station', stationNames)
-        .order('created_at', { ascending: false })
-        .limit(200),
-      myScope, 'fro_assignments.station', 'fro_assignments.ngo_id'
-    );
+    // Own-actions history: every log recorded by this FRO, regardless of which
+    // (station, ngo) assignment the donor belongs to — cross-FRO verifications
+    // reuse the original owner's assignment, so pair-scoping hid them here.
+    const { data: logs, error } = await db
+      .from('fro_donor_logs')
+      .select('*, fro_assignments!inner(fro_worker_id, donor_id, station, ngo_id, ngos!left(name))')
+      .eq('fro_worker_id', workerId)
+      .order('created_at', { ascending: false })
+      .limit(200);
 
     if (error) throw error;
 
@@ -2848,6 +2771,8 @@ export const getMyHistory = async (req, res) => {
         created_at: l.created_at,
         outcome: l.outcome,
         accounts_status: l.accounts_status,
+        ngo_id: l.fro_assignments?.ngo_id || null,
+        ngo_name: l.fro_assignments?.ngos?.name || null,
       };
     });
     return res.json(result);
