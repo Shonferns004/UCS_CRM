@@ -18,18 +18,20 @@ import { authenticateRole, authenticateWorker } from '../middleware/authMiddlewa
 const router = Router();
 
 const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
+// Volunteer detail page is also rendered inside the Accounts panel.
+const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
 router.get('/worker/:workerId/targets', adminOrHrOrHo, getWorkerTargets);
-router.get('/worker/:workerId/month/:month', adminOrHrOrHo, getWorkerTargetForMonth);
+router.get('/worker/:workerId/month/:month', adminHrAccounts, getWorkerTargetForMonth);
 router.put('/worker/:workerId/month/:month', adminOrHrOrHo, updateTarget);
 router.get('/current-month-targets', adminOrHrOrHo, getCurrentMonthTargetsList);
 router.post('/generate-all', adminOrHrOrHo, generateAllTargets);
 router.get('/my-target', authenticateWorker, getMyTarget);
 
-router.put('/worker/:workerId/achievement/:date', adminOrHrOrHo, setAchievement);
-router.get('/worker/:workerId/achievements/:month', adminOrHrOrHo, getWorkerAchievements);
+router.put('/worker/:workerId/achievement/:date', adminHrAccounts, setAchievement);
+router.get('/worker/:workerId/achievements/:month', adminHrAccounts, getWorkerAchievements);
 router.delete('/achievement/:id', adminOrHrOrHo, removeAchievement);
-router.get('/worker/:workerId/incentive-summary/:month', adminOrHrOrHo, getIncentiveSummary);
+router.get('/worker/:workerId/incentive-summary/:month', adminHrAccounts, getIncentiveSummary);
 router.get('/monthly-summary', adminOrHrOrHo, getMonthlySummary);
 router.post('/bulk-achievements', adminOrHrOrHo, bulkSetAchievements);
 

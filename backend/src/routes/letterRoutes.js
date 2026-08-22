@@ -25,7 +25,7 @@ router.put('/templates/:id', hrRoles, editTemplate);
 router.delete('/templates/:id', hrRoles, removeTemplate);
 router.post('/generate', hrRoles, generateLetter);
 router.get('/generated', hrRoles, listGeneratedLetters);
-router.get('/generated/worker/:workerId', hrRoles, getWorkerLetters);
-router.get('/generated/:id/download', hrRoles, downloadLetter);
+router.get('/generated/worker/:workerId', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), getWorkerLetters);
+router.get('/generated/:id/download', authenticateRole('super_admin', 'admin', 'hr', 'accounts'), downloadLetter);
 
 export default router;
