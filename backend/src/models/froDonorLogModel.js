@@ -77,12 +77,24 @@ export function inRange(date, start, end) {
   return dk >= dayKey(start) && dk <= dayKey(end);
 }
 
+// Discriminates genuinely distinct payments that share donor + amount + day + NGO
+// (e.g. a donor paying the same amount twice in one day) from duplicate copies of
+// the SAME payment (a donation log plus its verified lead_done copy), which always
+// carry the same payment reference.
+export function paymentDiscriminant(d) {
+  const ref = String(d.upi_transaction_id || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
+  if (ref) return `U${ref}`;
+  const rm = /receipt\s+([A-Za-z0-9]+)/i.exec(String(d.remark || ''));
+  if (rm) return `R${rm[1]}`;
+  return 'X';
+}
+
 export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedNgoIds) => {
   const { data, error } = await db
     .from('fro_donor_logs')
     .select(`
       donor_id, amount_collected, action, disposition_detail, accounts_status,
-      created_at, transaction_datetime, verified_at,
+      created_at, transaction_datetime, verified_at, upi_transaction_id, remark,
       fro_assignments!inner(ngo_id)
     `)
     .eq('fro_worker_id', workerId)
@@ -100,7 +112,7 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
     if (!isDonation && !isDoneDirect && !isVerifiedLead) continue;
     const amount = parseFloat(d.amount_collected || 0);
     if (amount <= 0) continue;
-    const dedupKey = `${d.donor_id}|${amount}|${dayKey(logCollectionDate(d))}|${d.fro_assignments?.ngo_id || 'none'}`;
+    const dedupKey = `${d.donor_id}|${amount}|${dayKey(logCollectionDate(d))}|${d.fro_assignments?.ngo_id || 'none'}|${paymentDiscriminant(d)}`;
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
     const ngoId = d.fro_assignments?.ngo_id;
@@ -113,7 +125,7 @@ export const getCollectedByNgo = async (workerId, monthStart, monthEnd, allowedN
 export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id, fro_assignments(ngo_id)')
+    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, upi_transaction_id, remark, fro_worker_id, fro_assignments(ngo_id)')
     .eq('fro_worker_id', workerId)
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
@@ -127,7 +139,7 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
     const isDoneDirect = d.action === 'disposition' && d.disposition_detail === 'done';
     const isVerifiedLead = d.action === 'disposition' && d.disposition_detail === 'lead_done' && d.accounts_status === 'verified';
     if (isDonation || isDoneDirect || isVerifiedLead) {
-      const dedupKey = `${d.donor_id}|${d.amount_collected}|${dayKey(logCollectionDate(d))}|${d.fro_assignments?.ngo_id || 'none'}`;
+      const dedupKey = `${d.donor_id}|${d.amount_collected}|${dayKey(logCollectionDate(d))}|${d.fro_assignments?.ngo_id || 'none'}|${paymentDiscriminant(d)}`;
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
       total += parseFloat(d.amount_collected || 0);
@@ -139,7 +151,7 @@ export const getTotalCollectedByWorker = async (workerId, monthStart, monthEnd) 
 export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd) => {
   const { data, error } = await db
     .from('fro_donor_logs')
-    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, fro_worker_id, fro_assignments(ngo_id)')
+    .select('donor_id, amount_collected, action, disposition_detail, accounts_status, created_at, transaction_datetime, verified_at, upi_transaction_id, remark, fro_worker_id, fro_assignments(ngo_id)')
     .eq('fro_worker_id', workerId)
     .or(COLLECTION_DATE_OR(monthStart, monthEnd));
   if (error) throw error;
@@ -152,7 +164,7 @@ export const getDailyCollectionByWorker = async (workerId, monthStart, monthEnd)
     const date = logCollectionDate(d);
     if (!inRange(date, monthStart, monthEnd)) continue;
     const day = dayKey(date);
-    const dedupKey = `${d.donor_id}|${amount}|${day}|${d.fro_assignments?.ngo_id || 'none'}`;
+    const dedupKey = `${d.donor_id}|${amount}|${day}|${d.fro_assignments?.ngo_id || 'none'}|${paymentDiscriminant(d)}`;
     if (seen.has(dedupKey)) continue;
     seen.add(dedupKey);
     byDay[day] = (byDay[day] || 0) + amount;
