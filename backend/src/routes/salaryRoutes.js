@@ -17,7 +17,7 @@ import { authenticateRole, authenticate, authenticateSalary } from '../middlewar
 
 const router = Router();
 
-const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr');
+const adminOrHrOrHo = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 // Volunteer detail page is also rendered inside the Accounts panel.
 const adminHrAccounts = authenticateRole('super_admin', 'admin', 'hr', 'accounts');
 
