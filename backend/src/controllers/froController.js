@@ -28,6 +28,7 @@ import {
   getDailyCollectionByWorker,
   COLLECTION_DATE_OR,
   logCollectionDate,
+  paymentDiscriminant,
   inRange,
 } from '../models/froDonorLogModel.js';
 import { getAchievements } from '../models/dailyAchievementModel.js';
@@ -683,7 +684,7 @@ export const getMyCollections = async (req, res) => {
       .from('fro_donor_logs')
       .select(`
         id, donor_id, amount_collected, action, disposition_detail, accounts_status,
-        created_at, transaction_datetime, verified_at,
+        created_at, transaction_datetime, verified_at, upi_transaction_id, remark,
         donor_profiles!inner(id, name, mobile_number),
         fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name))
       `)
@@ -723,9 +724,10 @@ export const getMyCollections = async (req, res) => {
       if (tabNgoId === 'others') hasOthers = true;
       if (ngoFilter && tabNgoId !== ngoFilter) continue;
 
-      // Dedup by donor + amount + same day within one NGO; the same payment
-      // signature under a different NGO is a separate cheque/transfer.
-      const key = `${l.donor_id}|${amount}|${dayKey(collected_at)}|${asgn.ngo_id || 'none'}`;
+      // Dedup by donor + amount + same day within one NGO + payment reference;
+      // the same payment signature under a different NGO is a separate cheque/transfer,
+      // and the same donor paying the same amount twice in one day is a separate payment.
+      const key = `${l.donor_id}|${amount}|${dayKey(collected_at)}|${asgn.ngo_id || 'none'}|${paymentDiscriminant(l)}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
