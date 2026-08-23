@@ -723,8 +723,9 @@ export const getMyCollections = async (req, res) => {
       if (tabNgoId === 'others') hasOthers = true;
       if (ngoFilter && tabNgoId !== ngoFilter) continue;
 
-      // Dedup by donor + amount + same day (duplicate donation logs per payment).
-      const key = `${l.donor_id}|${amount}|${dayKey(collected_at)}`;
+      // Dedup by donor + amount + same day within one NGO; the same payment
+      // signature under a different NGO is a separate cheque/transfer.
+      const key = `${l.donor_id}|${amount}|${dayKey(collected_at)}|${asgn.ngo_id || 'none'}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
