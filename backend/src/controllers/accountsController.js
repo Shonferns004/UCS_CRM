@@ -4184,7 +4184,8 @@ export const updateReceipt = async (req, res) => {
         .maybeSingle();
       if (entry) {
         const entryPatch = { updated_at: new Date().toISOString() };
-        if ('donor_name' in receiptPatch) entryPatch.payer_name = receiptPatch.donor_name;
+        // payer_name (bank statement name) is immutable here — same rule as
+        // Manual Verify. Receipt/profile name edits never rewrite it.
         if ('donor_mobile' in receiptPatch) entryPatch.donor_mobile = receiptPatch.donor_mobile;
         if ('pan_number' in receiptPatch) entryPatch.donor_pan = receiptPatch.pan_number;
         if ('address' in receiptPatch) entryPatch.donor_address_1 = receiptPatch.address;
@@ -4210,6 +4211,11 @@ export const updateReceipt = async (req, res) => {
     if (receipt.donor_id) {
       try {
         const dpPatch = { updated_at: new Date().toISOString() };
+        // Never blank the master name: an emptied field on the modal must not
+        // null out donor_profiles.name.
+        if ('donor_name' in receiptPatch && String(receiptPatch.donor_name || '').trim() === '') {
+          delete receiptPatch.donor_name;
+        }
         const dpMap = {
           donor_name: 'name', donor_mobile: 'mobile_number', pan_number: 'pan_number',
           address: 'address_1', address_2: 'address_2', email: 'email',
