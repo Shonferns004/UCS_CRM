@@ -723,7 +723,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     {/* Sources Modal */}
     {ss&&<div className="modal-overlay" onClick={()=>setSs(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,borderRadius:12}}>
       <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Manage Sources</h3><button className="btn btn-sm btn-icon" onClick={()=>setSs(false)} style={{padding:4}}><SvgX/></button></div>
-      <div className="modal-body" style={{padding:20}}>
+      <div className="modal-body" style={{padding:20,maxHeight:'65vh',overflowY:'auto'}}>
         <div style={{display:'flex',gap:6,marginBottom:14}}>
           {[['Received Banks','bank'],['Modes of Payment','mop']].map(([label,key])=>
             <button key={key} onClick={()=>{setSrcTab(key);setSnn('')}} style={{flex:1,padding:'6px 8px',fontSize:12,fontWeight:600,borderRadius:8,cursor:'pointer',border:'1px solid '+(srcTab===key?'#2563eb':'#e5e7eb'),background:srcTab===key?'#eff6ff':'#fff',color:srcTab===key?'#2563eb':'#6b7280'}}>{label}</button>)}
