@@ -476,7 +476,7 @@ export const editEntry = async (req, res) => {
 
     const { data: existing } = await db
       .from('bank_audit_entries')
-      .select('id, receipt_id, editable_until')
+      .select('id, receipt_id, editable_until, donor_id')
       .eq('id', id)
       .maybeSingle();
     if (!existing) return res.status(404).json({ message: 'Entry not found' });
@@ -557,6 +557,24 @@ export const editEntry = async (req, res) => {
     }
 
     const entry = await BankAudit.updateEntry(id, updates);
+
+    // A donor name typed in the entry editor renames the master donor profile
+    // and the linked receipt (same rule as Manual Verify / receipt edit).
+    const typedName = typeof req.body.donor_name === 'string' ? req.body.donor_name.trim() : '';
+    if (typedName) {
+      const targetDonorId = donor_id || resolvedDonor?.id || existing.donor_id || null;
+      if (targetDonorId) {
+        const { data: prof } = await db
+          .from('donor_profiles').select('id, name').eq('id', targetDonorId).maybeSingle();
+        if (prof && prof.name !== typedName) {
+          await db.from('donor_profiles').update({ name: typedName }).eq('id', prof.id);
+        }
+      }
+      if (existing.receipt_id) {
+        await db.from('receipts').update({ donor_name: typedName }).eq('id', existing.receipt_id);
+      }
+    }
+
     return res.json(entry);
   } catch (error) {
     return res.status(500).json({ message: error.message });
