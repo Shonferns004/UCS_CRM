@@ -151,10 +151,6 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
             <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Mode of Payment (MOP)'] || 'NA'}</td>
           </tr>
           <tr>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>Bank Name</td>
-            <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Donor Bank Name'] || 'NA'}</td>
-          </tr>
-          <tr>
             <td style={{ border: '1px solid #666', padding: '15px' }}>Email Address</td>
             <td style={{ border: '1px solid #666', padding: '15px' }}>{donor['Email ID'] || 'NA'}</td>
           </tr>
