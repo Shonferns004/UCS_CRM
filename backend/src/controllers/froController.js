@@ -2262,6 +2262,10 @@ export const createDonorLogHandler = async (req, res) => {
       log = await createDonorLog(logData);
     }
 
+    // Any logged interaction means the worker attempted this donor — clear
+    // the NEW flag so it stops counting/pinning as fresh data.
+    await db.from('fro_assignments').update({ is_new: false }).eq('id', assignment.id);
+
     // Update donor profile fields if provided
     const updateFields = {};
     if (donor_address) updateFields.address_1 = donor_address;
