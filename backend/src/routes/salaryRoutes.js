@@ -12,6 +12,7 @@ import {
   getPresentDaysExport,
   getWorkerAttendance,
   updateWorkerAttendance,
+  getPagarExport,
 } from '../controllers/salaryController.js';
 import { authenticateRole, authenticate, authenticateSalary } from '../middleware/authMiddleware.js';
 
@@ -33,5 +34,6 @@ router.put('/:id/pay', adminOrHrOrHo, paySalary);
 router.delete('/:id', adminHrAccounts, removeSalary);
 router.get('/my-breakdown', authenticate, getMySalaryBreakdown);
 router.get('/worker/:workerId/allocations', adminHrAccounts, getWorkerSalaryWithAllocations);
+router.get('/pagar-export', adminHrAccounts, getPagarExport);
 
 export default router;

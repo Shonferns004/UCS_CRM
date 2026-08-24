@@ -105,7 +105,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
   );
 }
 
-export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers' }) {
+export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers', showPagarExport = false }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
@@ -127,6 +127,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
   const [ngoSummary, setNgoSummary] = useState([]);
   const [selectedNgos, setSelectedNgos] = useState([]);
   const [workerDetails, setWorkerDetails] = useState({});
+  const [pagarMonth, setPagarMonth] = useState('');
+  const [showPagarModal, setShowPagarModal] = useState(false);
   const PAGE_SIZE = 20;
   const tableRef = useRef(null);
 
@@ -330,6 +332,249 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       link.download = `payroll-full-${month}.xlsx`;
       link.click();
       URL.revokeObjectURL(link.href);
+    } catch (e) { alert(e.message); }
+  };
+
+  const handlePagarExport = async () => {
+    const today = new Date();
+    const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    setPagarMonth(defaultMonth);
+    setShowPagarModal(true);
+  };
+
+  const doPagarExport = async (month) => {
+    try {
+      const data = await api('/salary/pagar-export?month=' + month, { _prefix: 'ucs' });
+      if (!data.rows || data.rows.length === 0) { alert('No payroll data for this month'); return; }
+
+      const rows = data.rows;
+      const daysInMonth = data.days_in_month || new Date(Date.UTC(new Date(month + '-01').getFullYear(), new Date(month + '-01').getMonth() + 1, 0)).getUTCDate();
+      const monthDate = new Date(month + '-01');
+      const monthName = monthDate.toLocaleString('default', { month: 'long' });
+      const year = monthDate.getFullYear();
+
+      // Column indices (0-based)
+      const COL = {
+        NAME: 0, STATUS: 1, AC_HOLDER: 2, AC_REL: 3, BANK: 4, AC_NUM: 5, STATION: 6, DOJ: 7, SALARY: 8,
+        TARGET: 9, TOTAL_ACH: 10, BSCT_ACH: 11, AFLF_ACH: 12, MANN_ACH: 13,
+        BALANCE: 14, ACH_PCT: 15,
+        PRES_DAYS: 16, TRAIN_SUN_DED: 17, NET_PRES: 18,
+        MONTH_SAL: 19, INCENT_10: 20, AKI: 21, GROSS: 22,
+        OT: 23, PENDING: 24, ADVANCE: 25, NET_PAY: 26,
+        FIRST_DAY_COL: 27
+      };
+      const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
+
+      const headers = [
+        'Agent Name', 'Status', 'Account Holder Name', 'Account Holder Relation',
+        'Bank Name', 'Bank Account Number', 'STATION', 'Date of Joining', 'Salary',
+        'New Target', 'Total Achieved', 'BSCT Achieved', 'AFLF Achieved', 'Mann Achieved',
+        'Balance', 'Achieved %',
+        `${monthName} Present Days`, 'Training and Sunday Deduction', `Net ${monthName} Present Days`,
+        `${monthName} Salary`, 'Monthly 10% Incentive', 'Aaj Ka Incentive (Daily 50% for PC)',
+        'Gross Payable Salary',
+        'OT/Appreciation/Extra Incentive', 'Any Pending Salary Paid for Previous Month',
+        `Advance need to be deducted in ${monthName}, ${year}`, 'Net Payable Salary',
+        ...Array.from({ length: daysInMonth }, (_, i) => {
+          const d = new Date(year, monthDate.getMonth(), i + 1);
+          return d.toLocaleString('default', { day: '2-digit', month: 'short' });
+        })
+      ];
+
+      const wsData = [headers];
+      let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0;
+      let lastActiveFroRow = 0, lastMgmtRow = 0, lastHrRow = 0;
+
+      for (const r of rows) {
+        const daily = r.daily || {};
+        const dailyArr = Array.from({ length: daysInMonth }, (_, i) => daily[i + 1] || 0);
+        const row = [
+          r.name,
+          r.status || '',
+          r.account_holder_name || '',
+          r.account_holder_relation || '',
+          r.bank_name || '',
+          r.account_number || '',
+          r.station || '',
+          r.doj || '',
+          r.salary || 0,
+          r.target || 0,
+          r.achieved || 0,
+          r.achieved_bsct || 0,
+          r.achieved_aflf || 0,
+          r.achieved_mann || 0,
+          null, // Balance formula
+          null, // Achieved % formula
+          r.gross_present_days || 0,
+          r.training_sunday_ded || 0,
+          null, // Net Present Days formula
+          null, // Month Salary formula
+          r.monthly_incentive || 0,
+          r.aki_payout || 0,
+          null, // Gross formula
+          0,    // OT (manual)
+          0,    // Pending (manual)
+          r.advance_deduction || 0,
+          null, // Net Payable formula
+          ...dailyArr
+        ];
+        wsData.push(row);
+
+        const rowIdx = wsData.length - 1;
+        const isActive = r.status === 'ACTIVE';
+        const isAbscond = r.status === 'ABSCONDED' || r.status === 'ABSCOND';
+        const isFro = r.department === 'FRO';
+        const isMgmt = ['Digital', 'Admin', 'NGO Admin', 'Event Manager', 'Housekeeping'].includes(r.department);
+        const isHr = ['HR', 'HR-Recruiter'].includes(r.department);
+
+        if (isActive && isFro) { activeFroCount++; lastActiveFroRow = rowIdx; }
+        else if (isActive && isMgmt) { mgmtCount++; lastMgmtRow = rowIdx; }
+        else if (isActive && isHr) { hrCount++; lastHrRow = rowIdx; }
+        else if (!isActive || isAbscond) { abscondCount++; }
+      }
+
+      // Add subtotal rows with SUM formulas
+      const addSubtotalRow = (label, startRow, endRow) => {
+        if (startRow > endRow) return;
+        const subtotal = [label];
+        for (let c = 1; c < TOTAL_COLS; c++) {
+          const colLetter = XLSX.utils.encode_col(c);
+          if (c >= COL.SALARY && c <= COL.NET_PAY) {
+            subtotal.push({ f: `SUM(${colLetter}${startRow}:${colLetter}${endRow})` });
+          } else if (c >= COL.FIRST_DAY_COL) {
+            subtotal.push({ f: `SUM(${colLetter}${startRow}:${colLetter}${endRow})` });
+          } else {
+            subtotal.push('');
+          }
+        }
+        wsData.push(subtotal);
+      };
+
+      // Subtotals for each section (if they have rows)
+      let dataStartRow = 2; // row 2 is first data row (1-indexed)
+      const subtotalRowIndices = []; // track subtotal row numbers (1-indexed)
+      if (activeFroCount > 0) {
+        const endRow = dataStartRow + activeFroCount - 1;
+        addSubtotalRow('Active FRO Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1); // subtotal row = endRow + 1
+        dataStartRow = endRow + 2;
+      }
+      if (mgmtCount > 0) {
+        const endRow = dataStartRow + mgmtCount - 1;
+        addSubtotalRow('Management Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1);
+        dataStartRow = endRow + 2;
+      }
+      if (hrCount > 0) {
+        const endRow = dataStartRow + hrCount - 1;
+        addSubtotalRow('HR Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1);
+        dataStartRow = endRow + 2;
+      }
+      if (abscondCount > 0) {
+        const endRow = dataStartRow + abscondCount - 1;
+        addSubtotalRow('Absconded Total', dataStartRow, endRow);
+        subtotalRowIndices.push(endRow + 1);
+        dataStartRow = endRow + 2;
+      }
+
+      // Grand Total = sum of subtotal rows (avoids double-counting)
+      const grandTotal = ['Grand Total'];
+      for (let c = 1; c < TOTAL_COLS; c++) {
+        const colLetter = XLSX.utils.encode_col(c);
+        if (c >= COL.SALARY && c <= COL.NET_PAY) {
+          if (subtotalRowIndices.length > 0) {
+            grandTotal.push({ f: subtotalRowIndices.map(r => `${colLetter}${r}`).join('+') });
+          } else {
+            grandTotal.push({ f: `SUM(${colLetter}2:${colLetter}${wsData.length})` });
+          }
+        } else if (c >= COL.FIRST_DAY_COL) {
+          if (subtotalRowIndices.length > 0) {
+            grandTotal.push({ f: subtotalRowIndices.map(r => `${colLetter}${r}`).join('+') });
+          } else {
+            grandTotal.push({ f: `SUM(${colLetter}2:${colLetter}${wsData.length})` });
+          }
+        } else {
+          grandTotal.push('');
+        }
+      }
+      wsData.push(grandTotal);
+      const grandTotalRow = wsData.length; // 1-indexed row of Grand Total
+
+      // Bank Total (same as Grand Total for numeric cols)
+      const bankTotal = ['Bank Total'];
+      for (let c = 1; c < TOTAL_COLS; c++) {
+        const colLetter = XLSX.utils.encode_col(c);
+        if (c >= COL.SALARY && c <= COL.NET_PAY) {
+          bankTotal.push({ f: `SUM(${colLetter}2:${colLetter}${grandTotalRow - 1})` });
+        } else if (c >= COL.FIRST_DAY_COL) {
+          bankTotal.push({ f: `SUM(${colLetter}2:${colLetter}${grandTotalRow - 1})` });
+        } else {
+          bankTotal.push('');
+        }
+      }
+      wsData.push(bankTotal);
+      const bankTotalRow = wsData.length;
+
+      // Difference = Grand Total - Bank Total
+      const diffRow = ['Difference'];
+      for (let c = 1; c < TOTAL_COLS; c++) {
+        const colLetter = XLSX.utils.encode_col(c);
+        if (c >= COL.SALARY && c <= COL.NET_PAY) {
+          diffRow.push({ f: `${colLetter}${grandTotalRow}-${colLetter}${bankTotalRow}` });
+        } else if (c >= COL.FIRST_DAY_COL) {
+          diffRow.push({ f: `${colLetter}${grandTotalRow}-${colLetter}${bankTotalRow}` });
+        } else {
+          diffRow.push('');
+        }
+      }
+      wsData.push(diffRow);
+
+      // Apply formulas for data rows
+      for (let i = 1; i < 1 + rows.length; i++) {
+        const row = i + 1; // 1-indexed
+        const colLetter = (c) => XLSX.utils.encode_col(c);
+        // Balance = Target - Total Achieved
+        wsData[i][COL.BALANCE] = { f: `${colLetter(COL.TARGET)}${row}-${colLetter(COL.TOTAL_ACH)}${row}` };
+        // Achieved % = Total Achieved / Target * 100
+        wsData[i][COL.ACH_PCT] = { f: `IF(${colLetter(COL.TARGET)}${row}>0,${colLetter(COL.TOTAL_ACH)}${row}/${colLetter(COL.TARGET)}${row}*100,0)` };
+        // Net Present Days = Present Days - Training Sunday Ded
+        wsData[i][COL.NET_PRES] = { f: `${colLetter(COL.PRES_DAYS)}${row}-${colLetter(COL.TRAIN_SUN_DED)}${row}` };
+        // Month Salary = Salary / DaysInMonth * Net Present Days
+        wsData[i][COL.MONTH_SAL] = { f: `${colLetter(COL.SALARY)}${row}/${daysInMonth}*${colLetter(COL.NET_PRES)}${row}` };
+        // Gross = Month Salary + 10% Incentive + AKI
+        wsData[i][COL.GROSS] = { f: `${colLetter(COL.MONTH_SAL)}${row}+${colLetter(COL.INCENT_10)}${row}+${colLetter(COL.AKI)}${row}` };
+        // Net Payable = Gross + OT + Pending - Advance
+        wsData[i][COL.NET_PAY] = { f: `${colLetter(COL.GROSS)}${row}+${colLetter(COL.OT)}${row}+${colLetter(COL.PENDING)}${row}-${colLetter(COL.ADVANCE)}${row}` };
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      // Column widths
+      const colWidths = [
+        { wch: 22 }, { wch: 10 }, { wch: 22 }, { wch: 18 },
+        { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 10 },
+        { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 12 }, { wch: 12 },
+        { wch: 18 }, { wch: 22 }, { wch: 22 },
+        { wch: 16 }, { wch: 24 }, { wch: 24 },
+        { wch: 22 },
+        { wch: 22 }, { wch: 26 },
+        { wch: 22 }, { wch: 20 },
+        ...Array.from({ length: daysInMonth }, () => ({ wch: 10 }))
+      ];
+      ws['!cols'] = colWidths;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, monthName);
+      const xlsxBuf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      link.download = `${monthName} ${year} Salary File.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+
+      setShowPagarModal(false);
     } catch (e) { alert(e.message); }
   };
 
@@ -587,6 +832,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           <div className="search-input-wrap">
             {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>
+            {showPagarExport && <button className="btn btn-primary btn-sm" onClick={handlePagarExport} title="Download Salary File (July format)">Salary File</button>}
             <button className="btn btn-outline btn-sm" onClick={handleFullPayExport} title="Download full payroll with formulas">Full Excel</button>
             <button className="btn btn-outline btn-sm" onClick={handleExportAll} title="Export all worker data to Excel">Export All</button>
             {showBulkPrint && <button className="btn btn-outline btn-sm" onClick={handleBulkPrint} title="Download print forms for verified workers">Bulk Print</button>}
@@ -690,6 +936,42 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           </div>
         )}
       </div>
+    {showPagarModal && (
+      <div className="modal-overlay" onClick={() => setShowPagarModal(false)}>
+        <div onClick={e => e.stopPropagation()} style={{ 
+          width: 360, 
+          background: 'var(--card-bg)', 
+          borderRadius: 14, 
+          boxShadow: '0 12px 48px rgba(0,0,0,.15)',
+          border: '1px solid var(--line)',
+          maxHeight: 'calc(100vh - 40px)',
+          overflow: 'hidden'
+        }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            padding: '14px 18px', 
+            borderBottom: '1px solid var(--line)' 
+          }}>
+            <h4 style={{ margin: 0, fontSize: 15 }}>Download Salary File</h4>
+            <button onClick={() => setShowPagarModal(false)} style={{ 
+              width: 28, height: 28, borderRadius: '50%', border: 'none', 
+              background: 'rgba(0,0,0,.08)', color: '#666', fontSize: 18, 
+              cursor: 'pointer', display: 'grid', placeItems: 'center', lineHeight: 1 
+            }}>×</button>
+          </div>
+          <div style={{ padding: 20 }}>
+            <p style={{ marginBottom: 16, color: 'var(--ink-soft)' }}>Select month for the Salary File export:</p>
+            <input type="month" className="input" value={pagarMonth} onChange={e => setPagarMonth(e.target.value)} style={{ width: '100%', padding: '10px 12px', marginBottom: 16, fontSize: 14 }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-outline" onClick={() => setShowPagarModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => { doPagarExport(pagarMonth); }}>Download</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
