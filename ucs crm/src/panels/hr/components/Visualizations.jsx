@@ -5,8 +5,7 @@ import { fetchWorkers, fetchAttendance, fetchLeaves, fetchHolidays, fetchNgoSumm
 import api from '../api/auth';
 import RecentNotices from '../../../components/RecentNotices';
 import RecruiterOverview from './RecruiterOverview';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
+import { API_BASE } from '../../../lib/apiBase';
 
 /* ─── Animated counter ─── */
 function AnimatedNum({ to, suffix = '' }) {

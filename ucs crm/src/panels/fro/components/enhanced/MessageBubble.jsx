@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import MediaPreviewModal from './MediaPreviewModal'
+import { API_BASE as apiBase } from '../../../../lib/apiBase'
 
 function MessageStatusIcon({ status }) {
   if (status === 'queued' || status === 'sending') {
@@ -83,7 +84,6 @@ function MediaFromMeta({ mediaId, mimeType }) {
 
   useEffect(() => {
     let cancelled = false
-    const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
     const token = (() => { try { return localStorage.getItem('ucs_token') } catch { return null } })()
     ;(async () => {
       try {

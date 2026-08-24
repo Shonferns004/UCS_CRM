@@ -11,6 +11,7 @@ import BulkProgressModal from '../components/BulkProgressModal'
 import ConfirmBulkModal from '../components/ConfirmBulkModal'
 import Toast from '../components/Toast'
 import ReceiptHistory, { prepareImportRows } from './ReceiptHistory'
+import { API_BASE as apiBase } from '../../../lib/apiBase'
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak, metaTemplate: 'bsct_receipt', metaLang: 'en' },
@@ -474,7 +475,6 @@ export default function Receipts() {
       }
       setUploadProgress(100);
       setUploadStatus('');
-      const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
       const rootUrl = apiBase.replace(/\/api\/?$/, '');
       const parts = [`${totalImported} receipts imported`];
       if (totalUpgraded > 0) parts.push(`${totalUpgraded} suspense receipts credited from re-upload`);
