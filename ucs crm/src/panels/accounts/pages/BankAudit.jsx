@@ -433,7 +433,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({...EMPTY_FM});
-  const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[snm,setSnm]=useState('');const[er,setEr]=useState('');
+  const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[srcTab,setSrcTab]=useState('bank');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[cm,setCm]=useState(false);
   const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);const clickRef=useRef(null);
@@ -521,10 +521,13 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     if(isReceiptSuspense(dci)){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
     else{await apiDelete('/accounts/bank-audit/entries/'+dci.id)}
     setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
-  const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn,mop:snm});setSnn('');setSnm('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
-  const setSrcMop=async(s,v)=>{try{setSr(sr.map(x=>x.id===s.id?{...x,mop:v||null}:x));await apiPut('/accounts/bank-audit/sources/'+s.id,{mop:v})}catch(e){setTo({msg:e.message,type:'error',vis:true});setSr(await apiGet('/accounts/bank-audit/sources'))}};
+  const dbModes=sr.filter(s=>s.kind==='mop').map(s=>s.name).filter(Boolean);
+  const modeList=dbModes.length?[...new Set([...dbModes,'online','others'])]:[...MODE_OPTIONS];
+  const modeSet=new Set([...MODE_OPTIONS,...dbModes]);
+  const bankSrcs=sr.filter(s=>(s.kind||'bank')==='bank'&&s.is_active!==false);
+  const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn,kind:srcTab});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
-  const openE=(entry)=>{setShowMvForm(false);setMv(null);setMvErr('');setMvResults([]);setMvShowResults(false);const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';const edMode=entry.mode||'';const modeFilled={mode:MODE_OPTIONS.includes(edMode)?edMode:(edMode?'others':''),modeCustom:MODE_OPTIONS.includes(edMode)?'':edMode};if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,...modeFilled,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({...EMPTY_FM,...modeFilled,src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
+  const openE=(entry)=>{setShowMvForm(false);setMv(null);setMvErr('');setMvResults([]);setMvShowResults(false);const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';const edMode=entry.mode||'';const modeFilled={mode:modeSet.has(edMode)?edMode:(edMode?'others':''),modeCustom:modeSet.has(edMode)?'':edMode};if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,...modeFilled,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({...EMPTY_FM,...modeFilled,src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
   const orNa=(v,fallback)=>v||fallback||'NA';
   const pickLead=(l)=>{setFm(p=>({...p,log_id:l.log_id,donor_id:l.donor_id||'',payer_name:l.donor_name||p.payer_name,donor_name:l.donor_name||p.donor_name,donor_mobile:orNa(l.donor_mobile,p.donor_mobile),donor_email:orNa(l.donor_email,p.donor_email),donor_pan:orNa(l.donor_pan,p.donor_pan),donor_address_1:orNa(l.donor_address_1,p.donor_address_1),donor_address_2:orNa(l.donor_address_2,p.donor_address_2),donor_city:orNa(l.donor_city,p.donor_city),donor_pin_code:orNa(l.donor_pin_code,p.donor_pin_code),project_id:l.donor_project||p.project_id,agent_name:l.agent_name||p.agent_name,_lead_amount:Number(l.amount||0)}));};
   const clearLead=()=>setFm(p=>({...p,log_id:'',donor_id:'',donor_name:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',_lead_amount:null}));
@@ -593,9 +596,9 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Mode of Payment <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-            <select className="field-input" value={MODE_OPTIONS.includes(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
+            <select className="field-input" value={modeSet.has(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select mode...</option>
-              {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
+              {modeList.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
             </select>
             {fm.mode==='others'&&<input className="field-input" placeholder="Type your mode..." value={fm.modeCustom||''} onChange={e=>setFm(p=>({...p,modeCustom:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>}
           </label>
@@ -603,7 +606,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <span>Received Bank <span style={{color:'#dc2626'}}>*</span></span>
             <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select received bank...</option>
-              {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              {bankSrcs.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
         </div>
@@ -721,20 +724,16 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     {ss&&<div className="modal-overlay" onClick={()=>setSs(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,borderRadius:12}}>
       <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Manage Sources</h3><button className="btn btn-sm btn-icon" onClick={()=>setSs(false)} style={{padding:4}}><SvgX/></button></div>
       <div className="modal-body" style={{padding:20}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 118px auto',gap:8,marginBottom:12}}>
-          <input className="field-input" value={snn} onChange={e=>setSnn(e.target.value)} placeholder="Received bank / source name" onKeyDown={e=>e.key==='Enter'&&addSrc()}/>
-          <select className="field-input" value={snm} onChange={e=>setSnm(e.target.value)} title="Mode of Payment">
-            <option value="">MOP…</option>
-            {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
-          </select>
+        <div style={{display:'flex',gap:6,marginBottom:14}}>
+          {[['Received Banks','bank'],['Modes of Payment','mop']].map(([label,key])=>
+            <button key={key} onClick={()=>{setSrcTab(key);setSnn('')}} style={{flex:1,padding:'6px 8px',fontSize:12,fontWeight:600,borderRadius:8,cursor:'pointer',border:'1px solid '+(srcTab===key?'#2563eb':'#e5e7eb'),background:srcTab===key?'#eff6ff':'#fff',color:srcTab===key?'#2563eb':'#6b7280'}}>{label}</button>)}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,marginBottom:12}}>
+          <input className="field-input" value={snn} onChange={e=>setSnn(e.target.value)} placeholder={srcTab==='mop'?'New payment mode name':'New received bank name'} onKeyDown={e=>e.key==='Enter'&&addSrc()}/>
           <button className="btn btn-primary btn-sm" onClick={addSrc}>Add</button>
         </div>
-        {sr.map(s=><div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13,gap:8}}>
+        {sr.filter(s=>(s.kind||'bank')===srcTab).map(s=><div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13,gap:8}}>
           <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
-          <select className="field-input" value={s.mop||''} onChange={e=>setSrcMop(s,e.target.value)} title="Mode of Payment" style={{width:130,fontSize:12,padding:'3px 6px'}}>
-            <option value="">No MOP</option>
-            {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
-          </select>
           <button className="btn btn-sm" onClick={()=>delSrc(s.id)} style={{fontSize:11,padding:'2px 8px',color:'#dc2626',background:'none',border:'1px solid #fecaca',borderRadius:6}}>Delete</button>
         </div>)}
       </div>

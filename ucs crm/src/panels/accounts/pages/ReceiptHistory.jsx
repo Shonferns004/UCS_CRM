@@ -1055,8 +1055,8 @@ export default function ReceiptHistory() {
                         onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
                         style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
                       >
-                        <option value="">—</option>
-                        {editSources.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        <option value="">—"</option>
+                        {editSources.filter(s => (s.kind || 'bank') === 'bank').map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                       </select>
                     ) : type === 'mop' ? (
                       <select
