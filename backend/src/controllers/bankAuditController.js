@@ -205,8 +205,11 @@ export const listEntries = async (req, res) => {
         e.log_id = r.log_id || null;
         e.donor_id = r.donor_id || null;
         e.donor_name = r.donor_name || null;
-        e.mode = r.mode || null;
-        e.bank_name = r.bank_name || null;
+        // The entry's own saved MOP / received bank win; a blank receipt value
+        // must never blank out what Accounts set on the entry (verify copies
+        // entry.mode onto the receipt anyway).
+        e.mode = e.mode || r.mode || null;
+        e.bank_name = e.bank_name || r.bank_name || null;
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
