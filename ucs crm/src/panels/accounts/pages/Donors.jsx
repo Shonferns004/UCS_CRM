@@ -28,19 +28,15 @@ const StatCard = ({ icon, label, value, color, loading: l }) => (
 const DONOR_FIELD_GROUPS = [
   { title: 'Personal', fields: [
     ['name', 'Full Name'], ['mobile_number', 'Mobile Number'], ['mobile_2', 'Mobile 2'], ['email', 'Email'],
-    ['birth_date', 'Birth Date', 'date'], ['anniversary', 'Anniversary', 'date'],
-    ['preferred_language', 'Preferred Language'], ['donor_type', 'Donor Type'], ['donation_frequency', 'Donation Frequency'],
   ]},
   { title: 'Address', fields: [
-    ['address_1', 'Address Line 1'], ['address_2', 'Address Line 2'], ['city', 'City'], ['state', 'State'], ['pin_code', 'PIN Code'],
+    ['address_1', 'Address Line 1'], ['address_2', 'Address Line 2'],
   ]},
   { title: 'IDs / KYC', fields: [
-    ['pan_number', 'PAN Card'], ['aadhaar_number', 'Aadhaar Number'],
+    ['pan_number', 'PAN Card'],
   ]},
   { title: 'Donation Info', fields: [
-    ['bank_donor_name', 'Bank Donor Name'], ['agent_donor_name', 'Agent Donor Name'], ['donors_bank_name', "Donor's Bank Name"],
-    ['mop', 'Mode of Payment'], ['project_supported', 'Project Supported'], ['ngo', 'NGO'], ['station', 'Station'],
-    ['team', 'Team'], ['agent_name', 'Agent Name'], ['category', 'Category'], ['data_category', 'Data Category'], ['account_of', 'Account Of'],
+    ['bank_donor_name', 'Bank Donor Name'],
   ]},
 ]
 
