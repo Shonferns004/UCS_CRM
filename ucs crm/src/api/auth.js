@@ -1,4 +1,6 @@
-const BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api'
+import { API_BASE } from '../lib/apiBase'
+
+const BASE = API_BASE
 
 export function setSession(prefix, token, user) {
   localStorage.setItem(`${prefix}_token`, token)

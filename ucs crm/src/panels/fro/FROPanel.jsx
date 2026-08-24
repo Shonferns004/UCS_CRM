@@ -13,6 +13,7 @@ import { toast } from '../../components/Toast'
 import DispositionModal from './components/DispositionModal'
 import CallTimer from './components/CallTimer'
 import { CallProvider } from './CallContext'
+import { API_BASE as apiBase } from '../../lib/apiBase'
 import NotificationDrawer from '../../components/NotificationDrawer'
 import SettingsDrawer from '../../components/SettingsDrawer'
 import ToastContainer from '../../components/Toast'
@@ -333,7 +334,6 @@ export default function FROPanel() {
     try {
       const token = localStorage.getItem('ucs_token')
       if (!token) return
-      const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
 
       // Try auto-login first if no agents stored
       const storedAgents = JSON.parse(localStorage.getItem('wa_agents') || '[]')

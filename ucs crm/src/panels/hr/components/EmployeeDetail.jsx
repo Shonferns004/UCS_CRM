@@ -3,8 +3,8 @@ import { useHR, avatarColor, avatarTint, initials, DEPTS } from '../store';
 import { api } from '../../../api/auth';
 import { ArrowLeft, ArrowRight, Pencil, Trash } from '../icons';
 import { Dropdown, DatePicker } from './ui';
+import { API_BASE } from '../../../lib/apiBase';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
 const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
 function fmtTime(iso) {

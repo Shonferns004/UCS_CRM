@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import WhatsAppInbox from '../components/enhanced/WhatsAppInbox'
+import { API_BASE as apiBase } from '../../../lib/apiBase'
 
 const waQueryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 1000 * 30, retry: 1 } },
@@ -53,7 +54,6 @@ function AutoLoginLoader({ project, onReady, onError }) {
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      const apiBase = import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api'
       const ucsToken = localStorage.getItem('ucs_token')
       if (!ucsToken) {
         if (!cancelled) { setError('Not authenticated'); setLoading(false); onError?.('Not authenticated') }

@@ -1,5 +1,6 @@
 import { useContext } from 'react'
 import { UcsContext } from '../../store'
+import { API_BASE } from '../../lib/apiBase'
 export function useHR() {
   const ctx = useContext(UcsContext)
   if (!ctx) throw new Error('useHR must be used within UcsProvider')
@@ -147,7 +148,6 @@ export const fetchNgoSalaryReport = (filters = {}) => {
 // TEMPORARY fallback for NGO Salary Report only: used when /report/ngo-salary
 // fails on servers that do not yet include the QueryBuilder embedded-order fix.
 // Remove once the backend fix is deployed.
-const API_BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
 export const fetchNgoSalaryReportFallback = async (filters = {}) => {
   const month = String(filters.month || '').replace(/[^0-9-]/g, '');
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('Invalid month');

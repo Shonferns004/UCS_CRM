@@ -11,6 +11,7 @@ import { generateReceiptPDF } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
+import { API_BASE as apiBase } from '../../../lib/apiBase';
 
 const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_Ashray, beingsevak: ReceiptTemplate_BeingSevak };
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
@@ -233,7 +234,6 @@ export default function ReceiptHistory() {
       setUploadProgress(100);
       setUploadStatus('');
 
-      const apiBase = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api';
       const rootUrl = apiBase.replace(/\/api\/?$/, '');
       const parts = [`${totalImported} receipts imported`];
       if (totalUpgraded > 0) parts.push(`${totalUpgraded} suspense receipts credited from re-upload`);

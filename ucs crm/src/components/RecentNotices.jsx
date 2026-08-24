@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-
-const BASE = import.meta.env.VITE_API_URL || 'https://api.beingsevak.org/api'
+import { API_BASE as BASE } from '../lib/apiBase'
 
 const TARGET_LABELS = {
   all: null,

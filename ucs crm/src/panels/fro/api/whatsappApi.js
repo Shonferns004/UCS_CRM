@@ -1,4 +1,5 @@
 import { api } from './auth'
+import { API_BASE } from '../../../lib/apiBase'
 
 export async function getConversations(userId) {
   const data = await api('/fro/whatsapp/conversations')
@@ -78,7 +79,7 @@ export async function uploadMedia(userId, file) {
   const formData = new FormData()
   formData.append('file', file)
   try {
-    const res = await fetch((import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/upload', {
+    const res = await fetch(API_BASE + '/upload', {
       method: 'POST',
       headers: { Authorization: `Bearer ${localStorage.getItem('ucs_token') || ''}` },
       body: formData,
