@@ -286,6 +286,13 @@ export default function Leads() {
   });
 
   const scheduledLeads = leads.filter(l => l.status === 'scheduled');
+
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [leadFilters.search, leadFilters.status, leadFilters.source]);
+  const totalLeadPages = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
+  const safeLeadPage = Math.min(page, totalLeadPages);
+  const paginatedLeads = filteredLeads.slice((safeLeadPage - 1) * PAGE_SIZE, safeLeadPage * PAGE_SIZE);
   const selectedLead = selectedLeadId ? leads.find(l => l.id === selectedLeadId) : null;
   const formValid = name.trim() && phone.trim() && source && selectedJobRole;
 
@@ -556,7 +563,7 @@ export default function Leads() {
                 </tr>
               </thead>
               <tbody>
-                {filteredLeads.map(l => {
+                {paginatedLeads.map(l => {
                   let parsed = [];
                   try { parsed = JSON.parse(l.notes || '[]'); } catch (e) { console.error('Error:', e.message); }
                   const displayAge = l.dob ? calcAge(l.dob) : l.age;
@@ -582,6 +589,22 @@ export default function Leads() {
                 })}
               </tbody>
             </table>
+            </div>
+          )}
+          {!leadsLoading && filteredLeads.length > 0 && totalLeadPages > 1 && (
+            <div className="pagination">
+              <div className="pagination-left">
+                <button className="btn btn-sm btn-primary" disabled={safeLeadPage <= 1} onClick={() => setPage(safeLeadPage - 1)}>← Prev</button>
+              </div>
+              <div className="pagination-center">Page {safeLeadPage} of {totalLeadPages}</div>
+              <div className="pagination-right">
+                <div className="pagination-dots">
+                  {Array.from({ length: totalLeadPages }, (_, i) => i + 1).map(p => (
+                    <span key={p} className={`dot ${p === safeLeadPage ? 'dot-active' : ''}`} onClick={() => setPage(p)} />
+                  ))}
+                </div>
+                <button className="btn btn-sm btn-primary" disabled={safeLeadPage >= totalLeadPages} onClick={() => setPage(safeLeadPage + 1)}>Next →</button>
+              </div>
             </div>
           )}
         </div>
