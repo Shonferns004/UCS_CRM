@@ -9,6 +9,7 @@ import { TimePicker } from '../components/TimePicker';
 import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
+import { API_BASE } from '../../../lib/apiBase';
 import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, DISPOSITION_ORDER, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
 
 function callFmt(seconds) {
@@ -32,7 +33,10 @@ const isCollectionLog = (log) =>
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
 const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
-const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : (DISPOSITION_ORDER[s] ?? 99) + 1);
+// Ringing always sorts to the very end of the calling queue (mirrors the
+// backend group sort in froController.getMyDonors).
+const RINGING_RANK = Number.MAX_SAFE_INTEGER;
+const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : s === 'ringing' ? RINGING_RANK : (DISPOSITION_ORDER[s] ?? 99) + 1);
 function filterAndSortDonors(list) {
   return list
     .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)
@@ -544,7 +548,7 @@ export default function MyDonors() {
           if (p.dataTab === 'new') { body.new_donor_id = p.donor.id; body.new_donor_index = p.index; }
           else { body.old_donor_id = p.donor.id; body.old_donor_index = p.index; }
           navigator.sendBeacon && navigator.sendBeacon(
-            (import.meta.env.VITE_API_URL || 'https://ucs-crm-backend.vercel.app/api') + '/fro/progress',
+            API_BASE + '/fro/progress',
             JSON.stringify(body)
           );
         } catch (e) { /* silent */ }
@@ -929,8 +933,11 @@ export default function MyDonors() {
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
       markWorkedToday(donor);
 
-      const newStatus = DISP_TO_STATUS[selected] || selected;
-      const newDonors = applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: newStatus, is_new: false });
+      // DND donors disappear from the queue immediately — the backend keeps
+      // them hidden until the next month (see getMyDonors dnd filter).
+      const newDonors = selected === 'dnd'
+        ? filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)))
+        : applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: DISP_TO_STATUS[selected] || selected, is_new: false });
       setDonors(newDonors);
 
       if (returnToDonor) {
