@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useRec, INTERVIEW_ROUNDS, INTERVIEW_MODES, RECOMMENDATIONS, REMINDER_OPTIONS, INTERVIEW_STATUS_COLOR } from '../store';
+import { useRec, CANDIDATE_STAGES, STAGE_TO_STATUS, INTERVIEW_ROUNDS, INTERVIEW_MODES, RECOMMENDATIONS, REMINDER_OPTIONS, INTERVIEW_STATUS_COLOR } from '../store';
 import { Who, Dropdown } from './ui';
 import { Cal, X, Pencil, Eye, Check } from '../icons';
 
@@ -100,7 +100,7 @@ function Row({ iv, onView, onEdit, onComplete, onCancel }) {
   );
 }
 
-const ivToForm = (iv) => ({
+export const ivToForm = (iv) => ({
   id: iv.id,
   candidateId: iv.candidateId,
   jobRole: iv.jobRole && iv.jobRole !== '—' ? iv.jobRole : '',
@@ -116,9 +116,9 @@ const ivToForm = (iv) => ({
   reminder: iv.reminder || 'none',
 });
 
-const emptyForm = () => ({ id: undefined, candidateId: '', jobRole: '', round: '', interviewer: '', date: '', startTime: '', endTime: '', mode: 'Online', link: '', location: '', notes: '', reminder: 'none' });
+const emptyForm = () => ({ id: undefined, candidateId: '', stage: '', jobRole: '', round: '', interviewer: '', date: '', startTime: '', endTime: '', mode: 'Online', link: '', location: '', notes: '', reminder: 'none' });
 
-function ScheduleForm({ title, editing, initial, candidates, candidateOptions, jobOptions, interviews, saving, onSave, onClose }) {
+export function ScheduleForm({ title, editing, initial, candidates, candidateOptions, jobOptions, interviews, saving, onSave, onClose }) {
   const [f, setF] = useState(initial);
   const [errors, setErrors] = useState({});
   const [customJob, setCustomJob] = useState('');
@@ -156,10 +156,11 @@ function ScheduleForm({ title, editing, initial, candidates, candidateOptions, j
     setErrors(e);
     if (Object.keys(e).length) return;
     const role = f.jobRole === 'Other' ? customJob.trim() : f.jobRole;
-    onSave({ ...f, jobRole: role, interviewer: f.interviewer.trim(), link: f.link.trim(), location: f.location.trim(), notes: f.notes.trim() });
+    onSave({ ...f, jobRole: role, stage: currentStage, interviewer: f.interviewer.trim(), link: f.link.trim(), location: f.location.trim(), notes: f.notes.trim() });
   };
 
   const selCandidate = candidates.find(c => c.id === f.candidateId);
+  const currentStage = f.stage || (selCandidate ? selCandidate.stage : '');
 
   return (
     <Overlay onClose={onClose} width={700}>
@@ -169,18 +170,10 @@ function ScheduleForm({ title, editing, initial, candidates, candidateOptions, j
       </div>
       <form className="card-pad" onSubmit={submit} style={{ padding: '16px 20px' }}>
         <div className="form-row" style={{ gap: 16 }}>
-          {editing ? (
-            <label className="field" style={{ flex: 1.4 }}>
-              <span style={{ fontSize: 12, marginBottom: 4 }}>Candidate</span>
-              <div className="dropdown-trigger" style={{ opacity: .75, padding: '10px 12px' }}>{selCandidate ? selCandidate.name : '—'}</div>
-            </label>
-          ) : (
-            <label className="field" style={{ flex: 1.4 }}>
-              <span style={{ fontSize: 12, marginBottom: 4 }}>Candidate *</span>
-              <Dropdown value={f.candidateId} onChange={e => set('candidateId', e.target.value)} options={candidateOptions} placeholder="Select candidate" />
-              {errBox('candidateId')}
-            </label>
-          )}
+          <label className="field" style={{ flex: 1.4 }}>
+            <span style={{ fontSize: 12, marginBottom: 4 }}>Stage</span>
+            <Dropdown value={currentStage} onChange={e => set('stage', e.target.value)} options={[{ value: '', label: 'No change' }, ...CANDIDATE_STAGES.map(s => ({ value: s, label: s }))]} placeholder="Select stage" />
+          </label>
           <label className="field" style={{ flex: 1 }}>
             <span style={{ fontSize: 12, marginBottom: 4 }}>Position *</span>
             <Dropdown value={f.jobRole} onChange={e => set('jobRole', e.target.value)} options={jobOptions} customTrigger="Other" customValue={customJob} onCustomChange={setCustomJob} placeholder="Select position" />
@@ -250,7 +243,7 @@ function ScheduleForm({ title, editing, initial, candidates, candidateOptions, j
   );
 }
 
-function DetailView({ iv, onEdit, onConfirm, onNoShow, onComplete, onCancel, onClose }) {
+export function DetailView({ iv, onEdit, onConfirm, onNoShow, onComplete, onCancel, onClose }) {
   const active = STATUS_ACTIVE.includes(iv.status);
   const row = (label, value) => (
     <div style={{ display: 'flex', gap: 12, padding: '6px 0' }}>
@@ -312,7 +305,7 @@ function DetailView({ iv, onEdit, onConfirm, onNoShow, onComplete, onCancel, onC
   );
 }
 
-function CompleteForm({ iv, saving, onSave, onClose }) {
+export function CompleteForm({ iv, saving, onSave, onClose }) {
   const [f, setF] = useState({ result: '', rating: 0, feedback: '', strengths: '', weaknesses: '', recommendation: '' });
   const [errors, setErrors] = useState({});
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setErrors(p => ({ ...p, [k]: '' })); };
@@ -373,7 +366,7 @@ function CompleteForm({ iv, saving, onSave, onClose }) {
   );
 }
 
-function CancelForm({ iv, saving, onSave, onClose }) {
+export function CancelForm({ iv, saving, onSave, onClose }) {
   const [reason, setReason] = useState('');
   const submit = (ev) => { ev.preventDefault(); onSave(reason.trim()); };
   return (
@@ -434,7 +427,8 @@ export default function Interviews() {
     setTimeout(() => { setMsg(''); setErr(''); }, 3500);
   };
 
-  const handleFormSave = async (data, editing) => {
+  const handleFormSave = async (dataRaw) => {
+    const { stage: nextStage, ...data } = dataRaw;
     setBusy(true);
     try {
       const nowIso = new Date().toISOString();
@@ -459,12 +453,15 @@ export default function Interviews() {
         };
       }
       await saveInterview(iv);
+      const cand = candidates.find(c => c.id === data.candidateId);
       if (!editing) {
-        const cand = candidates.find(c => c.id === data.candidateId);
         const st = cand && cand.status;
         if (!['selected', 'offer_released', 'offer_accepted', 'onboarding', 'joined', 'rejected'].includes(st)) {
           await updateCandidateStatus(data.candidateId, 'scheduled');
         }
+      }
+      if (nextStage && cand && cand.stage !== nextStage) {
+        await updateCandidateStatus(data.candidateId, STAGE_TO_STATUS[nextStage] || cand.status);
       }
       setShowFormModal(false);
       setFormInitial(null);
