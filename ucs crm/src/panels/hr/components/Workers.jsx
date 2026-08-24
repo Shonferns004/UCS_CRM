@@ -105,7 +105,7 @@ function WhoWithPhoto({ name, role, photo_url }) {
   );
 }
 
-export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true }) {
+export default function Workers({ onSelect, onOffboard, showAddForm = true, showNgoSalary = true, showBulkPrint = true, title = 'Volunteers' }) {
   const { addWorker, DEPTS, fetchWorkers, fetchNGOs, fetchNgoSummaryList } = useHR();
   const navigate = useNavigate();
   const [workers, setWorkers] = useState([]);
@@ -583,7 +583,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       </div>
 
       <div className="card" ref={tableRef}>
-        <div className="card-head"><h3>Volunteers</h3>
+        <div className="card-head"><h3>{title}</h3>
           <div className="search-input-wrap">
             {showNgoSalary && <button className="btn btn-primary btn-sm" onClick={() => navigate('/hr/ngo')} title="Manage NGO allocations, reports and payments">NGO & Salary</button>}
             <button className="btn btn-primary btn-sm" onClick={handlePayExport} title="Download payroll Excel">Pay</button>

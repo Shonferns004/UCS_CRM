@@ -102,7 +102,7 @@ function VolunteersListPage({ theme }) {
   const navigate = useNavigate()
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
-      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false}
+      <Workers showAddForm={false} showNgoSalary={false} showBulkPrint={false} title="Attendance"
         onSelect={(w) => navigate(`/accounts/volunteers/${w.id}`)}
         onOffboard={(w) => navigate(`/accounts/volunteers/${w.id}/offboard`)} />
     </div>
@@ -132,7 +132,7 @@ function VolunteerOffboardPage({ theme }) {
   return (
     <div className="panel-hr" style={hrScopeStyle(theme)}>
       {loading ? <div className="empty">Loading...</div>
-        : !worker ? <div className="empty">Volunteer not found.</div>
+        : !worker ? <div className="empty">Attendance not found.</div>
         : <Offboarding worker={worker} onBack={() => navigate('/accounts/volunteers')} />}
     </div>
   )
