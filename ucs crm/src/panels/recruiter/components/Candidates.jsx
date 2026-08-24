@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRec } from '../store';
 import { Search, Trash, X, Pencil, Eye } from '../icons';
-import { Dropdown, Who } from './ui';
+import { Dropdown, Who, cleanField } from './ui';
 import { CANDIDATE_STAGES, CANDIDATE_SOURCES, STAGE_TO_STATUS, getCandidateProfile, buildCandidateNotes } from '../store';
 import CandidateForm from './CandidateForm';
 import CandidateDetail from './CandidateDetail';
@@ -14,6 +14,40 @@ const SkeletonRow = ({ cols }) => (
     ))}
   </tr>
 );
+
+const CONNECTED_STATUS_MAP = { follow_up: 'followed_up', call_back: 'call_back', schedule: 'scheduled', not_interested: 'not_interested' };
+
+const DEFAULT_CONNECTED = [
+  { value: 'follow_up', label: 'Follow Up' },
+  { value: 'call_back', label: 'Call Back' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'not_interested', label: 'Not Interested' },
+];
+
+const DEFAULT_NOT_CONNECTED = [
+  { value: 'ringing', label: 'Ringing' },
+  { value: 'unreachable', label: 'Unreachable' },
+  { value: 'busy', label: 'Busy' },
+  { value: 'switched_off', label: 'Switched Off' },
+  { value: 'wrong_number', label: 'Wrong Number' },
+  { value: 'invalid', label: 'Invalid' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+const readList = (key, defaults) => {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch (e) {}
+  return defaults;
+};
+
+const statusPill = (s, labelMap) => {
+  const m = { rejected:'pill-danger', hold:'pill-gold', scheduled:'pill-clay', selected:'pill-green', joined:'pill-green' };
+  const label = s ? (labelMap[s] || s.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())) : '\u2014';
+  return <span className={`pill ${m[s] || 'pill-gray'}`}>{label}</span>;
+};
 
 const INTERVIEW_ACTIVE = ['Scheduled', 'Confirmed', 'In Progress', 'Rescheduled'];
 
@@ -262,6 +296,25 @@ export default function Candidates() {
   const stageOptions = [{ value: 'All', label: 'All stages' }, ...CANDIDATE_STAGES.map(s => ({ value: s, label: s }))];
   const sourceOptions = [{ value: 'All', label: 'All sources' }, ...CANDIDATE_SOURCES.map(s => ({ value: s, label: s }))];
 
+  const connectedOpts = readList('rec_leads_connectedOptions', DEFAULT_CONNECTED);
+  const notConnectedOpts = readList('rec_leads_notConnectedOptions', DEFAULT_NOT_CONNECTED);
+  const statusLabelMap = {
+    hold: 'Hold',
+    new: 'New',
+    contacted: 'Contacted',
+    screening: 'Screening',
+    shortlisted: 'Shortlisted',
+    selected: 'Selected',
+    interviewed: 'Interviewed',
+    offer_released: 'Offer Released',
+    offer_accepted: 'Offer Accepted',
+    onboarding: 'Onboarding',
+    on_hold: 'On Hold',
+    withdrawn: 'Withdrawn',
+    ...connectedOpts.reduce((acc, o) => { acc[CONNECTED_STATUS_MAP[o.value] || o.value] = o.label; return acc; }, {}),
+    ...notConnectedOpts.reduce((acc, o) => { acc[o.value] = o.label; return acc; }, {}),
+  };
+
   return (
     <>
       {view?.type === 'edit' && current && (
@@ -319,7 +372,7 @@ export default function Candidates() {
                       <tr key={c.id}>
                         <td><Who name={c.name} role={c.role} /></td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.phone}</td>
-                        <td style={{ color: 'var(--ink-soft)' }}>{c.stage}</td>
+                        <td>{statusPill(cleanField(c._raw ? c._raw.status : c.status), statusLabelMap)}</td>
                         <td style={{ color: 'var(--ink-soft)' }}>{c.source}</td>
                         <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
                           {nextIv ? (
