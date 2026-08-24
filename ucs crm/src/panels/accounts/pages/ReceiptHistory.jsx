@@ -137,6 +137,9 @@ export default function ReceiptHistory() {
   const [donorDetail, setDonorDetail] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
   const [waLoading, setWaLoading] = useState(false);
   const [waResult, setWaResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -186,11 +189,13 @@ export default function ReceiptHistory() {
     const params = new URLSearchParams();
     params.set('page', String(page));
     params.set('limit', '100');
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
     if (receiptNgo) params.set('project', receiptNgo);
     if (suspenseMode) params.set('suspense', '1');
     if (fromDate) params.set('from_date', fromDate);
     if (toDate) params.set('to_date', toDate);
+    if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) params.set('min_amount', String(minAmount));
+    if (maxAmount !== '' && !Number.isNaN(parseFloat(maxAmount))) params.set('max_amount', String(maxAmount));
     apiGet(`/accounts/receipts?${params.toString()}`)
       .then((res) => {
         setReceipts(Array.isArray(res?.data) ? res.data : []);
@@ -199,7 +204,12 @@ export default function ReceiptHistory() {
       })
       .catch((err) => { console.error('API error:', err.message); })
       .finally(() => setLoading(false));
-  }, [page, searchQuery, fromDate, toDate, receiptNgo, suspenseMode]);
+  }, [page, debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, minAmount, maxAmount]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   const runImport = useCallback(async (rows, ngoIdForImport) => {
     if (!rows || rows.length === 0) return;
@@ -362,7 +372,7 @@ export default function ReceiptHistory() {
     } catch (err) { alert('Clean up failed: ' + err.message); setDeleting(false); setDeleteStatus(''); setDeleteProgress(0); }
   };
 
-  useEffect(() => { setPage(1); }, [searchQuery, fromDate, toDate, receiptNgo, suspenseMode]);
+  useEffect(() => { setPage(1); }, [debouncedSearch, fromDate, toDate, receiptNgo, suspenseMode, minAmount, maxAmount]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -550,11 +560,13 @@ export default function ReceiptHistory() {
 
   const buildFilterParams = (extra = {}) => {
     const p = new URLSearchParams();
-    if (searchQuery.trim()) p.set('search', searchQuery.trim());
+    if (debouncedSearch.trim()) p.set('search', debouncedSearch.trim());
     if (receiptNgo) p.set('project', receiptNgo);
     if (suspenseMode) p.set('suspense', '1');
     if (fromDate) p.set('from_date', fromDate);
     if (toDate) p.set('to_date', toDate);
+    if (minAmount !== '' && !Number.isNaN(parseFloat(minAmount))) p.set('min_amount', String(minAmount));
+    if (maxAmount !== '' && !Number.isNaN(parseFloat(maxAmount))) p.set('max_amount', String(maxAmount));
     for (const [k, v] of Object.entries(extra)) p.set(k, v);
     return p;
   };
@@ -778,19 +790,17 @@ export default function ReceiptHistory() {
             <option value="library">Library</option>
             <option value="pg">PG</option>
           </select>
+          <input type="number" min="0" placeholder="Min &#8377;" value={minAmount} onChange={e => setMinAmount(e.target.value)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 80 }} />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>&ndash;</span>
+          <input type="number" min="0" placeholder="Max &#8377;" value={maxAmount} onChange={e => setMaxAmount(e.target.value)}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', width: 80 }} />
+          <span style={{ width: 1, height: 18, background: '#d1d5db', margin: '0 2px' }} />
           <input
             className="search-input"
-            placeholder="Search by receipt no, donor name, or mobile..."
+            placeholder="Search name, mobile, PAN, email, UTR, receipt no..."
             value={searchQuery}
-            onChange={e => {
-              setSearchQuery(e.target.value);
-              if (e.target.value.trim()) {
-                setFromDate('');
-                setToDate('');
-                setReceiptNgo('');
-                setSuspenseMode(false);
-              }
-            }}
+            onChange={e => setSearchQuery(e.target.value)}
             style={{ flex: 1, minWidth: 200, maxWidth: 300 }}
           />
           <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>{total} receipts</span>

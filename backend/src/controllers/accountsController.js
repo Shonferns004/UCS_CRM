@@ -1616,7 +1616,9 @@ export const getReceiptList = async (req, res) => {
     const params = [];
     if (search) {
       params.push(`%${search}%`);
-      where.push(`(receipt_no ILIKE $${params.length} OR donor_name ILIKE $${params.length} OR donor_mobile ILIKE $${params.length})`);
+      where.push(`(receipt_no ILIKE $${params.length} OR donor_name ILIKE $${params.length} OR donor_mobile ILIKE $${params.length}
+        OR mobile_2 ILIKE $${params.length} OR pan_number ILIKE $${params.length} OR email ILIKE $${params.length}
+        OR payment_id ILIKE $${params.length} OR agent_name ILIKE $${params.length})`);
     }
     if (project) {
       params.push(project);
@@ -1670,6 +1672,10 @@ export const getReceiptList = async (req, res) => {
     }
     if (fromDate) { params.push(fromDate); where.push(`receipt_date >= $${params.length}::date`); }
     if (toDate) { params.push(toDate); where.push(`receipt_date <= $${params.length}::date`); }
+    const minAmount = parseFloat(req.query.min_amount);
+    if (Number.isFinite(minAmount)) { params.push(minAmount); where.push(`amount >= $${params.length}`); }
+    const maxAmount = parseFloat(req.query.max_amount);
+    if (Number.isFinite(maxAmount)) { params.push(maxAmount); where.push(`amount <= $${params.length}`); }
 
     const hasDateFilter = !!period || !!fromDate || !!toDate;
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
