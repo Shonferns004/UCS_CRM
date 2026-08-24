@@ -237,6 +237,17 @@ export const listEntries = async (req, res) => {
     // An entry whose linked receipt was claimed by an FRO (receipts.log_id set,
     // lead still pending) shows who made the claim on the entry card too, so
     // bank-audited claims stay visible without needing a separate suspense card.
+    // Manual-verify rows also resolve the saved FRO's name for the SAVED tag.
+    const mvFroIds = [...new Set((entries || []).map((e) => e.verify_fro_worker_id).filter(Boolean))];
+    if (mvFroIds.length > 0) {
+      const { data: mvWorkers, error: mvWorkersErr } = await db
+        .from('workers').select('id, name').in('id', mvFroIds);
+      if (mvWorkersErr) throw mvWorkersErr;
+      const mvNameById = Object.fromEntries((mvWorkers || []).map((w) => [w.id, w.name]));
+      for (const e of entries || []) {
+        if (e.verify_fro_worker_id) e.verify_fro_name = mvNameById[e.verify_fro_worker_id] || null;
+      }
+    }
     const entryLogIds = [...new Set((entries || []).map((e) => e.log_id).filter(Boolean))];
     if (entryLogIds.length > 0) {
       const { data: entryLogs, error: entryLogErr } = await db
@@ -926,6 +937,9 @@ export const saveManualVerifyDetails = async (req, res) => {
 
     if (verify_type !== undefined) updates.verify_type = verify_type || null;
     if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
+    // Saving an FRO via the MV form stamps the verify type when none is set
+    // (the Type dropdown is gone) so tiles can show the SAVED tag.
+    if (fro_worker_id && !entry.verify_type && updates.verify_type === undefined) updates.verify_type = 'fro';
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
     // donor_name intentionally does NOT touch payer_name — the bank statement
