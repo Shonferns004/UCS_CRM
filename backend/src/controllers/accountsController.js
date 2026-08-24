@@ -1935,6 +1935,169 @@ export const markReceiptAsSent = async (req, res) => {
   }
 };
 
+// ─── WhatsApp send queue: hidden receipts ─────────────────
+// Rows that silently fail the pending-queue checks (getPendingReceipts):
+// no receipt number, no donor link, unverified lead, or stamped already-sent.
+// Surfaced here so nothing disappears without explanation — plus Fix/Delete.
+
+const normalizeMobileKey = (v) => {
+  let n = String(v ?? '').replace(/\D/g, '');
+  if (!n) return '';
+  if (n.length === 12 && n.startsWith('91')) n = n.slice(2);
+  else if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+  return n;
+};
+
+const MOBILE_CANON_SQL = `
+  SELECT id FROM (
+    SELECT id, CASE
+                 WHEN length(digits) = 12 AND left(digits, 2) = '91' THEN substr(digits, 3)
+                 WHEN length(digits) = 11 AND left(digits, 1) = '0' THEN substr(digits, 2)
+                 ELSE digits
+               END AS canon
+    FROM (SELECT id, regexp_replace(mobile_number, '[^0-9]', '', 'g') AS digits
+          FROM donor_profiles WHERE mobile_number IS NOT NULL) t
+  ) u WHERE u.canon = $1 LIMIT 1`;
+
+export const getExcludedReceipts = async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 14, 1), 60);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+    const { rows } = await db._pool.query(
+      `SELECT r.id, r.receipt_no, r.donor_name, r.donor_mobile, r.amount, r.project_id,
+              r.mode, r.agent_name, r.created_at, r.sent, r.sent_at, r.log_id,
+              l.accounts_status AS log_status,
+              array_remove(ARRAY[
+                CASE WHEN COALESCE(r.receipt_no,'') = '' THEN 'no_number' END,
+                CASE WHEN r.donor_id IS NULL THEN 'no_donor' END,
+                CASE WHEN r.sent IS TRUE THEN 'already_sent' END,
+                CASE WHEN r.log_id IS NOT NULL AND COALESCE(l.accounts_status,'') <> 'verified'
+                     THEN 'lead_not_verified' END
+              ], NULL) AS reasons,
+              EXISTS (
+                SELECT 1 FROM receipts d
+                WHERE d.id <> r.id AND d.project_id = r.project_id
+                  AND COALESCE(d.receipt_no,'') <> ''
+                  AND regexp_replace(COALESCE(d.donor_mobile,''),'[^0-9]','','g') <> ''
+                  AND regexp_replace(COALESCE(d.donor_mobile,''),'[^0-9]','','g')
+                    = regexp_replace(COALESCE(r.donor_mobile,''),'[^0-9]','','g')
+                  AND ABS(EXTRACT(EPOCH FROM (d.created_at - r.created_at))) < 172800
+                  AND ABS(COALESCE(d.amount,0) - COALESCE(r.amount,0)) < 0.01
+              ) AS likely_duplicate
+       FROM receipts r
+       LEFT JOIN fro_donor_logs l ON l.id = r.log_id
+       WHERE r.created_at >= now() - make_interval(days => $1::int)
+         AND r.voided_at IS NULL
+         AND (
+              COALESCE(r.receipt_no,'') = ''
+           OR r.donor_id IS NULL
+           OR (r.log_id IS NOT NULL AND COALESCE(l.accounts_status,'') <> 'verified')
+           OR (r.sent IS TRUE AND r.log_id IS NOT NULL)
+         )
+       ORDER BY r.created_at DESC
+       LIMIT $2`,
+      [days, limit]
+    );
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const fixAndQueueReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const clearSent = req.body?.clear_sent === true;
+    const { data: receipt, error: fetchErr } = await db
+      .from('receipts').select('*').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+
+    const patch = { updated_at: new Date().toISOString() };
+    const actions = [];
+
+    if (!receipt.receipt_no) {
+      patch.receipt_no = await getNextReceiptNo(receipt.project_id);
+      actions.push(`assigned number ${patch.receipt_no}`);
+    }
+
+    if (!receipt.donor_id && receipt.donor_mobile) {
+      const key = normalizeMobileKey(receipt.donor_mobile);
+      if (key.length >= 10) {
+        const { rows: found } = await db._pool.query(MOBILE_CANON_SQL, [key]);
+        let donorId = found[0]?.id || null;
+        if (!donorId) {
+          const ins = await db.from('donor_profiles').insert({
+            name: receipt.donor_name || 'Unknown',
+            mobile_number: key,
+            project_supported: receipt.project_id || null,
+            data_category: 'Send Queue Fix',
+          }).select('id').single();
+          if (ins.error) {
+            if (ins.error.code === '23505' || /duplicate key/i.test(ins.error.message || '')) {
+              const again = await db._pool.query('SELECT id FROM donor_profiles WHERE mobile_number = $1 LIMIT 1', [key]);
+              donorId = again.rows[0]?.id || null;
+              if (!donorId) throw ins.error;
+            } else throw ins.error;
+          } else {
+            donorId = ins.data.id;
+          }
+          actions.push('created donor profile');
+        } else {
+          actions.push('linked existing donor');
+        }
+        patch.donor_id = donorId;
+      }
+    }
+
+    if (clearSent && receipt.sent) {
+      patch.sent = false;
+      patch.sent_at = null;
+      actions.push('cleared sent flag');
+    }
+
+    let updated = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data, error } = await db.from('receipts').update(patch).eq('id', id).select().single();
+      if (!error) { updated = data; break; }
+      const msg = String(error.message || error);
+      const isDup = error.code === '23505' || /duplicate key/i.test(msg);
+      if (!isDup || !patch.receipt_no || attempt === 2) throw error;
+      patch.receipt_no = await getNextReceiptNo(receipt.project_id);
+      if (actions.length > 0) actions[actions.length - 1] = `assigned number ${patch.receipt_no}`;
+    }
+    if (!updated) throw new Error('Failed to update receipt');
+
+    return res.json({ receipt: updated, actions });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteQueueReceipt = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: receipt, error: fetchErr } = await db
+      .from('receipts').select('id, log_id, receipt_no, project_id').eq('id', id).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!receipt) return res.status(404).json({ message: 'Receipt not found' });
+    if (receipt.log_id) {
+      return res.status(400).json({ message: 'This receipt is linked to a lead. Use Go Back / Undo Verification instead.' });
+    }
+    const result = await deleteReceiptSafely(id, 'removed_from_send_queue');
+    const action = result?.deleted ? 'deleted' : result?.gone ? 'already_gone' : 'voided';
+    if (result?.deleted) {
+      try { await cancelReceiptNo(receipt.project_id); } catch (_) {}
+    }
+    return res.json({ success: true, action });
+  } catch (error) {
+    if (error?.code === '23503' || /foreign key/i.test(String(error?.message))) {
+      return res.status(409).json({ message: 'This receipt is referenced by a Bank Audit entry and cannot be removed here.' });
+    }
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 export const getDonorHistory = async (req, res) => {
   try {
     const { donorId } = req.params;
