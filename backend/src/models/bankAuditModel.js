@@ -154,10 +154,10 @@ export const getSources = async () => {
   return data || [];
 };
 
-export const createSource = async (name) => {
+export const createSource = async (name, mop = null) => {
   const { data, error } = await db
     .from('bank_audit_sources')
-    .insert({ name })
+    .insert({ name, mop })
     .select()
     .single();
   if (error) throw error;

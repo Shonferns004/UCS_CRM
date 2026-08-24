@@ -25,7 +25,7 @@ const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F'
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:TODAY_IST,remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
-const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','others'];
+const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','Paytm','others'];
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
@@ -433,7 +433,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({...EMPTY_FM});
-  const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
+  const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[snm,setSnm]=useState('');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[cm,setCm]=useState(false);
   const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);const clickRef=useRef(null);
@@ -521,7 +521,8 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     if(isReceiptSuspense(dci)){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
     else{await apiDelete('/accounts/bank-audit/entries/'+dci.id)}
     setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
-  const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
+  const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn,mop:snm});setSnn('');setSnm('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
+  const setSrcMop=async(s,v)=>{try{setSr(sr.map(x=>x.id===s.id?{...x,mop:v||null}:x));await apiPut('/accounts/bank-audit/sources/'+s.id,{mop:v})}catch(e){setTo({msg:e.message,type:'error',vis:true});setSr(await apiGet('/accounts/bank-audit/sources'))}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
   const openE=(entry)=>{setShowMvForm(false);setMv(null);setMvErr('');setMvResults([]);setMvShowResults(false);const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';const edMode=entry.mode||'';const modeFilled={mode:MODE_OPTIONS.includes(edMode)?edMode:(edMode?'others':''),modeCustom:MODE_OPTIONS.includes(edMode)?'':edMode};if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,...modeFilled,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({...EMPTY_FM,...modeFilled,src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
   const orNa=(v,fallback)=>v||fallback||'NA';
@@ -720,12 +721,20 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     {ss&&<div className="modal-overlay" onClick={()=>setSs(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,borderRadius:12}}>
       <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Manage Sources</h3><button className="btn btn-sm btn-icon" onClick={()=>setSs(false)} style={{padding:4}}><SvgX/></button></div>
       <div className="modal-body" style={{padding:20}}>
-        <div style={{display:'flex',gap:8,marginBottom:12}}>
-          <input className="field-input" value={snn} onChange={e=>setSnn(e.target.value)} placeholder="New source name" onKeyDown={e=>e.key==='Enter'&&addSrc()}/>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 118px auto',gap:8,marginBottom:12}}>
+          <input className="field-input" value={snn} onChange={e=>setSnn(e.target.value)} placeholder="Received bank / source name" onKeyDown={e=>e.key==='Enter'&&addSrc()}/>
+          <select className="field-input" value={snm} onChange={e=>setSnm(e.target.value)} title="Mode of Payment">
+            <option value="">MOP…</option>
+            {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
+          </select>
           <button className="btn btn-primary btn-sm" onClick={addSrc}>Add</button>
         </div>
-        {sr.map(s=><div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
-          <span>{s.name}</span>
+        {sr.map(s=><div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13,gap:8}}>
+          <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
+          <select className="field-input" value={s.mop||''} onChange={e=>setSrcMop(s,e.target.value)} title="Mode of Payment" style={{width:130,fontSize:12,padding:'3px 6px'}}>
+            <option value="">No MOP</option>
+            {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
+          </select>
           <button className="btn btn-sm" onClick={()=>delSrc(s.id)} style={{fontSize:11,padding:'2px 8px',color:'#dc2626',background:'none',border:'1px solid #fecaca',borderRadius:6}}>Delete</button>
         </div>)}
       </div>
