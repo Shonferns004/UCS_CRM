@@ -23,9 +23,9 @@ export const listSources = async (req, res) => {
 
 export const addSource = async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, kind } = req.body;
     if (!name) return res.status(400).json({ message: 'Source name is required' });
-    const source = await BankAudit.createSource(name);
+    const source = await BankAudit.createSource(String(name).trim(), kind === 'mop' ? 'mop' : 'bank');
     return res.status(201).json(source);
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ message: 'Source already exists' });
@@ -36,11 +36,12 @@ export const addSource = async (req, res) => {
 export const editSource = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, is_active, sort_order } = req.body;
+    const { name, is_active, sort_order, kind } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (is_active !== undefined) updates.is_active = is_active;
     if (sort_order !== undefined) updates.sort_order = sort_order;
+    if (kind === 'bank' || kind === 'mop') updates.kind = kind;
     const source = await BankAudit.updateSource(id, updates);
     return res.json(source);
   } catch (error) {
@@ -204,8 +205,11 @@ export const listEntries = async (req, res) => {
         e.log_id = r.log_id || null;
         e.donor_id = r.donor_id || null;
         e.donor_name = r.donor_name || null;
-        e.mode = r.mode || null;
-        e.bank_name = r.bank_name || null;
+        // The entry's own saved MOP / received bank win; a blank receipt value
+        // must never blank out what Accounts set on the entry (verify copies
+        // entry.mode onto the receipt anyway).
+        e.mode = e.mode || r.mode || null;
+        e.bank_name = e.bank_name || r.bank_name || null;
         const lead = Array.isArray(r.fro_donor_logs) ? (r.fro_donor_logs[0] || null) : r.fro_donor_logs;
         e.lead_amount = lead?.amount_collected || null;
       }
@@ -233,6 +237,17 @@ export const listEntries = async (req, res) => {
     // An entry whose linked receipt was claimed by an FRO (receipts.log_id set,
     // lead still pending) shows who made the claim on the entry card too, so
     // bank-audited claims stay visible without needing a separate suspense card.
+    // Manual-verify rows also resolve the saved FRO's name for the SAVED tag.
+    const mvFroIds = [...new Set((entries || []).map((e) => e.verify_fro_worker_id).filter(Boolean))];
+    if (mvFroIds.length > 0) {
+      const { data: mvWorkers, error: mvWorkersErr } = await db
+        .from('workers').select('id, name').in('id', mvFroIds);
+      if (mvWorkersErr) throw mvWorkersErr;
+      const mvNameById = Object.fromEntries((mvWorkers || []).map((w) => [w.id, w.name]));
+      for (const e of entries || []) {
+        if (e.verify_fro_worker_id) e.verify_fro_name = mvNameById[e.verify_fro_worker_id] || null;
+      }
+    }
     const entryLogIds = [...new Set((entries || []).map((e) => e.log_id).filter(Boolean))];
     if (entryLogIds.length > 0) {
       const { data: entryLogs, error: entryLogErr } = await db
@@ -386,8 +401,6 @@ export const addEntry = async (req, res) => {
     const agentKnown = link?.receipt.agent_name || realAgentName(agent_name);
     const suspenseAgent = (donorKnown || priyankAgent) ? (agentKnown || 'Priyank Shah') : 'Suspense';
 
-    const isSuspense = !donorKnown && !priyankAgent;
-
     if (receiptId) {
       const receiptFields = {
         amount,
@@ -410,30 +423,11 @@ export const addEntry = async (req, res) => {
         const { error: numErr } = await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', receiptId);
         if (numErr) throw numErr;
       }
-    } else {
-      const insertFields = {
-        project_id: link?.receipt.project_id || ngo,
-        donor_name: donorName || 'Unknown',
-        agent_name: suspenseAgent,
-        ...donorFields,
-        mode: req.body.mode || donorFields.mode || null,
-        log_id: link?.receipt.log_id || null,
-        amount,
-        payment_id: payment_id || null,
-        bank_name: receivedBankName || donorFields.bank_name || null,
-        receipt_date: transaction_date,
-        receipt_time: payment_time || null,
-        purpose: 'Bank Audit Entry',
-        generated_by: req.user.id,
-      };
-      if (!isSuspense) {
-        receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
-        insertFields.receipt_no = receiptNo;
-      }
-      const { data: receipt, error: rErr } = await db.from('receipts').insert(insertFields).select().single();
-      if (rErr) throw rErr;
-      receiptId = receipt.id;
     }
+    // No receipt is created at audit-entry time — a receipt is generated only
+    // when the money is verified/attributed (manual verify / verifyLead /
+    // ensureReceiptNumber). This keeps one receipt per donation and prevents
+    // unnumbered suspense receipts from leaking into send/claim flows.
 
     const entry = await BankAudit.createEntry({
       source_id,
@@ -476,6 +470,9 @@ export const editEntry = async (req, res) => {
     if (payer_name !== undefined) updates.payer_name = payer_name;
     if (payment_time !== undefined) updates.payment_time = payment_time || null;
     if (project_id !== undefined) updates.project_id = project_id;
+    // Persist MOP on the audit entry itself (receipts get it below); without
+    // this the edit modal keeps showing the old/blank mode after a save.
+    if (mode !== undefined) updates.mode = mode || null;
 
     const { data: existing } = await db
       .from('bank_audit_entries')
@@ -571,8 +568,7 @@ export const removeEntry = async (req, res) => {
     const { id } = req.params;
     const { data: entry } = await db.from('bank_audit_entries').select('receipt_id').eq('id', id).maybeSingle();
     if (entry?.receipt_id) {
-      const { error } = await db.from('receipts').delete().eq('id', entry.receipt_id);
-      if (error) throw error;
+      await BankAudit.deleteReceiptSafely(entry.receipt_id, 'Bank audit entry deleted');
     }
     await BankAudit.deleteEntry(id);
     return res.json({ message: 'Entry deleted' });
@@ -662,8 +658,7 @@ export const removeSuspenseReceipt = async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Suspense receipt not found' });
     if (existing.log_id) return res.status(400).json({ message: 'Claimed suspense can\'t be deleted from audit; release the claim in Lead Verification first' });
 
-    const { error } = await db.from('receipts').delete().eq('id', numId);
-    if (error) throw error;
+    await BankAudit.deleteReceiptSafely(numId, 'Suspense receipt deleted');
     return res.json({ message: 'Suspense receipt deleted' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -942,9 +937,16 @@ export const saveManualVerifyDetails = async (req, res) => {
 
     if (verify_type !== undefined) updates.verify_type = verify_type || null;
     if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
+    // Saving an FRO via the MV form stamps the verify type when none is set
+    // (the Type dropdown is gone) so tiles can show the SAVED tag.
+    if (fro_worker_id && !entry.verify_type && updates.verify_type === undefined) updates.verify_type = 'fro';
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
-    if (donor_name !== undefined) updates.payer_name = donor_name || null;
+    // donor_name intentionally does NOT touch payer_name — the bank statement
+    // name is immutable here. The typed donor name lands in mv_donor_name so
+    // reopening the MV form prefills it (verify still uses it for the donor
+    // profile / receipt).
+    if (donor_name !== undefined) updates.mv_donor_name = donor_name || null;
     if (donor_address !== undefined) updates.donor_address_1 = donor_address || null;
     if (donor_address_2 !== undefined) updates.donor_address_2 = donor_address_2 || null;
     if (donor_pan !== undefined) updates.donor_pan = donor_pan || null;
@@ -963,7 +965,6 @@ export const saveManualVerifyDetails = async (req, res) => {
       const rcptUpdates = {};
       if (updates.agent_name !== undefined) rcptUpdates.agent_name = updates.agent_name;
       if (updates.donor_mobile !== undefined) rcptUpdates.donor_mobile = updates.donor_mobile;
-      if (updates.payer_name !== undefined) rcptUpdates.donor_name = updates.payer_name;
       if (updates.donor_pan !== undefined) rcptUpdates.pan_number = updates.donor_pan;
       if (updates.donor_address_1 !== undefined) rcptUpdates.address = updates.donor_address_1;
       if (updates.donor_email !== undefined) rcptUpdates.email = updates.donor_email;
@@ -1368,27 +1369,58 @@ export const manualVerifyEntry = async (req, res) => {
       await from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
 
       // Generate the receipt (uses the entered address/PAN where available).
-      const receiptNo = await BankAudit.getNextReceiptNo(project);
-      const receipt = await createReceipt({
-        log_id: logId,
-        receipt_no: receiptNo,
-        project_id: project,
-        donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
-        donor_mobile: mobile,
-        amount,
-        pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
-        address: donor_address || entryAddress || null,
-        email: donor_email || entry.donor_email || donor.email || null,
-        bank_name: entry.bank_name || donor.donors_bank_name || null,
-        mode: entry.mode || null,
-        payment_id: entry.payment_id || null,
-        agent_name: froName,
-        purpose: 'Bank Audit Manual Verify',
-        generated_by: req.user.id,
-        donor_id: donorId,
-        receipt_date: entry.transaction_date || now,
-        receipt_time: entry.payment_time || null,
-      });
+      // Reuse the entry's existing receipt if one exists — never create a second
+      // receipt for the same money (fixes duplicate receipts on re-verify).
+      let receipt = null;
+      if (entry.receipt_id) {
+        const { data: existingReceipt } = await from('receipts')
+          .select('id, receipt_no')
+          .eq('id', entry.receipt_id)
+          .maybeSingle();
+        if (existingReceipt) {
+          const patch = {
+            receipt_no: existingReceipt.receipt_no || await BankAudit.getNextReceiptNo(project),
+            donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
+            donor_mobile: mobile,
+            amount,
+            pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
+            address: donor_address || entryAddress || null,
+            email: donor_email || entry.donor_email || donor.email || null,
+            bank_name: entry.bank_name || donor.donors_bank_name || null,
+            mode: entry.mode || null,
+            payment_id: entry.payment_id || null,
+            agent_name: froName,
+            donor_id: donorId,
+            receipt_date: entry.transaction_date || now,
+            receipt_time: entry.payment_time || null,
+          };
+          if (logId) patch.log_id = logId;
+          const { data: upReceipt } = await from('receipts').update(patch).eq('id', existingReceipt.id).select().single();
+          receipt = upReceipt;
+        }
+      }
+      if (!receipt) {
+        receipt = await createReceipt({
+          log_id: logId,
+          receipt_no: await BankAudit.getNextReceiptNo(project),
+          project_id: project,
+          donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
+          donor_mobile: mobile,
+          amount,
+          pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
+          address: donor_address || entryAddress || null,
+          email: donor_email || entry.donor_email || donor.email || null,
+          bank_name: entry.bank_name || donor.donors_bank_name || null,
+          mode: entry.mode || null,
+          payment_id: entry.payment_id || null,
+          agent_name: froName,
+          purpose: 'Bank Audit Manual Verify',
+          generated_by: req.user.id,
+          donor_id: donorId,
+          receipt_date: entry.transaction_date || now,
+          receipt_time: entry.payment_time || null,
+        });
+      }
 
       await from('bank_audit_entries').update({
         receipt_id: receipt.id,

@@ -10,6 +10,7 @@ import { useRealtime } from '../../hooks/useRealtime'
 import ToastContainer from '../../components/Toast'
 import LeadAudit from './pages/LeadAudit'
 import Donors from './pages/Donors'
+import AddressImport from './pages/AddressImport'
 import AssetRegister from './pages/AssetRegister'
 import Reports from './pages/Reports'
 import RazorpayAccountsManager from './components/RazorpayAccountsManager'
@@ -32,6 +33,8 @@ const NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   { id: 'donors', path: '/accounts/donors', label: 'Donors',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
+  { id: 'address', path: '/accounts/address', label: 'Address',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> },
   { id: 'asset-register', path: '/accounts/asset-register', label: 'Asset Register',
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
   { id: 'tickets', path: '/accounts/tickets', label: 'Tickets',
@@ -264,6 +267,7 @@ export default function AccountsPanel() {
             <Route path="reports" element={<Reports />} />
             <Route path="receipts" element={<Navigate to="/accounts/receipt-generator" replace />} />
             <Route path="donors" element={<Donors />} />
+            <Route path="address" element={<AddressImport />} />
             <Route path="receipt-history" element={<Navigate to="/accounts/receipt-generator" replace />} />
             <Route path="receipt-generator" element={<Receipts />} />
             <Route path="volunteers" element={<VolunteersListPage theme={themes[themeName]} />} />

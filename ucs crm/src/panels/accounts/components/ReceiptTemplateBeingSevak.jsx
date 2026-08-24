@@ -97,10 +97,8 @@ export default function ReceiptTemplateBeingSevak({ donor }) {
             <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:600, background:'#fff', width:'25%' }}>{donor['Payment ID No.']}</div>
           </div>
           <div style={{ display:'flex' }}>
-            <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:700, background:'#f3fbff', width:'25%' }}>Bank Name:</div>
-            <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:600, background:'#fff', width:'25%' }}>{donor['Donor Bank Name'] || 'NA'}</div>
             <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:700, background:'#f3fbff', width:'25%' }}>On Account Of:</div>
-            <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:600, background:'#fff', width:'25%' }}>{donor['Account Of'] || 'Corpus'}</div>
+            <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:600, background:'#fff', width:'75%' }}>{donor['Account Of'] || 'Corpus'}</div>
           </div>
           <div style={{ display:'flex' }}>
             <div style={{ border:`1px solid ${ACCENT}`, padding:'10px', fontSize:'13px', fontWeight:700, background:'#f3fbff', width:'25%' }}>Email ID:</div>
