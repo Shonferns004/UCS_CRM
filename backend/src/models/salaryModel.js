@@ -430,13 +430,14 @@ export const getPagarExportData = async (month) => {
   // 3. Targets for month
   const { data: targets, error: tErr } = await db
     .from('incentive_targets')
-    .select('worker_id, target_amount')
+    .select('worker_id, target_amount, month')
     .gte('month', startDate)
-    .lte('month', endDate);
+    .lte('month', endDate)
+    .order('month', { ascending: false });
   if (tErr) throw tErr;
   const targetByWorker = {};
   for (const t of targets) {
-    targetByWorker[t.worker_id] = parseFloat(t.target_amount);
+    if (!targetByWorker[t.worker_id]) targetByWorker[t.worker_id] = parseFloat(t.target_amount);
   }
 
   // 4. Attendance data (reuse getPresentDaysByMonth logic)
