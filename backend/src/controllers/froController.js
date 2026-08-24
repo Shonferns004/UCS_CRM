@@ -801,16 +801,15 @@ async function myProjectSet(workerId) {
 export const getSuspenseReceipts = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const projectSet = await myProjectSet(workerId);
-    if (projectSet.length === 0) return res.json({ month: currentMonthBoundsIST().month, receipts: [] });
-    const { month, monthStart, monthEnd } = currentMonthBoundsIST();
+    // Suspense is a shared pool: every FRO sees their assigned NGO AND all
+    // other NGOs' unclaimed receipts here (NGO pills on the frontend filter).
+    const { month } = currentMonthBoundsIST();
 
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
       .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id, agent_name, verify_fro_worker_id')
       .eq('status', 'unverified')
-      .is('matched_lead_log_id', null)
-      .or(`project_id.in.(${projectSet.join(',')}),project_id.is.null`);
+      .is('matched_lead_log_id', null);
     if (eErr) throw eErr;
 
     const receiptLinked = (entries || []).filter(e => e.receipt_id);
