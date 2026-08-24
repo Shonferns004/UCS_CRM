@@ -4208,7 +4208,21 @@ export const updateReceipt = async (req, res) => {
     }
 
     // Update donor_profiles
-    if (receipt.donor_id) {
+    // Unlinked receipt being edited: attach the profile that owns this mobile
+    // number (exact 10-digit match) so the rename lands on the master record.
+    let linkDonorId = receipt.donor_id || null;
+    if (!linkDonorId) {
+      const rawMob = String(receiptPatch.donor_mobile ?? receipt.donor_mobile ?? '').replace(/\D/g, '');
+      if (rawMob.length >= 10) {
+        const { data: profByMobile } = await db
+          .from('donor_profiles').select('id').eq('mobile_number', rawMob.slice(-10)).maybeSingle();
+        if (profByMobile) {
+          linkDonorId = profByMobile.id;
+          await db.from('receipts').update({ donor_id: linkDonorId }).eq('id', receiptId);
+        }
+      }
+    }
+    if (linkDonorId) {
       try {
         const dpPatch = { updated_at: new Date().toISOString() };
         // Never blank the master name: an emptied field on the modal must not
@@ -4225,7 +4239,7 @@ export const updateReceipt = async (req, res) => {
           if (rField in receiptPatch) dpPatch[dpField] = receiptPatch[rField];
         }
         if (Object.keys(dpPatch).length > 1) {
-          await db.from('donor_profiles').update(dpPatch).eq('id', receipt.donor_id);
+          await db.from('donor_profiles').update(dpPatch).eq('id', linkDonorId);
         }
       } catch (err) {
         console.error('Failed to update donor profile on receipt edit:', err.message);
