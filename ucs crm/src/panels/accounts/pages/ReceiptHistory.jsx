@@ -16,6 +16,19 @@ const TEMPLATES = { manncar: ReceiptTemplate_MannCar, ashray: ReceiptTemplate_As
 const DB_TO_TEMPLATE = { mann: 'manncar', aflf: 'ashray', bsct: 'beingsevak' };
 const PROJECT_LABELS = { mann: 'Mann Care Foundation', aflf: 'Ashray For Life Foundation', bsct: 'Being Sevak Charitable Trust' };
 
+const WA_TPL = {
+  bsct: { metaTemplate: 'bsct_receipt', metaLang: 'en' },
+  mann: { metaTemplate: 'mann_receipt', metaLang: 'en' },
+  aflf: { metaTemplate: 'ashray_receipt', metaLang: 'en' },
+};
+function getWaSettings(project) {
+  const d = WA_TPL[project] || WA_TPL.bsct;
+  try {
+    const o = JSON.parse(localStorage.getItem('receipt_template_settings') || '{}')[project];
+    return o ? { metaTemplate: o.metaTemplate || d.metaTemplate, metaLang: o.metaLang || d.metaLang } : d;
+  } catch { return d; }
+}
+
 const EXCEL_HEADER = ["Transaction Date","Caller Name","Receipt Name","Mobile no.","Mobil No. 2 / Tel ","Address-1 ","Address-2 ","Pan. No. ","Mail Id ","Station","Agent Name","FSE Name","MOP","Payment ID No. ","Amt","Receipt No.","Receipt Date ","Time","Account of"];
 
 const IMPORT_FIELDS = {
@@ -424,12 +437,15 @@ export default function ReceiptHistory() {
         const pdf = await generateReceiptPDF(el, { scale: 1, jpegQuality: 0.7 });
         pdfBase64 = pdf.output('datauristring').split(',')[1];
       }
+      const waTpl = getWaSettings(preview.receipt.project_id);
       await apiPost('/whatsapp/send-direct', {
         to: formatted,
         pdfBase64,
         receiptNo: preview.receipt.receipt_no,
         donorName: preview.receipt.donor_name,
         amount: preview.receipt.amount,
+        templateName: waTpl.metaTemplate,
+        templateLang: waTpl.metaLang,
         project: preview.receipt.project_id,
       });
       try { await apiPost('/accounts/receipts/mark-sent', { receiptId: preview.receipt.id }) } catch (e) { console.error('Error:', e.message); }
