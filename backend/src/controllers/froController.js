@@ -727,6 +727,61 @@ export const getMyCollections = async (req, res) => {
       if (k && !projToNgo.has(k)) projToNgo.set(k, n);
     }
 
+    // Fallback pairing: plenty of verified collections never got
+    // receipts.log_id stamped even though the money's receipt exists
+    // (imported and matched by accounts). Index this month's unclaimed
+    // receipts for the same donors so every row can surface a receipt
+    // number - payment reference first, then donor+amount+same-day when
+    // that pairing is unambiguous. Each candidate pairs at most once.
+    const normRef = (s) => String(s || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
+    const candByRef = new Map();
+    const candByDonorAmtDay = new Map();
+    {
+      const missing = (data || []).filter((l) => !receiptByLog.get(l.id) && l.donor_id);
+      const donorIdList = [...new Set(missing.map((l) => l.donor_id))];
+      if (donorIdList.length > 0) {
+        const winStart = new Date(new Date(monthStart).getTime() - 5 * 86400000).toISOString().slice(0, 10);
+        const { data: cands } = await db
+          .from('receipts')
+          .select('id, log_id, project_id, receipt_no, donor_id, amount, payment_id, receipt_date')
+          .in('donor_id', donorIdList)
+          .gte('receipt_date', winStart)
+          .lte('receipt_date', monthEnd.slice(0, 10));
+        // Payment references are near-unique: also index every unconsumed
+        // receipt in the window so a reference still pairs even when the
+        // receipt was filed under a duplicate donor profile.
+        let { data: windowCands } = await db
+          .from('receipts')
+          .select('id, log_id, project_id, receipt_no, donor_id, amount, payment_id, receipt_date')
+          .gte('receipt_date', winStart)
+          .lte('receipt_date', monthEnd.slice(0, 10))
+          .limit(20000);
+        for (const r of [...(cands || []), ...(windowCands || [])]) {
+          if (r.log_id != null) continue; // already linked elsewhere
+          const ref = normRef(r.payment_id);
+          if (ref) {
+            if (!candByRef.has(ref)) candByRef.set(ref, []);
+            candByRef.get(ref).push(r);
+          }
+          const dk = `${r.donor_id}|${parseFloat(r.amount)}|${String(r.receipt_date || '').slice(0, 10)}`;
+          if (!candByDonorAmtDay.has(dk)) candByDonorAmtDay.set(dk, []);
+          candByDonorAmtDay.get(dk).push(r);
+        }
+      }
+    }
+
+    const matchReceiptForLog = (l, amount, collectedAt) => {
+      const ref = normRef(l.upi_transaction_id);
+      if (ref && candByRef.has(ref)) {
+        const free = candByRef.get(ref).filter((r) => !r._used);
+        if (free.length > 0) { const r = free[0]; r._used = true; return r; }
+      }
+      const k = `${l.donor_id}|${amount}|${String(collectedAt || '').slice(0, 10)}`;
+      const free = (candByDonorAmtDay.get(k) || []).filter((r) => !r._used);
+      if (free.length === 1) { const r = free[0]; r._used = true; return r; }
+      return null;
+    };
+
     // NGO id -> name map for the caller's assigned NGOs ("Others" added below when needed).
     const ngoMap = {};
     for (const s of myScope) {
@@ -741,7 +796,12 @@ export const getMyCollections = async (req, res) => {
     const dayKey = (d) => d ? String(d).slice(0, 10) : null;
     const seen = new Set();
     const collections = [];
-    for (const l of data || []) {
+    // Process receipt-linked logs first so duplicate double-entries collapse
+    // into the copy that actually carries the receipt number.
+    const orderedLogs = [...(data || [])].sort(
+      (a, b) => ((receiptByLog.get(b.id) ? 1 : 0) - (receiptByLog.get(a.id) ? 1 : 0))
+    );
+    for (const l of orderedLogs) {
       const amount = parseFloat(l.amount_collected || 0);
       const collected_at = logCollectionDate(l);
       if (!(amount > 0)) continue;
@@ -750,10 +810,11 @@ export const getMyCollections = async (req, res) => {
       const asgn = l.fro_assignments || {};
       const is_work_as = asgn.fro_worker_id != null && asgn.fro_worker_id !== workerId;
 
-      // Prefer the linked receipt's own NGO; un-receipted collections file
-      // under their assignment's NGO. Every collection lands on a real NGO
-      // tab - there is no Others bucket.
-      const rcpt = receiptByLog.get(l.id) || null;
+      // Prefer the receipt linked to this log; otherwise pair the money to
+      // its unclaimed receipt (ref / donor+amount+day) so every row carries
+      // its real receipt number and NGO. Only truly unmatched rows fall back
+      // to the assignment's NGO.
+      const rcpt = receiptByLog.get(l.id) || matchReceiptForLog(l, amount, collected_at) || null;
       let tabNgoId = null;
       let tabNgoName = null;
       if (rcpt?.project_id) {
@@ -767,12 +828,21 @@ export const getMyCollections = async (req, res) => {
       if (tabNgoId && !Object.prototype.hasOwnProperty.call(ngoMap, tabNgoId)) ngoMap[tabNgoId] = tabNgoName;
       if (ngoFilter && tabNgoId !== ngoFilter) continue;
 
-      // Dedup by donor + amount + same day within one NGO + payment reference;
-      // the same payment signature under a different NGO is a separate cheque/transfer,
-      // and the same donor paying the same amount twice in one day is a separate payment.
-      const key = `${l.donor_id}|${amount}|${dayKey(collected_at)}|${asgn.ngo_id || 'none'}|${paymentDiscriminant(l)}`;
+      // A clean UPI reference identifies exactly one payment - collapse any
+      // double-entered logs sharing it regardless of which NGO they were
+      // allotted to. Without a reference, keep the stricter composite key.
+      const cleanUpiRef = normRef(l.upi_transaction_id);
+      const key = cleanUpiRef
+        ? `${l.donor_id}|${amount}|${dayKey(collected_at)}|ref:${cleanUpiRef}`
+        : `${l.donor_id}|${amount}|${dayKey(collected_at)}|${asgn.ngo_id || 'none'}|${paymentDiscriminant(l)}`;
       if (seen.has(key)) continue;
       seen.add(key);
+
+      // Parity backfill placeholders carry their source receipt number in
+      // the remark ("backfilled from receipt 18764 (AFLF ...)").
+      let remarkReceiptNo = null;
+      const rm = /backfilled from receipt\s+(\S+)/i.exec(l.remark || '');
+      if (rm) remarkReceiptNo = rm[1];
 
       collections.push({
         id: l.id,
@@ -783,7 +853,7 @@ export const getMyCollections = async (req, res) => {
         collected_at,
         ngo_id: tabNgoId,
         ngo_name: tabNgoName,
-        receipt_no: rcpt?.receipt_no != null ? String(rcpt.receipt_no) : null,
+        receipt_no: rcpt?.receipt_no != null ? String(rcpt.receipt_no) : remarkReceiptNo,
         owner_worker_id: is_work_as ? null : (asgn.fro_worker_id ?? null),
         owner_name: is_work_as ? null : (asgn.workers?.name || null),
         is_work_as,

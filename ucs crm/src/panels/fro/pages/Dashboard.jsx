@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { getMyDashboard, getMyCollections, requestMoreData, getFollowUps, getLeadStats, getMonthlyDonors, getReactivatedDonors } from '../api/donors'
 import { getMyTarget } from '../api/target'
@@ -906,12 +906,6 @@ export default function Dashboard() {
                         )}
                       </div>
                       <div style={{ fontSize: 9, color: 'var(--ink-soft)' }}>{c.donor_mobile || '—'}</div>
-                      {c.is_work_as && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3, fontSize: 8.5, fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', padding: '1px 6px', borderRadius: 999 }}>
-                          from another FRO's donor
-                        </span>
-                      )}
-                    </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--sage)' }}>{currency(c.amount_collected)}</div>
                       {c.receipt_no && (
