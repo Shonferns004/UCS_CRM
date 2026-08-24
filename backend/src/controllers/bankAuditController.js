@@ -387,8 +387,6 @@ export const addEntry = async (req, res) => {
     const agentKnown = link?.receipt.agent_name || realAgentName(agent_name);
     const suspenseAgent = (donorKnown || priyankAgent) ? (agentKnown || 'Priyank Shah') : 'Suspense';
 
-    const isSuspense = !donorKnown && !priyankAgent;
-
     if (receiptId) {
       const receiptFields = {
         amount,
@@ -411,30 +409,11 @@ export const addEntry = async (req, res) => {
         const { error: numErr } = await db.from('receipts').update({ receipt_no: receiptNo }).eq('id', receiptId);
         if (numErr) throw numErr;
       }
-    } else {
-      const insertFields = {
-        project_id: link?.receipt.project_id || ngo,
-        donor_name: donorName || 'Unknown',
-        agent_name: suspenseAgent,
-        ...donorFields,
-        mode: req.body.mode || donorFields.mode || null,
-        log_id: link?.receipt.log_id || null,
-        amount,
-        payment_id: payment_id || null,
-        bank_name: receivedBankName || donorFields.bank_name || null,
-        receipt_date: transaction_date,
-        receipt_time: payment_time || null,
-        purpose: 'Bank Audit Entry',
-        generated_by: req.user.id,
-      };
-      if (!isSuspense) {
-        receiptNo = await BankAudit.getNextReceiptNo(link?.receipt.project_id || ngo);
-        insertFields.receipt_no = receiptNo;
-      }
-      const { data: receipt, error: rErr } = await db.from('receipts').insert(insertFields).select().single();
-      if (rErr) throw rErr;
-      receiptId = receipt.id;
     }
+    // No receipt is created at audit-entry time — a receipt is generated only
+    // when the money is verified/attributed (manual verify / verifyLead /
+    // ensureReceiptNumber). This keeps one receipt per donation and prevents
+    // unnumbered suspense receipts from leaking into send/claim flows.
 
     const entry = await BankAudit.createEntry({
       source_id,
@@ -572,8 +551,7 @@ export const removeEntry = async (req, res) => {
     const { id } = req.params;
     const { data: entry } = await db.from('bank_audit_entries').select('receipt_id').eq('id', id).maybeSingle();
     if (entry?.receipt_id) {
-      const { error } = await db.from('receipts').delete().eq('id', entry.receipt_id);
-      if (error) throw error;
+      await BankAudit.deleteReceiptSafely(entry.receipt_id, 'Bank audit entry deleted');
     }
     await BankAudit.deleteEntry(id);
     return res.json({ message: 'Entry deleted' });
@@ -663,8 +641,7 @@ export const removeSuspenseReceipt = async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Suspense receipt not found' });
     if (existing.log_id) return res.status(400).json({ message: 'Claimed suspense can\'t be deleted from audit; release the claim in Lead Verification first' });
 
-    const { error } = await db.from('receipts').delete().eq('id', numId);
-    if (error) throw error;
+    await BankAudit.deleteReceiptSafely(numId, 'Suspense receipt deleted');
     return res.json({ message: 'Suspense receipt deleted' });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -1369,27 +1346,58 @@ export const manualVerifyEntry = async (req, res) => {
       await from('bank_audit_entries').update(entryPatch).eq('id', entry.id);
 
       // Generate the receipt (uses the entered address/PAN where available).
-      const receiptNo = await BankAudit.getNextReceiptNo(project);
-      const receipt = await createReceipt({
-        log_id: logId,
-        receipt_no: receiptNo,
-        project_id: project,
-        donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
-        donor_mobile: mobile,
-        amount,
-        pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
-        address: donor_address || entryAddress || null,
-        email: donor_email || entry.donor_email || donor.email || null,
-        bank_name: entry.bank_name || donor.donors_bank_name || null,
-        mode: entry.mode || null,
-        payment_id: entry.payment_id || null,
-        agent_name: froName,
-        purpose: 'Bank Audit Manual Verify',
-        generated_by: req.user.id,
-        donor_id: donorId,
-        receipt_date: entry.transaction_date || now,
-        receipt_time: entry.payment_time || null,
-      });
+      // Reuse the entry's existing receipt if one exists — never create a second
+      // receipt for the same money (fixes duplicate receipts on re-verify).
+      let receipt = null;
+      if (entry.receipt_id) {
+        const { data: existingReceipt } = await from('receipts')
+          .select('id, receipt_no')
+          .eq('id', entry.receipt_id)
+          .maybeSingle();
+        if (existingReceipt) {
+          const patch = {
+            receipt_no: existingReceipt.receipt_no || await BankAudit.getNextReceiptNo(project),
+            donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
+            donor_mobile: mobile,
+            amount,
+            pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
+            address: donor_address || entryAddress || null,
+            email: donor_email || entry.donor_email || donor.email || null,
+            bank_name: entry.bank_name || donor.donors_bank_name || null,
+            mode: entry.mode || null,
+            payment_id: entry.payment_id || null,
+            agent_name: froName,
+            donor_id: donorId,
+            receipt_date: entry.transaction_date || now,
+            receipt_time: entry.payment_time || null,
+          };
+          if (logId) patch.log_id = logId;
+          const { data: upReceipt } = await from('receipts').update(patch).eq('id', existingReceipt.id).select().single();
+          receipt = upReceipt;
+        }
+      }
+      if (!receipt) {
+        receipt = await createReceipt({
+          log_id: logId,
+          receipt_no: await BankAudit.getNextReceiptNo(project),
+          project_id: project,
+          donor_name: (donor_name || entry.payer_name || donor.name || 'Unknown').trim(),
+          donor_mobile: mobile,
+          amount,
+          pan_number: donor_pan || entry.donor_pan || donor.pan_number || null,
+          address: donor_address || entryAddress || null,
+          email: donor_email || entry.donor_email || donor.email || null,
+          bank_name: entry.bank_name || donor.donors_bank_name || null,
+          mode: entry.mode || null,
+          payment_id: entry.payment_id || null,
+          agent_name: froName,
+          purpose: 'Bank Audit Manual Verify',
+          generated_by: req.user.id,
+          donor_id: donorId,
+          receipt_date: entry.transaction_date || now,
+          receipt_time: entry.payment_time || null,
+        });
+      }
 
       await from('bank_audit_entries').update({
         receipt_id: receipt.id,

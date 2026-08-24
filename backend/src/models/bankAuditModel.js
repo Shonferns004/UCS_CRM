@@ -60,6 +60,74 @@ export const cancelReceiptNo = async (projectId) => {
   await db._pool.query('SELECT cancel_receipt_no($1)', [String(projectId)]);
 };
 
+// Admin "clean up" bulk delete. Bypasses the numbered-delete guard (which is
+// meant to protect against accidental gaps) because this intentionally wipes a
+// whole batch/date range and the counters are reset afterwards. Uses a
+// dedicated connection + SET LOCAL so trigger state is never leaked to the pool.
+export const bulkDeleteReceipts = async (ids) => {
+  if (!ids || ids.length === 0) return 0;
+  const idList = ids.map((n) => Number(n)).filter((n) => Number.isInteger(n)).join(',');
+  if (!idList) return 0;
+  const client = await db._pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL session_replication_role = replica');
+    const { rowCount } = await client.query(`DELETE FROM receipts WHERE id IN (${idList})`);
+    await client.query('COMMIT');
+    return rowCount;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
+// Cancel a receipt WITHOUT losing its number: keep the row + number, stamp it
+// voided. The number stays in the book (no gap) and the receipt stops counting.
+export const voidReceipt = async (receiptId, reason) => {
+  const { data, error } = await db
+    .from('receipts')
+    .update({ voided_at: new Date().toISOString(), void_reason: reason || null })
+    .eq('id', receiptId)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+};
+
+// Safely remove a receipt: unnumbered rows are hard-deleted; a numbered receipt
+// is hard-deleted ONLY if it is the latest number for its project (counter steps
+// back, number reused) — otherwise it is voided so the number is never lost.
+export const deleteReceiptSafely = async (receiptId, reason) => {
+  const { data: r } = await db
+    .from('receipts')
+    .select('id, receipt_no, project_id')
+    .eq('id', receiptId)
+    .maybeSingle();
+  if (!r) return { gone: true };
+  if (!r.receipt_no) {
+    await db.from('receipts').delete().eq('id', receiptId);
+    return { deleted: true };
+  }
+  const { rows } = await db._pool.query(
+    `SELECT COALESCE(MAX(CASE WHEN receipt_no ~ '^[0-9]+$' THEN receipt_no::bigint END), 0) AS m
+     FROM receipts WHERE project_id = $1 AND id <> $2`,
+    [r.project_id, receiptId]
+  );
+  const max = Number((rows && rows[0] && rows[0].m) || 0);
+  if (Number(r.receipt_no) >= max) {
+    await db.from('receipts').delete().eq('id', receiptId);
+    try { await cancelReceiptNo(r.project_id); } catch (_) {}
+    return { deleted: true, freed: true };
+  }
+  await db
+    .from('receipts')
+    .update({ voided_at: new Date().toISOString(), void_reason: reason || null })
+    .eq('id', receiptId);
+  return { voided: true };
+};
+
 // Read-only receipt-number readout per NGO: the last receipt number issued and
 // the next number that will be issued. Mirrors next_receipt_no()'s arithmetic
 // (GREATEST(counter, per-NGO max) + 1) WITHOUT advancing the counter, so simply
@@ -101,6 +169,18 @@ const NGO_PROJECT_ALIASES = {
   aflf: ['aflf', 'ashray', 'ashray life'],
   library: ['library'],
   pg: ['pg'],
+};
+
+// Map any project_id spelling to its canonical NGO code ('bsct' | 'mann' | 'aflf').
+// Keeps ONE receipt-number sequence per NGO — alias spellings like 'ashray' or
+// 'mann care' would otherwise get their own counter and collide/duplicate.
+export const canonicalProject = (projectId) => {
+  if (!projectId) return projectId;
+  const p = String(projectId).trim().toLowerCase();
+  for (const [code, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+    if (p === code || aliases.some((a) => a === p)) return code;
+  }
+  return p;
 };
 
 // The canonical project code for a lead is the NGO it is assigned under
@@ -389,7 +469,7 @@ export const ensureReceiptNumber = async (entryId) => {
     .single();
   if (!entry) return;
 
-  const project = entry.project_id || 'bsct';
+  const project = canonicalProject(entry.project_id || 'bsct');
 
   if (entry.receipt_id) {
     const { data: receipt } = await db
