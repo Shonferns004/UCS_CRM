@@ -456,6 +456,9 @@ export const editEntry = async (req, res) => {
     if (payer_name !== undefined) updates.payer_name = payer_name;
     if (payment_time !== undefined) updates.payment_time = payment_time || null;
     if (project_id !== undefined) updates.project_id = project_id;
+    // Persist MOP on the audit entry itself (receipts get it below); without
+    // this the edit modal keeps showing the old/blank mode after a save.
+    if (mode !== undefined) updates.mode = mode || null;
 
     const { data: existing } = await db
       .from('bank_audit_entries')
@@ -922,7 +925,9 @@ export const saveManualVerifyDetails = async (req, res) => {
     if (verify_fro_worker_id !== undefined) updates.verify_fro_worker_id = verify_fro_worker_id || null;
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
-    if (donor_name !== undefined) updates.payer_name = donor_name || null;
+    // donor_name intentionally does NOT touch payer_name — the bank statement
+    // name is immutable here. The entered donor name only feeds the donor
+    // profile / receipt at verify time.
     if (donor_address !== undefined) updates.donor_address_1 = donor_address || null;
     if (donor_address_2 !== undefined) updates.donor_address_2 = donor_address_2 || null;
     if (donor_pan !== undefined) updates.donor_pan = donor_pan || null;
@@ -941,7 +946,6 @@ export const saveManualVerifyDetails = async (req, res) => {
       const rcptUpdates = {};
       if (updates.agent_name !== undefined) rcptUpdates.agent_name = updates.agent_name;
       if (updates.donor_mobile !== undefined) rcptUpdates.donor_mobile = updates.donor_mobile;
-      if (updates.payer_name !== undefined) rcptUpdates.donor_name = updates.payer_name;
       if (updates.donor_pan !== undefined) rcptUpdates.pan_number = updates.donor_pan;
       if (updates.donor_address_1 !== undefined) rcptUpdates.address = updates.donor_address_1;
       if (updates.donor_email !== undefined) rcptUpdates.email = updates.donor_email;
