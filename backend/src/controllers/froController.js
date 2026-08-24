@@ -741,7 +741,6 @@ export const getMyCollections = async (req, res) => {
     const dayKey = (d) => d ? String(d).slice(0, 10) : null;
     const seen = new Set();
     const collections = [];
-    let hasOthers = false;
     for (const l of data || []) {
       const amount = parseFloat(l.amount_collected || 0);
       const collected_at = logCollectionDate(l);
@@ -749,12 +748,11 @@ export const getMyCollections = async (req, res) => {
       if (!inRange(collected_at, monthStart, monthEnd)) continue;
 
       const asgn = l.fro_assignments || {};
-      const isOwnAssignment = asgn.fro_worker_id != null && asgn.fro_worker_id === workerId;
-      const ngoInScope = asgn.ngo_id != null && allowedNgoIds.includes(asgn.ngo_id);
       const is_work_as = asgn.fro_worker_id != null && asgn.fro_worker_id !== workerId;
 
-      // Prefer the linked receipt's own NGO; only fall back to the allotment
-      // rule when the collection has no receipt (or its project is unknown).
+      // Prefer the linked receipt's own NGO; un-receipted collections file
+      // under their assignment's NGO. Every collection lands on a real NGO
+      // tab - there is no Others bucket.
       const rcpt = receiptByLog.get(l.id) || null;
       let tabNgoId = null;
       let tabNgoName = null;
@@ -763,13 +761,10 @@ export const getMyCollections = async (req, res) => {
         if (ngoRow) { tabNgoId = ngoRow.id; tabNgoName = ngoRow.name; }
       }
       if (!tabNgoId) {
-        // Own assignments under an allowed NGO keep their real NGO tab; anything
-        // else (another FRO's donor / foreign or stale NGO) lands in Others.
-        tabNgoId = (isOwnAssignment && ngoInScope) ? asgn.ngo_id : 'others';
-        tabNgoName = tabNgoId === 'others' ? 'Others' : (asgn.ngos?.name || null);
+        tabNgoId = asgn.ngo_id || allowedNgoIds[0] || allNgos[0]?.id || null;
+        tabNgoName = asgn.ngos?.name || allNgos?.find((n) => n.id === tabNgoId)?.name || null;
       }
-      if (tabNgoId === 'others') hasOthers = true;
-      else if (!Object.prototype.hasOwnProperty.call(ngoMap, tabNgoId)) ngoMap[tabNgoId] = tabNgoName;
+      if (tabNgoId && !Object.prototype.hasOwnProperty.call(ngoMap, tabNgoId)) ngoMap[tabNgoId] = tabNgoName;
       if (ngoFilter && tabNgoId !== ngoFilter) continue;
 
       // Dedup by donor + amount + same day within one NGO + payment reference;
@@ -794,8 +789,6 @@ export const getMyCollections = async (req, res) => {
         is_work_as,
       });
     }
-
-    if (hasOthers) ngoMap['others'] = 'Others';
 
     collections.sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
 
