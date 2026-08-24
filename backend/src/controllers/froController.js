@@ -692,6 +692,41 @@ export const getMyCollections = async (req, res) => {
       .or(COLLECTION_DATE_OR(monthStart, monthEnd));
     if (error) throw error;
 
+    // Receipt-backed grouping: Manual Verify, suspense claims and parity
+    // backfills all stamp receipts.log_id, so each collection can be filed
+    // under the NGO that actually issued the receipt instead of the FRO's
+    // allotment. The receipt number is surfaced for display/search.
+    const logIds = [...new Set((data || []).map((l) => l.id).filter(Boolean))];
+    const receiptByLog = new Map();
+    if (logIds.length > 0) {
+      const { data: linkedReceipts } = await db
+        .from('receipts')
+        .select('id, log_id, project_id, receipt_no')
+        .in('log_id', logIds);
+      for (const r of linkedReceipts || []) {
+        if (r.log_id != null && !receiptByLog.has(r.log_id)) receiptByLog.set(r.log_id, r);
+      }
+    }
+
+    // Resolve a receipt project spelling ("bsct", "Ashray", "mann care", ...)
+    // to its ngo row using the same alias table the suspense pool uses.
+    const { data: allNgos } = await db.from('ngos').select('id, name');
+    const normProj = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+    const projToNgo = new Map();
+    for (const [canon, aliases] of Object.entries(NGO_PROJECT_ALIASES)) {
+      const ngoRow = (allNgos || []).find((n) => {
+        const nn = normProj(n.name);
+        return nn === canon || nn.includes(canon) || aliases.some((a) => normProj(a) === nn);
+      });
+      if (!ngoRow) continue;
+      projToNgo.set(normProj(canon), ngoRow);
+      for (const a of aliases) projToNgo.set(normProj(a), ngoRow);
+    }
+    for (const n of allNgos || []) {
+      const k = normProj(n.name);
+      if (k && !projToNgo.has(k)) projToNgo.set(k, n);
+    }
+
     // NGO id -> name map for the caller's assigned NGOs ("Others" added below when needed).
     const ngoMap = {};
     for (const s of myScope) {
@@ -718,10 +753,23 @@ export const getMyCollections = async (req, res) => {
       const ngoInScope = asgn.ngo_id != null && allowedNgoIds.includes(asgn.ngo_id);
       const is_work_as = asgn.fro_worker_id != null && asgn.fro_worker_id !== workerId;
 
-      // Own assignments under an allowed NGO keep their real NGO tab; anything
-      // else (another FRO's donor / foreign or stale NGO) lands in Others.
-      const tabNgoId = (isOwnAssignment && ngoInScope) ? asgn.ngo_id : 'others';
+      // Prefer the linked receipt's own NGO; only fall back to the allotment
+      // rule when the collection has no receipt (or its project is unknown).
+      const rcpt = receiptByLog.get(l.id) || null;
+      let tabNgoId = null;
+      let tabNgoName = null;
+      if (rcpt?.project_id) {
+        const ngoRow = projToNgo.get(normProj(rcpt.project_id)) || null;
+        if (ngoRow) { tabNgoId = ngoRow.id; tabNgoName = ngoRow.name; }
+      }
+      if (!tabNgoId) {
+        // Own assignments under an allowed NGO keep their real NGO tab; anything
+        // else (another FRO's donor / foreign or stale NGO) lands in Others.
+        tabNgoId = (isOwnAssignment && ngoInScope) ? asgn.ngo_id : 'others';
+        tabNgoName = tabNgoId === 'others' ? 'Others' : (asgn.ngos?.name || null);
+      }
       if (tabNgoId === 'others') hasOthers = true;
+      else if (!Object.prototype.hasOwnProperty.call(ngoMap, tabNgoId)) ngoMap[tabNgoId] = tabNgoName;
       if (ngoFilter && tabNgoId !== ngoFilter) continue;
 
       // Dedup by donor + amount + same day within one NGO + payment reference;
@@ -739,7 +787,8 @@ export const getMyCollections = async (req, res) => {
         amount_collected: amount,
         collected_at,
         ngo_id: tabNgoId,
-        ngo_name: tabNgoId === 'others' ? 'Others' : (asgn.ngos?.name || null),
+        ngo_name: tabNgoName,
+        receipt_no: rcpt?.receipt_no != null ? String(rcpt.receipt_no) : null,
         owner_worker_id: is_work_as ? null : (asgn.fro_worker_id ?? null),
         owner_name: is_work_as ? null : (asgn.workers?.name || null),
         is_work_as,
