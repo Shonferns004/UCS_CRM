@@ -613,7 +613,7 @@ export default function Leads() {
       {tab === 'scheduled' && (
         <div className="card" style={{marginTop:20}}>
           <div className="card-head">
-            <h3>Scheduled interviews</h3>
+            <h3>Submit</h3>
             <span className="sub">{scheduledLeads.length} lead{scheduledLeads.length!==1?'s':''}</span>
           </div>
           {leadsLoading ? (

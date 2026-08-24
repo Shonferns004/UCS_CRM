@@ -202,7 +202,7 @@ export function RecProvider({ children }) {
       phone: l.phone || '—',
       email: l.email || profile.email || '—',
       role: getJobRole(l),
-      stage: getLeadStage(l) || STATUS_TO_STAGE[l.status] || 'Contacted',
+      stage: STATUS_TO_STAGE[l.status] || getLeadStage(l) || 'Contacted',
       status: l.status || '',
       score: 0,
       source: l.source || '—',
