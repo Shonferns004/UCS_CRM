@@ -197,7 +197,7 @@ function filterByScope(rows, scope, getPair) {
   return (rows || []).filter(r => pairs.has(getPair(r)));
 }
 
-async function chunkedInQuery(ids, queryFn, chunkSize = 200) {
+async function chunkedInQuery(ids, queryFn, chunkSize = 1000) {
   const allData = [];
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
@@ -1939,6 +1939,7 @@ export const getMyDonors = async (req, res) => {
     // 2. Not connected (status in NOT_CONNECTED_STATUSES or 'pending')
     // 3. Connected (status in CONNECTED_STATUSES, excluding lead_done)
     // 4. Lead done from previous months (hidden for rest of current month)
+    // 5. Ringing — always sinks to the very end of the queue
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -1966,22 +1967,41 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
+    // Hide donors dispositioned DND during the current month — they come back
+    // automatically when the month rolls over (the dnd log falls outside the
+    // window). Re-DND next month hides them again.
+    const hiddenDndIds = new Set();
+    if (donorIds.length > 0) {
+      const dndLogs = await chunkedInQuery(donorIds, chunk =>
+        db.from('fro_donor_logs').select('donor_id').in('donor_id', chunk)
+          .eq('disposition_detail', 'dnd')
+          .eq('action', 'disposition')
+          .gte('created_at', monthStart)
+          .lte('created_at', monthEnd)
+      );
+      for (const log of dndLogs) {
+        if (log.donor_id) hiddenDndIds.add(log.donor_id);
+      }
+    }
+
     const filtered = req.query.verified_only === 'true'
       ? result
-      : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id));
+      : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id) && !hiddenDndIds.has(r.donor_id));
 
     const notConnectedSet = new Set(NOT_CONNECTED_STATUSES);
     const connectedSet = new Set(CONNECTED_STATUSES);
 
+    // Ringing must be checked before the not-connected bucket since it is a
+    // member of NOT_CONNECTED_STATUSES but ranks last.
+    const groupOf = (r) => r.is_new ? 0
+      : r.status === 'ringing' ? 5
+      : (notConnectedSet.has(r.status) || r.status === 'pending') ? 1
+      : connectedSet.has(r.status) ? 2
+      : r.status === 'lead_done' ? 3 : 4;
+
     filtered.sort((a, b) => {
-      const groupA = a.is_new ? 0
-        : (notConnectedSet.has(a.status) || a.status === 'pending') ? 1
-        : connectedSet.has(a.status) ? 2
-        : a.status === 'lead_done' ? 3 : 4;
-      const groupB = b.is_new ? 0
-        : (notConnectedSet.has(b.status) || b.status === 'pending') ? 1
-        : connectedSet.has(b.status) ? 2
-        : b.status === 'lead_done' ? 3 : 4;
+      const groupA = groupOf(a);
+      const groupB = groupOf(b);
       if (groupA !== groupB) return groupA - groupB;
       const dateA = a.assigned_at ? new Date(a.assigned_at) : new Date(0);
       const dateB = b.assigned_at ? new Date(b.assigned_at) : new Date(0);
