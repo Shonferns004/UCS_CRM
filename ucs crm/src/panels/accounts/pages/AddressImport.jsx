@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import * as XLSX from 'xlsx'
 import { apiPost } from '../api/auth'
 
@@ -38,6 +38,14 @@ const STATUS_LABELS = {
   duplicate: 'Duplicate in File',
 }
 
+const STATUS_STYLES = {
+  updated: { background: '#dcfce7', color: '#15803d' },
+  complete: { background: '#e5e7eb', color: '#374151' },
+  not_found: { background: '#fef3c7', color: '#b45309' },
+  no_mobile: { background: '#fee2e2', color: '#b91c1c' },
+  duplicate: { background: '#fee2e2', color: '#b91c1c' },
+}
+
 const Chip = ({ value, label, color }) => (
   <div className="stat-card" style={{ padding: '10px 14px' }}>
     <div className="stat-info">
@@ -57,6 +65,17 @@ export default function AddressImport() {
   const [result, setResult] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef(null)
+  const resultRef = useRef(null)
+
+  useEffect(() => {
+    if (result && resultRef.current) resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [result])
+
+  const statusMap = useMemo(() => {
+    const m = new Map()
+    for (const r of (result?.results || [])) m.set(r.row, r.status)
+    return m
+  }, [result])
 
   const processFile = (file) => {
     setError(null); setResult(null); setRows([]); setFileName(''); setParsing(true)
@@ -180,15 +199,25 @@ export default function AddressImport() {
 
             <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
               <table className="donors-table">
-                <thead><tr><th>Row</th>{COLUMNS.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+                <thead><tr><th>Row</th>{COLUMNS.map(c => <th key={c.key}>{c.label}</th>)}<th>Status</th></tr></thead>
                 <tbody>
-                  {rows.slice(0, 50).map(r => (
-                    <tr key={r._row} style={!r._valid ? { background: '#fef2f2' } : undefined}>
-                      <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r._row}</td>
-                      {COLUMNS.map(c => <td key={c.key} style={{ fontFamily: c.key === 'mobile_number' || c.key === 'pan_number' ? 'monospace' : undefined }}>{r[c.key] || '\u2014'}{!r._valid && c.key === 'mobile_number' ? ' ⚠' : ''}</td>)}
-                    </tr>
-                  ))}
-                  {rows.length > 50 && <tr><td colSpan={COLUMNS.length + 1} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>…and {rows.length - 50} more rows</td></tr>}
+                  {rows.slice(0, 50).map(r => {
+                    const st = statusMap.get(r._row)
+                    return (
+                      <tr key={r._row} style={!r._valid ? { background: '#fef2f2' } : undefined}>
+                        <td style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{r._row}</td>
+                        {COLUMNS.map(c => <td key={c.key} style={{ fontFamily: c.key === 'mobile_number' || c.key === 'pan_number' ? 'monospace' : undefined }}>{r[c.key] || '\u2014'}{!r._valid && c.key === 'mobile_number' ? ' ⚠' : ''}</td>)}
+                        <td>
+                          {st ? (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', ...(STATUS_STYLES[st] || {}) }}>
+                              {(STATUS_LABELS[st] || st).toUpperCase()}
+                            </span>
+                          ) : <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>—</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {rows.length > 50 && <tr><td colSpan={COLUMNS.length + 2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-soft)' }}>…and {rows.length - 50} more rows (see full report below)</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -196,17 +225,28 @@ export default function AddressImport() {
         )}
 
         {result && (
-          <div style={{ margin: 14 }}>
+          <div ref={resultRef} style={{ margin: 14 }}>
+            <div style={{
+              padding: '14px 18px', borderRadius: 10, marginBottom: 14,
+              background: (s.updated ?? 0) > 0 ? '#f0fdf4' : '#fffbeb',
+              border: `1px solid ${(s.updated ?? 0) > 0 ? '#bbf7d0' : '#fde68a'}`,
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: (s.updated ?? 0) > 0 ? '#15803d' : '#b45309' }}>
+                {(s.updated ?? 0) > 0
+                  ? `\u2713 Import finished — ${s.updated} donor${s.updated !== 1 ? 's' : ''} updated in the database`
+                  : 'Import finished — no donors needed changes'}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
+                {s.matchedNoChange ?? 0} already had all details &middot; {s.notFound ?? 0} mobile number{s?.notFound !== 1 ? 's' : ''} not found in DB (skipped) &middot; {(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} invalid/duplicate row{(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0) !== 1 ? 's' : ''} &middot; file: {result.fileName}
+              </div>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
               <Chip value={s.updated ?? 0} label="Donors Updated" color="#16a34a" />
               <Chip value={s.matchedNoChange ?? 0} label="Already Complete" color="var(--ink)" />
               <Chip value={s.notFound ?? 0} label="Not Found (skipped)" color="#d97706" />
               <Chip value={(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} label="Invalid / Duplicate" color="#dc2626" />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Import finished — {result.fileName}</span>
-              <button className="btn btn-sm" onClick={downloadReport}>Download Full Report</button>
-            </div>
+            <button className="btn btn-sm" onClick={downloadReport}>Download Full Report (all rows)</button>
           </div>
         )}
       </div>
