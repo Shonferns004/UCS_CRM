@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
-import { apiGet, apiPost } from '../api/auth'
+import { apiGet, apiPost, apiPatch } from '../api/auth'
 
 const currency = (n) => {
   if (n == null || isNaN(n)) return '\u20B90'
@@ -25,22 +25,87 @@ const StatCard = ({ icon, label, value, color, loading: l }) => (
   </div>
 )
 
-function DonorDetail({ donorId, onClose }) {
+const DONOR_FIELD_GROUPS = [
+  { title: 'Personal', fields: [
+    ['name', 'Full Name'], ['mobile_number', 'Mobile Number'], ['mobile_2', 'Mobile 2'], ['email', 'Email'],
+    ['birth_date', 'Birth Date', 'date'], ['anniversary', 'Anniversary', 'date'],
+    ['preferred_language', 'Preferred Language'], ['donor_type', 'Donor Type'], ['donation_frequency', 'Donation Frequency'],
+  ]},
+  { title: 'Address', fields: [
+    ['address_1', 'Address Line 1'], ['address_2', 'Address Line 2'], ['city', 'City'], ['state', 'State'], ['pin_code', 'PIN Code'],
+  ]},
+  { title: 'IDs / KYC', fields: [
+    ['pan_number', 'PAN Card'], ['aadhaar_number', 'Aadhaar Number'],
+  ]},
+  { title: 'Donation Info', fields: [
+    ['bank_donor_name', 'Bank Donor Name'], ['agent_donor_name', 'Agent Donor Name'], ['donors_bank_name', "Donor's Bank Name"],
+    ['mop', 'Mode of Payment'], ['project_supported', 'Project Supported'], ['ngo', 'NGO'], ['station', 'Station'],
+    ['team', 'Team'], ['agent_name', 'Agent Name'], ['category', 'Category'], ['data_category', 'Data Category'], ['account_of', 'Account Of'],
+  ]},
+]
+
+const fieldVal = (d, key) => {
+  const v = d?.[key]
+  if (v == null) return ''
+  return String(v).slice(0, 10)
+}
+
+const inputStyle = { width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--line)', fontSize: 13, color: 'var(--ink)', background: '#fff', boxSizing: 'border-box' }
+
+function DonorDetail({ donorId, onClose, onChanged }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState('')
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  useEffect(() => {
+  const loadDetail = useCallback((id) => {
     setLoading(true)
-    apiGet('/accounts/donors/' + donorId)
+    apiGet('/accounts/donors/' + id)
       .then(r => setData(r))
       .catch(e => console.error('Error:', e.message))
       .finally(() => setLoading(false))
-  }, [donorId])
+  }, [])
+
+  useEffect(() => { loadDetail(donorId) }, [donorId, loadDetail])
+
+  const startEdit = () => {
+    if (!data?.donor) return
+    const f = {}
+    for (const g of DONOR_FIELD_GROUPS) for (const [key] of g.fields) f[key] = fieldVal(data.donor, key)
+    setForm(f)
+    setSaveErr('')
+    setEditing(true)
+  }
+
+  const cancelEdit = () => { setEditing(false); setSaveErr('') }
+
+  const saveEdit = async () => {
+    if (!data?.donor || saving) return
+    const changes = {}
+    for (const g of DONOR_FIELD_GROUPS) for (const [key] of g.fields) {
+      if ((form[key] || '') !== fieldVal(data.donor, key)) changes[key] = form[key]
+    }
+    if (Object.keys(changes).length === 0) { setEditing(false); return }
+    setSaving(true)
+    setSaveErr('')
+    try {
+      await apiPatch('/accounts/donors/' + donorId, changes)
+      setEditing(false)
+      loadDetail(donorId)
+      if (onChanged) onChanged()
+    } catch (e) {
+      setSaveErr(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (loading) return (
     <div className="modal-overlay" onClick={onClose}>
@@ -72,7 +137,7 @@ function DonorDetail({ donorId, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 520, width: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 700, width: '92%', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="modal-head" style={{ justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="stat-icon" style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--sage)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}>{initial}</div>
@@ -83,14 +148,68 @@ function DonorDetail({ donorId, onClose }) {
           </div>
           <button onClick={onClose} className="btn btn-icon" title="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
-        <div className="modal-body">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20, borderRadius: 'var(--radius)', padding: 14 }}>
-            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 2 }}>Last Donation</div><div style={{ fontSize: 13, color: 'var(--ink)' }}>{d.last_donation_date ? new Date(d.last_donation_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</div></div>
-            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 2 }}>Email</div><div style={{ fontSize: 13, color: 'var(--ink)' }}>{d.email || '-'}</div></div>
-            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 2 }}>City</div><div style={{ fontSize: 13, color: 'var(--ink)' }}>{d.city || '-'}</div></div>
-            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 2 }}>PAN</div><div style={{ fontSize: 13, fontFamily: 'monospace', color: 'var(--ink)' }}>{d.pan_number || '-'}</div></div>
+        <div className="modal-body" style={{ overflowY: 'auto', padding: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 18, background: 'var(--bg)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
+            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>First Donation</div><div style={{ fontSize: 12, color: 'var(--ink)' }}>{d.first_donation_date ? new Date(d.first_donation_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</div></div>
+            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Last Donation</div><div style={{ fontSize: 12, color: 'var(--ink)' }}>{d.last_donation_date ? new Date(d.last_donation_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</div></div>
+            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Lifetime Total</div><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--sage)' }}>{currency(d.total_amount)}</div></div>
+            <div><div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Donations</div><div style={{ fontSize: 12, color: 'var(--ink)' }}>{data.receiptCount}</div></div>
           </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Receipts</div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5 }}>Donor Details</span>
+            {!editing && <button className="btn btn-sm btn-primary" onClick={startEdit}>Edit Details</button>}
+          </div>
+
+          {!editing ? (
+            DONOR_FIELD_GROUPS.map(g => (
+              <div key={g.title} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>{g.title}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+                  {g.fields.map(([key, label]) => {
+                    const v = fieldVal(data.donor, key)
+                    const isDate = g.fields.find(f => f[0] === key)[2] === 'date'
+                    return (
+                      <div key={key} style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>{label}</div>
+                        <div style={{ fontSize: 13, color: v ? 'var(--ink)' : 'var(--ink-soft)', fontFamily: key === 'pan_number' || key === 'aadhaar_number' || key.startsWith('mobile') ? 'monospace' : undefined, wordBreak: 'break-word' }}>
+                          {v ? (isDate ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : v) : '\u2014'}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))
+          ) : (
+            <form onSubmit={e => { e.preventDefault(); saveEdit() }}>
+              {DONOR_FIELD_GROUPS.map(g => (
+                <div key={g.title} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-soft)', marginBottom: 6 }}>{g.title}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px' }}>
+                    {g.fields.map(([key, label, type]) => (
+                      <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                        <span style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>{label}</span>
+                        <input
+                          type={type === 'date' ? 'date' : 'text'}
+                          value={form[key] ?? ''}
+                          onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
+                          style={inputStyle}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {saveErr && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 10 }}>Save failed: {saveErr}</div>}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 6 }}>
+                <button type="button" className="btn btn-sm" onClick={cancelEdit} disabled={saving}>Cancel</button>
+                <button type="submit" className="btn btn-sm btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+              </div>
+            </form>
+          )}
+
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .5, margin: '14px 0 10px' }}>Receipts</div>
           {receipts.length === 0 ? (
             <p style={{ fontSize: 12, color: 'var(--ink-soft)', textAlign: 'center', padding: 24, margin: 0 }}>No receipts found</p>
           ) : (
@@ -324,7 +443,7 @@ export default function Donors() {
         </div>
       )}
 
-      {selectedId && <DonorDetail donorId={selectedId} onClose={() => { setSelectedId(null) }} />}
+      {selectedId && <DonorDetail donorId={selectedId} onClose={() => { setSelectedId(null) }} onChanged={() => load(search, page, ngoFilter)} />}
 
       <style>{`
         .donors-table th, .donors-table td { border-right: 1px solid var(--line); }

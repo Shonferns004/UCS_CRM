@@ -3850,6 +3850,13 @@ const EDITABLE_DONOR_FIELDS = {
   agent_name: 'agent_name',
   mop: 'mop',
   birth_date: 'birth_date',
+  state: 'state',
+  aadhaar_number: 'aadhaar_number',
+  anniversary: 'anniversary',
+  preferred_language: 'preferred_language',
+  donor_type: 'donor_type',
+  donation_frequency: 'donation_frequency',
+  account_of: 'account_of',
 };
 
 export const updateDonor = async (req, res) => {
