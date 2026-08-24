@@ -269,7 +269,8 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   ];
 
   const now = new Date();
-  const defaultMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const istNow = new Date(now.getTime() + IST_OFFSET);
+  const defaultMonthKey = `${istNow.getUTCFullYear()}-${String(istNow.getUTCMonth() + 1).padStart(2, '0')}`;
   const sortedSalaries = [...salaries].sort((a, b) => (b.from_month || '').localeCompare(a.from_month || ''));
 
   const effectiveMonthKey = viewingMonthKey || defaultMonthKey;
@@ -279,6 +280,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     holidays.filter(h => h.date?.startsWith(monthKey)).map(h => h.date)
   );
   const daysInMonth = new Date(yr, mo, 0).getDate();
+
+  // IST today for current-month cutoff
+  const isCurrentMonth = (yr === istNow.getUTCFullYear() && mo === (istNow.getUTCMonth() + 1));
+  const viewingToday = isCurrentMonth ? istNow.getUTCDate() : daysInMonth + 1;
 
   // Salary covering the viewing month
   const activeSalary = sortedSalaries.find(s =>
@@ -297,8 +302,6 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const joinCutoff = (data.created_at || '').slice(0, 10);
 
   // Compute absent dates — days with no attendance or explicitly absent
-  const viewingToday = (yr === now.getFullYear() && mo === (now.getMonth() + 1))
-    ? now.getDate() : daysInMonth + 1;
   const absentDates = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -314,10 +317,10 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   }
   const absentDatesAfterJoin = absentDates.filter(d => !joinedThisMonth || d >= joinCutoff);
 
-  // New-joiner check: ≤ 3 months employed
-  const nowDate = new Date();
-  const monthsEmp = (nowDate.getFullYear() - joinDate.getFullYear()) * 12 + (nowDate.getMonth() - joinDate.getMonth());
-  const monthsEmployed = (nowDate.getDate() >= joinDate.getDate()) ? monthsEmp + 1 : monthsEmp;
+  // New-joiner check: ≤ 3 months employed (IST)
+  const istNowDate = new Date(Date.now() + IST_OFFSET);
+  const monthsEmp = (istNowDate.getUTCFullYear() - joinDate.getFullYear()) * 12 + (istNowDate.getUTCMonth() - joinDate.getMonth());
+  const monthsEmployed = (istNowDate.getUTCDate() >= joinDate.getDate()) ? monthsEmp + 1 : monthsEmp;
 
   const deducted = new Set();
   const deductionNotes = [];
@@ -347,7 +350,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     }
   }
 
-  const availableDays = joinedThisMonth ? (daysInMonth - joinDayNum + 1) : daysInMonth;
+  const availableDays = isCurrentMonth
+    ? Math.min(daysInMonth, viewingToday) - (joinedThisMonth ? joinDayNum - 1 : 0)
+    : joinedThisMonth ? (daysInMonth - joinDayNum + 1) : daysInMonth;
 
   const monSatAbsences = absentDates.filter(d => {
     const dt = new Date(d);
@@ -391,13 +396,17 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
     a.status === 'half-day' && (!joinedThisMonth || a.date >= joinCutoff)
   ).length;
   const sundayCount = Array.from({ length: daysInMonth }, (_, i) => {
-    if (joinedThisMonth && i + 1 < joinDayNum) return 0;
-    return new Date(yr, mo - 1, i + 1).getDay() === 0 ? 1 : 0;
+    const d = i + 1;
+    if (joinedThisMonth && d < joinDayNum) return 0;
+    if (isCurrentMonth && d > viewingToday) return 0;
+    return new Date(yr, mo - 1, d).getDay() === 0 ? 1 : 0;
   }).reduce((a, b) => a + b, 0);
   const sundayDates = Array.from({ length: daysInMonth }, (_, i) => {
-    const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+    const d = i + 1;
+    const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     if (joinedThisMonth && dateStr < joinCutoff) return null;
-    return new Date(yr, mo - 1, i + 1).getDay() === 0 ? dateStr : null;
+    if (isCurrentMonth && d > viewingToday) return null;
+    return new Date(yr, mo - 1, d).getDay() === 0 ? dateStr : null;
   }).filter(Boolean);
   const eligibleSundays = sundayDates.filter(d => !deducted.has(d));
   const attendedEligible = eligibleSundays.filter(d =>
