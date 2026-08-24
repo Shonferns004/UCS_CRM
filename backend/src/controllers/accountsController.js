@@ -1860,6 +1860,8 @@ export const getPendingReceipts = async (req, res) => {
       .from('receipts')
       .select('*')
       .not('donor_id', 'is', null)
+      .not('receipt_no', 'is', null)
+      .not('receipt_no', 'eq', '')
       .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
       .order('created_at', { ascending: false });
 

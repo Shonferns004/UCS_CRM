@@ -807,7 +807,7 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const { data: entries, error: eErr } = await db
       .from('bank_audit_entries')
-      .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id')
+      .select('id, receipt_id, receipt_no, payer_name, amount, transaction_date, payment_time, project_id, payment_id, check_id, source_id, agent_name, verify_fro_worker_id')
       .eq('status', 'unverified')
       .is('matched_lead_log_id', null)
       .or(`project_id.in.(${projectSet.join(',')}),project_id.is.null`);
@@ -826,6 +826,7 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const pool = receiptLinked.map(e => {
       const r = receiptMap[e.receipt_id] || {};
+      const hasNo = !e.receipt_no && !r.receipt_no;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -837,6 +838,9 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: r.receipt_time || e.payment_time,
         project_id: r.project_id || e.project_id,
         has_receipt: true,
+        // Accounts already draft-assigned an FRO (manual-verify save) but the
+        // receipt number is not yet generated — show "waiting for receipt number".
+        waiting_receipt_no: !!(e.verify_fro_worker_id) || hasNo,
       };
     });
 
@@ -853,6 +857,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: e.payment_time,
         project_id: e.project_id,
         has_receipt: false,
+        waiting_receipt_no: !!(e.verify_fro_worker_id),
       });
     }
 
@@ -886,6 +891,7 @@ export const getSuspenseReceipts = async (req, res) => {
       receipt_time: r.receipt_time,
       project_id: r.project_id,
       kind: r.has_receipt ? 'entry' : 'no_receipt',
+      waiting_receipt_no: r.waiting_receipt_no || false,
       _bank_audit_entry_id: r.entry_id,
       claim_count: claimCountByReceipt[r.id] || 0,
       my_claim_status: myClaimStatusByReceipt[r.id] || null,
