@@ -233,6 +233,20 @@ function DayPicker({ value, onChange }) {
     </div>
   );
 }
+
+function MonthPicker({ value, onChange }) {
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Month</span>
+      <input
+        type="month"
+        value={value || ''}
+        onChange={e => onChange(e.target.value || null)}
+        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
+      />
+    </div>
+  );
+}
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
 function StatRow({ label, value, color }) {
@@ -254,6 +268,7 @@ export default function Receipts() {
     const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
     return ist.toISOString().slice(0, 10);
   })
+  const [filterMonth, setFilterMonth] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -417,13 +432,18 @@ export default function Receipts() {
     let url = '/accounts/receipts?limit=1'
     if (filterDate) {
       url += `&from_date=${filterDate}&to_date=${filterDate}`
+    } else if (filterMonth) {
+      const [y, m] = filterMonth.split('-').map(Number)
+      const mStr = String(m).padStart(2, '0')
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+      url += `&from_date=${y}-${mStr}-01&to_date=${y}-${mStr}-${lastDay}`
     }
     apiGet(url).then(res => {
       setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
-      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : (filterDate ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
+      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : ((filterDate || filterMonth) ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
       setTodayStats(Array.isArray(res?.todayStats) ? res.todayStats : [])
     }).catch(e => console.error('Stats fetch error:', e.message))
-  }, [filterDate])
+  }, [filterDate, filterMonth])
 
   const refreshHistory = () => {
     window.dispatchEvent(new CustomEvent('ucs:receipts-refresh'))
@@ -854,12 +874,13 @@ export default function Receipts() {
 
   const ALL_PROJECTS = ['bsct', 'aflf', 'mann'];
   const statsMap = {};
-  (filterDate ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
+  (filterDate || filterMonth ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <DayPicker value={filterDate} onChange={setFilterDate} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+        <DayPicker value={filterDate} onChange={v => { setFilterDate(v); if (v) setFilterMonth(null) }} />
+        <MonthPicker value={filterMonth} onChange={v => { setFilterMonth(v); if (v) setFilterDate(null) }} />
       </div>
 
       <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
