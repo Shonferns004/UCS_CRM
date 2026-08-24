@@ -57,6 +57,7 @@ const NAME_ALIASES = {
   suvitashirvatkar: 'Suvita Kisan Shirvatkar',
   jayshreeprajapati: 'jayashree prajapati',
   sairaprabalkar: 'Saira  Parbalkar ',
+  kanchanchauhan: 'Kanchan Gupta',
   ruchiramatre: 'Ruchira Mhatre',
 };
 
