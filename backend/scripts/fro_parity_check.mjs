@@ -45,16 +45,18 @@ const EXCLUDED_AGENTS = new Set([
 // Known spelling variants -> canonical worker name.
 const NAME_ALIASES = {
   riddhipatel: 'Riddhi Arun Patel',
-  chhayakumari: 'Chhaya Prasad Kumari',
-  sushmaambokar: 'Sushma Narendra Ambokar',
-  reenamaurya: 'Reena Maurya Gyanchand',
+  chhayakumari: 'Chhaya  Kumari',
+  chhayaprasadkumari: 'Chhaya  Kumari',
+  sushmaambokar: 'Sushma Ambokar',
+  sushmanarendraambokar: 'Sushma Ambokar',
+  reenamaurya: 'Reena Maurya',
   swetavishwakarma: 'Shweeta Vishwakarma',
   kshitijajadhav: 'Kshitija Mohil Jadhav',
   varshatambe: 'Varsha G. Tambe',
   sonaliwankhede: 'Sonali Wankhede Tayade',
   suvitashirvatkar: 'Suvita Kisan Shirvatkar',
   jayshreeprajapati: 'jayashree prajapati',
-  sairaprabalkar: 'Saira Irfan Parbalkar ',
+  sairaprabalkar: 'Saira  Parbalkar ',
   ruchiramatre: 'Ruchira Mhatre',
 };
 
