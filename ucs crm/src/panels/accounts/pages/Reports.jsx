@@ -58,7 +58,8 @@ export default function Reports() {
         srcMap[name] = (srcMap[name] || 0) + Number(e.amount || 0);
       }
       data.sourceBreakdown = (allSources || [])
-        .filter(s => s.is_active !== false)
+        .filter(s => s.is_active !== false && (s.kind || 'bank') === 'bank')
+        .filter((s, i, a) => a.findIndex(x => x.name === s.name) === i)
         .map(s => ({ name: s.name, amount: srcMap[s.name] || 0 }));
 
       setReport(data);

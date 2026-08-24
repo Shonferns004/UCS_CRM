@@ -2,7 +2,7 @@ import db from '../config/db.js';
 import { createReceipt, findReceiptByLogId } from '../models/receiptModel.js';
 import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
-import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
+import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, voidReceipt, deleteReceiptSafely, bulkDeleteReceipts, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
 import XLSX from 'xlsx';
 import path from 'path';
@@ -1007,18 +1007,10 @@ export const goBackLead = async (req, res) => {
         if (eErr) console.error('Failed to revert bank audit entry on go-back:', eErr.message);
       }
 
-      if (receipt.purpose === 'General Donation' || entry) {
-        try { await db.from('receipts').delete().eq('id', receipt.id); }
-        catch (err) { console.error('Failed to delete verification receipt on go-back:', err.message); }
-      } else {
-        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
-        catch (err) { console.error('Failed to release receipt on go-back:', err.message); }
-      }
-
-      // Free the cancelled number(s) so the next receipt continues from the
-      // last live number instead of skipping over them.
-      try { await cancelReceiptNo(receipt.project_id); }
-      catch (err) { console.error('Failed to cancel receipt number on go-back:', err.message); }
+      // Void the receipt instead of deleting it or erasing its number — the
+      // receipt number stays in the book (no gap) and the receipt stops counting.
+      try { await voidReceipt(receipt.id, 'Lead sent back to FRO'); }
+      catch (err) { console.error('Failed to void receipt on go-back:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -1172,14 +1164,12 @@ export const undoLeadVerification = async (req, res) => {
       }
 
       if ((receipt.purpose === 'General Donation' || entry) && !receipt.sent) {
-        try { await db.from('receipts').delete().eq('id', receipt.id); }
-        catch (err) { console.error('Failed to delete receipt on undo:', err.message); }
+        try { await voidReceipt(receipt.id, 'Lead verification undone'); }
+        catch (err) { console.error('Failed to void receipt on undo:', err.message); }
       } else {
-        try { await db.from('receipts').update({ log_id: null, donor_id: null, receipt_no: null }).eq('id', receipt.id); }
-        catch (err) { console.error('Failed to unlink receipt on undo:', err.message); }
+        try { await voidReceipt(receipt.id, 'Lead verification undone'); }
+        catch (err) { console.error('Failed to void receipt on undo:', err.message); }
       }
-      try { await cancelReceiptNo(receipt.project_id); }
-      catch (err) { console.error('Failed to cancel receipt number on undo:', err.message); }
     }
 
     // Revert an entry auto-verified from the lead's UPI transaction id.
@@ -1284,9 +1274,9 @@ export const undoReceipt = async (req, res) => {
       } catch (e) { console.error('donor totals revert (receipt-level) failed:', e.message); }
     }
 
-    // 4. Delete the receipt and free the number.
-    await db.from('receipts').delete().eq('id', receipt.id);
-    try { await cancelReceiptNo(projectId); } catch (_) {}
+    // 4. Void the receipt (or delete only if it is the latest number, so the
+    // counter steps back with no gap).
+    await deleteReceiptSafely(receipt.id, 'Receipt undone');
 
     return res.json({ message: 'Receipt undone — returned to Bank Audit', receipt_id: receipt.id });
   } catch (error) {
@@ -1574,7 +1564,7 @@ export const getReceiptList = async (req, res) => {
               COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
               count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
        FROM receipts
-       WHERE receipt_no IS NOT NULL
+       WHERE receipt_no IS NOT NULL AND voided_at IS NULL
        GROUP BY project_id
        ORDER BY count(*) DESC`
     );
@@ -1595,7 +1585,7 @@ export const getReceiptList = async (req, res) => {
                 count(*)::int AS count,
                 COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
                 count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
-         FROM receipts WHERE receipt_no IS NOT NULL AND (${mw.join(' AND ')})
+         FROM receipts WHERE receipt_no IS NOT NULL AND voided_at IS NULL AND (${mw.join(' AND ')})
          GROUP BY project_id ORDER BY count(*) DESC`, mp
       );
       monthStatsByProject = mRes.rows;
@@ -1609,7 +1599,7 @@ export const getReceiptList = async (req, res) => {
                   count(*)::int AS count,
                   COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
            FROM receipts
-           WHERE receipt_no IS NOT NULL AND receipt_date = $1::date
+           WHERE receipt_no IS NOT NULL AND voided_at IS NULL AND receipt_date = $1::date
            GROUP BY project_id`,
           [todayDateParam]
         )
@@ -1618,7 +1608,7 @@ export const getReceiptList = async (req, res) => {
                   count(*)::int AS count,
                   COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
            FROM receipts
-           WHERE receipt_no IS NOT NULL AND receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+           WHERE receipt_no IS NOT NULL AND voided_at IS NULL AND receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
            GROUP BY project_id`
         );
 
@@ -1702,7 +1692,7 @@ export const getReceiptList = async (req, res) => {
                 amount,
                 receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
                 donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
-                sent, sent_at, created_at,
+                sent, sent_at, voided_at, void_reason, created_at,
                 (SELECT b.payer_name FROM bank_audit_entries b
                  WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                  ORDER BY b.id LIMIT 1) AS audit_payer_name,
@@ -1741,7 +1731,7 @@ export const getReceiptList = async (req, res) => {
               amount,
               receipt_date, receipt_time, "mode", payment_id, bank_name, bank_payer_name, address, pan_number, email,
               donor_id, agent_name, caller_name, mobile_2, address_2, station, account_of,
-              sent, sent_at, created_at,
+              sent, sent_at, voided_at, void_reason, created_at,
               (SELECT b.payer_name FROM bank_audit_entries b
                WHERE b.receipt_id = receipts.id AND b.payer_name IS NOT NULL AND b.payer_name <> ''
                ORDER BY b.id LIMIT 1) AS audit_payer_name,
@@ -1862,6 +1852,7 @@ export const getPendingReceipts = async (req, res) => {
       .not('donor_id', 'is', null)
       .not('receipt_no', 'is', null)
       .not('receipt_no', 'eq', '')
+      .is('voided_at', null)
       .or(`sent.is.null,sent.eq.false,and(sent.eq.true,sent_at.gte.${tenMinAgo})`)
       .order('created_at', { ascending: false });
 
@@ -3262,13 +3253,8 @@ const clearReceiptsByDate = async (from, to) => {
         })
         .in('receipt_id', ids);
     }
-    const { data: delRows } = await db
-      .from('receipts')
-      .delete()
-      .in('id', ids)
-      .select('id, log_id, donor_id, project_id');
-    const rowsOut = delRows || [];
-    deleted += rowsOut.length;
+    const rowsOut = batchRows;
+    deleted += await bulkDeleteReceipts(ids);
     for (const r of rowsOut) {
       if (r.donor_id) affected.add(r.donor_id);
       if (r.project_id) affectedProjects.add(r.project_id);
@@ -3413,23 +3399,16 @@ export const clearReceipts = async (req, res) => {
         .select('id, log_id')
         .neq('id', 0)
         .limit(batch);
-      const batchIds = (ids || []).map(r => r.id);
-      if (batchIds.length > 0) {
-        const { data: rows } = await db
-          .from('receipts')
-          .delete()
-          .in('id', batchIds)
-          .select('id, log_id');
-        deleted = rows?.length || 0;
-        deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
-      }
+      const rows = ids || [];
+      const batchIds = rows.map(r => r.id);
+      deleted = await bulkDeleteReceipts(batchIds);
+      deletedLogs = await deleteLinkedLogs(rows.map(r => r.log_id).filter(Boolean));
     } else {
       const { data: rows } = await db
         .from('receipts')
-        .delete()
-        .neq('id', 0)
-        .select('id, log_id');
-      deleted = rows?.length || 0;
+        .select('id, log_id')
+        .neq('id', 0);
+      deleted = await bulkDeleteReceipts((rows || []).map(r => r.id));
       remaining = 0;
       deletedLogs = await deleteLinkedLogs((rows || []).map(r => r.log_id).filter(Boolean));
     }
@@ -3444,7 +3423,8 @@ export const getReceiptCount = async (req, res) => {
   try {
     const { count } = await db
       .from('receipts')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .is('voided_at', null);
     return res.json({ count: count || 0 });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -3870,6 +3850,13 @@ const EDITABLE_DONOR_FIELDS = {
   agent_name: 'agent_name',
   mop: 'mop',
   birth_date: 'birth_date',
+  state: 'state',
+  aadhaar_number: 'aadhaar_number',
+  anniversary: 'anniversary',
+  preferred_language: 'preferred_language',
+  donor_type: 'donor_type',
+  donation_frequency: 'donation_frequency',
+  account_of: 'account_of',
 };
 
 export const updateDonor = async (req, res) => {
@@ -3914,6 +3901,106 @@ export const updateDonor = async (req, res) => {
     if (updateErr) throw updateErr;
 
     return res.json({ donor, message: 'Donor updated' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Address Import ───────────────────────────────────────
+// Excel-driven donor address update: match by normalized mobile number,
+// fill ONLY blank fields (never overwrite existing data), skip unknown numbers.
+
+const normalizeMobile = (v) => {
+  let n = String(v ?? '').replace(/\D/g, '');
+  if (!n) return '';
+  if (n.length === 12 && n.startsWith('91')) n = n.slice(2);
+  else if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+  return n;
+};
+
+export const importDonorAddresses = async (req, res) => {
+  try {
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No rows provided' });
+    }
+
+    const { data: donors, error: fetchErr } = await db
+      .from('donor_profiles')
+      .select('id, mobile_number, name, address_1, address_2, pan_number, email');
+    if (fetchErr) throw fetchErr;
+
+    const byMobile = new Map();
+    for (const d of (donors || [])) {
+      const key = normalizeMobile(d.mobile_number);
+      if (key && !byMobile.has(key)) byMobile.set(key, d);
+    }
+
+    const results = [];
+    const updates = [];
+    const seen = new Set();
+    const summary = { total: rows.length, updated: 0, matchedNoChange: 0, notFound: 0, skippedNoMobile: 0, duplicatesInFile: 0 };
+
+    rows.forEach((r, i) => {
+      const rowNo = i + 2; // +1 header, +1 for 1-based
+      const mobile = normalizeMobile(r.mobile_number);
+      if (!mobile || mobile.length < 10) {
+        summary.skippedNoMobile++;
+        results.push({ row: rowNo, mobile: r.mobile_number || '', status: 'no_mobile' });
+        return;
+      }
+      if (seen.has(mobile)) {
+        summary.duplicatesInFile++;
+        results.push({ row: rowNo, mobile, status: 'duplicate' });
+        return;
+      }
+      seen.add(mobile);
+
+      const existing = byMobile.get(mobile);
+      if (!existing) {
+        summary.notFound++;
+        results.push({ row: rowNo, mobile, status: 'not_found' });
+        return;
+      }
+
+      const payload = {};
+      let hasFill = false;
+      for (const field of ['name', 'address_1', 'address_2', 'pan_number', 'email']) {
+        const val = String(r[field] ?? '').trim();
+        if (!val) continue;
+        const cur = String(existing[field] ?? '').trim();
+        if (!cur) { payload[field] = val; hasFill = true; }
+      }
+
+      if (!hasFill) {
+        summary.matchedNoChange++;
+        results.push({ row: rowNo, mobile, status: 'complete' });
+        return;
+      }
+
+      summary.updated++;
+      updates.push({ id: existing.id, payload });
+      results.push({ row: rowNo, mobile, status: 'updated' });
+    });
+
+    if (updates.length > 0) {
+      const jsonPayload = JSON.stringify(updates.map(u => ({ id: u.id, payload: u.payload })));
+      const { rowCount } = await db._pool.query(
+        `UPDATE donor_profiles AS d SET
+           name       = COALESCE(NULLIF(d.name, ''),       NULLIF(v.payload->>'name', ''),       d.name),
+           address_1  = COALESCE(NULLIF(d.address_1, ''),  NULLIF(v.payload->>'address_1', ''),  d.address_1),
+           address_2  = COALESCE(NULLIF(d.address_2, ''),  NULLIF(v.payload->>'address_2', ''),  d.address_2),
+           pan_number = COALESCE(NULLIF(d.pan_number, ''), NULLIF(v.payload->>'pan_number', ''), d.pan_number),
+           email      = COALESCE(NULLIF(d.email, ''),      NULLIF(v.payload->>'email', ''),      d.email),
+           updated_at = now()
+         FROM jsonb_to_recordset($1::jsonb) AS v(id int, payload jsonb)
+         WHERE d.id = v.id`,
+        [jsonPayload]
+      );
+      summary.updated = rowCount ?? updates.length;
+    }
+
+    return res.json({ summary, results });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

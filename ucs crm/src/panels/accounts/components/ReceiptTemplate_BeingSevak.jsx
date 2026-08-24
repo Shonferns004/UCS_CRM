@@ -366,29 +366,6 @@ export default function ReceiptTemplate_BeingSevak({ donor, index, signature }) 
                   padding: '10px',
                   fontSize: '13px',
                   fontWeight: 700,
-                  background: '#f3fbff'
-                }}
-              >
-                Bank Name:
-              </td>
-              <td
-                style={{
-                  border: `1px solid ${ACCENT}`,
-                  padding: '10px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  background: '#fff'
-                }}
-              >
-                {donor['Donor Bank Name'] || 'NA'}
-              </td>
-
-              <td
-                style={{
-                  border: `1px solid ${ACCENT}`,
-                  padding: '10px',
-                  fontSize: '13px',
-                  fontWeight: 700,
                   background: '#f3fbff',
                   textAlign: 'left'
                 }}

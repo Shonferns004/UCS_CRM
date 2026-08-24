@@ -25,7 +25,7 @@ const C = ['#5B6B4E','#B5603A','#C08A2E','#4F6472','#7A5C7E','#88693D','#2E7D6F'
 const NGO_LABELS = { bsct:'Being Sevak', mann:'Mann Care', aflf:'Ashray' };
 const TODAY_IST=new Date(Date.now()+5.5*60*60*1000).toISOString().slice(0,10);
 const EMPTY_FM={src_id:'',amount:'',payment_id:'',check_id:'NA',transaction_date:TODAY_IST,remarks:'NA',payer_name:'',donor_name:'',payment_time:'',project_id:'bsct',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',agent_name:'',log_id:'',donor_id:'',mode:'',modeCustom:'',_lead_amount:null};
-const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','others'];
+const MODE_OPTIONS=['Google Pay','Freecharge','razorpay','online','PUM','Cheque','Paytm','others'];
 
 const NGO_MAP = {
   bsct: { label: 'Being Sevak', comp: ReceiptTemplateBeingSevak },
@@ -411,7 +411,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
             <span className="pill pill-gray">{e.bank_audit_sources?.name||getSrcName(e.source_id)}</span>
             {e.claimed_by&&<span className="pill" style={{fontSize:10,background:'#fde7db',color:'#B5603A',whiteSpace:'nowrap'}} title="Claimed by FRO (pending verification)">Claimed by {e.claimed_by}</span>}
             {e.claimed_donor_name&&<span className="pill" style={{fontSize:10,background:'#e0f2fe',color:'#0369a1',whiteSpace:'nowrap'}} title="Donor linked by the FRO on claim">Claimed for {e.claimed_donor_name}{e.claimed_donor_mobile?` \u00B7 ${e.claimed_donor_mobile}`:''}</span>}
-            {e.verify_type&&<span className="pill" style={{fontSize:10,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap',fontWeight:700}}>SAVED</span>}
+            {(e.verify_type||e.verify_fro_worker_id)&&<span className="pill" style={{fontSize:10,background:'#dcfce7',color:'#166534',whiteSpace:'nowrap',fontWeight:700}} title="Manual verify details saved">SAVED{e.verify_fro_name?` \u00B7 ${e.verify_fro_name}`:''}</span>}
             <span className="pill pill-gray">{NGO_LABELS[ngoOf(e)]||'\u2014'}</span>
             {(e.agent_name||e.match_fro)&&(e.agent_name||e.match_fro)!=='Suspense'&&<span className="pill" style={{fontSize:10,background:'#ede9fe',color:'#6d28d9',whiteSpace:'nowrap'}} title="Agent">{e.agent_name||e.match_fro}</span>}
             <span className="ec-ref">{e.payment_id||e.check_id||'\u2014'}</span>
@@ -433,7 +433,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[st,setSt]=useState('unverified');const[sd,setSd]=useState(currentMonthIST());const[dd,setDd]=useState('');const[nf,setNf]=useState('');const[snf,setSnf]=useState('');
   const[sa,setSa]=useState(false);const[se,setSe]=useState(null);const[ss,setSs]=useState(false);
   const[fm,setFm]=useState({...EMPTY_FM});
-  const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[er,setEr]=useState('');
+  const[sv,setSv]=useState(false);const[snn,setSnn]=useState('');const[srcTab,setSrcTab]=useState('bank');const[er,setEr]=useState('');
   const[fer,setFer]=useState('');const[dci,setDci]=useState(null);const[to,setTo]=useState({msg:'',type:'success',vis:false});
   const[cm,setCm]=useState(false);
   const[rp,setRp]=useState(null);const[dl,setDl]=useState(false);const receiptRef=useRef(null);const clickRef=useRef(null);
@@ -441,6 +441,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
   const[mvFro,setMvFro]=useState('');const[mvType,setMvType]=useState('');const[mvMobile,setMvMobile]=useState('');const[mvName,setMvName]=useState('');const[mvAddr,setMvAddr]=useState('');const[mvPan,setMvPan]=useState('');const[mvEmail,setMvEmail]=useState('');const[mvCity,setMvCity]=useState('');const[mvPinCode,setMvPinCode]=useState('');  const[mvAddr2,setMvAddr2]=useState('');const[mvDonorId,setMvDonorId]=useState('');
   const[mvResults,setMvResults]=useState([]);const[mvSearching,setMvSearching]=useState(false);const[mvShowResults,setMvShowResults]=useState(false);const[mvSearched,setMvSearched]=useState(false);
   const[mvConflict,setMvConflict]=useState(null);const[mvConflictFro,setMvConflictFro]=useState('');
+  const[mvSaved,setMvSaved]=useState(false);
   const mvSearchRef=useRef(null);
   const[showMvForm,setShowMvForm]=useState(false);
   const mvFormRef=useRef(null);
@@ -514,22 +515,26 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     if(isReceiptSuspense(se)){
       await apiPut('/accounts/bank-audit/suspense/'+se.receipt_id,{donor_name:fm.donor_name||fm.payer_name||null,donor_mobile:fm.donor_mobile||se.donor_mobile||null,amount:fm.amount,receipt_date:fm.transaction_date,payment_id:fm.payment_id||null,project_id:fm.project_id||'bsct',agent_name:fm.agent_name,log_id:fm.log_id||null,mode:resolveMode()||null});
     }else{
-      await apiPut('/accounts/bank-audit/entries/'+se.id,{...fm,mode:resolveMode()||null});
+      await apiPut('/accounts/bank-audit/entries/'+se.id,{...fm,source_id:fm.src_id,mode:resolveMode()||null});
     }
     setSe(null);setFm({...EMPTY_FM});setFer('');setTo({msg:'Entry updated successfully',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setSv(false)}};
   const delEntry=async()=>{if(!dci)return;try{
     if(isReceiptSuspense(dci)){await apiDelete('/accounts/bank-audit/suspense/'+dci.receipt_id)}
     else{await apiDelete('/accounts/bank-audit/entries/'+dci.id)}
     setDci(null);setTo({msg:'Entry deleted successfully',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
-  const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
+  const dbModes=sr.filter(s=>s.kind==='mop').map(s=>s.name).filter(Boolean);
+  const modeList=dbModes.length?[...new Set([...dbModes,'online','others'])]:[...MODE_OPTIONS];
+  const modeSet=new Set([...MODE_OPTIONS,...dbModes]);
+  const bankSrcs=sr.filter(s=>(s.kind||'bank')==='bank'&&s.is_active!==false);
+  const addSrc=async()=>{if(!snn)return;try{await apiPost('/accounts/bank-audit/sources',{name:snn,kind:srcTab});setSnn('');setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
   const delSrc=async(id)=>{if(!confirm('Delete?'))return;try{await apiDelete('/accounts/bank-audit/sources/'+id);setSr(await apiGet('/accounts/bank-audit/sources'))}catch(e){setTo({msg:e.message,type:'error',vis:true})}};
-  const openE=(entry)=>{setShowMvForm(false);setMv(null);setMvErr('');setMvResults([]);setMvShowResults(false);const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';const edMode=entry.mode||'';const modeFilled={mode:MODE_OPTIONS.includes(edMode)?edMode:(edMode?'others':''),modeCustom:MODE_OPTIONS.includes(edMode)?'':edMode};if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,...modeFilled,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({...EMPTY_FM,...modeFilled,src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
+  const openE=(entry)=>{setShowMvForm(false);setMv(null);setMvErr('');setMvResults([]);setMvShowResults(false);const aName=entry.agent_name&&entry.agent_name!=='Suspense'?entry.agent_name:'';const edMode=entry.mode||'';const modeFilled={mode:modeSet.has(edMode)?edMode:(edMode?'others':''),modeCustom:modeSet.has(edMode)?'':edMode};if(isReceiptSuspense(entry)){setFm({...EMPTY_FM,...modeFilled,src_id:'',amount:entry.amount,payment_id:entry.payment_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||''});setSe(entry);return}setFm({...EMPTY_FM,...modeFilled,src_id:entry.source_id,amount:entry.amount,payment_id:entry.payment_id||'',check_id:entry.check_id||'',transaction_date:entry.transaction_date,remarks:entry.remarks||'',payer_name:entry.payer_name||'',donor_name:entry.donor_name||entry.payer_name||'',payment_time:entry.payment_time||'',project_id:entry.project_id||'bsct',donor_mobile:entry.donor_mobile||'',donor_email:entry.donor_email||'',donor_pan:entry.donor_pan||'',donor_address_1:entry.donor_address_1||'',donor_address_2:entry.donor_address_2||'',donor_city:entry.donor_city||'',donor_pin_code:entry.donor_pin_code||'',agent_name:aName,log_id:entry.log_id||'',donor_id:entry.donor_id||'',_lead_amount:entry.log_id?Number(entry.lead_amount||0):null});setSe(entry);if(entry.match_lead&&!entry.log_id){pickLead(entry.match_lead);setFm(p=>({...p,log_id:''}))}else if(entry.match_lead)setFm(p=>({...p,donor_mobile:entry.match_lead.donor_mobile||p.donor_mobile}))};
   const orNa=(v,fallback)=>v||fallback||'NA';
   const pickLead=(l)=>{setFm(p=>({...p,log_id:l.log_id,donor_id:l.donor_id||'',payer_name:l.donor_name||p.payer_name,donor_name:l.donor_name||p.donor_name,donor_mobile:orNa(l.donor_mobile,p.donor_mobile),donor_email:orNa(l.donor_email,p.donor_email),donor_pan:orNa(l.donor_pan,p.donor_pan),donor_address_1:orNa(l.donor_address_1,p.donor_address_1),donor_address_2:orNa(l.donor_address_2,p.donor_address_2),donor_city:orNa(l.donor_city,p.donor_city),donor_pin_code:orNa(l.donor_pin_code,p.donor_pin_code),project_id:l.donor_project||p.project_id,agent_name:l.agent_name||p.agent_name,_lead_amount:Number(l.amount||0)}));};
   const clearLead=()=>setFm(p=>({...p,log_id:'',donor_id:'',donor_name:'',donor_mobile:'',donor_email:'',donor_pan:'',donor_address_1:'',donor_address_2:'',donor_city:'',donor_pin_code:'',_lead_amount:null}));
   const confirmMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/confirm-match');setSe(null);setTo({msg:'Match confirmed and credited',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setCm(false)}};
   const clearMatch=async(entry)=>{setCm(true);try{await apiPost('/accounts/bank-audit/entries/'+entry.id+'/clear-match');setSe(null);setTo({msg:'Match cleared',type:'success',vis:true});load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setCm(false)}};
-  const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro(entry.verify_fro_worker_id||'');setMvType(entry.verify_type||'');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');setMvEmail(entry.donor_email||'');setMvCity(entry.donor_city||'');setMvPinCode(entry.donor_pin_code||'');setMvAddr2(entry.donor_address_2||'');setMvDonorId(entry.donor_id||'');setMvResults([]);setMvShowResults(false);setMvSearched(!!entry.donor_mobile&&entry.donor_mobile!=='NA');setShowMvForm(true);};
+  const openManualVerify=(entry)=>{setMv(entry);setMvErr('');setMvFro(entry.verify_fro_worker_id||'');setMvSaved(!!entry.verify_fro_worker_id);setMvType(entry.verify_type||'');setMvMobile(entry.donor_mobile&&entry.donor_mobile!=='NA'?entry.donor_mobile:'');setMvName(entry.mv_donor_name||entry.donor_profiles?.name||(entry.donor_name&&entry.donor_name!=='NA'?entry.donor_name:'')||'');setMvAddr(entry.donor_address_1||'');setMvPan(entry.donor_pan||'');setMvEmail(entry.donor_email||'');setMvCity(entry.donor_city||'');setMvPinCode(entry.donor_pin_code||'');setMvAddr2(entry.donor_address_2||'');setMvDonorId(entry.donor_id||'');setMvResults([]);setMvShowResults(false);setMvSearched(!!entry.donor_mobile&&entry.donor_mobile!=='NA');setShowMvForm(true);};
   const mvTimerRef=useRef(null);
   const searchMvDonors=(q)=>{setMvMobile(q);setMvErr('');setMvSearched(false);if(mvTimerRef.current)clearTimeout(mvTimerRef.current);const raw=q.replace(/[^\d]/g,'');if(raw.length<3){setMvResults([]);setMvShowResults(false);return}mvTimerRef.current=setTimeout(async()=>{try{setMvSearching(true);setMvShowResults(true);const r=await apiGet('/accounts/donors?search='+encodeURIComponent(raw));const donors=Array.isArray(r)?r:(r.data||[]);if(donors.length>0){setMvResults(donors);setMvSearched(true)}else{try{const rec=await apiGet('/accounts/receipts/by-mobile?mobile='+encodeURIComponent(raw));if(rec&&rec.donor_name){setMvName(rec.donor_name||'');setMvAddr(rec.address||'');setMvPan(rec.pan_number||'');setMvEmail(rec.email||'');setMvCity(rec.city||rec.donor_city||'');setMvPinCode(rec.pin_code||rec.donor_pin_code||'');setMvAddr2(rec.address_2||'');setMvDonorId(rec.donor_id||'');setMvShowResults(false);setMvSearched(true)}else{setMvResults([]);setMvSearched(true)}}catch(_){setMvResults([]);setMvSearched(true)}}}catch(e){setMvResults([])}finally{setMvSearching(false)}},350)};
   const selectMvDonor=(d)=>{setMvName(d.name||'');setMvMobile(d.mobile_number||d.mobile||d.phone||mvMobile);setMvAddr(d.address_1||d.address||'');setMvPan(d.pan_number||d.pan||'');setMvEmail(d.email||'');setMvCity(d.city||'');setMvPinCode(d.pin_code||d.pincode||'');setMvAddr2(d.address_2||'');setMvDonorId(d.id||'');setMvResults([]);setMvShowResults(false);setMvSearched(true)};
@@ -550,13 +555,13 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     }catch(_){setMvConflict(null);setMvConflictFro('')}
   },[mvFro]);
   const handleManualVerify=async()=>{if(!mv||mvSub)return;const mobile=String(mvMobile||'').replace(/[^\d]/g,'');if(mobile.length<10){setTo({msg:'Please enter a valid donor mobile number',type:'error',vis:true});return}setMvSub(true);try{const payload={donor_mobile:mobile,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null,donor_id:mvDonorId||null,verify_type:'fro',verify_fro_worker_id:mvFro||null};if(mvFro)payload.fro_worker_id=mvFro;if(mvConflict&&mvConflictFro&&mvConflictFro!=='new'){payload.credit_to_fro_worker_id=mvConflictFro}const res=await apiPost('/accounts/bank-audit/entries/'+mv.id+'/manual-verify',payload);setMv(null);setSe(null);setShowMvForm(false);setMvResults([]);setMvShowResults(false);setMvConflict(null);setMvConflictFro('');setTo({msg:res?.message||'Entry manually verified',type:'success',vis:true});await load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setMvSub(false)}};
-  const saveMvDetails=async()=>{if(!mv||mvSub)return;setMvSub(true);try{await apiPut('/accounts/bank-audit/entries/'+mv.id+'/manual-verify-details',{fro_worker_id:mvFro||null,verify_type:mvType||null,verify_fro_worker_id:mvFro||null,donor_mobile:mvMobile||null,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null,donor_id:mvDonorId||null});setTo({msg:'Details saved successfully',type:'success',vis:true});await load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setMvSub(false)}};
+  const saveMvDetails=async()=>{if(!mv||mvSub)return;setMvSub(true);try{await apiPut('/accounts/bank-audit/entries/'+mv.id+'/manual-verify-details',{fro_worker_id:mvFro||null,verify_type:mvType||null,verify_fro_worker_id:mvFro||null,donor_mobile:mvMobile||null,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null,donor_id:mvDonorId||null});setMvSaved(true);setTo({msg:'Details saved successfully',type:'success',vis:true});await load(sd,st)}catch(e){setTo({msg:e.message,type:'error',vis:true})}finally{setMvSub(false)}};
   const mvBlurTimerRef=useRef(null);
   const blurSaveMv=useCallback(()=>{
     if(!mv)return;
     if(mvBlurTimerRef.current)clearTimeout(mvBlurTimerRef.current);
     mvBlurTimerRef.current=setTimeout(async()=>{
-      try{await apiPut('/accounts/bank-audit/entries/'+mv.id+'/manual-verify-details',{fro_worker_id:mvFro||null,verify_type:mvType||null,verify_fro_worker_id:mvFro||null,donor_mobile:mvMobile||null,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null,donor_id:mvDonorId||null})}catch(_){}
+      try{await apiPut('/accounts/bank-audit/entries/'+mv.id+'/manual-verify-details',{fro_worker_id:mvFro||null,verify_type:mvType||null,verify_fro_worker_id:mvFro||null,donor_mobile:mvMobile||null,donor_name:mvName||null,donor_address:mvAddr||null,donor_pan:mvPan||null,donor_email:mvEmail||null,donor_city:mvCity||null,donor_pin_code:mvPinCode||null,donor_address_2:mvAddr2||null,donor_id:mvDonorId||null});setMvSaved(true)}catch(_){}
     },600);
   },[mv,mvFro,mvType,mvMobile,mvName,mvAddr,mvPan,mvEmail,mvCity,mvPinCode,mvAddr2,mvDonorId]);
   const handleDownloadReceipt=async()=>{setDl(true);try{await downloadSinglePDF(receiptRef.current,entryToDonor(rp),rp.project_id||'bsct')}catch(e){setTo({msg:'Failed to download PDF: '+e.message,type:'error',vis:true})}setDl(false)};
@@ -592,9 +597,9 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
         <div className="fg2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <label style={{fontSize:12,fontWeight:500,color:'#374151',display:'flex',flexDirection:'column',gap:5}}>
             <span>Mode of Payment <span style={{color:'#9ca3af',fontWeight:400}}>— optional</span></span>
-            <select className="field-input" value={MODE_OPTIONS.includes(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
+            <select className="field-input" value={modeSet.has(fm.mode)?fm.mode:''} onChange={e=>{setFm(p=>({...p,mode:e.target.value}));if(fer)setFer('')}} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select mode...</option>
-              {MODE_OPTIONS.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
+              {modeList.filter(m=>m!=='others').map(m=><option key={m} value={m}>{m[0].toUpperCase()+m.slice(1)}</option>)}
             </select>
             {fm.mode==='others'&&<input className="field-input" placeholder="Type your mode..." value={fm.modeCustom||''} onChange={e=>setFm(p=>({...p,modeCustom:e.target.value}))} style={fieldStyle} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}/>}
           </label>
@@ -602,7 +607,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <span>Received Bank <span style={{color:'#dc2626'}}>*</span></span>
             <select className="field-input" value={fm.src_id} disabled={isEdit&&seEntry&&isReceiptSuspense(seEntry)} onChange={e=>{setFm(p=>({...p,src_id:e.target.value}));if(fer)setFer('')}} style={{...fieldStyle,background:isEdit&&seEntry&&isReceiptSuspense(seEntry)?'#f3f4f6':'#fff'}} onFocus={e=>{Object.assign(e.currentTarget.style,fieldFocus)}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none'}}>
               <option value="">Select received bank...</option>
-              {sr.filter(s=>s.is_active!==false).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              {bankSrcs.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
         </div>
@@ -719,13 +724,17 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
     {/* Sources Modal */}
     {ss&&<div className="modal-overlay" onClick={()=>setSs(false)}><div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,borderRadius:12}}>
       <div className="modal-head"><h3 style={{fontSize:16,fontWeight:700}}>Manage Sources</h3><button className="btn btn-sm btn-icon" onClick={()=>setSs(false)} style={{padding:4}}><SvgX/></button></div>
-      <div className="modal-body" style={{padding:20}}>
-        <div style={{display:'flex',gap:8,marginBottom:12}}>
-          <input className="field-input" value={snn} onChange={e=>setSnn(e.target.value)} placeholder="New source name" onKeyDown={e=>e.key==='Enter'&&addSrc()}/>
+      <div className="modal-body" style={{padding:20,maxHeight:'65vh',overflowY:'auto'}}>
+        <div style={{display:'flex',gap:6,marginBottom:14}}>
+          {[['Received Banks','bank'],['Modes of Payment','mop']].map(([label,key])=>
+            <button key={key} onClick={()=>{setSrcTab(key);setSnn('')}} style={{flex:1,padding:'6px 8px',fontSize:12,fontWeight:600,borderRadius:8,cursor:'pointer',border:'1px solid '+(srcTab===key?'#2563eb':'#e5e7eb'),background:srcTab===key?'#eff6ff':'#fff',color:srcTab===key?'#2563eb':'#6b7280'}}>{label}</button>)}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,marginBottom:12}}>
+          <input className="field-input" value={snn} onChange={e=>setSnn(e.target.value)} placeholder={srcTab==='mop'?'New payment mode name':'New received bank name'} onKeyDown={e=>e.key==='Enter'&&addSrc()}/>
           <button className="btn btn-primary btn-sm" onClick={addSrc}>Add</button>
         </div>
-        {sr.map(s=><div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13}}>
-          <span>{s.name}</span>
+        {sr.filter(s=>(s.kind||'bank')===srcTab).map(s=><div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:13,gap:8}}>
+          <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
           <button className="btn btn-sm" onClick={()=>delSrc(s.id)} style={{fontSize:11,padding:'2px 8px',color:'#dc2626',background:'none',border:'1px solid #fecaca',borderRadius:6}}>Delete</button>
         </div>)}
       </div>
@@ -747,12 +756,14 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
       </div>
     </div></div>}
 
-    {/* Entry Editor (Sidebar) */}
-    {se&&<RightPanel open={!!se} onClose={()=>{setSe(null);setShowMvForm(false);setMv(null);setMvResults([]);setMvShowResults(false)}} topOffset={72} title={se.kind==='suspense'?'Suspense Receipt':'Entry Editor'} subtitle={se.transaction_date||''} accent={se.kind==='suspense'?'#B5603A':'var(--sage)'} icon={<Landmark size={19} strokeWidth={2} />}>
+    {/* Entry Editor (Sidebar). Only true suspense-pool receipts (suspense-
+        prefixed ids) get the Suspense styling — a plain unclaimed bank entry
+        is still an Entry Editor row. */}
+    {se&&<RightPanel open={!!se} onClose={()=>{setSe(null);setShowMvForm(false);setMv(null);setMvResults([]);setMvShowResults(false)}} topOffset={72} title={isReceiptSuspense(se)?'Suspense Receipt':'Entry Editor'} subtitle={se.transaction_date||''} accent={isReceiptSuspense(se)?'#B5603A':'var(--sage)'} icon={<Landmark size={19} strokeWidth={2} />}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-        <div style={{fontSize:24,fontWeight:700,color:se.kind==='suspense'?'#B5603A':'var(--sage)'}}>{curr(se.amount)}</div>
+        <div style={{fontSize:24,fontWeight:700,color:isReceiptSuspense(se)?'#B5603A':'var(--sage)'}}>{curr(se.amount)}</div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          {se.kind==='suspense'
+          {isReceiptSuspense(se)
             ? <span style={{fontSize:8,padding:'2px 6px',borderRadius:3,background:'#FDE7DB',color:'#B5603A',fontWeight:700,letterSpacing:'.4px'}}>SUSPENSE</span>
             : <span className="pill pill-gray" style={{fontSize:8,padding:'2px 6px'}}>{se.bank_audit_sources?.name||getSrc(se.source_id)}</span>}
           {(se.receipt_id||se.receipt_no)&&<span className="pill pill-green" style={{fontSize:8,padding:'2px 6px'}}>RECEIPT ISSUED</span>}
@@ -780,6 +791,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </div>
             <span style={{fontSize:13,fontWeight:700,color:'#111827'}}>Manual Verify</span>
+            {mvSaved&&<span title="Manual verify details saved" style={{fontSize:10,fontWeight:700,letterSpacing:'.3px',color:'#166534',background:'#dcfce7',border:'1px solid #86efac',padding:'2px 8px',borderRadius:999,textTransform:'uppercase'}}>Saved{(mvFro&&(wr.find(w=>w.id===mvFro)||wr.find(w=>w.id===String(mvFro)))?.name)?` · ${wr.find(w=>w.id===mvFro||w.id===String(mvFro)).name}`:''}</span>}
             <span style={{fontSize:20,fontWeight:700,color:'var(--sage)'}}>{curr(mv?.amount||0)}</span>
           </div>
           <button onClick={()=>{setShowMvForm(false);setMv(null);setMvErr('')}} style={{width:24,height:24,borderRadius:6,border:'none',background:'transparent',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#9ca3af',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='#fee2e2';e.currentTarget.style.color='#dc2626'}} onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='#9ca3af'}}><SvgX/></button>
@@ -823,14 +835,7 @@ export default function BankAudit({embedded,onSummary,selectedEntryId,onSelectEn
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Email</label>
             <input value={mvEmail} onChange={e=>setMvEmail(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none';blurSaveMv()}}/>
           </div>
-          <div>
-            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>City</label>
-            <input value={mvCity} onChange={e=>setMvCity(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none';blurSaveMv()}}/>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Pin Code</label>
-            <input value={mvPinCode} onChange={e=>setMvPinCode(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none';blurSaveMv()}}/>
-          </div>
+
           <div style={{gridColumn:'1 / -1'}}>
             <label style={{display:'block',fontSize:11,fontWeight:600,color:'#6b7280',marginBottom:5,textTransform:'uppercase',letterSpacing:'.4px'}}>Address Line 2</label>
             <input value={mvAddr2} onChange={e=>setMvAddr2(e.target.value)} placeholder="Optional" style={{width:'100%',padding:'9px 12px',borderRadius:8,border:'1.5px solid #e5e7eb',fontSize:13,boxSizing:'border-box',outline:'none',transition:'border-color .15s, box-shadow .15s'}} onFocus={e=>{e.currentTarget.style.borderColor='var(--sage)';e.currentTarget.style.boxShadow='0 0 0 3px rgba(22,163,74,.08)'}} onBlur={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.boxShadow='none';blurSaveMv()}}/>

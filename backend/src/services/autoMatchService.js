@@ -194,7 +194,7 @@ export const linkEntriesWithReceipts = async () => {
   if (cErr) throw cErr;
   const claimedIds = new Set((claimed || []).map((x) => String(x.receipt_id)));
 
-  const byPayId = new Map();
+  const byPay = new Map();
   for (const r of receipts || []) {
     const k = normPay(r.payment_id);
     if (!k) continue;
