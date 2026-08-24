@@ -570,7 +570,8 @@ export default function Receipts() {
     try {
       if (!donor.receipt_id) throw new Error('This receipt is not eligible for sending')
       const receiptNo = donor['Receipt No.'] || 'N/A'
-      const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
+      const rawPhone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
+      const phone = rawPhone.length === 10 ? '91' + rawPhone : rawPhone.startsWith('0') && rawPhone.length === 11 ? '91' + rawPhone.slice(1) : rawPhone
       if (phone.length < 10) throw new Error('Invalid phone')
       const ngo = donor['Project'] || 'bsct'
       const tpl = getNgoSettings(ngo)
@@ -728,7 +729,8 @@ export default function Receipts() {
       const batchResults = await Promise.allSettled(batch.map(async (donor) => {
         if (!donor.receipt_id) throw new Error('This receipt is not eligible for sending')
         const receiptNo = donor['Receipt No.'] || 'N/A'
-        const phone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
+        const rawPhone = String(donor['Mobile No.'] || '').replace(/[^0-9]/g, '')
+        const phone = rawPhone.length === 10 ? '91' + rawPhone : rawPhone.startsWith('0') && rawPhone.length === 11 ? '91' + rawPhone.slice(1) : rawPhone
         if (phone.length < 10) throw new Error('Invalid phone')
         const ngo = donor['Project'] || 'bsct'
         const tpl = getNgoSettings(ngo)
