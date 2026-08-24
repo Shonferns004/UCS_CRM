@@ -12,13 +12,11 @@ import { Grid, Users, Bell } from './icons'
 import Dashboard from './components/Dashboard'
 import Leads from './components/Leads'
 import Candidates from './components/Candidates'
-import Interviews from './components/Interviews'
 
 const NAV = [
   { id:'dashboard',  path:'/recruiter/dashboard',  label:'Dashboard',  icon:Grid,   eyebrow:'Overview',  sub:'Your hiring at a glance' },
   { id:'leads',      path:'/recruiter/leads',      label:'Leads',      icon:Users,  eyebrow:'Leads',    sub:'Manage incoming leads and track conversions' },
   { id:'candidates', path:'/recruiter/candidates', label:'Candidates', icon:Users,  eyebrow:'People',    sub:'Search and filter every applicant' },
-  { id:'interviews', path:'/recruiter/interviews', label:'Interviews', icon:Grid,  eyebrow:'Schedule',  sub:'Upcoming interviews this week' },
 ]
 
 function Sidebar({ open, onClose }) {
@@ -165,7 +163,6 @@ function AppShell() {
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="leads" element={<Leads />} />
             <Route path="candidates" element={<Candidates />} />
-            <Route path="interviews" element={<Interviews />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
