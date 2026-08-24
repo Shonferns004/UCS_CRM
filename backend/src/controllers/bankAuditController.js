@@ -906,6 +906,17 @@ export const saveManualVerifyDetails = async (req, res) => {
       if (Object.keys(updates).length === 0) return res.status(400).json({ message: 'Nothing to save' });
       const { data: saved, error: uErr } = await db.from('receipts').update(updates).eq('id', receiptId).select().single();
       if (uErr) throw uErr;
+
+      // Edited MV name renames the linked master donor profile too.
+      const typedName = (donor_name || '').trim();
+      if (typedName && donor_id) {
+        const { data: prof } = await db
+          .from('donor_profiles').select('id, name').eq('id', donor_id).maybeSingle();
+        if (prof && prof.name !== typedName) {
+          await db.from('donor_profiles').update({ name: typedName }).eq('id', prof.id);
+        }
+      }
+
       return res.json(saved);
     }
 
@@ -959,12 +970,24 @@ export const saveManualVerifyDetails = async (req, res) => {
 
     const saved = await BankAudit.updateEntry(id, updates);
 
+    // An edited MV donor name renames the master donor profile immediately
+    // (Save button / auto-save), not only at verify time.
+    const typedName = typeof donor_name === 'string' ? donor_name.trim() : '';
+    if (typedName && (donor_id || entry.donor_id)) {
+      const { data: prof } = await db
+        .from('donor_profiles').select('id, name').eq('id', donor_id || entry.donor_id).maybeSingle();
+      if (prof && prof.name !== typedName) {
+        await db.from('donor_profiles').update({ name: typedName }).eq('id', prof.id);
+      }
+    }
+
     // Sync the linked receipt so the kind check (listEntries) sees updated
     // values and moves the entry out of the Suspense pool.
     if (entry.receipt_id) {
       const rcptUpdates = {};
       if (updates.agent_name !== undefined) rcptUpdates.agent_name = updates.agent_name;
       if (updates.donor_mobile !== undefined) rcptUpdates.donor_mobile = updates.donor_mobile;
+      if (typedName) rcptUpdates.donor_name = typedName;
       if (updates.donor_pan !== undefined) rcptUpdates.pan_number = updates.donor_pan;
       if (updates.donor_address_1 !== undefined) rcptUpdates.address = updates.donor_address_1;
       if (updates.donor_email !== undefined) rcptUpdates.email = updates.donor_email;
@@ -1016,9 +1039,12 @@ export const manualVerifyEntry = async (req, res) => {
       const donorPan = donor_pan || existingDonor?.pan_number || null;
       const donorEmail = donor_email || existingDonor?.email || null;
 
+      // Explicit name edit on the MV form renames the master donor profile
+      // (same rule as the verify action) instead of being silently ignored.
       if (existingDonor) {
         const patch = {};
-        if (!existingDonor.name && donor_name) patch.name = donor_name;
+        const typedName = (donor_name || '').trim();
+        if (typedName && existingDonor.name !== typedName) patch.name = typedName;
         if (!existingDonor.address_1 && donor_address) patch.address_1 = donor_address;
         if (!existingDonor.pan_number && donor_pan) patch.pan_number = donor_pan;
         if (!existingDonor.email && donor_email) patch.email = donor_email;
@@ -1197,7 +1223,7 @@ export const manualVerifyEntry = async (req, res) => {
         if (donor_address_2 && !donor.address_2) patch.address_2 = donor_address_2;
         if (donor_pan && !donor.pan_number) patch.pan_number = donor_pan;
         else if (entry.donor_pan && !donor.pan_number) patch.pan_number = entry.donor_pan;
-        if (donor_name && !donor.name) patch.name = donor_name;
+        if (donor_name && donor.name !== donor_name.trim()) patch.name = donor_name.trim();
         if (donor_email && !donor.email) patch.email = donor_email;
         else if (entry.donor_email && !donor.email) patch.email = entry.donor_email;
         if (donor_city && !donor.city) patch.city = donor_city;
