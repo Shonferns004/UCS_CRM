@@ -943,8 +943,10 @@ export const saveManualVerifyDetails = async (req, res) => {
 
     if (donor_mobile !== undefined) updates.donor_mobile = donor_mobile ? String(donor_mobile).replace(/[^\d]/g, '') || null : null;
     // donor_name intentionally does NOT touch payer_name — the bank statement
-    // name is immutable here. The entered donor name only feeds the donor
-    // profile / receipt at verify time.
+    // name is immutable here. The typed donor name lands in mv_donor_name so
+    // reopening the MV form prefills it (verify still uses it for the donor
+    // profile / receipt).
+    if (donor_name !== undefined) updates.mv_donor_name = donor_name || null;
     if (donor_address !== undefined) updates.donor_address_1 = donor_address || null;
     if (donor_address_2 !== undefined) updates.donor_address_2 = donor_address_2 || null;
     if (donor_pan !== undefined) updates.donor_pan = donor_pan || null;
