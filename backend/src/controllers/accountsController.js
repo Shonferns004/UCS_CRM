@@ -3906,6 +3906,106 @@ export const updateDonor = async (req, res) => {
   }
 };
 
+// ─── Address Import ───────────────────────────────────────
+// Excel-driven donor address update: match by normalized mobile number,
+// fill ONLY blank fields (never overwrite existing data), skip unknown numbers.
+
+const normalizeMobile = (v) => {
+  let n = String(v ?? '').replace(/\D/g, '');
+  if (!n) return '';
+  if (n.length === 12 && n.startsWith('91')) n = n.slice(2);
+  else if (n.length === 11 && n.startsWith('0')) n = n.slice(1);
+  return n;
+};
+
+export const importDonorAddresses = async (req, res) => {
+  try {
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ message: 'No rows provided' });
+    }
+
+    const { data: donors, error: fetchErr } = await db
+      .from('donor_profiles')
+      .select('id, mobile_number, name, address_1, address_2, pan_number, email');
+    if (fetchErr) throw fetchErr;
+
+    const byMobile = new Map();
+    for (const d of (donors || [])) {
+      const key = normalizeMobile(d.mobile_number);
+      if (key && !byMobile.has(key)) byMobile.set(key, d);
+    }
+
+    const results = [];
+    const updates = [];
+    const seen = new Set();
+    const summary = { total: rows.length, updated: 0, matchedNoChange: 0, notFound: 0, skippedNoMobile: 0, duplicatesInFile: 0 };
+
+    rows.forEach((r, i) => {
+      const rowNo = i + 2; // +1 header, +1 for 1-based
+      const mobile = normalizeMobile(r.mobile_number);
+      if (!mobile || mobile.length < 10) {
+        summary.skippedNoMobile++;
+        results.push({ row: rowNo, mobile: r.mobile_number || '', status: 'no_mobile' });
+        return;
+      }
+      if (seen.has(mobile)) {
+        summary.duplicatesInFile++;
+        results.push({ row: rowNo, mobile, status: 'duplicate' });
+        return;
+      }
+      seen.add(mobile);
+
+      const existing = byMobile.get(mobile);
+      if (!existing) {
+        summary.notFound++;
+        results.push({ row: rowNo, mobile, status: 'not_found' });
+        return;
+      }
+
+      const payload = {};
+      let hasFill = false;
+      for (const field of ['name', 'address_1', 'address_2', 'pan_number', 'email']) {
+        const val = String(r[field] ?? '').trim();
+        if (!val) continue;
+        const cur = String(existing[field] ?? '').trim();
+        if (!cur) { payload[field] = val; hasFill = true; }
+      }
+
+      if (!hasFill) {
+        summary.matchedNoChange++;
+        results.push({ row: rowNo, mobile, status: 'complete' });
+        return;
+      }
+
+      summary.updated++;
+      updates.push({ id: existing.id, payload });
+      results.push({ row: rowNo, mobile, status: 'updated' });
+    });
+
+    if (updates.length > 0) {
+      const jsonPayload = JSON.stringify(updates.map(u => ({ id: u.id, payload: u.payload })));
+      const { rowCount } = await db._pool.query(
+        `UPDATE donor_profiles AS d SET
+           name       = COALESCE(NULLIF(d.name, ''),       NULLIF(v.payload->>'name', ''),       d.name),
+           address_1  = COALESCE(NULLIF(d.address_1, ''),  NULLIF(v.payload->>'address_1', ''),  d.address_1),
+           address_2  = COALESCE(NULLIF(d.address_2, ''),  NULLIF(v.payload->>'address_2', ''),  d.address_2),
+           pan_number = COALESCE(NULLIF(d.pan_number, ''), NULLIF(v.payload->>'pan_number', ''), d.pan_number),
+           email      = COALESCE(NULLIF(d.email, ''),      NULLIF(v.payload->>'email', ''),      d.email),
+           updated_at = now()
+         FROM jsonb_to_recordset($1::jsonb) AS v(id int, payload jsonb)
+         WHERE d.id = v.id`,
+        [jsonPayload]
+      );
+      summary.updated = rowCount ?? updates.length;
+    }
+
+    return res.json({ summary, results });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Receipt Edit ─────────────────────────────────────────
 
 export const getFroWorkersList = async (req, res) => {
