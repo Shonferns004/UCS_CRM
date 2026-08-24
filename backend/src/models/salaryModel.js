@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { getDayName, calculateAKI, getMonthsEmployed } from '../utils/incentive.js';
-import { computePaidDays } from '../utils/salaryDays.js';
+import { computePaidDays, getISTToday } from '../utils/salaryDays.js';
 
 export const getSalariesByWorker = async (workerId) => {
   const { data, error } = await db
@@ -410,6 +410,11 @@ export const getPagarExportData = async (month) => {
   const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
   const endDate = `${monthStr}-${pad(daysInMonth)}`;
 
+  // Determine viewingToday: for current month use today's IST day; for past months use full month
+  const ist = getISTToday();
+  const isCurrentMonth = (year === ist.year && monthIdx === ist.month);
+  const viewingToday = isCurrentMonth ? ist.day : daysInMonth + 1;
+
   // 1. Workers with basic info
   const { data: workers, error: wErr } = await db
     .from('workers')
@@ -427,17 +432,37 @@ export const getPagarExportData = async (month) => {
     if (!latestSalary[s.worker_id]) latestSalary[s.worker_id] = s;
   }
 
-  // 3. Targets for month
-  const { data: targets, error: tErr } = await db
+  // 3. Targets for month — manual fro_monthly_targets (latest per worker) wins over auto incentive_targets
+  // fro_monthly_targets stores month as first-of-month (YYYY-MM-01), matching our startDate
+  const { data: manualTargets, error: mtErr } = await db
+    .from('fro_monthly_targets')
+    .select('fro_worker_id, target_amount, created_at')
+    .eq('month', startDate)
+    .order('created_at', { ascending: false });
+  if (mtErr) throw mtErr;
+  
+  // Take latest created_at row per worker (mirrors getTargetByWorker in froTargetModel.js)
+  const manualTargetByWorker = {};
+  for (const t of manualTargets || []) {
+    if (!manualTargetByWorker[t.fro_worker_id]) {
+      manualTargetByWorker[t.fro_worker_id] = parseFloat(t.target_amount);
+    }
+  }
+
+  // Fallback: auto-generated incentive_targets
+  const { data: autoTargets, error: atErr } = await db
     .from('incentive_targets')
     .select('worker_id, target_amount, month')
     .gte('month', startDate)
     .lte('month', endDate)
     .order('month', { ascending: false });
-  if (tErr) throw tErr;
-  const targetByWorker = {};
-  for (const t of targets) {
-    if (!targetByWorker[t.worker_id]) targetByWorker[t.worker_id] = parseFloat(t.target_amount);
+  if (atErr) throw atErr;
+  
+  const targetByWorker = { ...manualTargetByWorker };
+  for (const t of autoTargets) {
+    if (!targetByWorker[t.worker_id]) {
+      targetByWorker[t.worker_id] = parseFloat(t.target_amount);
+    }
   }
 
   // 4. Attendance data (reuse getPresentDaysByMonth logic)
@@ -578,7 +603,7 @@ export const getPagarExportData = async (month) => {
       records: workerAtt,
       createdAt: w.created_at || '',
       holidayDates,
-      viewingToday: daysInMonth + 1, // full month
+      viewingToday,
     });
 
     const target = targetByWorker[w.id] || 0;
