@@ -23,9 +23,9 @@ export const listSources = async (req, res) => {
 
 export const addSource = async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, mop } = req.body;
     if (!name) return res.status(400).json({ message: 'Source name is required' });
-    const source = await BankAudit.createSource(name);
+    const source = await BankAudit.createSource(name, typeof mop === 'string' ? mop.trim() || null : null);
     return res.status(201).json(source);
   } catch (error) {
     if (error.code === '23505') return res.status(409).json({ message: 'Source already exists' });
@@ -36,11 +36,12 @@ export const addSource = async (req, res) => {
 export const editSource = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, is_active, sort_order } = req.body;
+    const { name, is_active, sort_order, mop } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (is_active !== undefined) updates.is_active = is_active;
     if (sort_order !== undefined) updates.sort_order = sort_order;
+    if (mop !== undefined) updates.mop = typeof mop === 'string' ? mop.trim() || null : null;
     const source = await BankAudit.updateSource(id, updates);
     return res.json(source);
   } catch (error) {
