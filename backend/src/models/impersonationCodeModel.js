@@ -51,3 +51,13 @@ export const listImpersonationCodes = async (ngoId, limit = 50) => {
   if (error) throw error;
   return data || [];
 };
+
+export const listAllImpersonationCodes = async (limit = 100) => {
+  const { data, error } = await db
+    .from('impersonation_codes')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+};
