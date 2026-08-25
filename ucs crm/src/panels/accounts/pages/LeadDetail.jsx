@@ -420,6 +420,10 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Payment Mode</div>
                   {isPending?<select className="field-input" value={form.payment_mode} onChange={e=>setField('payment_mode',e.target.value)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}}>{PAYMENT_MODES.map(m=><option key={m} value={m}>{m}</option>)}</select>:<div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{form.payment_mode||'NA'}</div>}
                 </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Audit Source</div>
+                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)',display:'inline-block'}}>{l.audit_source||'NA'}</div>
+                </div>
                 <div style={{position:'relative'}} ref={suggestRef}>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>UPI Transaction ID</div>
                   {isPending?<input className="field-input" value={form.upi_transaction_id} onChange={e=>handleUpiChange(e.target.value)} placeholder="e.g. UPI123456789" onBlur={()=>setTimeout(()=>setShowSuggestions(false),200)} onFocus={()=>suggestions.length>0&&setShowSuggestions(true)} style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',padding:'8px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--line)'}}>{form.upi_transaction_id||'NA'}</div>}

@@ -80,7 +80,7 @@ export const getLeadList = async (req, res) => {
 
       const { data: matchedEntries, error: matchErr } = await db
         .from('bank_audit_entries')
-        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2, mode')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2, mode, source_id, bank_audit_sources(name)')
         .in('matched_lead_log_id', logIds)
         .in('match_status', ['matched', 'confirmed']);
       if (!matchErr) {
@@ -141,6 +141,8 @@ export const getLeadList = async (req, res) => {
       upi_transaction_id: (match && match.payment_id) ? match.payment_id : (r.upi_transaction_id || receiptMap[r.id]?.payment_id || null),
       transaction_datetime: matchTxn || r.transaction_datetime || null,
       payment_from: (match && match.payer_name) ? match.payer_name : (r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null),
+      audit_source: match?.bank_audit_sources?.name || entrySourceMap[receiptMap[r.id]?.id] || null,
+      audit_entry_id: match?.id ?? null,
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
