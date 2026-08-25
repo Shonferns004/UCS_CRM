@@ -48,7 +48,8 @@ export default function Codes() {
 
   useEffect(() => {
     const user = getUser('ucs');
-    setIsSuperAdmin(user?.role === 'super_admin' || user?.role === 'master');
+    const isPrivileged = user?.role === 'super_admin' || user?.role === 'master' || user?.role === 'admin';
+    setIsSuperAdmin(isPrivileged);
     fetchCodes();
   }, [showAll]);
 
