@@ -968,7 +968,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: e.payment_time,
         project_id: e.project_id,
         has_receipt: false,
-        waiting_receipt_no: false,
+        waiting_receipt_no: !!e.verify_fro_worker_id,
       });
     }
 
