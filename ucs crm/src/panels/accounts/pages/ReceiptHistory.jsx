@@ -956,7 +956,11 @@ export default function ReceiptHistory() {
               </div>
             </div>
             <div className="modal-body" style={{ padding: 20 }}>
-              <div data-receipt-preview data-receipt-print>
+              <div
+                data-receipt-preview
+                data-receipt-print
+                style={{ zoom: Math.min(1, 540 / ({ beingsevak: 900, ashray: 794, manncar: 1000 }[preview.templateId] || 900)) }}
+              >
                 {React.createElement(preview.Comp, { donor: buildDonor(preview.receipt, preview.lead), index: 0, project: preview.templateId })}
               </div>
             </div>

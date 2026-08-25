@@ -4,9 +4,8 @@ import {
   getFormattedDate,
   formatReceiptDate,
 } from '../services/pdfGenerator'
-
-const defaultSignature = '/receipt-assets/stamp.png'
-const MancareLogo = '/receipt-assets/MAANCareLogo.jpeg'
+import defaultSignature from '../assets/stamp.png'
+import MancareLogo from '../assets/MAANCareLogo.jpeg'
 
 export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
   const formattedDate = formatReceiptDate(donor['Receipt Date'])
@@ -94,7 +93,6 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
 
         <div style={{ width: '42%', textAlign: 'right' }}>
           <img
-            crossOrigin="anonymous"
             src={MancareLogo}
             alt="Mann Care Foundation"
             style={{
@@ -206,7 +204,6 @@ export default function ReceiptTemplate_MannCar({ donor, index, signature }) {
         }}
       >
         <img
-          crossOrigin="anonymous"
           src={signature || defaultSignature}
           alt="Authorised Signatory"
           style={{
