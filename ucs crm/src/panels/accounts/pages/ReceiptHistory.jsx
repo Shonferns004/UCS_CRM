@@ -1058,6 +1058,13 @@ export default function ReceiptHistory() {
                   Credit of {currency(editingReceipt.amount)} will be reversed from <strong>{editingReceipt.agent_name || '—'}</strong> and applied to <strong>{editForm.agent_name}</strong>.
                 </div>
               )}
+              {(editingReceipt.received_bank || editingReceipt.audit_payer_name) && (
+                <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#3730a3' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>Linked bank-audit entry</div>
+                  {editingReceipt.received_bank && <div>Source (Received Bank): <strong>{editingReceipt.received_bank}</strong></div>}
+                  {editingReceipt.audit_payer_name && <div>Payer as per audit: <strong>{editingReceipt.audit_payer_name}</strong></div>}
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
                   { label: 'Donor Name', key: 'donor_name', colSpan: 2 },
