@@ -905,6 +905,12 @@ export default function Receipts() {
   const ALL_PROJECTS = ['bsct', 'aflf', 'mann'];
   const statsMap = {};
   (filterDate || filterMonth || filterFrom || filterTo ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
+  const totalStats = { count: 0, total_amount: 0 };
+  ALL_PROJECTS.forEach(pid => {
+    const s = statsMap[pid] || {};
+    totalStats.count += s.count || 0;
+    totalStats.total_amount += s.total_amount || 0;
+  });
 
   return (
     <div>
@@ -933,6 +939,15 @@ export default function Receipts() {
             </div>
           );
         })}
+        <div className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
+            Total
+          </div>
+          <div style={{ width: '100%' }}>
+            <StatRow label="Receipts" value={totalStats.count.toLocaleString('en-IN')} color="#2563eb" />
+            <StatRow label="Amount" value={currency(totalStats.total_amount)} color="#0ea5e9" />
+          </div>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
