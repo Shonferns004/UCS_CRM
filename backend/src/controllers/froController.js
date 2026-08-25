@@ -670,6 +670,8 @@ export const getDashboard = async (req, res) => {
 export const getMyCollections = async (req, res) => {
   try {
     const workerId = req.user.id;
+    const worker = await getWorkerBySession(req.user);
+    if (!worker) return res.status(404).json({ message: 'Worker not found' });
     const { scope: myScope, allowedNgoIds } = await getMyStationScope(workerId);
     const ngoFilter = (req.query.ngo_id && allowedNgoIds.includes(req.query.ngo_id)) ? req.query.ngo_id : null;
 
@@ -680,36 +682,18 @@ export const getMyCollections = async (req, res) => {
     const lastDay = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth() + 1, 0)).getUTCDate();
     const monthEnd = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), lastDay, 23, 59, 59, 999)).toISOString();
 
-    const { data, error } = await db
-      .from('fro_donor_logs')
-      .select(`
-        id, donor_id, amount_collected, action, disposition_detail, accounts_status,
-        created_at, transaction_datetime, verified_at, upi_transaction_id, remark,
-        donor_profiles!inner(id, name, mobile_number),
-        fro_assignments!inner(fro_worker_id, station, ngo_id, workers!left(id, name), ngos!left(id, name))
-      `)
-      .eq('fro_worker_id', workerId)
-      .or(COLLECTION_DATE_OR(monthStart, monthEnd));
+    const workerName = (worker.name || '').trim();
+    const monthStartDay = monthStart.slice(0, 10);
+    const monthEndDay = monthEnd.slice(0, 10);
+
+    const { data: receipts, error } = await db
+      .from('receipts')
+      .select('id, donor_id, amount, project_id, receipt_date, receipt_no, agent_name, payment_id, donor_name, donor_mobile, mode')
+      .ilike('agent_name', workerName)
+      .gte('receipt_date', monthStartDay)
+      .lte('receipt_date', monthEndDay);
     if (error) throw error;
 
-    // Receipt-backed grouping: Manual Verify, suspense claims and parity
-    // backfills all stamp receipts.log_id, so each collection can be filed
-    // under the NGO that actually issued the receipt instead of the FRO's
-    // allotment. The receipt number is surfaced for display/search.
-    const logIds = [...new Set((data || []).map((l) => l.id).filter(Boolean))];
-    const receiptByLog = new Map();
-    if (logIds.length > 0) {
-      const { data: linkedReceipts } = await db
-        .from('receipts')
-        .select('id, log_id, project_id, receipt_no')
-        .in('log_id', logIds);
-      for (const r of linkedReceipts || []) {
-        if (r.log_id != null && !receiptByLog.has(r.log_id)) receiptByLog.set(r.log_id, r);
-      }
-    }
-
-    // Resolve a receipt project spelling ("bsct", "Ashray", "mann care", ...)
-    // to its ngo row using the same alias table the suspense pool uses.
     const { data: allNgos } = await db.from('ngos').select('id, name');
     const normProj = (s) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
     const projToNgo = new Map();
@@ -727,62 +711,6 @@ export const getMyCollections = async (req, res) => {
       if (k && !projToNgo.has(k)) projToNgo.set(k, n);
     }
 
-    // Fallback pairing: plenty of verified collections never got
-    // receipts.log_id stamped even though the money's receipt exists
-    // (imported and matched by accounts). Index this month's unclaimed
-    // receipts for the same donors so every row can surface a receipt
-    // number - payment reference first, then donor+amount+same-day when
-    // that pairing is unambiguous. Each candidate pairs at most once.
-    const normRef = (s) => String(s || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
-    const candByRef = new Map();
-    const candByDonorAmtDay = new Map();
-    {
-      const missing = (data || []).filter((l) => !receiptByLog.get(l.id) && l.donor_id);
-      const donorIdList = [...new Set(missing.map((l) => l.donor_id))];
-      if (donorIdList.length > 0) {
-        const winStart = new Date(new Date(monthStart).getTime() - 5 * 86400000).toISOString().slice(0, 10);
-        const { data: cands } = await db
-          .from('receipts')
-          .select('id, log_id, project_id, receipt_no, donor_id, amount, payment_id, receipt_date')
-          .in('donor_id', donorIdList)
-          .gte('receipt_date', winStart)
-          .lte('receipt_date', monthEnd.slice(0, 10));
-        // Payment references are near-unique: also index every unconsumed
-        // receipt in the window so a reference still pairs even when the
-        // receipt was filed under a duplicate donor profile.
-        let { data: windowCands } = await db
-          .from('receipts')
-          .select('id, log_id, project_id, receipt_no, donor_id, amount, payment_id, receipt_date')
-          .gte('receipt_date', winStart)
-          .lte('receipt_date', monthEnd.slice(0, 10))
-          .limit(20000);
-        for (const r of [...(cands || []), ...(windowCands || [])]) {
-          if (r.log_id != null) continue; // already linked elsewhere
-          const ref = normRef(r.payment_id);
-          if (ref) {
-            if (!candByRef.has(ref)) candByRef.set(ref, []);
-            candByRef.get(ref).push(r);
-          }
-          const dk = `${r.donor_id}|${parseFloat(r.amount)}|${String(r.receipt_date || '').slice(0, 10)}`;
-          if (!candByDonorAmtDay.has(dk)) candByDonorAmtDay.set(dk, []);
-          candByDonorAmtDay.get(dk).push(r);
-        }
-      }
-    }
-
-    const matchReceiptForLog = (l, amount, collectedAt) => {
-      const ref = normRef(l.upi_transaction_id);
-      if (ref && candByRef.has(ref)) {
-        const free = candByRef.get(ref).filter((r) => !r._used);
-        if (free.length > 0) { const r = free[0]; r._used = true; return r; }
-      }
-      const k = `${l.donor_id}|${amount}|${String(collectedAt || '').slice(0, 10)}`;
-      const free = (candByDonorAmtDay.get(k) || []).filter((r) => !r._used);
-      if (free.length === 1) { const r = free[0]; r._used = true; return r; }
-      return null;
-    };
-
-    // NGO id -> name map for the caller's assigned NGOs ("Others" added below when needed).
     const ngoMap = {};
     for (const s of myScope) {
       if (s.ngo_id && !ngoMap[s.ngo_id]) ngoMap[s.ngo_id] = null;
@@ -793,74 +721,46 @@ export const getMyCollections = async (req, res) => {
       for (const n of ngoRows || []) ngoMap[n.id] = n.name;
     }
 
-    const dayKey = (d) => d ? String(d).slice(0, 10) : null;
     const seen = new Set();
     const collections = [];
-    // Process receipt-linked logs first so duplicate double-entries collapse
-    // into the copy that actually carries the receipt number.
-    const orderedLogs = [...(data || [])].sort(
-      (a, b) => ((receiptByLog.get(b.id) ? 1 : 0) - (receiptByLog.get(a.id) ? 1 : 0))
-    );
-    for (const l of orderedLogs) {
-      const amount = parseFloat(l.amount_collected || 0);
-      const collected_at = logCollectionDate(l);
-      if (!(amount > 0)) continue;
-      if (!inRange(collected_at, monthStart, monthEnd)) continue;
+    for (const r of receipts || []) {
+      const amount = parseFloat(r.amount || 0);
+      if (amount <= 0) continue;
 
-      const asgn = l.fro_assignments || {};
-      const is_work_as = asgn.fro_worker_id != null && asgn.fro_worker_id !== workerId;
+      const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
 
-      // Prefer the receipt linked to this log; otherwise pair the money to
-      // its unclaimed receipt (ref / donor+amount+day) so every row carries
-      // its real receipt number and NGO. Only truly unmatched rows fall back
-      // to the assignment's NGO.
-      const rcpt = receiptByLog.get(l.id) || matchReceiptForLog(l, amount, collected_at) || null;
       let tabNgoId = null;
       let tabNgoName = null;
-      if (rcpt?.project_id) {
-        const ngoRow = projToNgo.get(normProj(rcpt.project_id)) || null;
+      if (r.project_id) {
+        const ngoRow = projToNgo.get(normProj(r.project_id)) || null;
         if (ngoRow) { tabNgoId = ngoRow.id; tabNgoName = ngoRow.name; }
       }
       if (!tabNgoId) {
-        tabNgoId = asgn.ngo_id || allowedNgoIds[0] || allNgos[0]?.id || null;
-        tabNgoName = asgn.ngos?.name || allNgos?.find((n) => n.id === tabNgoId)?.name || null;
+        tabNgoId = allowedNgoIds[0] || allNgos[0]?.id || null;
+        tabNgoName = allNgos?.find((n) => n.id === tabNgoId)?.name || null;
       }
       if (tabNgoId && !Object.prototype.hasOwnProperty.call(ngoMap, tabNgoId)) ngoMap[tabNgoId] = tabNgoName;
       if (ngoFilter && tabNgoId !== ngoFilter) continue;
 
-      // A clean UPI reference identifies exactly one payment - collapse any
-      // double-entered logs sharing it regardless of which NGO they were
-      // allotted to. Without a reference, keep the stricter composite key.
-      const cleanUpiRef = normRef(l.upi_transaction_id);
-      const key = cleanUpiRef
-        ? `${l.donor_id}|${amount}|${dayKey(collected_at)}|ref:${cleanUpiRef}`
-        : `${l.donor_id}|${amount}|${dayKey(collected_at)}|${asgn.ngo_id || 'none'}|${paymentDiscriminant(l)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      // Parity backfill placeholders carry their source receipt number in
-      // the remark ("backfilled from receipt 18764 (AFLF ...)").
-      let remarkReceiptNo = null;
-      const rm = /backfilled from receipt\s+(\S+)/i.exec(l.remark || '');
-      if (rm) remarkReceiptNo = rm[1];
-
       collections.push({
-        id: l.id,
-        donor_id: l.donor_id,
-        donor_name: l.donor_profiles?.name || 'Unknown',
-        donor_mobile: l.donor_profiles?.mobile_number || '',
+        id: r.id,
+        donor_id: r.donor_id,
+        donor_name: r.donor_name || 'Unknown',
+        donor_mobile: r.donor_mobile || '',
         amount_collected: amount,
-        collected_at,
+        collected_at: r.receipt_date || null,
         ngo_id: tabNgoId,
         ngo_name: tabNgoName,
-        receipt_no: rcpt?.receipt_no != null ? String(rcpt.receipt_no) : remarkReceiptNo,
-        owner_worker_id: is_work_as ? null : (asgn.fro_worker_id ?? null),
-        owner_name: is_work_as ? null : (asgn.workers?.name || null),
-        is_work_as,
+        receipt_no: r.receipt_no != null ? String(r.receipt_no) : null,
+        owner_worker_id: workerId,
+        owner_name: workerName,
+        is_work_as: false,
       });
     }
 
-    collections.sort((a, b) => new Date(b.collected_at) - new Date(a.collected_at));
+    collections.sort((a, b) => new Date(b.collected_at || 0) - new Date(a.collected_at || 0));
 
     const ngos = Object.entries(ngoMap).map(([id, name]) => ({ id, name: name || 'Unknown' }));
 

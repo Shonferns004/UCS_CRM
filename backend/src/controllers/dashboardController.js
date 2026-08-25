@@ -406,15 +406,23 @@ export const getSuperAdminDashboard = async (req, res) => {
       const froWorkersOnly = allWorkersForFro.filter(w =>
         (w.department || '').toLowerCase().trim() === 'fro'
       );
-      const { data: froCollectionLogs } = await db
-        .from('fro_donor_logs')
-        .select('fro_worker_id, amount_collected')
-        .not('fro_worker_id', 'is', null);
+      const froNames = froWorkersOnly.filter(w => w.name).map(w => ({ id: w.id, name: w.name.trim() }));
       const froTotals = {};
-      for (const log of froCollectionLogs || []) {
-        const wid = log.fro_worker_id;
-        if (!froTotals[wid]) froTotals[wid] = 0;
-        froTotals[wid] += parseFloat(log.amount_collected || 0);
+      for (const w of froNames) {
+        const { data: receipts } = await db
+          .from('receipts')
+          .select('id, amount, receipt_no, donor_id, receipt_date, payment_id')
+          .ilike('agent_name', w.name);
+        if (!receipts || receipts.length === 0) continue;
+        const seen = new Set();
+        for (const r of receipts) {
+          const amount = parseFloat(r.amount || 0);
+          if (amount <= 0) continue;
+          const dedupKey = `${r.receipt_no || ''}|${r.donor_id || ''}|${amount}|${r.receipt_date || ''}|${r.payment_id || ''}`;
+          if (seen.has(dedupKey)) continue;
+          seen.add(dedupKey);
+          froTotals[w.id] = (froTotals[w.id] || 0) + amount;
+        }
       }
       topFros = froWorkersOnly
         .map(w => ({ id: w.id, name: w.name, totalCollection: froTotals[w.id] || 0 }))
