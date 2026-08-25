@@ -65,7 +65,7 @@ export const listAllCodesDebug = async (req, res) => {
     return res.status(403).json({ message: 'Super admin only' });
   }
   try {
-    const codes = await listAllImpersonationCodes(100);
+    const codes = await listAllImpersonationCodes();
     return res.json({ codes, total: codes.length });
   } catch (error) {
     return res.status(500).json({ message: error.message });
