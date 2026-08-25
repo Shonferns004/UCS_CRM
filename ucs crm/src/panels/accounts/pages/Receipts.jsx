@@ -329,6 +329,12 @@ export default function Receipts() {
     }).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    apiGet('/accounts/receipts/fro-workers')
+      .then(data => setFroWorkers(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
+
   const parseReceiptNo = (d) => {
     const v = String(d['Receipt No.'] || '').trim()
     const n = parseInt(v, 10)
@@ -766,12 +772,6 @@ export default function Receipts() {
       account_of: d['Account Of'] || '',
     })
     setConfirmFroChange(false)
-    try {
-      const workers = await apiGet('/accounts/receipts/fro-workers')
-      setFroWorkers(Array.isArray(workers) ? workers : [])
-    } catch (err) {
-      console.error('Failed to load FRO workers:', err.message)
-    }
   }
 
   const handleSaveEdit = async () => {
@@ -1351,12 +1351,12 @@ export default function Receipts() {
                       <select value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}
                         style={{ padding:'7px 8px', borderRadius:6, border:'1px solid #d1d5db', fontSize:12, background:'#fff' }}>
                         <option value="">\u2014</option>
-                        <option value="UPI">UPI</option>
-                        <option value="Cash">Cash</option>
-                        <option value="Cheque">Cheque</option>
-                        <option value="Bank Transfer">Bank Transfer</option>
-                        <option value="NEFT">NEFT</option>
-                        <option value="RTGS">RTGS</option>
+                        {['UPI','Google Pay','Freecharge','razorpay','online','PUM','Cheque','Paytm','Cash','Bank Transfer','NEFT','RTGS','others'].map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                        {editForm.mode && !['UPI','Google Pay','Freecharge','razorpay','online','PUM','Cheque','Paytm','Cash','Bank Transfer','NEFT','RTGS','others'].includes(editForm.mode) && (
+                          <option value={editForm.mode}>{editForm.mode}</option>
+                        )}
                       </select>
                     ) : type === 'textarea' ? (
                       <textarea value={editForm[key] || ''} onChange={e => setEditForm(f => ({ ...f, [key]:e.target.value }))}

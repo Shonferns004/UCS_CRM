@@ -272,16 +272,15 @@ export default function ReceiptTemplate_BeingSevak({ donor, index, signature }) 
                 }}
                 colSpan="3"
               >
-                {donor['Address 1'] || 'NA'}{' , '}
-                {[donor['City'], donor['State'], donor['Pincode']].some(Boolean) && (
-                  <>
-                    {donor['City']}
-                    {donor['City'] && donor['State'] ? ', ' : ''}
-                    {donor['State']}
-                    {donor['State'] && donor['Pincode'] ? ' - ' : ''}
-                    {donor['Pincode']}
-                  </>
-                )}
+                {(() => {
+                  const a1 = donor['Address 1'] || '';
+                  const city = donor['City'] || '';
+                  const state = donor['State'] || '';
+                  const pin = donor['Pincode'] || '';
+                  const hasAny = a1 || city || state || pin;
+                  if (!hasAny) return 'NA';
+                  return <>{a1}{a1 && (city || state || pin) ? ', ' : ''}{city}{city && state ? ', ' : ''}{state}{state && pin ? ' - ' : ''}{pin}</>;
+                })()}
               </td>
             </tr>
 

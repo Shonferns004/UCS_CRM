@@ -930,13 +930,16 @@ export const getSuspenseReceipts = async (req, res) => {
     if (receiptIds.length > 0) {
       const { data: receipts } = await db
         .from('receipts')
-        .select('id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
+          .select('id, log_id, donor_name, donor_mobile, amount, receipt_date, receipt_time, project_id')
         .in('id', receiptIds);
       for (const r of (receipts || [])) receiptMap[r.id] = r;
     }
 
     const pool = receiptLinked.map(e => {
       const r = receiptMap[e.receipt_id] || {};
+      // Receipt already linked to a lead (credited to an FRO) — skip.
+      if (r.log_id) return null;
+      const hasNo = !e.receipt_no && !r.receipt_no;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -948,14 +951,9 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: r.receipt_time || e.payment_time,
         project_id: r.project_id || e.project_id,
         has_receipt: true,
-        // Only an explicit Accounts assignment (manual-verify save) parks an
-        // entry as "waiting for receipt number". A missing receipt number alone
-        // must NOT block claiming: bank-statement imports create numberless
-        // suspense receipts and numbers are allocated automatically at
-        // claim/verify time.
-        waiting_receipt_no: !!e.verify_fro_worker_id,
+        waiting_receipt_no: hasNo,
       };
-    });
+    }).filter(Boolean);
 
     for (const e of entries || []) {
       if (e.receipt_id) continue;
@@ -970,7 +968,7 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: e.payment_time,
         project_id: e.project_id,
         has_receipt: false,
-        waiting_receipt_no: !!(e.verify_fro_worker_id),
+        waiting_receipt_no: false,
       });
     }
 

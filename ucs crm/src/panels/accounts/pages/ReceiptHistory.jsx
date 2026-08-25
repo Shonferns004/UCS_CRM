@@ -7,7 +7,7 @@ import { Download, FileSpreadsheet, Pencil, Trash2 } from 'lucide-react';
 import { apiGet, apiPost, apiDelete, apiPatch } from '../api/auth';
 import { getReceipt } from '../api/receipts';
 import { PROJECTS } from '../data/projects';
-import { generateReceiptPDF } from '../services/pdfGenerator';
+import { generateReceiptPDF, formatReceiptDate } from '../services/pdfGenerator';
 import ReceiptTemplate_MannCar from '../components/ReceiptTemplate_MannCar';
 import ReceiptTemplate_Ashray from '../components/ReceiptTemplate_Ashray';
 import ReceiptTemplate_BeingSevak from '../components/ReceiptTemplate_BeingSevak';
@@ -603,12 +603,10 @@ export default function ReceiptHistory() {
     try {
       const all = await fetchAllFiltered();
       if (!all.length) { alert('No receipts to export'); return; }
-      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       const fmtDate = (d) => {
         if (!d) return 'NA';
-        const dt = new Date(d);
-        if (isNaN(dt.getTime())) return String(d);
-        return `${String(dt.getDate()).padStart(2,'0')}-${MONTHS[dt.getMonth()]}-${dt.getFullYear()}`;
+        const formatted = formatReceiptDate(d);
+        return formatted === '\u2014' ? 'NA' : formatted;
       };
       const fmtTime12 = (t) => {
         if (!t) return 'NA';
@@ -843,7 +841,7 @@ export default function ReceiptHistory() {
                   const rMobileClean = (r.donor_mobile || '').replace(/\D/g, '');
                   const key = rMobileClean || (r.donor_name || '').toLowerCase().trim();
                   const info = donorMap[key] || { count: 1, total: 0 };
-                  const dateStr = r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014';
+                  const dateStr = r.receipt_date ? formatReceiptDate(r.receipt_date) : '\u2014';
                   return (
                     <tr key={r.id || i} className="clickable-row" onClick={() => {
                       setDonorDetail({ name: r.donor_name, mobile: rMobileClean.length >= 10 ? rMobileClean : r.donor_mobile, receipts: [r] });
@@ -999,7 +997,7 @@ export default function ReceiptHistory() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', color: '#374151' }}>{r.receipt_no}</span>
-                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{r.receipt_date ? formatReceiptDate(r.receipt_date) : ''}{r.receipt_time ? ` · ${fmtTime12(r.receipt_time)}` : ''}</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
                       {r.mode || ''}{r.project_id ? ` · ${PROJECT_LABELS[r.project_id] || r.project_id}` : ''}
