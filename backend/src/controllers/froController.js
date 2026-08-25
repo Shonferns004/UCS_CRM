@@ -937,7 +937,6 @@ export const getSuspenseReceipts = async (req, res) => {
 
     const pool = receiptLinked.map(e => {
       const r = receiptMap[e.receipt_id] || {};
-      const hasNo = !e.receipt_no && !r.receipt_no;
       return {
         id: e.receipt_id,
         entry_id: e.id,
@@ -949,9 +948,12 @@ export const getSuspenseReceipts = async (req, res) => {
         receipt_time: r.receipt_time || e.payment_time,
         project_id: r.project_id || e.project_id,
         has_receipt: true,
-        // Accounts already draft-assigned an FRO (manual-verify save) but the
-        // receipt number is not yet generated — show "waiting for receipt number".
-        waiting_receipt_no: !!(e.verify_fro_worker_id) || hasNo,
+        // Only an explicit Accounts assignment (manual-verify save) parks an
+        // entry as "waiting for receipt number". A missing receipt number alone
+        // must NOT block claiming: bank-statement imports create numberless
+        // suspense receipts and numbers are allocated automatically at
+        // claim/verify time.
+        waiting_receipt_no: !!e.verify_fro_worker_id,
       };
     });
 
@@ -1186,15 +1188,56 @@ const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId, w
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
-    const receiptId = parseInt(req.params.receiptId, 10);
+    const rawId = (req.params.receiptId || '').trim();
     const { donor_id, donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
-    if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
     let donorId = donor_id ? parseInt(donor_id, 10) : null;
     const explicitDonor = donorId !== null;
     let donorName = (donor_name || '').trim();
     if (!donorId && !donorName) return res.status(400).json({ message: 'Select a donor to claim this receipt' });
 
     const projectSet = await myProjectSet(workerId);
+
+    // Handle entry-XXX IDs (bank audit entries without a linked receipt):
+    // auto-create a suspense receipt and link it, then continue the normal
+    // claim flow so the FRO can claim raw bank-audit rows.
+    let receiptId = parseInt(rawId, 10);
+    if (!receiptId && rawId.startsWith('entry-')) {
+      const entryId = parseInt(rawId.slice(6), 10);
+      if (!entryId) return res.status(400).json({ message: 'Invalid entry ID' });
+      const { data: entry, error: eErr } = await db
+        .from('bank_audit_entries')
+        .select('id, amount, transaction_date, payment_time, project_id, payer_name, receipt_no, receipt_id')
+        .eq('id', entryId)
+        .single();
+      if (eErr || !entry) return res.status(404).json({ message: 'Bank audit entry not found' });
+      if (entry.receipt_id) {
+        // Already linked — just continue with that receipt
+        receiptId = entry.receipt_id;
+      } else {
+        // Create a minimal suspense receipt from the entry data
+        const receiptDate = entry.transaction_date || new Date().toISOString().slice(0, 10);
+        const { data: newReceipt, error: crErr } = await db
+          .from('receipts')
+          .insert({
+            project_id: entry.project_id || 'bsct',
+            amount: entry.amount || 0,
+            receipt_date: receiptDate,
+            receipt_time: entry.payment_time || null,
+            donor_name: donorName || entry.payer_name || null,
+            payment_id: entry.payment_id || null,
+            agent_name: req.user.name || null,
+          })
+          .select('id, donor_id, log_id, project_id, receipt_date, receipt_time, amount, donor_name, donor_mobile, payment_id, mode, pan_number, address, email, bank_payer_name')
+          .single();
+        if (crErr || !newReceipt) return res.status(500).json({ message: 'Failed to create receipt from bank entry: ' + (crErr?.message || 'unknown') });
+        // Link the entry to the new receipt
+        try {
+          await db.from('bank_audit_entries').update({ receipt_id: newReceipt.id, receipt_no: entry.receipt_no || null }).eq('id', entryId);
+        } catch (e) { console.error('Failed to link bank entry to new receipt:', e.message); }
+        receiptId = newReceipt.id;
+      }
+    }
+    if (!receiptId) return res.status(400).json({ message: 'Receipt ID is required' });
 
     const { data: receipt, error: rErr } = await db
       .from('receipts')
