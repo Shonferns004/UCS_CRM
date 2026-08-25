@@ -8,7 +8,7 @@ const router = Router();
 router.post('/generate', authenticateRole('fro', 'admin', 'super_admin'), generateCode);
 // Only NGO admins / super admins view the code log.
 router.get('/', authenticateRole('admin', 'super_admin'), listCodes);
-// Debug: super_admin only - list ALL codes across all NGOs
-router.get('/all', authenticateRole('super_admin', 'master'), listAllCodesDebug);
+// Debug: admin/super_admin/master - list ALL codes across all NGOs
+router.get('/all', authenticateRole('admin', 'super_admin', 'master'), listAllCodesDebug);
 
 export default router;
