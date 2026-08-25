@@ -478,12 +478,12 @@ export default function FROPanel() {
               </div>
             </div>
             <div ref={workAsRef} style={{ position: 'relative' }}>
-              <div onClick={openWorkAs} title={impersonating ? `Working as ${userName}` : 'Work as another FRO'} style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', background: impersonating ? 'var(--sage-soft, rgba(22,163,74,.15))' : undefined }}>
+              <div onClick={openWorkAs} title={impersonating ? `Acting FRO: ${user?.imposter_name || userName}` : 'Acting FRO'} style={{ cursor: 'pointer', padding: 6, borderRadius: 8, transition: 'background .15s', background: impersonating ? 'var(--sage-soft, rgba(22,163,74,.15))' : undefined }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={impersonating ? 'var(--sage)' : 'var(--ink-soft)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M16 8h.01"/><path d="M8 12h8"/><path d="M8 8h.01"/><path d="M16 12h.01"/></svg>
               </div>
               {showWorkAs && (
                 <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 240, background: 'var(--card-bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, zIndex: 60 }}>
-                  <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Work as FRO</div>
+                  <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: .4 }}>Acting FRO</div>
                   <input
                     value={workAsSearch}
                     onChange={e => setWorkAsSearch(e.target.value)}
@@ -541,14 +541,14 @@ export default function FROPanel() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
             <span>OWNER: <b>{userName}</b> · ACTING FRO: <b>{user?.imposter_name || 'you'}</b> · Credit goes to <b>{user?.imposter_name || 'you'}</b></span>
-            <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit work-as</button>
+            <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit Acting FRO</button>
           </div>
         )}
         {pendingTarget && (
           <div className="modal-overlay" onClick={() => setPendingTarget(null)}>
             <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 360, padding: 22, borderRadius: 'var(--radius)' }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
-                Work as {pendingTarget.name}
+                Acting FRO: {pendingTarget.name}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 16 }}>
                 {codeGenerated
