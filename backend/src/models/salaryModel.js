@@ -666,6 +666,7 @@ export const getPagarExportData = async (month) => {
       net_present_days: netPresentDays,
       month_salary: monthSalary,
       monthly_incentive: monthlyIncentive,
+      total_aki: Math.round(totalAKI),
       aki_payout: akiPayout,
       gross_payable: grossPayable,
       advance_deduction: advanceDeduction,
