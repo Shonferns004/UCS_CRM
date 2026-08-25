@@ -61,9 +61,9 @@ export default function Codes() {
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h3 style={{ margin: '0 0 4px' }}>Work-as FRO codes</h3>
+            <h3 style={{ margin: '0 0 4px' }}>Acting FRO codes</h3>
             <div style={{ fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>
-              FROs generate a single-use 4-digit code from their app when switching to work as another FRO. Codes expire after {CODE_TTL_MINUTES} minutes and are logged here with the FRO who created them.
+              FROs generate a single-use 4-digit code from their app when switching Acting FRO. Codes expire after {CODE_TTL_MINUTES} minutes and are logged here with the FRO who created them.
             </div>
           </div>
           {isSuperAdmin && (

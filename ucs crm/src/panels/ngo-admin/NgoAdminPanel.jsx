@@ -40,7 +40,7 @@ const NAV = [
   { id: 'data-overview', path: '/ngo-admin/data-overview', label: 'Data Overview', icon: 'dataOverview' },
   { id: 'attendance', path: '/ngo-admin/attendance', label: 'Attendance', icon: 'attendance' },
   { id: 'rejected', path: '/ngo-admin/rejected-leads', label: 'Rejected Leads', icon: 'rejected' },
-  { id: 'codes', path: '/ngo-admin/codes', label: 'Work-as Codes', icon: 'codes' },
+  { id: 'codes', path: '/ngo-admin/codes', label: 'Acting FRO Codes', icon: 'codes' },
 ]
 
 const ICONS = {
