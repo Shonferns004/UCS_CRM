@@ -70,10 +70,10 @@ export async function login(identifier, password) {
   })
 }
 
-export async function impersonateFRO(workerId, code) {
+export async function impersonateFRO(workerId, code, imposterWorkerId) {
   return api('/auth/impersonate', {
     method: 'POST',
-    body: JSON.stringify({ worker_id: workerId, code }),
+    body: JSON.stringify({ worker_id: workerId, code, imposter_worker_id: imposterWorkerId || undefined }),
     _prefix: 'ucs',
   })
 }
