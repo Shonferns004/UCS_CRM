@@ -18,14 +18,11 @@ export const findValidImpersonationCode = async (code, ngoId) => {
     .select('*')
     .eq('code', code)
     .eq('is_used', false)
-    .gt('expires_at', new Date().toISOString())
-    .limit(1);
+    .gt('expires_at', new Date().toISOString());
   if (ngoId != null) {
-    const { data: all, error } = await query;
-    if (error) throw error;
-    const match = (all || []).find((c) => c.ngo_id === ngoId || c.ngo_id == null);
-    return match || null;
+    query = query.or(`ngo_id.eq.${ngoId},ngo_id.is.null`);
   }
+  query = query.limit(1);
   const { data, error } = await query;
   if (error) throw error;
   return (data || [])[0] || null;
@@ -49,7 +46,7 @@ export const listImpersonationCodes = async (ngoId, limit = 50) => {
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (ngoId != null) query = query.eq('ngo_id', ngoId);
+  if (ngoId != null) query = query.or(`ngo_id.eq.${ngoId},ngo_id.is.null`);
   const { data, error } = await query;
   if (error) throw error;
   return data || [];

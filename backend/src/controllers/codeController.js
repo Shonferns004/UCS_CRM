@@ -1,11 +1,16 @@
 import { createImpersonationCode, listImpersonationCodes } from '../models/impersonationCodeModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
+import { getWorkerById } from '../models/workerModel.js';
 
 const CODE_TTL_MINUTES = 5;
 
 export const generateCode = async (req, res) => {
   try {
-    const ngoId = req.user.ngo_id || null;
+    let ngoId = req.user.ngo_id || null;
+    if (!ngoId && req.user.id) {
+      const worker = await getWorkerById(String(req.user.id));
+      if (worker?.ngo_id) ngoId = worker.ngo_id;
+    }
 
     let code = null;
     for (let attempt = 0; attempt < 10; attempt++) {
