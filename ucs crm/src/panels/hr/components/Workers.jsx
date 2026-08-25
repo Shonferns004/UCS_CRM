@@ -421,13 +421,8 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           ...dailyArr
         ];
         wsData.push(row);
-        const pct = (r.target || 0) > 0 ? ((r.achieved || 0) / r.target) * 100 : -1;
-        if (pct >= 100)      rowStyles.push({ fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } });
-        else if (pct >= 75)  rowStyles.push({ fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } });
-        else if (pct >= 50)  rowStyles.push({ fill: { fgColor: { rgb: 'E2F0D9' } }, font: { color: { rgb: '375623' } } });
-        else if (pct >= 25)  rowStyles.push({ fill: { fgColor: { rgb: 'FFEB9C' } }, font: { color: { rgb: '9C5700' } } });
-        else if (pct >= 0)   rowStyles.push({ fill: { fgColor: { rgb: 'FFC7CE' } }, font: { color: { rgb: '9C0006' } } });
-        else                 rowStyles.push(null);
+        const met = (r.target || 0) > 0 && (r.achieved || 0) >= r.target;
+        rowStyles.push(met ? { fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } } : null);
         const rowIdx = wsData.length - 1;
         const isActive = r.status === 'ACTIVE';
         const isAbscond = r.status === 'ABSCONDED' || r.status === 'ABSCOND';
