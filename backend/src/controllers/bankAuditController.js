@@ -961,6 +961,8 @@ export const saveManualVerifyDetails = async (req, res) => {
           .maybeSingle();
         if (worker?.name) froName = worker.name;
       }
+      // When impersonating, stamp the operator's name as agent.
+      if (req.user?.impersonation && req.user.imposter_name) froName = req.user.imposter_name;
       if (froName) updates.agent_name = froName;
     }
 
@@ -1189,6 +1191,12 @@ export const manualVerifyEntry = async (req, res) => {
         if (!worker || worker.is_active === false) return res.status(404).json({ message: 'Selected FRO not found' });
         froName = worker.name || 'Unknown';
       }
+    }
+    // When impersonating, stamp the operator's name as agent so the
+    // bank reconciliation view credits the actual person doing the work.
+    if (req.user?.impersonation && req.user.imposter_name) {
+      froName = req.user.imposter_name;
+      if (req.user.imposter_id) workerId = req.user.imposter_id;
     }
 
     // Resolve the original owner's name for cross-FRO verify notes.
