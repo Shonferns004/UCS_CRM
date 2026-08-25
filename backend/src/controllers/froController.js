@@ -1986,56 +1986,43 @@ export const getMyDonors = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
 
-    // Use ALL donor_ids in the station (before dedup) to find hidden lead_done
-    // Only hide donors when ALL their leads are verified/rejected (none pending)
-    const hiddenLeadDoneIds = new Set();
+    // Hide donors whose most recent disposition this month is NOT schedule/
+    // callback.  They reappear automatically on the 1st of next month when
+    // the logs fall outside the query window.  Verified-only mode skips this
+    // filter (matches hiddenLeadDoneIds pattern).
+    const SCHEDULE_CALLBACK_DISPOSITIONS = new Set([
+      'scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled',
+    ]);
+    const hiddenDispositionsIds = new Set();
     if (donorIds.length > 0) {
-      const leadDoneLogs = await chunkedInQuery(donorIds, chunk =>
-        db.from('fro_donor_logs').select('donor_id, accounts_status').in('donor_id', chunk)
-          .eq('disposition_detail', 'lead_done')
+      const recentLogs = await chunkedInQuery(donorIds, chunk =>
+        db.from('fro_donor_logs').select('donor_id, disposition_detail, created_at')
+          .in('donor_id', chunk)
           .eq('action', 'disposition')
           .gte('created_at', monthStart)
           .lte('created_at', monthEnd)
+          .order('created_at', { ascending: false })
       );
-      const donorStatuses = new Map();
-      for (const log of leadDoneLogs) {
-        if (!donorStatuses.has(log.donor_id)) donorStatuses.set(log.donor_id, []);
-        donorStatuses.get(log.donor_id).push(log.accounts_status);
-      }
-      for (const [donorId, statuses] of donorStatuses) {
-        const hasPending = statuses.some(s => s === 'pending');
-        if (!hasPending) hiddenLeadDoneIds.add(donorId);
-      }
-    }
-
-    // Hide donors dispositioned DND during the current month — they come back
-    // automatically when the month rolls over (the dnd log falls outside the
-    // window). Re-DND next month hides them again.
-    const hiddenDndIds = new Set();
-    if (donorIds.length > 0) {
-      const dndLogs = await chunkedInQuery(donorIds, chunk =>
-        db.from('fro_donor_logs').select('donor_id').in('donor_id', chunk)
-          .eq('disposition_detail', 'dnd')
-          .eq('action', 'disposition')
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd)
-      );
-      for (const log of dndLogs) {
-        if (log.donor_id) hiddenDndIds.add(log.donor_id);
+      const seen = new Set();
+      for (const log of recentLogs) {
+        if (!seen.has(log.donor_id)) {
+          seen.add(log.donor_id);
+          if (!SCHEDULE_CALLBACK_DISPOSITIONS.has(log.disposition_detail)) {
+            hiddenDispositionsIds.add(log.donor_id);
+          }
+        }
       }
     }
 
     const filtered = req.query.verified_only === 'true'
       ? result
-      : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id) && !hiddenDndIds.has(r.donor_id));
+      : result.filter(r => !hiddenDispositionsIds.has(r.donor_id));
 
     // Only schedule/callback keep a lead in its normal position.  Every other
-    // disposition sinks the lead to the very bottom of the queue.  DND is
-    // already filtered out above (hiddenDndIds) so it never reaches the sort.
-    const SCHEDULE_CALLBACK = new Set(['scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled']);
+    // disposition is already filtered out above (hiddenDispositionsIds).
     const groupOf = (r) => r.is_new ? 0
       : r.status === 'pending' ? 1
-      : SCHEDULE_CALLBACK.has(r.status) ? 2
+      : SCHEDULE_CALLBACK_DISPOSITIONS.has(r.status) ? 2
       : 5;
 
     filtered.sort((a, b) => {

@@ -10,7 +10,7 @@ import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { API_BASE } from '../../../lib/apiBase';
-import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
+import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -167,14 +167,8 @@ function findNextDonorIndex(donors, currentId, workedToday = null) {
   for (let i = 0; i < donors.length; i++) {
     if (donors[i].status === 'pending' && donors[i].id !== currentId && !isWorked(donors[i])) return i;
   }
-  // Priority 3: not connected (not yet worked today), skip current
-  for (let i = 0; i < donors.length; i++) {
-    if (NOT_CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
-  }
-  // Priority 4: connected (not yet worked today), skip current
-  for (let i = 0; i < donors.length; i++) {
-    if (CONNECTED_IDS.has(donors[i].status) && donors[i].id !== currentId && !isWorked(donors[i])) return i;
-  }
+  // All other dispositions are hidden by the backend for the rest of the month,
+  // so only scheduled/callback and pending donors remain in the list.
   return 0;
 }
 
