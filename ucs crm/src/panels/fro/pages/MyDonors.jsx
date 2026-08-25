@@ -223,6 +223,7 @@ export default function MyDonors() {
   const debounceReloadRef = useRef(null);
   const initialMountRef = useRef(true);
   const pendingSelectRef = useRef(null);
+  const manualTabSwitchRef = useRef(false);
   const [stations, setStations] = useState([]);
   const VIEW_STATE_KEY = 'mydonors_view_state';
   const savedView = (() => { try { return JSON.parse(localStorage.getItem(VIEW_STATE_KEY)); } catch { return null; } })();
@@ -246,8 +247,9 @@ export default function MyDonors() {
         if (cancelled) return;
         const { donors: loaded, total: rTotal } = normalizeDonorResponse(r);
         const sortedDonors = filterAndSortDonors(loaded);
-        // Auto-fallback: if the New tab has no data, show Old data instead
-        if (tab === 'new' && sortedDonors.length === 0) {
+        // Auto-fallback: if the New tab has no data on initial load, show Old data instead.
+        // Skip when user manually switched tabs to prevent bounce loop.
+        if (tab === 'new' && sortedDonors.length === 0 && !manualTabSwitchRef.current) {
           setDataTab('old');
           setSelected(null);
           return;
@@ -514,6 +516,7 @@ export default function MyDonors() {
   const stationKey = selectedStation !== 'all' ? selectedStation : 'all';
 
   const switchTab = (tab) => {
+    manualTabSwitchRef.current = true;
     if (donor) {
       saveProgress(dataTab, donor.id, index);
       localStorage.setItem(`${dataTab}_${stationKey}_donor_progress`, JSON.stringify({ id: donor.id, idx: index }));
@@ -1140,6 +1143,12 @@ export default function MyDonors() {
     return (
       <div className="bento-grid">
         <div className="bento-col-12">
+          {message && (
+            <div className={`detail-message ${message.type}`} style={{ marginBottom: 8 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{message.type === 'error' ? 'error' : 'check_circle'}</span>
+              {message.text}
+            </div>
+          )}
           <div className="bento-card fro-empty-state">
             <div className="fro-empty-icon">
               <span className="material-symbols-outlined" style={{ fontSize: 36, color: 'var(--sage)', opacity: .5 }}>{dataTab === 'new' ? 'fiber_new' : 'history'}</span>
