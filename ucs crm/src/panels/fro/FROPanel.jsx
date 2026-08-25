@@ -210,7 +210,13 @@ export default function FROPanel() {
     }
   }
 
-  const filteredWhoList = froList.filter(w => !whoSearch || (w.name || '').toLowerCase().includes(whoSearch.toLowerCase()))
+  const filteredWhoList = (() => {
+    const self = user ? { id: user.id, name: user.name, _isSelf: true } : null;
+    const matches = froList.filter(w => !whoSearch || (w.name || '').toLowerCase().includes(whoSearch.toLowerCase()));
+    if (self && !whoSearch) return [self, ...matches.filter(w => w.id !== self.id)];
+    if (self && whoSearch && (self.name || '').toLowerCase().includes(whoSearch.toLowerCase())) return [self, ...matches.filter(w => w.id !== self.id)];
+    return matches;
+  })()
 
   const confirmWhoAreYou = async (imposterWorker) => {
     if (!whoAreYou) return
@@ -626,11 +632,12 @@ export default function FROPanel() {
               />
               <div style={{ maxHeight: 240, overflowY: 'auto' }}>
                 {filteredWhoList.map(w => (
-                  <div key={w.id} onClick={() => confirmWhoAreYou(w)} style={{ cursor: 'pointer', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ink)', transition: 'background .12s' }}
+                  <div key={w.id} onClick={() => confirmWhoAreYou(w)} style={{ cursor: 'pointer', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ink)', transition: 'background .12s', background: w._isSelf ? 'var(--bg-soft, #f1f5f9)' : undefined }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-soft, #f1f5f9)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    onMouseLeave={e => { if (!w._isSelf) e.currentTarget.style.background = 'transparent' }}
                   >
                     <span style={{ fontWeight: 600 }}>{w.name}</span>
+                    {w._isSelf && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
                   </div>
                 ))}
                 {filteredWhoList.length === 0 && (
