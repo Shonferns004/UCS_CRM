@@ -31,6 +31,16 @@ jobs:
           npm ci
           npm run build
 
+      - name: Fix ownership + clear old assets
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 13.207.47.116
+          username: ec2-user
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            sudo chown -R ec2-user:ec2-user /var/www/crm 2>/dev/null || true
+            rm -f /var/www/crm/assets/*.js /var/www/crm/assets/*.css /var/www/crm/assets/*.woff2
+
       - name: Deploy dist to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
