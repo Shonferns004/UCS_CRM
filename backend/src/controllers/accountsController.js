@@ -2341,7 +2341,10 @@ export const importReceipts = async (req, res) => {
     const { receipts, ngo_id } = req.body;
     const cleanVal = (v) => {
       const s = String(v || '').trim();
-      if (!s || /^n\/?a$/i.test(s)) return null;
+      if (!s) return null;
+      // Null out placeholder junk: NA, N/A, N.A., nil, null, none, -, NA, NA, ...
+      const token = String.raw`(?:n\.?\s*a\.?|n/a|null|none|nil|not\s*available|-+)`;
+      if (new RegExp(`^${token}(?:\\s*,\\s*${token})*$`, 'i').test(s)) return null;
       return s;
     };
     if (!receipts || !Array.isArray(receipts) || receipts.length === 0) {
@@ -4165,9 +4168,13 @@ export const importDonorAddresses = async (req, res) => {
 
       const payload = {};
       let hasFill = false;
+      const naJunk = (s) => {
+        const token = String.raw`(?:n\.?\s*a\.?|n/a|null|none|nil|not\s*available|-+)`;
+        return new RegExp(`^${token}(?:\\s*,\\s*${token})*$`, 'i').test(s);
+      };
       for (const field of ['name', 'address_1', 'address_2', 'pan_number', 'email']) {
         const val = String(r[field] ?? '').trim();
-        if (!val) continue;
+        if (!val || naJunk(val)) continue;
         const cur = String(existing[field] ?? '').trim();
         if (!cur) { payload[field] = val; hasFill = true; }
       }

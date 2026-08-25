@@ -100,12 +100,21 @@ function getTemplateId(projectId) {
   return DB_TO_TEMPLATE[projectId] || 'beingsevak';
 }
 
+// Treats placeholder junk ("NA", "N/A", "NA, NA", "null", "-", ...) as blank
+const isNaJunk = v => {
+  const s = String(v ?? '').trim();
+  if (!s) return true;
+  const token = String.raw`(?:n\.?\s*a\.?|n/a|null|none|nil|not\s*available|-+)`;
+  return new RegExp(`^${token}(?:\\s*,\\s*${token})*$`, 'i').test(s);
+};
+const notNa = v => (isNaJunk(v) ? '' : String(v).trim());
+
 function buildDonor(r, lead) {
   return {
     'Receipt No.': r.receipt_no || '',
     'Receipt Date': r.receipt_date || '',
     'Donor Name': r.donor_name || '',
-    'Address 1': r.address || '',
+    'Address 1': notNa(r.address),
     'PAN No.': r.pan_number || '',
     'Email ID': lead?.donor_email || r.email || '',
     'Amount': r.amount || 0,
@@ -113,7 +122,7 @@ function buildDonor(r, lead) {
     'Payment ID No.': lead?.upi_transaction_id || r.payment_id || '',
     'Donor Bank Name': lead?.payment_from || r.bank_name || '',
     'Account Of': 'Corpus',
-    'City': lead?.donor_city || '',
+    'City': notNa(lead?.donor_city),
     'State': '',
     'Pincode': '',
   };
@@ -624,9 +633,9 @@ export default function ReceiptHistory() {
         'Caller Name': r.audit_payer_name || 'NA',
         'Receipt Name': r.donor_name || 'NA',
         'Mobile no.': r.donor_mobile || 'NA',
-        'Mobil No. 2 / Tel ': r.mobile_2 || 'NA',
-        'Address-1 ': r.address || 'NA',
-        'Address-2 ': r.address_2 || 'NA',
+        'Mobil No. 2 / Tel ': notNa(r.mobile_2) || 'NA',
+        'Address-1 ': notNa(r.address),
+        'Address-2 ': notNa(r.address_2),
         'Pan. No. ': r.pan_number || 'NA',
         'Mail Id ': r.email || 'NA',
         'Station': r.station || 'NA',
