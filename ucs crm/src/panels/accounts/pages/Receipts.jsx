@@ -297,7 +297,7 @@ export default function Receipts() {
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
-  const receiptRef = useRef(null)
+  
 
   const [toast, setToast] = useState({ message:'', type:'', visible:false })
   const showToast = useCallback((type, msg) => setToast({ type, message:msg, visible:true }), [])
@@ -633,7 +633,9 @@ export default function Receipts() {
     setDownloadSingle(true)
     try {
       const donor = donors[idx]
-      await downloadSinglePDF(receiptRef.current, donor, donor['Project'] || 'bsct')
+      const sheet = previewBodyRef.current?.querySelector('[data-receipt-sheet]')
+      if (!sheet) throw new Error('Receipt element not found')
+      await downloadSinglePDF(sheet, donor, donor['Project'] || 'bsct')
     } catch (e) { alert('Failed to download PDF: ' + e.message) }
     setDownloadSingle(false)
   }
@@ -641,7 +643,9 @@ export default function Receipts() {
   const handlePrint = () => {
     const pw = window.open('', '_blank')
     if (!pw) { alert('Please allow pop-ups to print'); return }
-    pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${receiptRef.current.innerHTML}</body></html>`)
+    const sheet = previewBodyRef.current?.querySelector('[data-receipt-sheet]')
+    if (!sheet) { alert('Receipt element not found'); return }
+    pw.document.write(`<html><head><title>Donation Receipt</title><style>body{font-family:Arial,sans-serif;padding:20px}@media print{body{padding:0}}</style></head><body>${sheet.innerHTML}</body></html>`)
     pw.document.close(); pw.focus()
     setTimeout(() => pw.print(), 500)
   }
@@ -1310,7 +1314,7 @@ export default function Receipts() {
                     const tpl = getNgoSettings(ngo)
                     const Comp = tpl.comp
                     return (
-                      <div ref={previewIndex === idx ? receiptRef : undefined} data-receipt style={{ display:'inline-block', zoom:previewScale }}>
+                      <div data-receipt style={{ display:'inline-block', zoom:previewScale }}>
                         <Comp donor={donors[idx]} project={ngo} />
                       </div>
                     )
