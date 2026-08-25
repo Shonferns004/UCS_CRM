@@ -1440,7 +1440,7 @@ export const claimSuspenseReceipt = async (req, res) => {
     const auditEntry = await findClaimAuditEntry(receipt, claimUpiId);
     const auditUpi = auditEntry?.payment_id ? String(auditEntry.payment_id).trim() : null;
     const auditFrom = auditEntry?.payer_name ? String(auditEntry.payer_name).trim() : null;
-    const auditMode = auditEntry?.payment_id ? 'UPI' : (auditEntry?.check_id ? 'Cheque' : 'Bank Transfer');
+    const auditMode = auditEntry?.mode || (auditEntry?.payment_id ? 'UPI' : (auditEntry?.check_id ? 'Cheque' : 'Bank Transfer'));
     const auditTxn = auditEntry?.transaction_date
       ? (() => {
           const d = String(auditEntry.transaction_date);

@@ -443,7 +443,7 @@ export const syncEntryToLead = async (entryId, logId) => {
       ? `${datePart}T${entry.payment_time}+05:30`
       : `${datePart}T00:00:00+05:30`;
   }
-  patch.payment_mode = entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer');
+  patch.payment_mode = entry.mode || (entry.payment_id ? 'UPI' : (entry.check_id ? 'Cheque' : 'Bank Transfer'));
 
   if (Object.keys(patch).length > 0) {
     await db.from('fro_donor_logs').update(patch).eq('id', logId);

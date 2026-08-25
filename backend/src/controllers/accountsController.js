@@ -109,7 +109,7 @@ export const getLeadList = async (req, res) => {
             return match.payment_time ? `${datePart}T${match.payment_time}+05:30` : `${datePart}T00:00:00+05:30`;
           })()
         : null;
-      const matchMode = (match?.payment_id || match?.check_id) ? (match.payment_id ? 'UPI' : 'Cheque') : null;
+      const matchMode = match?.mode || ((match?.payment_id || match?.check_id) ? (match.payment_id ? 'UPI' : 'Cheque') : null);
       return {
       log_id: r.id,
       amount: r.amount_collected,
