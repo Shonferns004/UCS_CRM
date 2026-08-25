@@ -382,7 +382,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       ];
 
       const wsData = [headers];
-      const eligibleRowIdxs = [];
+      const rowStyles = [];
       let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0;
       let lastActiveFroRow = 0, lastMgmtRow = 0, lastHrRow = 0;
 
@@ -421,7 +421,13 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           ...dailyArr
         ];
         wsData.push(row);
-        if ((r.target || 0) > 0 && (r.achieved || 0) >= r.target) eligibleRowIdxs.push(wsData.length - 1);
+        const pct = (r.target || 0) > 0 ? ((r.achieved || 0) / r.target) * 100 : -1;
+        if (pct >= 100)      rowStyles.push({ fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } });
+        else if (pct >= 75)  rowStyles.push({ fill: { fgColor: { rgb: 'C6EFCE' } }, font: { color: { rgb: '006100' } } });
+        else if (pct >= 50)  rowStyles.push({ fill: { fgColor: { rgb: 'E2F0D9' } }, font: { color: { rgb: '375623' } } });
+        else if (pct >= 25)  rowStyles.push({ fill: { fgColor: { rgb: 'FFEB9C' } }, font: { color: { rgb: '9C5700' } } });
+        else if (pct >= 0)   rowStyles.push({ fill: { fgColor: { rgb: 'FFC7CE' } }, font: { color: { rgb: '9C0006' } } });
+        else                 rowStyles.push(null);
         const rowIdx = wsData.length - 1;
         const isActive = r.status === 'ACTIVE';
         const isAbscond = r.status === 'ABSCONDED' || r.status === 'ABSCOND';
@@ -552,12 +558,13 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-      // Green-highlight rows whose worker is AKI-eligible (monthly target met)
-      for (const dataIdx of eligibleRowIdxs) {
-        const excelRow = dataIdx + 1; // wsData index 1 = sheet row 2
+      // Apply achievement-progress colour gradient to each data row
+      for (let i = 0; i < rowStyles.length; i++) {
+        if (!rowStyles[i]) continue;
+        const excelRow = i + 2;
         for (let c = 0; c < TOTAL_COLS; c++) {
           const addr = `${XLSX.utils.encode_col(c)}${excelRow}`;
-          if (ws[addr]) ws[addr].s = { fill: { fgColor: { rgb: 'C6EFCE' } } };
+          if (ws[addr]) ws[addr].s = rowStyles[i];
         }
       }
 
