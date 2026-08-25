@@ -1564,7 +1564,7 @@ export const getReceiptList = async (req, res) => {
               COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
               count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
        FROM receipts
-       WHERE receipt_no IS NOT NULL AND voided_at IS NULL
+       WHERE receipt_no IS NOT NULL
        GROUP BY project_id
        ORDER BY count(*) DESC`
     );
@@ -1585,7 +1585,7 @@ export const getReceiptList = async (req, res) => {
                 count(*)::int AS count,
                 COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount,
                 count(DISTINCT COALESCE(NULLIF(donor_mobile, ''), donor_name))::int AS donors
-         FROM receipts WHERE receipt_no IS NOT NULL AND voided_at IS NULL AND (${mw.join(' AND ')})
+         FROM receipts WHERE receipt_no IS NOT NULL AND (${mw.join(' AND ')})
          GROUP BY project_id ORDER BY count(*) DESC`, mp
       );
       monthStatsByProject = mRes.rows;
@@ -1599,7 +1599,7 @@ export const getReceiptList = async (req, res) => {
                   count(*)::int AS count,
                   COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
            FROM receipts
-           WHERE receipt_no IS NOT NULL AND voided_at IS NULL AND receipt_date = $1::date
+           WHERE receipt_no IS NOT NULL AND receipt_date = $1::date
            GROUP BY project_id`,
           [todayDateParam]
         )
@@ -1608,7 +1608,7 @@ export const getReceiptList = async (req, res) => {
                   count(*)::int AS count,
                   COALESCE(round(sum(amount)::numeric, 2), 0)::float8 AS total_amount
            FROM receipts
-           WHERE receipt_no IS NOT NULL AND voided_at IS NULL AND receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
+           WHERE receipt_no IS NOT NULL AND receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
            GROUP BY project_id`
         );
 
