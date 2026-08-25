@@ -1261,9 +1261,6 @@ export const claimSuspenseReceipt = async (req, res) => {
       donorId = receipt.donor_id;
       donorName = receipt.donor_name || donorName;
     }
-    if (projectSet.length > 0 && !projectSet.includes(receipt.project_id)) {
-      return res.status(403).json({ message: 'Receipt does not belong to your NGO' });
-    }
 
     const { monthStart, month } = currentMonthBoundsIST();
     if (!receipt.receipt_date || receipt.receipt_date.slice(0, 7) !== month) {
