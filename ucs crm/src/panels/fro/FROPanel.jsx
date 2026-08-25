@@ -152,6 +152,8 @@ export default function FROPanel() {
   const [codeSubmitting, setCodeSubmitting] = useState(false)
   const [generatingCode, setGeneratingCode] = useState(false)
   const [codeGenerated, setCodeGenerated] = useState(false)
+  const [whoAreYou, setWhoAreYou] = useState(null)
+  const [whoSearch, setWhoSearch] = useState('')
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
@@ -193,9 +195,30 @@ export default function FROPanel() {
     if (!pendingTarget) return
     setCodeSubmitting(true)
     try {
-      const res = await impersonateFRO(pendingTarget.id, codeInput.trim())
-      startImpersonation(res.token, res.user)
+      // Validate the code first by opening the "Who are you?" modal.
+      // The actual API call happens in confirmWhoAreYou with the imposter_worker_id.
+      setWhoAreYou({ target: pendingTarget, code: codeInput.trim() })
       setPendingTarget(null)
+      setCodeInput('')
+      setCodeGenerated(false)
+      setWhoSearch('')
+    } catch (e) {
+      console.error('Error:', e.message)
+      alert(e.message || 'Could not switch FRO')
+    } finally {
+      setCodeSubmitting(false)
+    }
+  }
+
+  const filteredWhoList = froList.filter(w => !whoSearch || (w.name || '').toLowerCase().includes(whoSearch.toLowerCase()))
+
+  const confirmWhoAreYou = async (imposterWorker) => {
+    if (!whoAreYou) return
+    setCodeSubmitting(true)
+    try {
+      const res = await impersonateFRO(whoAreYou.target.id, whoAreYou.code, imposterWorker.id)
+      startImpersonation(res.token, res.user)
+      setWhoAreYou(null)
       window.location.reload()
     } catch (e) {
       console.error('Error:', e.message)
@@ -511,7 +534,7 @@ export default function FROPanel() {
                 <div className="user-menu">
                   <div className="user-menu-item" style={{flexDirection:'column', alignItems:'flex-start', gap:2, cursor:'default'}}>
                     <div style={{fontWeight:600, fontSize:13}}>{userName}</div>
-                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>{impersonating && user?.imposter_name ? `Working as FRO · you are ${user.imposter_name}` : 'FRO'}</div>
+                    <div style={{fontSize:11, color:'var(--ink-soft)'}}>{impersonating && user?.imposter_name ? `OWNER: ${userName} · ACTING: ${user.imposter_name}` : 'FRO'}</div>
                   </div>
                   <div className="user-menu-divider" />
                   <div className="user-menu-item" onClick={() => { setShowMenu(false); setShowSettings(true); }} style={{cursor:'pointer'}}>
@@ -538,7 +561,7 @@ export default function FROPanel() {
         {impersonating && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'rgba(22,163,74,.12)', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-            <span><b>{userName}</b>'s account · you are {user?.imposter_name || 'an administrator'}. Collections credit to {user?.imposter_name || 'you'}.</span>
+            <span>OWNER: <b>{userName}</b> · ACTING FRO: <b>{user?.imposter_name || 'you'}</b> · Credit goes to <b>{user?.imposter_name || 'you'}</b></span>
             <button className="btn btn-sm" onClick={doExitImpersonation} style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', background: 'var(--sage)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Exit work-as</button>
           </div>
         )}
@@ -581,6 +604,41 @@ export default function FROPanel() {
                 >
                   {codeSubmitting ? 'Switching…' : 'Switch'}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {whoAreYou && (
+          <div className="modal-overlay" onClick={() => setWhoAreYou(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, padding: 22, borderRadius: 'var(--radius)' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
+                Who are you?
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 14 }}>
+                Select your FRO identity so collections are credited to you.
+              </div>
+              <input
+                value={whoSearch}
+                onChange={e => setWhoSearch(e.target.value)}
+                placeholder="Search your name…"
+                autoFocus
+                style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', marginBottom: 8, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-soft, #f1f5f9)', color: 'var(--ink)', fontSize: 12.5, outline: 'none', fontFamily: 'inherit' }}
+              />
+              <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+                {filteredWhoList.map(w => (
+                  <div key={w.id} onClick={() => confirmWhoAreYou(w)} style={{ cursor: 'pointer', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ink)', transition: 'background .12s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-soft, #f1f5f9)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <span style={{ fontWeight: 600 }}>{w.name}</span>
+                  </div>
+                ))}
+                {filteredWhoList.length === 0 && (
+                  <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>No matching FROs</div>
+                )}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button className="btn" onClick={() => setWhoAreYou(null)} style={{ width: '100%', justifyContent: 'center' }}>Cancel</button>
               </div>
             </div>
           </div>

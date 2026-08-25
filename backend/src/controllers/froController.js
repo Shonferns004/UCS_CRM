@@ -1186,6 +1186,10 @@ const linkClaimAuditEntry = async (entry, receiptId, logId, workerId, donorId, w
 export const claimSuspenseReceipt = async (req, res) => {
   try {
     const workerId = req.user.id;
+    // When working-as another FRO, the collection credit goes to the operator
+    // (imposter) while donor/assignment ownership stays with the impersonated FRO.
+    const creditWorkerId = req.user.impersonation && req.user.imposter_id != null ? req.user.imposter_id : workerId;
+    const creditWorkerName = req.user.impersonation && req.user.imposter_name ? req.user.imposter_name : req.user.name;
     const rawId = (req.params.receiptId || '').trim();
     const { donor_id, donor_name, donor_mobile, donor_city, donor_email, donor_pan, donor_address, upi_transaction_id, transaction_datetime, notes, screenshot_url } = req.body || {};
     let donorId = donor_id ? parseInt(donor_id, 10) : null;
@@ -1512,7 +1516,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       .insert({
         assignment_id: assignmentId,
         donor_id: donorId,
-        fro_worker_id: workerId,
+        fro_worker_id: creditWorkerId,
         action: 'disposition',
         disposition_detail: 'lead_done',
         amount_collected: receipt.amount,
@@ -1524,17 +1528,17 @@ export const claimSuspenseReceipt = async (req, res) => {
         payment_from: finalFrom,
         pan_number: effectivePan,
         transaction_datetime: finalTxn,
-        created_by: workerId,
+        created_by: creditWorkerId,
       })
       .select()
       .single();
     if (logErr) throw logErr;
 
-    const { error: updErr } = await db.from('receipts').update({ log_id: log.id, agent_name: req.user.name }).eq('id', receiptId);
+    const { error: updErr } = await db.from('receipts').update({ log_id: log.id, agent_name: creditWorkerName }).eq('id', receiptId);
     if (updErr) throw updErr;
 
     await linkClaimDonorToAuditEntry(receiptId, donorId, { donor_mobile, donor_city, donor_email, donor_pan, donor_address });
-    await linkClaimAuditEntry(auditEntry, receiptId, log.id, workerId, donorId, req.user.name);
+    await linkClaimAuditEntry(auditEntry, receiptId, log.id, creditWorkerId, donorId, creditWorkerName);
 
     // For receipt_sent entries, transition the bank_audit_entry status from
     // "receipt_sent" → "unverified" and stamp the claiming FRO's name so
@@ -1543,7 +1547,7 @@ export const claimSuspenseReceipt = async (req, res) => {
       try {
         await db.from('bank_audit_entries').update({
           status: 'unverified',
-          agent_name: req.user.name || null,
+          agent_name: creditWorkerName || null,
           updated_at: new Date().toISOString(),
         }).eq('id', auditEntry.id);
       } catch (e) { console.error('Failed to update receipt_sent audit entry:', e.message); }
@@ -1556,7 +1560,7 @@ export const claimSuspenseReceipt = async (req, res) => {
           worker_id: u.id,
           type: 'claim_requested',
           title: 'Suspense Claim',
-          body: `${req.user.name || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} — pending in Lead Verification.`,
+          body: `${creditWorkerName || 'An FRO'} claimed ${receipt.donor_name || 'a receipt'} of \u20B9${Number(receipt.amount || 0).toLocaleString('en-IN')} — pending in Lead Verification.`,
           sent_at: new Date().toISOString(),
         });
       }

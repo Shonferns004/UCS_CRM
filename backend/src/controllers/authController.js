@@ -318,6 +318,37 @@ export const impersonateFRO = async (req, res) => {
       return res.status(403).json({ message: 'Can only impersonate FROs of your own NGO' });
     }
 
+    // "Who are you?" step: the operator optionally identifies which FRO worker
+    // they are so credit goes to the correct person. When imposter_worker_id is
+    // provided, validate it and use it as the imposter identity in the JWT.
+    let imposterId = req.user.id;
+    let imposterName = req.user.name || '';
+    // Resolve the operator's display name. New worker tokens carry it, but older
+    // sessions / admin accounts may not — fall back to a DB lookup.
+    if (!imposterName && req.user.id != null) {
+      const opWorker = await getWorkerById(String(req.user.id));
+      if (opWorker?.name) imposterName = opWorker.name;
+      else {
+        const opUser = await getUserById(req.user.id);
+        if (opUser?.name) imposterName = opUser.name;
+      }
+    }
+    const { imposter_worker_id } = req.body;
+    if (imposter_worker_id) {
+      const imposterWorker = await getWorkerById(String(imposter_worker_id).trim());
+      if (!imposterWorker) return res.status(404).json({ message: 'Acting FRO worker not found' });
+      if (imposterWorker.is_active === false || imposterWorker.employment_status === 'terminated') {
+        return res.status(403).json({ message: 'Acting FRO account is deactivated' });
+      }
+      const impDept = String(imposterWorker.department || '').toLowerCase().trim();
+      if (impDept !== 'fro') return res.status(400).json({ message: 'Acting FRO must be an FRO worker' });
+      if (!isSuper && req.user.ngo_id && imposterWorker.ngo_id && req.user.ngo_id !== imposterWorker.ngo_id) {
+        return res.status(403).json({ message: 'Acting FRO must belong to your NGO' });
+      }
+      imposterId = imposterWorker.id;
+      imposterName = imposterWorker.name || '';
+    }
+
     // Work-as FRO requires a valid admin-generated 4-digit code (single use, 5-min expiry).
     const { code } = req.body;
     const codeStr = String(code || '').trim();
@@ -335,18 +366,6 @@ export const impersonateFRO = async (req, res) => {
       return res.status(409).json({ message: 'Code was already used. Generate a new one.' });
     }
 
-    // Resolve the operator's display name. New worker tokens carry it, but older
-    // sessions / admin accounts may not — fall back to a DB lookup.
-    let imposterName = req.user.name || '';
-    if (!imposterName && req.user.id != null) {
-      const opWorker = await getWorkerById(String(req.user.id));
-      if (opWorker?.name) imposterName = opWorker.name;
-      else {
-        const opUser = await getUserById(req.user.id);
-        if (opUser?.name) imposterName = opUser.name;
-      }
-    }
-
     const token = jwt.sign(
       {
         id: target.id,
@@ -356,7 +375,7 @@ export const impersonateFRO = async (req, res) => {
         department: target.department || 'fro',
         name: target.name,
         impersonation: true,
-        imposter_id: req.user.id,
+        imposter_id: imposterId,
         imposter_name: imposterName,
       },
       process.env.JWT_SECRET,
@@ -375,7 +394,7 @@ export const impersonateFRO = async (req, res) => {
         role: 'fro',
         department: target.department,
         impersonation: true,
-        imposter_id: req.user.id,
+        imposter_id: imposterId,
         imposter_name: imposterName,
       },
       message: `Working as ${target.name}`,
