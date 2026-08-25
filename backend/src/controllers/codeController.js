@@ -61,8 +61,8 @@ export const listCodes = async (req, res) => {
 };
 
 export const listAllCodesDebug = async (req, res) => {
-  if (req.user.role !== 'super_admin' && req.user.role !== 'master') {
-    return res.status(403).json({ message: 'Super admin only' });
+  if (req.user.role !== 'super_admin' && req.user.role !== 'master' && req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
   }
   try {
     const codes = await listAllImpersonationCodes();
