@@ -4,6 +4,7 @@ import { sendPushNotification } from '../services/fcmService.js';
 import { confirmMatchCredit } from '../services/creditService.js';
 import { getEntryByPaymentId, getNextReceiptNo, isBlankSuspenseValue, projectCodeFromNgoId, cancelReceiptNo, voidReceipt, deleteReceiptSafely, bulkDeleteReceipts, getReceiptNumbers as modelGetReceiptNumbers } from '../models/bankAuditModel.js';
 import { nameMatch } from '../services/autoMatchService.js';
+import { normalizeAgentName } from '../utils/workerNameMatch.js';
 import XLSX from 'xlsx';
 import path from 'path';
 import fs from 'fs';
@@ -2484,6 +2485,22 @@ export const importReceipts = async (req, res) => {
     const uniqueRows = uniqueParsed.map(p => p.parsed);
     const originalRows = uniqueParsed.map(p => p.original);
 
+    // Normalize agent_name to canonical worker names so collection queries
+    // match reliably (handles extra spaces, middle names, etc.)
+    const rawAgentNames = [...new Set(uniqueRows.map(r => r.agent_name).filter(Boolean))];
+    const agentNameMap = new Map();
+    for (const raw of rawAgentNames) {
+      const canonical = await normalizeAgentName(raw);
+      if (canonical !== raw) agentNameMap.set(raw, canonical);
+    }
+    if (agentNameMap.size > 0) {
+      for (const row of uniqueRows) {
+        if (row.agent_name && agentNameMap.has(row.agent_name)) {
+          row.agent_name = agentNameMap.get(row.agent_name);
+        }
+      }
+    }
+
     // Durability safety net: persist the exact rows we intend to insert BEFORE
     // any DB write, so a crash mid-import can never lose the source data.
     const FAILED_DIR = path.resolve(__dirname, '../../uploads/failed_imports');
@@ -4219,6 +4236,12 @@ export const updateReceipt = async (req, res) => {
       if (field in updates) {
         receiptPatch[field] = (updates[field] === '' || updates[field] === null) ? null : updates[field];
       }
+    }
+
+    // Normalize agent_name on edit too
+    if (receiptPatch.agent_name && receiptPatch.agent_name !== 'Suspense') {
+      const canonical = await normalizeAgentName(receiptPatch.agent_name);
+      if (canonical) receiptPatch.agent_name = canonical;
     }
 
     // Detect FRO change
