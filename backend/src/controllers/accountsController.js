@@ -143,7 +143,7 @@ export const getLeadList = async (req, res) => {
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
-      agent_name: (req.user?.impersonation && r.fro_worker_id === req.user.id && req.user.imposter_name)
+      agent_name: (req.user?.impersonation && req.user.imposter_name && (r.fro_worker_id === req.user.id || r.fro_worker_id === req.user.imposter_id))
         ? req.user.imposter_name
         : r.fro_assignments?.workers?.name || 'Priyank Shah',
       agent_login: r.fro_assignments?.workers?.login_id || '',
