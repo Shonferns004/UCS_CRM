@@ -29,11 +29,14 @@ export default function Codes() {
       let res;
       if (showAll) {
         const token = localStorage.getItem('ucs_token');
+        console.log('Fetching all codes, token:', token ? 'present' : 'missing');
         res = await fetch('/api/impersonation-codes/all', {
           headers: { Authorization: `Bearer ${token}` }
         });
-        res = await res.json();
-        setCodes(res?.codes || []);
+        console.log('Response status:', res.status);
+        const data = await res.json();
+        console.log('Response data:', data);
+        setCodes(data?.codes || []);
       } else {
         const r = await listImpersonationCodes();
         setCodes(r?.codes || []);

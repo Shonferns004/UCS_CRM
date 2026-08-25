@@ -66,8 +66,10 @@ export const listAllCodesDebug = async (req, res) => {
   }
   try {
     const codes = await listAllImpersonationCodes();
+    console.log('listAllImpersonationCodes returned', codes.length, 'codes');
     return res.json({ codes, total: codes.length });
   } catch (error) {
+    console.error('listAllCodesDebug error:', error);
     return res.status(500).json({ message: error.message });
   }
 };
