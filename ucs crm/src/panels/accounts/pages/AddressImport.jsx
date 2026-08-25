@@ -33,6 +33,8 @@ const matchColumns = (headers) => {
 const STATUS_LABELS = {
   updated: 'Updated',
   complete: 'Already Complete',
+  created: 'New Donor Created',
+  created_no_data: 'Created (Mobile Only)',
   not_found: 'Not Found in DB',
   no_mobile: 'Skipped - No Mobile',
   duplicate: 'Duplicate in File',
@@ -41,6 +43,8 @@ const STATUS_LABELS = {
 const STATUS_STYLES = {
   updated: { background: '#dcfce7', color: '#15803d' },
   complete: { background: '#e5e7eb', color: '#374151' },
+  created: { background: '#dbeafe', color: '#1d4ed8' },
+  created_no_data: { background: '#dbeafe', color: '#1d4ed8' },
   not_found: { background: '#fef3c7', color: '#b45309' },
   no_mobile: { background: '#fee2e2', color: '#b91c1c' },
   duplicate: { background: '#fee2e2', color: '#b91c1c' },
@@ -138,6 +142,8 @@ export default function AddressImport() {
       'Mobile': r.mobile,
       'Status': STATUS_LABELS[r.status] || r.status,
       ...(r.status === 'not_found' ? { Action: 'No matching donor — skipped' } : {}),
+      ...(r.status === 'created' ? { Action: 'New donor profile created' } : {}),
+      ...(r.status === 'created_no_data' ? { Action: 'New donor created — mobile only, no other details in file' } : {}),
     }))
     const ws = XLSX.utils.json_to_sheet(report)
     const wb = XLSX.utils.book_new()
@@ -156,7 +162,7 @@ export default function AddressImport() {
           <div style={{ marginRight: 'auto' }}>
             <div style={{ fontSize: 14, fontWeight: 600 }}>Donor Address Import</div>
             <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 2 }}>
-              Upload an Excel sheet with <strong>Mobile No.</strong> — donors are matched by mobile and only their <em>blank</em> fields (Name, Address-1, Address-2, PAN No., Mail Id) are filled. Existing values are never overwritten. Unknown numbers are skipped.
+              Upload an Excel sheet with <strong>Mobile No.</strong> — donors are matched by mobile and only their <em>blank</em> fields (Name, Address-1, Address-2, PAN No., Mail Id) are filled. Existing values are never overwritten. Numbers not found in DB are added as new donors.
             </div>
           </div>
           {rows.length > 0 && !importing && (
@@ -228,22 +234,22 @@ export default function AddressImport() {
           <div ref={resultRef} style={{ margin: 14 }}>
             <div style={{
               padding: '14px 18px', borderRadius: 10, marginBottom: 14,
-              background: (s.updated ?? 0) > 0 ? '#f0fdf4' : '#fffbeb',
-              border: `1px solid ${(s.updated ?? 0) > 0 ? '#bbf7d0' : '#fde68a'}`,
+              background: ((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#f0fdf4' : '#fffbeb',
+              border: `1px solid ${((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#bbf7d0' : '#fde68a'}`,
             }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: (s.updated ?? 0) > 0 ? '#15803d' : '#b45309' }}>
-                {(s.updated ?? 0) > 0
-                  ? `\u2713 Import finished — ${s.updated} donor${s.updated !== 1 ? 's' : ''} updated in the database`
+              <div style={{ fontSize: 14, fontWeight: 700, color: ((s.updated ?? 0) + (s.created ?? 0)) > 0 ? '#15803d' : '#b45309' }}>
+                {((s.updated ?? 0) + (s.created ?? 0)) > 0
+                  ? `\u2713 Import finished — ${s.updated ?? 0} donor${s.updated !== 1 ? 's' : ''} updated, ${s.created ?? 0} new donor${s.created !== 1 ? 's' : ''} created`
                   : 'Import finished — no donors needed changes'}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
-                {s.matchedNoChange ?? 0} already had all details &middot; {s.notFound ?? 0} mobile number{s?.notFound !== 1 ? 's' : ''} not found in DB (skipped) &middot; {(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} invalid/duplicate row{(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0) !== 1 ? 's' : ''} &middot; file: {result.fileName}
+                {s.matchedNoChange ?? 0} already had all details &middot; {(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} invalid/duplicate row{(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0) !== 1 ? 's' : ''} &middot; file: {result.fileName}
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
               <Chip value={s.updated ?? 0} label="Donors Updated" color="#16a34a" />
+              <Chip value={s.created ?? 0} label="New Donors Created" color="#1d4ed8" />
               <Chip value={s.matchedNoChange ?? 0} label="Already Complete" color="var(--ink)" />
-              <Chip value={s.notFound ?? 0} label="Not Found (skipped)" color="#d97706" />
               <Chip value={(s.skippedNoMobile ?? 0) + (s.duplicatesInFile ?? 0)} label="Invalid / Duplicate" color="#dc2626" />
             </div>
             <button className="btn btn-sm" onClick={downloadReport}>Download Full Report (all rows)</button>
