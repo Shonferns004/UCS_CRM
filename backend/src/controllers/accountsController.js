@@ -80,7 +80,7 @@ export const getLeadList = async (req, res) => {
 
       const { data: matchedEntries, error: matchErr } = await db
         .from('bank_audit_entries')
-        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2')
+        .select('id, matched_lead_log_id, match_status, match_source, match_no, match_score, payment_id, check_id, payer_name, transaction_date, payment_time, receipt_id, donor_pan, donor_address_1, donor_address_2, mode')
         .in('matched_lead_log_id', logIds)
         .in('match_status', ['matched', 'confirmed']);
       if (!matchErr) {

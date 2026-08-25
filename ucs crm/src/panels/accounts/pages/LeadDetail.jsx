@@ -470,10 +470,6 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                   {isPending?<input className="field-input" value={form.donor_mobile} onChange={e=>setField('donor_mobile',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)'}}>{form.donor_mobile||'NA'}</div>}
                 </div>
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>City</div>
-                  {isPending?<input className="field-input" value={form.donor_city} onChange={e=>setField('donor_city',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_city||'NA'}</div>}
-                </div>
-                <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Email</div>
                   {isPending?<input className="field-input" value={form.donor_email} onChange={e=>setField('donor_email',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_email||'NA'}</div>}
                 </div>
@@ -484,14 +480,6 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>PAN</div>
                   {isPending?<input className="field-input" value={form.donor_pan} onChange={e=>setField('donor_pan',e.target.value)} placeholder="NA" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12,textTransform:'uppercase'}} />:<div style={{fontSize:12,color:'var(--ink)',fontFamily:'var(--font-mono, monospace)',textTransform:'uppercase'}}>{form.donor_pan||'NA'}</div>}
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>DOB</div>
-                  {isPending?<DatePicker selected={form.donor_dob} onChange={d=>setField('donor_dob',d)} dateFormat="dd/MM/yyyy" placeholderText="NA" isClearable showYearDropdown scrollableYearDropdown yearDropdownItemNumber={80} className="datepicker-input" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:12}} />:<div style={{fontSize:12,color:'var(--ink)'}}>{form.donor_dob?new Date(form.donor_dob).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'NA'}</div>}
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Project</div>
-                  <div style={{fontSize:12,fontWeight:600,color:'var(--ink)'}}>{l.donor_project||'NA'}</div>
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Donations</div>

@@ -430,8 +430,7 @@ export default function FroSuspense() {
                           <input value={claimDMobile} onChange={e => setClaimDMobile(e.target.value)} placeholder="Mobile number" style={{ ...fieldStyle, flex: 1 }} />
                         </div>
                         <div style={{ display: 'flex', gap: 10 }}>
-                          <input value={claimDCity} onChange={e => setClaimDCity(e.target.value)} placeholder="City" style={{ ...fieldStyle, flex: 1 }} />
-                          <input value={claimDPan} onChange={e => setClaimDPan(e.target.value)} placeholder="PAN (ABCDE1234F)" style={{ ...fieldStyle, flex: 1 }} />
+                          <input value={claimDPan} onChange={e => setClaimDPan(e.target.value)} placeholder="PAN (ABCDE1234F)" style={fieldStyle} />
                         </div>
                         <input value={claimDAddress} onChange={e => setClaimDAddress(e.target.value)} placeholder="Address" style={fieldStyle} />
                         <input value={claimDEmail} onChange={e => setClaimDEmail(e.target.value)} placeholder="Email" style={fieldStyle} />
