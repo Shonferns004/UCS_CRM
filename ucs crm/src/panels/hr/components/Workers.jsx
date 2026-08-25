@@ -4,7 +4,7 @@ import { useHR } from '../store';
 import { Who, Avatar, Dropdown } from './ui';
 import { Plus, Trash, Check } from '../icons';
 import { api } from '../../../api/auth';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
 
 function load() {
@@ -382,6 +382,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       ];
 
       const wsData = [headers];
+      const eligibleRowIdxs = [];
       let activeFroCount = 0, mgmtCount = 0, hrCount = 0, abscondCount = 0;
       let lastActiveFroRow = 0, lastMgmtRow = 0, lastHrRow = 0;
 
@@ -420,7 +421,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           ...dailyArr
         ];
         wsData.push(row);
-
+        if ((r.target || 0) > 0 && (r.achieved || 0) >= r.target) eligibleRowIdxs.push(wsData.length - 1);
         const rowIdx = wsData.length - 1;
         const isActive = r.status === 'ACTIVE';
         const isAbscond = r.status === 'ABSCONDED' || r.status === 'ABSCOND';
@@ -550,6 +551,16 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
       }
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Green-highlight rows whose worker is AKI-eligible (monthly target met)
+      for (const dataIdx of eligibleRowIdxs) {
+        const excelRow = dataIdx + 1; // wsData index 1 = sheet row 2
+        for (let c = 0; c < TOTAL_COLS; c++) {
+          const addr = `${XLSX.utils.encode_col(c)}${excelRow}`;
+          if (ws[addr]) ws[addr].s = { fill: { fgColor: { rgb: 'C6EFCE' } } };
+        }
+      }
+
       // Column widths
       const colWidths = [
         { wch: 22 }, { wch: 10 }, { wch: 22 }, { wch: 18 },
