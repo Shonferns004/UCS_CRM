@@ -248,6 +248,28 @@ function MonthPicker({ value, onChange }) {
     </div>
   );
 }
+
+function DateRangePicker({ from, to, onFromChange, onToChange }) {
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>From</span>
+      <input
+        type="date"
+        value={from || ''}
+        onChange={e => onFromChange(e.target.value || null)}
+        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
+      />
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>To</span>
+      <input
+        type="date"
+        value={to || ''}
+        onChange={e => onToChange(e.target.value || null)}
+        style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontWeight: 600 }}
+      />
+    </div>
+  );
+}
+
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
 function StatRow({ label, value, color }) {
@@ -270,6 +292,8 @@ export default function Receipts() {
     return ist.toISOString().slice(0, 10);
   })
   const [filterMonth, setFilterMonth] = useState(null)
+  const [filterFrom, setFilterFrom] = useState(null)
+  const [filterTo, setFilterTo] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(null)
   const [downloadSingle, setDownloadSingle] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -437,7 +461,9 @@ export default function Receipts() {
 
   useEffect(() => {
     let url = '/accounts/receipts?limit=1'
-    if (filterDate) {
+    if (filterFrom && filterTo) {
+      url += `&from_date=${filterFrom}&to_date=${filterTo}`
+    } else if (filterDate) {
       url += `&from_date=${filterDate}&to_date=${filterDate}`
     } else if (filterMonth) {
       const [y, m] = filterMonth.split('-').map(Number)
@@ -447,10 +473,10 @@ export default function Receipts() {
     }
     apiGet(url).then(res => {
       setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
-      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : ((filterDate || filterMonth) ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
+      setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : ((filterDate || filterMonth || filterFrom || filterTo) ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
       setTodayStats(Array.isArray(res?.todayStats) ? res.todayStats : [])
     }).catch(e => console.error('Stats fetch error:', e.message))
-  }, [filterDate, filterMonth])
+  }, [filterDate, filterMonth, filterFrom, filterTo])
 
   const refreshHistory = () => {
     window.dispatchEvent(new CustomEvent('ucs:receipts-refresh'))
@@ -874,13 +900,18 @@ export default function Receipts() {
 
   const ALL_PROJECTS = ['bsct', 'aflf', 'mann'];
   const statsMap = {};
-  (filterDate || filterMonth ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
+  (filterDate || filterMonth || filterFrom || filterTo ? monthStatsByProject : statsByProject).forEach(s => { statsMap[s.project_id] = s; });
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-        <DayPicker value={filterDate} onChange={v => { setFilterDate(v); if (v) setFilterMonth(null) }} />
-        <MonthPicker value={filterMonth} onChange={v => { setFilterMonth(v); if (v) setFilterDate(null) }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+        <DayPicker value={filterDate} onChange={v => { setFilterDate(v); if (v) { setFilterMonth(null); setFilterFrom(null); setFilterTo(null) } }} />
+        <MonthPicker value={filterMonth} onChange={v => { setFilterMonth(v); if (v) { setFilterDate(null); setFilterFrom(null); setFilterTo(null) } }} />
+        <DateRangePicker
+          from={filterFrom} to={filterTo}
+          onFromChange={v => { setFilterFrom(v); if (v) { setFilterDate(null); setFilterMonth(null) } }}
+          onToChange={v => { setFilterTo(v); if (v) { setFilterDate(null); setFilterMonth(null) } }}
+        />
       </div>
 
       <div className="stats-grid receipt-history-stats" style={{ marginBottom: 16 }}>
