@@ -334,7 +334,7 @@ export const impersonateFRO = async (req, res) => {
       }
     }
     const { imposter_worker_id } = req.body;
-    if (imposter_worker_id) {
+    if (imposter_worker_id && String(imposter_worker_id) !== String(req.user.id)) {
       const imposterWorker = await getWorkerById(String(imposter_worker_id).trim());
       if (!imposterWorker) return res.status(404).json({ message: 'Acting FRO worker not found' });
       if (imposterWorker.is_active === false || imposterWorker.employment_status === 'terminated') {
@@ -347,6 +347,8 @@ export const impersonateFRO = async (req, res) => {
       }
       imposterId = imposterWorker.id;
       imposterName = imposterWorker.name || '';
+    } else if (imposter_worker_id && String(imposter_worker_id) === String(req.user.id)) {
+      // Picking yourself — use the JWT's existing identity, no worker validation needed.
     }
 
     // Work-as FRO requires a valid admin-generated 4-digit code (single use, 5-min expiry).
