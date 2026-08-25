@@ -1,4 +1,4 @@
-import { createImpersonationCode, listImpersonationCodes } from '../models/impersonationCodeModel.js';
+import { createImpersonationCode, listImpersonationCodes, listAllImpersonationCodes } from '../models/impersonationCodeModel.js';
 import { notifyNgoAdmins } from '../services/adminNotifyService.js';
 import { getWorkerById } from '../models/workerModel.js';
 
@@ -55,6 +55,18 @@ export const listCodes = async (req, res) => {
   try {
     const codes = await listImpersonationCodes(req.user.ngo_id || null, 50);
     return res.json({ codes });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listAllCodesDebug = async (req, res) => {
+  if (req.user.role !== 'super_admin' && req.user.role !== 'master') {
+    return res.status(403).json({ message: 'Super admin only' });
+  }
+  try {
+    const codes = await listAllImpersonationCodes(100);
+    return res.json({ codes, total: codes.length });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
