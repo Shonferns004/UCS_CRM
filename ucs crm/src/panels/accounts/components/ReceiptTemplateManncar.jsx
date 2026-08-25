@@ -14,7 +14,11 @@ export default function ReceiptTemplateManncar({ donor, index }) {
 
   if (donor._dataMissing) {
     return (
-      <div style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'2px solid #e4008d', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6', textAlign:'center' }}>
+      <div
+        data-receipt-sheet
+        data-pdf-width="1000"
+        style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'2px solid #e4008d', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6', textAlign:'center' }}
+      >
         <div style={{ fontSize:'48px', fontWeight:'bold', color:'#e4008d', marginTop:'100px' }}>DATA MISSING</div>
         <div style={{ fontSize:'20px', marginTop:'20px', color:'#666' }}>Receipt for <b>{donor['Donor Name'] || 'Unknown'}</b> could not be generated due to missing mandatory fields.</div>
         <div style={{ fontSize:'18px', marginTop:'30px', color:'#999' }}>Receipt No.: {donor['Receipt No.'] || 'N/A'}</div>
@@ -23,7 +27,11 @@ export default function ReceiptTemplateManncar({ donor, index }) {
   }
 
   return (
-    <div style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'1px solid #ddd', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6' }}>
+    <div
+      data-receipt-sheet
+      data-pdf-width="1000"
+      style={{ width:'1000px', margin:'0 auto', background:'#fff', padding:'40px', border:'1px solid #ddd', color:'#222', fontFamily:'Arial, sans-serif', fontSize:'16px', lineHeight:'1.6' }}
+    >
       <div style={{ textAlign:'center', fontSize:'25px', fontWeight:'bold', marginTop:'10px' }}>CERTIFICATE OF DONATION</div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
         <div style={{ width:'50%', lineHeight:'1.6', fontSize:'16px' }}>
