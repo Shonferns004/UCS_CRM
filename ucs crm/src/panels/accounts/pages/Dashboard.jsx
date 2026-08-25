@@ -316,7 +316,7 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
                   {l.bank_match && <span className="pill" style={{ fontSize: 10, background: l.bank_match.match_source === 'manual' ? '#fef3c7' : '#dbeafe', color: l.bank_match.match_source === 'manual' ? '#92400e' : '#1d4ed8' }} title={`${l.bank_match.match_source === 'manual' ? 'Manually' : 'Auto'} matched${l.bank_match.match_score ? ` · score ${l.bank_match.match_score}` : ''}`}>
                     {l.bank_match.match_status === 'confirmed' ? 'Confirmed' : l.bank_match.match_source === 'manual' ? 'Manual Match' : 'Auto Match'}{l.bank_match.match_no ? ` · ${l.bank_match.match_no}` : ''}
                   </span>}
-                  <span className="ec-agent">{l.agent_name || 'No agent'}</span>
+                  <span className="ec-agent">{l.claimant_name || l.agent_name || 'No agent'}</span>
                   <span className="ec-date">{fmtDT(l.transaction_datetime || l.created_at)}</span>
                   {l.accounts_status === 'pending' && l.agent_name === 'Priyank Shah' && (
                     <button className="btn btn-sm" onClick={e => { e.stopPropagation(); setQuickVerifyLead(l); setQuickVerifyName('Priyank Shah'); }}

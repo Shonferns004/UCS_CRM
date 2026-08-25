@@ -408,7 +408,7 @@ export default function LeadDetail({ logId, onBack, variant = 'page', onDelete }
                 </div>
                 <div>
                   <div style={{fontSize:10,fontWeight:700,color:'var(--ink-soft)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Agent</div>
-                  <div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{l.agent_name}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:'var(--ink)'}}>{l.claimant_name || l.agent_name}</div>
                   <div style={{fontSize:11,color:'var(--ink-soft)',marginTop:2}}>{l.agent_login}</div>
                 </div>
                 <div>
