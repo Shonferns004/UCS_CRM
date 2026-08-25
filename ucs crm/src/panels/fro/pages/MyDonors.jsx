@@ -10,7 +10,7 @@ import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { API_BASE } from '../../../lib/apiBase';
-import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, DISPOSITION_ORDER, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
+import { NOT_CONNECTED, CONNECTED, CONNECTED_IDS, NOT_CONNECTED_IDS, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -33,10 +33,10 @@ const isCollectionLog = (log) =>
   (log.disposition_detail === 'lead_done' && log.accounts_status === 'verified');
 
 const HIDDEN_STATUSES = new Set(['lead_done', 'donation_collected', 'done']);
-// Ringing always sorts to the very end of the calling queue (mirrors the
-// backend group sort in froController.getMyDonors).
+// Every disposition except schedule/callback sinks to the end of the calling
+// queue (mirrors the backend group sort in froController.getMyDonors).
 const RINGING_RANK = Number.MAX_SAFE_INTEGER;
-const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : s === 'ringing' ? RINGING_RANK : (DISPOSITION_ORDER[s] ?? 99) + 1);
+const rankStatus = (s) => SCHEDULE_TYPES.has(s) ? 0 : (s === 'pending' ? 1 : RINGING_RANK);
 function filterAndSortDonors(list) {
   return list
     .filter(d => !HIDDEN_STATUSES.has(d.status) && !d.has_donated_current_month)

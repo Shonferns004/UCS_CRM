@@ -2029,16 +2029,14 @@ export const getMyDonors = async (req, res) => {
       ? result
       : result.filter(r => !hiddenLeadDoneIds.has(r.donor_id) && !hiddenDndIds.has(r.donor_id));
 
-    const notConnectedSet = new Set(NOT_CONNECTED_STATUSES);
-    const connectedSet = new Set(CONNECTED_STATUSES);
-
-    // Ringing must be checked before the not-connected bucket since it is a
-    // member of NOT_CONNECTED_STATUSES but ranks last.
+    // Only schedule/callback keep a lead in its normal position.  Every other
+    // disposition sinks the lead to the very bottom of the queue.  DND is
+    // already filtered out above (hiddenDndIds) so it never reaches the sort.
+    const SCHEDULE_CALLBACK = new Set(['scheduled', 'callback', 'office_visit_scheduled', 'program_visit_scheduled']);
     const groupOf = (r) => r.is_new ? 0
-      : r.status === 'ringing' ? 5
-      : (notConnectedSet.has(r.status) || r.status === 'pending') ? 1
-      : connectedSet.has(r.status) ? 2
-      : r.status === 'lead_done' ? 3 : 4;
+      : r.status === 'pending' ? 1
+      : SCHEDULE_CALLBACK.has(r.status) ? 2
+      : 5;
 
     filtered.sort((a, b) => {
       const groupA = groupOf(a);
