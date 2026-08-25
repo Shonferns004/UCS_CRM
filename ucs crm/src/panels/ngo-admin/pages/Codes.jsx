@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { listImpersonationCodes } from '../api/auth';
 import { getUser } from '../../../api/auth';
+import { API_BASE } from '../../../lib/apiBase';
 
 const CODE_TTL_MINUTES = 5;
 
@@ -26,11 +27,10 @@ export default function Codes() {
   const fetchCodes = async () => {
     setLoading(true);
     try {
-      let res;
       if (showAll) {
         const token = localStorage.getItem('ucs_token');
         console.log('Fetching all codes, token:', token ? 'present' : 'missing');
-        res = await fetch('/api/impersonation-codes/all', {
+        const res = await fetch(`${API_BASE}/impersonation-codes/all`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         console.log('Response status:', res.status);
