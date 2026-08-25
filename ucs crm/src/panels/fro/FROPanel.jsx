@@ -152,8 +152,6 @@ export default function FROPanel() {
   const [codeSubmitting, setCodeSubmitting] = useState(false)
   const [generatingCode, setGeneratingCode] = useState(false)
   const [codeGenerated, setCodeGenerated] = useState(false)
-  const [whoAreYou, setWhoAreYou] = useState(null)
-  const [whoSearch, setWhoSearch] = useState('')
   const impersonating = isImpersonating()
 
   const openWorkAs = async () => {
@@ -195,36 +193,11 @@ export default function FROPanel() {
     if (!pendingTarget) return
     setCodeSubmitting(true)
     try {
-      // Validate the code first by opening the "Who are you?" modal.
-      // The actual API call happens in confirmWhoAreYou with the imposter_worker_id.
-      setWhoAreYou({ target: pendingTarget, code: codeInput.trim() })
+      const res = await impersonateFRO(pendingTarget.id, codeInput.trim())
+      startImpersonation(res.token, res.user)
       setPendingTarget(null)
       setCodeInput('')
       setCodeGenerated(false)
-      setWhoSearch('')
-    } catch (e) {
-      console.error('Error:', e.message)
-      alert(e.message || 'Could not switch FRO')
-    } finally {
-      setCodeSubmitting(false)
-    }
-  }
-
-  const filteredWhoList = (() => {
-    const self = user ? { id: user.id, name: user.name, _isSelf: true } : null;
-    const matches = froList.filter(w => !whoSearch || (w.name || '').toLowerCase().includes(whoSearch.toLowerCase()));
-    if (self && !whoSearch) return [self, ...matches.filter(w => w.id !== self.id)];
-    if (self && whoSearch && (self.name || '').toLowerCase().includes(whoSearch.toLowerCase())) return [self, ...matches.filter(w => w.id !== self.id)];
-    return matches;
-  })()
-
-  const confirmWhoAreYou = async (imposterWorker) => {
-    if (!whoAreYou) return
-    setCodeSubmitting(true)
-    try {
-      const res = await impersonateFRO(whoAreYou.target.id, whoAreYou.code, imposterWorker.id)
-      startImpersonation(res.token, res.user)
-      setWhoAreYou(null)
       window.location.reload()
     } catch (e) {
       console.error('Error:', e.message)
@@ -610,42 +583,6 @@ export default function FROPanel() {
                 >
                   {codeSubmitting ? 'Switching…' : 'Switch'}
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {whoAreYou && (
-          <div className="modal-overlay" onClick={() => setWhoAreYou(null)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 380, padding: 22, borderRadius: 'var(--radius)' }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>
-                Who are you?
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 14 }}>
-                Select your FRO identity so collections are credited to you.
-              </div>
-              <input
-                value={whoSearch}
-                onChange={e => setWhoSearch(e.target.value)}
-                placeholder="Search your name…"
-                autoFocus
-                style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', marginBottom: 8, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-soft, #f1f5f9)', color: 'var(--ink)', fontSize: 12.5, outline: 'none', fontFamily: 'inherit' }}
-              />
-              <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-                {filteredWhoList.map(w => (
-                  <div key={w.id} onClick={() => confirmWhoAreYou(w)} style={{ cursor: 'pointer', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ink)', transition: 'background .12s', background: w._isSelf ? 'var(--bg-soft, #f1f5f9)' : undefined }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-soft, #f1f5f9)'}
-                    onMouseLeave={e => { if (!w._isSelf) e.currentTarget.style.background = 'transparent' }}
-                  >
-                    <span style={{ fontWeight: 600 }}>{w.name}</span>
-                    {w._isSelf && <span style={{ marginLeft: 'auto', fontSize: 10.5, color: 'var(--ink-soft)' }}>You</span>}
-                  </div>
-                ))}
-                {filteredWhoList.length === 0 && (
-                  <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-soft)' }}>No matching FROs</div>
-                )}
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <button className="btn" onClick={() => setWhoAreYou(null)} style={{ width: '100%', justifyContent: 'center' }}>Cancel</button>
               </div>
             </div>
           </div>
