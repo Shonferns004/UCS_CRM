@@ -4126,8 +4126,9 @@ export const importDonorAddresses = async (req, res) => {
 
     const results = [];
     const updates = [];
+    const inserts = [];
     const seen = new Set();
-    const summary = { total: rows.length, updated: 0, matchedNoChange: 0, notFound: 0, skippedNoMobile: 0, duplicatesInFile: 0 };
+    const summary = { total: rows.length, updated: 0, created: 0, matchedNoChange: 0, notFound: 0, skippedNoMobile: 0, duplicatesInFile: 0 };
 
     rows.forEach((r, i) => {
       const rowNo = i + 2; // +1 header, +1 for 1-based
@@ -4146,8 +4147,19 @@ export const importDonorAddresses = async (req, res) => {
 
       const existing = byMobile.get(mobile);
       if (!existing) {
-        summary.notFound++;
-        results.push({ row: rowNo, mobile, status: 'not_found' });
+        // Unknown number — create a new donor profile so FRO claim / audit
+        // manual verification can find this address later.
+        const payload = { mobile_number: mobile };
+        let hasData = false;
+        for (const field of ['name', 'address_1', 'address_2', 'pan_number', 'email']) {
+          const val = String(r[field] ?? '').trim();
+          if (!val) continue;
+          payload[field] = val;
+          hasData = true;
+        }
+        inserts.push(payload);
+        summary.created++;
+        results.push({ row: rowNo, mobile, status: hasData ? 'created' : 'created_no_data' });
         return;
       }
 
@@ -4186,6 +4198,18 @@ export const importDonorAddresses = async (req, res) => {
         [jsonPayload]
       );
       summary.updated = rowCount ?? updates.length;
+    }
+
+    // New numbers: insert as fresh donor profiles. ignoreDuplicates keeps the
+    // import safe if a profile with the same mobile was created concurrently.
+    for (let i = 0; i < inserts.length; i += 500) {
+      const chunk = inserts.slice(i, i + 500);
+      const { data: createdRows, error: insErr } = await db
+        .from('donor_profiles')
+        .upsert(chunk, { onConflict: 'mobile_number', ignoreDuplicates: true })
+        .select('id');
+      if (insErr) throw insErr;
+      summary.created = (summary.created ?? 0) - chunk.length + (createdRows?.length ?? 0);
     }
 
     return res.json({ summary, results });
