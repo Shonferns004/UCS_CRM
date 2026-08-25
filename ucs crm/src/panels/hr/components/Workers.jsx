@@ -359,9 +359,9 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         TARGET: 9, TOTAL_ACH: 10, BSCT_ACH: 11, AFLF_ACH: 12, MANN_ACH: 13,
         BALANCE: 14, ACH_PCT: 15,
         PRES_DAYS: 16, TRAIN_SUN_DED: 17, NET_PRES: 18,
-        MONTH_SAL: 19, INCENT_10: 20, AKI: 21, GROSS: 22,
-        OT: 23, PENDING: 24, ADVANCE: 25, NET_PAY: 26,
-        FIRST_DAY_COL: 27
+        MONTH_SAL: 19, INCENT_10: 20, TOTAL_AKI: 21, AKI: 22, GROSS: 23,
+        OT: 24, PENDING: 25, ADVANCE: 26, NET_PAY: 27,
+        FIRST_DAY_COL: 28
       };
       const TOTAL_COLS = COL.FIRST_DAY_COL + daysInMonth;
 
@@ -371,7 +371,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         'New Target', 'Total Achieved', 'BSCT Achieved', 'AFLF Achieved', 'Mann Achieved',
         'Balance', 'Achieved %',
         `${monthName} Present Days`, 'Training and Sunday Deduction', `Net ${monthName} Present Days`,
-        `${monthName} Salary`, 'Monthly 10% Incentive', 'Aaj Ka Incentive (Daily 50% for PC)',
+        `${monthName} Salary`, 'Monthly 10% Incentive', 'Total AKI', 'Aaj Ka Incentive (Daily 50% for PC)',
         'Gross Payable Salary',
         'OT/Appreciation/Extra Incentive', 'Any Pending Salary Paid for Previous Month',
         `Advance need to be deducted in ${monthName}, ${year}`, 'Net Payable Salary',
@@ -410,6 +410,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
           null, // Net Present Days formula
           null, // Month Salary formula
           r.monthly_incentive || 0,
+          r.total_aki || 0,
           r.aki_payout || 0,
           null, // Gross formula
           0,    // OT (manual)
@@ -556,7 +557,7 @@ export default function Workers({ onSelect, onOffboard, showAddForm = true, show
         { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 12 }, { wch: 12 },
         { wch: 18 }, { wch: 22 }, { wch: 22 },
-        { wch: 16 }, { wch: 24 }, { wch: 24 },
+        { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 24 },
         { wch: 22 },
         { wch: 22 }, { wch: 26 },
         { wch: 22 }, { wch: 20 },
