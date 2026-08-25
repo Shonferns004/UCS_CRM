@@ -1743,15 +1743,23 @@ export const getMyDonors = async (req, res) => {
         }
       }
 
-      const { data, error: qErr } = await query;
+      let { data, error: qErr } = await query;
       if (qErr) {
-        console.error('getMyDonors main query error:', qErr);
-        query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
-        query = withStationNgoPairs(query, effectiveScope);
-        if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
-        else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
-        const { data: retry } = await query;
-        data = retry || [];
+        console.error('getMyDonors main query error for worker', workerId, ':', qErr.message, '| stations:', effectiveStations, '| scope:', JSON.stringify(effectiveScope));
+        try {
+          query = db.from('fro_assignments').select('*, ngos(name)').in('station', effectiveStations).not('status', 'eq', 'reassigned');
+          query = withStationNgoPairs(query, effectiveScope);
+          if (req.query.new_only === 'true') query = query.eq('batch_type', 'new_data');
+          else if (req.query.old_only === 'true') query = query.eq('batch_type', 'old_data');
+          const { data: retry, error: retryErr } = await query;
+          if (retryErr) {
+            console.error('getMyDonors retry query also failed for worker', workerId, ':', retryErr.message);
+          }
+          data = retry || [];
+        } catch (retryEx) {
+          console.error('getMyDonors retry exception for worker', workerId, ':', retryEx.message);
+          data = [];
+        }
       }
       assignments = data || [];
     }
@@ -2039,6 +2047,16 @@ export const getMyDonors = async (req, res) => {
     if (Number.isFinite(limit) && limit > 0) {
       const start = (Number.isFinite(offset) && offset > 0) ? offset : 0;
       page = filtered.slice(start, start + limit);
+    }
+
+    if (total === 0 && assignments && assignments.length > 0) {
+      console.warn('getMyDonors EMPTY after filters for worker', workerId,
+        '| raw_assignments:', assignments.length,
+        '| new_only:', req.query.new_only, '| old_only:', req.query.old_only,
+        '| ngo_id:', req.query.ngo_id || 'all',
+        '| station:', req.query.station || 'all',
+        '| hidden_dispositions:', hiddenDispositionsIds.size,
+        '| result_before_hide:', result.length);
     }
 
     return res.json({ donors: page, total });
