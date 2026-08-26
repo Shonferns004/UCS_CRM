@@ -1710,28 +1710,41 @@ export const getMyDonors = async (req, res) => {
       }
     }
 
-    // Last-resort fallback for FROs with NO station assignments at all who also
-    // own nothing directly: serve the NGO's claimable pool (pending, unclaimed
-    // rows) instead of a dead end. Logging a disposition on any of these claims
-    // the row via findOrCreateAssignment, so work flows to them immediately.
-    // Deliberately skipped for station-scoped acting sessions — those must stay
-    // limited to the exact (ngo, station) pairs the operator claimed.
-    if ((!assignments || assignments.length === 0) && effectiveStations.length === 0 && !froActPairs(req)) {
-      let poolQ = db
-        .from('fro_assignments')
-        .select('*, ngos(name)')
-        .is('fro_worker_id', null)
-        .eq('status', 'pending');
-      const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
-      if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
-      if (req.query.new_only === 'true') poolQ = poolQ.eq('batch_type', 'new_data');
-      else if (req.query.old_only === 'true') poolQ = poolQ.eq('batch_type', 'old_data');
-      poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
-      try {
-        const { data: poolRows, error: poolErr } = await poolQ;
-        if (!poolErr && poolRows && poolRows.length > 0) assignments = poolRows;
-      } catch (poolEx) {
-        console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
+    // Last-resort fallback so no session dead-ends into a blank screen: serve
+    // the claimable pool (pending, unclaimed rows) when a worker ends up with
+    // nothing — including acting sessions whose claimed stations have no
+    // workable rows right now (e.g. the New batch is exhausted). The pool is
+    // always NGO-partitioned: an acting session is narrowed to the NGOs of its
+    // claimed pairs; everyone else to their token NGO. Only fires for plain
+    // queue requests so filtered views never get surprise rows. Dispositioning
+    // a pooled donor claims it via findOrCreateAssignment.
+    if (!assignments || assignments.length === 0) {
+      const plainQueue = !req.query.status_group && !req.query.status
+        && req.query.verified_only !== 'true'
+        && req.query.active_only !== 'true' && req.query.inactive_only !== 'true';
+      if (plainQueue) {
+        const act = froActPairs(req);
+        let poolQ = db
+          .from('fro_assignments')
+          .select('*, ngos(name)')
+          .is('fro_worker_id', null)
+          .eq('status', 'pending');
+        const claimedNgos = act ? [...new Set(act.map(p => p?.ngo_id).filter(Boolean))] : [];
+        if (claimedNgos.length > 0) {
+          poolQ = poolQ.in('ngo_id', claimedNgos);
+        } else {
+          const ngoScope = req.query.ngo_id || req.user.ngo_id || null;
+          if (ngoScope) poolQ = poolQ.eq('ngo_id', ngoScope);
+        }
+        if (req.query.new_only === 'true') poolQ = poolQ.eq('batch_type', 'new_data');
+        else if (req.query.old_only === 'true') poolQ = poolQ.eq('batch_type', 'old_data');
+        poolQ = poolQ.order('assigned_at', { ascending: true }).limit(3000);
+        try {
+          const { data: poolRows, error: poolErr } = await poolQ;
+          if (!poolErr && poolRows && poolRows.length > 0) assignments = poolRows;
+        } catch (poolEx) {
+          console.error('getMyDonors claimable-pool fallback failed for worker', workerId, ':', poolEx.message);
+        }
       }
     }
 
