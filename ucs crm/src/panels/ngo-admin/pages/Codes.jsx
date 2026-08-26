@@ -118,7 +118,7 @@ export default function Codes() {
                       <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{fmtTime(c.expires_at)}</td>
                       <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)' }}>{fmtTime(c.used_at)}</td>
                       {showAll && (
-                        <td style={{ padding: '10px 16px', fontSize: 12, color: 'var(--ink-soft, #64748b)', fontFamily: 'monospace', fontSize: 10 }}>{c.ngo_id || '—'}</td>
+                        <td style={{ padding: '10px 16px', fontSize: 10, color: 'var(--ink-soft, #64748b)', fontFamily: 'monospace' }}>{c.ngo_id || '—'}</td>
                       )}
                     </tr>
                   );

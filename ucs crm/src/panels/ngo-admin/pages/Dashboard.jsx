@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { apiGet, apiPut } from '../api/auth';
+import * as XLSX from 'xlsx-js-style';
+import { Download } from 'lucide-react';
+import { apiGet, apiPut, getFroHourlyPerformance } from '../api/auth';
 import { SkeletonDashboard } from '../../../components/Skeleton';
 import RecentNotices from '../../../components/RecentNotices';
 
@@ -711,6 +713,36 @@ export default function Dashboard() {
   const [froSearch, setFroSearch] = useState('');
   const [selectedFro, setSelectedFro] = useState(null);
   const [callAnalytics, setCallAnalytics] = useState(null);
+  const [hourlyExportFrom, setHourlyExportFrom] = useState(() => new Date().toISOString().slice(0,10));
+  const [hourlyExportTo, setHourlyExportTo] = useState(() => new Date().toISOString().slice(0,10));
+  const [froHourlyData, setFroHourlyData] = useState([]);
+
+  // Auto-update hourly export date range when period changes
+  useEffect(() => {
+    const now = new Date();
+    let from = new Date(now), to = new Date(now);
+    if (perfPeriod === 'today') {
+      from = new Date(now);
+      to = new Date(now);
+    } else if (perfPeriod === 'week') {
+      from.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
+      to = new Date(now);
+    } else if (perfPeriod === 'month') {
+      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      to = new Date(now);
+    }
+    setHourlyExportFrom(from.toISOString().slice(0,10));
+    setHourlyExportTo(to.toISOString().slice(0,10));
+  }, [perfPeriod]);
+
+  // Fetch FRO-level hourly performance when date range or NGO changes
+  useEffect(() => {
+    let cancelled = false;
+    getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo })
+      .then(data => { if (!cancelled) setFroHourlyData(data || []); })
+      .catch(() => { if (!cancelled) setFroHourlyData([]); });
+    return () => { cancelled = true; };
+  }, [hourlyExportFrom, hourlyExportTo, selectedNgoId]);
   const todayStr = new Date().toISOString().slice(0,10);
   const monthStart = new Date().toISOString().slice(0,7) + '-01';
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0,10);
@@ -897,6 +929,90 @@ export default function Dashboard() {
     value: g.statuses.reduce((t, s) => t + (summary[s] || 0), 0),
     color: g.color,
   })).filter(d => d.value > 0);
+
+  const handleTelecallerExport = () => {
+    if (!tlData?.performance) return;
+    const wb = XLSX.utils.book_new();
+
+    // Connected statuses from DISPOSITION_GROUPS (Converted + In Progress)
+    const connectedStatuses = [
+      ...DISPOSITION_GROUPS.find(g => g.label === 'Converted')?.statuses || [],
+      ...DISPOSITION_GROUPS.find(g => g.label === 'In Progress')?.statuses || []
+    ];
+
+    // Sheet 1: Telecaller Performance Summary
+    const headers = [
+      'Telecaller', 'Login ID', 'Calls', 'Connected', 'Non-Connected',
+      'Connected Status Breakdown', 'Interested', 'Received Donors', 'Amount (₹)', 'Target %',
+      'Claims Pending', 'Claims Verified', 'Claims Rejected', 'Live Status'
+    ];
+    const filteredPerformance = tlData.performance.filter(p => 
+      !froSearch || p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())
+    );
+    const rows = filteredPerformance.map(p => {
+      const periodCalls = perfPeriod === 'today' ? (p.calls_today || 0) : perfPeriod === 'week' ? (p.calls_week || 0) : (p.calls || 0);
+      const periodConnected = perfPeriod === 'today' ? (p.connected_today || 0) : perfPeriod === 'week' ? (p.connected_week || 0) : (p.connected || 0);
+      const periodInterested = perfPeriod === 'today' ? (p.interested_today || 0) : perfPeriod === 'week' ? (p.interested_week || 0) : (p.interested || 0);
+      const periodReceived = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
+      const periodNonConnected = Math.max(0, periodCalls - periodConnected);
+      
+      // Connected status breakdown - use status breakdown from data if available
+      const connectedBreakdown = connectedStatuses
+        .map(s => `${s}: ${p[s] || 0}`)
+        .filter(s => !s.endsWith(': 0'))
+        .join('; ');
+      
+      return [
+        p.fro_name,
+        p.fro_login_id || '',
+        periodCalls,
+        periodConnected,
+        periodNonConnected,
+        connectedBreakdown || '—',
+        periodInterested,
+        p.receivedDonors || 0,
+        periodReceived,
+        p.target_pct || 0,
+        p.claims_pending || 0,
+        p.claims_verified || 0,
+        p.claims_rejected || 0,
+        p.status || 'offline'
+      ];
+    });
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    sheet['!cols'] = [
+      { wch: 25 }, { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 14 },
+      { wch: 40 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 10 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
+    ];
+    XLSX.utils.book_append_sheet(wb, sheet, 'Telecaller Performance');
+
+    // Sheet 2: Hourly Breakdown by FRO
+    if (froHourlyData && froHourlyData.length > 0) {
+      const hourlyHeaders = [
+        'Telecaller', 'Login ID', 'Hour', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
+      ];
+      const hourlyRows = froHourlyData.map(h => [
+        h.fro_name,
+        h.fro_login_id || '',
+        h.hour,
+        h.calls || 0,
+        h.connected || 0,
+        h.interested || 0,
+        h.donations || 0,
+        h.amount || 0
+      ]);
+      const hourlySheet = XLSX.utils.aoa_to_sheet([hourlyHeaders, ...hourlyRows]);
+      hourlySheet['!cols'] = [
+        { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, hourlySheet, 'Hourly Breakdown');
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `telecaller-performance-${perfPeriod}-${dateStr}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
 
   return (
     <div>
@@ -1400,7 +1516,20 @@ export default function Dashboard() {
               Telecaller Performance
               <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-soft)' }}> — {froSearch ? tlData.performance.filter(p => p.fro_name?.toLowerCase().includes(froSearch.toLowerCase())).length : tlData.performance.length} FROs</span>
             </h3>
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 'auto' }}>
+<div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '2px 6px', background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>Hourly:</span>
+                <input type="date" value={hourlyExportFrom} onChange={e => setHourlyExportFrom(e.target.value)} readOnly style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', width: 130, background: '#f5f5f5' }} />
+                <span style={{ fontSize: 10, color: 'var(--ink-soft)' }}>–</span>
+                <input type="date" value={hourlyExportTo} onChange={e => setHourlyExportTo(e.target.value)} readOnly style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--line)', fontSize: 11, fontFamily: 'inherit', width: 130, background: '#f5f5f5' }} />
+              </div>
+              <button 
+                onClick={handleTelecallerExport}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600, fontFamily: 'inherit', border: 'none', background: 'var(--sage)', color: '#fff', cursor: 'pointer' }}
+              >
+                <Download width="12" height="12" />
+                Export
+              </button>
               <input
                 type="text"
                 placeholder="Search FRO name..."

@@ -82,6 +82,7 @@ import {
   getBottomPerformers,
   getAssignedData,
   restoreWrongAssignments,
+  getFroHourlyPerformance,
 } from '../controllers/ngoAdminController.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -179,6 +180,7 @@ router.post('/donor-crm/followups', createFollowup);
 
 router.get('/master-search', masterSearch);
 router.get('/call-analytics', getCallAnalytics);
+router.get('/fro-hourly-performance', getFroHourlyPerformance);
 
 router.post('/stations/seed', seedStations);
 router.post('/stations/cleanup', cleanupOrphanedStations);

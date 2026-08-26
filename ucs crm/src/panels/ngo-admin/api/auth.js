@@ -20,6 +20,11 @@ export async function getCallAnalytics(params = {}) {
   return apiGet(`/ngo-admin/call-analytics${qs ? '?' + qs : ''}`)
 }
 
+export async function getFroHourlyPerformance(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return apiGet(`/ngo-admin/fro-hourly-performance${qs ? '?' + qs : ''}`)
+}
+
 export async function getDataOverview(params = {}) {
   const qs = new URLSearchParams(params).toString()
   return apiGet(`/ngo-admin/data-overview${qs ? '?' + qs : ''}`)
