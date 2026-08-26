@@ -930,15 +930,9 @@ export default function Dashboard() {
     color: g.color,
   })).filter(d => d.value > 0);
 
-  const handleTelecallerExport = () => {
+  const handleTelecallerExport = async () => {
     if (!tlData?.performance) return;
     const wb = XLSX.utils.book_new();
-
-    // Connected statuses from DISPOSITION_GROUPS (Converted + In Progress)
-    const connectedStatuses = [
-      ...DISPOSITION_GROUPS.find(g => g.label === 'Converted')?.statuses || [],
-      ...DISPOSITION_GROUPS.find(g => g.label === 'In Progress')?.statuses || []
-    ];
 
     // Sheet 1: Telecaller Performance Summary
     const headers = [
@@ -956,9 +950,9 @@ export default function Dashboard() {
       const periodReceived = perfPeriod === 'today' ? (p.receivedAmount_today || 0) : perfPeriod === 'week' ? (p.receivedAmount_week || 0) : (p.receivedAmount || 0);
       const periodNonConnected = Math.max(0, periodCalls - periodConnected);
       
-      // Connected status breakdown - use status breakdown from data if available
-      const connectedBreakdown = connectedStatuses
-        .map(s => `${s}: ${p[s] || 0}`)
+      // Connected status breakdown - use individual status counts from connectedStatuses
+      const connectedBreakdown = Object.entries(p.connectedStatuses || {})
+        .map(([status, count]) => `${status}: ${count}`)
         .filter(s => !s.endsWith(': 0'))
         .join('; ');
       
@@ -988,11 +982,21 @@ export default function Dashboard() {
     XLSX.utils.book_append_sheet(wb, sheet, 'Telecaller Performance');
 
     // Sheet 2: Hourly Breakdown by FRO
-    if (froHourlyData && froHourlyData.length > 0) {
+    let hourlyDataToUse = froHourlyData;
+    if (!hourlyDataToUse || hourlyDataToUse.length === 0) {
+      // Fallback: fetch if empty
+      try {
+        const data = await getFroHourlyPerformance({ from: hourlyExportFrom, to: hourlyExportTo });
+        hourlyDataToUse = data || [];
+      } catch (e) {
+        hourlyDataToUse = [];
+      }
+    }
+    if (hourlyDataToUse && hourlyDataToUse.length > 0) {
       const hourlyHeaders = [
         'Telecaller', 'Login ID', 'Hour', 'Calls', 'Connected', 'Interested', 'Donations', 'Amount (₹)'
       ];
-      const hourlyRows = froHourlyData.map(h => [
+      const hourlyRows = hourlyDataToUse.map(h => [
         h.fro_name,
         h.fro_login_id || '',
         h.hour,
