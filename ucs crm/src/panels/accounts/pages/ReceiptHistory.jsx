@@ -1108,19 +1108,22 @@ export default function ReceiptHistory() {
                         ))}
                       </select>
                     ) : type === 'mop' ? (
-                      <select
-                        value={editForm[key] || ''}
-                        onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
-                        style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
-                      >
-                        <option value="">—</option>
-                        <option value="UPI">UPI</option>
-                        <option value="Cash">Cash</option>
-                        <option value="Cheque">Cheque</option>
-                        <option value="Bank Transfer">Bank Transfer</option>
-                        <option value="NEFT">NEFT</option>
-                        <option value="RTGS">RTGS</option>
-                      </select>
+                      (() => {
+                        const dbMops = editSources.filter(s => s.kind === 'mop' && s.is_active !== false).map(s => s.name).filter(Boolean);
+                        const modeList = [...new Set([...dbMops, 'UPI', 'Cash', 'Cheque', 'Bank Transfer', 'NEFT', 'RTGS'])];
+                        const cur = editForm[key] || '';
+                        return (
+                          <select
+                            value={cur}
+                            onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                            style={{ padding: '7px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, background: '#fff' }}
+                          >
+                            <option value="">—</option>
+                            {modeList.map(m => <option key={m} value={m}>{m}</option>)}
+                            {cur && !modeList.includes(cur) && <option value={cur}>{cur} (current)</option>}
+                          </select>
+                        );
+                      })()
                     ) : type === 'textarea' ? (
                       <textarea
                         value={editForm[key] || ''}
