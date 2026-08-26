@@ -10,7 +10,7 @@ import { DispositionDropdown } from '../components/DispositionDropdown';
 import { useCall } from '../CallContext';
 import { extractTransactionData } from '../utils/ocr';
 import { API_BASE } from '../../../lib/apiBase';
-import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES } from '../dispositions';
+import { NOT_CONNECTED, CONNECTED, isConnected, findDisp, STATUS_PILL_MAP, SCHEDULE_DATE_TYPES, SCHEDULE_TIME_TYPES, SCHEDULE_TYPES, NOT_CONNECTED_IDS } from '../dispositions';
 
 function callFmt(seconds) {
   if (seconds == null) return '00:00'
@@ -167,9 +167,15 @@ function findNextDonorIndex(donors, currentId, workedToday = null) {
   for (let i = 0; i < donors.length; i++) {
     if (donors[i].status === 'pending' && donors[i].id !== currentId && !isWorked(donors[i])) return i;
   }
-  // All other dispositions are hidden by the backend for the rest of the month,
-  // so only scheduled/callback and pending donors remain in the list.
-  return 0;
+  // Priority 3: any unworked donor that is not the current one. The queue can
+  // legitimately contain non-pending survivors now (late-month valve,
+  // money-status exceptions to the not-connected rule), so never assume a
+  // pending row exists — and never snap back to index 0.
+  for (let i = 0; i < donors.length; i++) {
+    if (donors[i].id !== currentId && !isWorked(donors[i])) return i;
+  }
+  // Everything visible has been worked today.
+  return -1;
 }
 
 const initials = (name) => (name || '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -716,9 +722,12 @@ export default function MyDonors() {
       setDonors(newDonors);
       const advance = () => {
         const nextIdx = findNextDonorIndex(newDonors, donor.id, workedTodayRef.current);
+        if (nextIdx < 0 || !newDonors[nextIdx]) {
+          setIndex(Math.min(indexRef.current, Math.max(0, newDonors.length - 1)));
+          return;
+        }
         setIndex(nextIdx);
-        const nextDonor = newDonors[nextIdx];
-        if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+        saveProgress(dataTab, newDonors[nextIdx].id, nextIdx);
       };
       if (resumeTo) {
         const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
@@ -933,9 +942,13 @@ export default function MyDonors() {
       if (selected && isOnCall && activeCall?.donorId === donor.id) endCall();
       markWorkedToday(donor);
 
-      // DND donors disappear from the queue immediately â€” the backend keeps
+      // DND donors disappear from the queue immediately — the backend keeps
       // them hidden until the next month (see getMyDonors dnd filter).
-      const newDonors = selected === 'dnd'
+      // Not-connected dispositions now vanish permanently too (latest-ever
+      // rule in getMyDonors), so drop them locally as well: the just-worked
+      // lead must never linger on screen.
+      const removeLocally = selected === 'dnd' || NOT_CONNECTED_IDS.has(selected);
+      const newDonors = removeLocally
         ? filterAndSortDonors(donorsRef.current.filter(d => !(d.id === donor.id && d.ngo_id === donor.ngo_id)))
         : applyDonorPatch(donorsRef.current, donor.id, donor.ngo_id, { status: DISP_TO_STATUS[selected] || selected, is_new: false });
       setDonors(newDonors);
@@ -952,9 +965,16 @@ export default function MyDonors() {
       } else {
         const advance = () => {
           const nextIdx = findNextDonorIndex(newDonors, donor.id, workedTodayRef.current);
+          if (nextIdx < 0 || !newDonors[nextIdx]) {
+            // Queue exhausted: hold a valid position and say so instead of
+            // silently snapping back to an already-worked lead.
+            const fallbackIdx = Math.min(indexRef.current, Math.max(0, newDonors.length - 1));
+            setIndex(fallbackIdx);
+            setMessage({ type: 'success', text: 'All caught up — every lead here is dispositioned. New leads appear automatically.' });
+            return;
+          }
           setIndex(nextIdx);
-          const nextDonor = newDonors[nextIdx];
-          if (nextDonor) saveProgress(dataTab, nextDonor.id, nextIdx);
+          saveProgress(dataTab, newDonors[nextIdx].id, nextIdx);
         };
         if (resumeTo) {
           const ridx = newDonors.findIndex(d => d.id === resumeTo.id && d.ngo_id === resumeTo.ngo_id);
@@ -1119,7 +1139,7 @@ export default function MyDonors() {
       }
     }
     const nextIdx = findNextDonorIndex(donors, donor.id, workedTodayRef.current);
-    if (nextIdx === index || !donors[nextIdx]) {
+    if (nextIdx < 0 || nextIdx === index || !donors[nextIdx]) {
       setMessage({ type: 'error', text: 'No more donors' });
       return;
     }
