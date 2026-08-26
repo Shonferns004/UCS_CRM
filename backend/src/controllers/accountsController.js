@@ -1231,7 +1231,9 @@ export const undoReceipt = async (req, res) => {
       .select('id, match_status').eq('receipt_id', receipt.id).maybeSingle();
     if (entry) {
       const entryPatch = {
-        status: 'unverified', donor_id: null, agent_name: null,
+        // agent_name (the claiming FRO's stamp) is kept: go-back restores the
+        // pre-verification state, it must not anonymise the claimant.
+        status: 'unverified', donor_id: null,
         donor_mobile: null, donor_email: null, donor_pan: null,
         donor_address_1: null, donor_address_2: null, donor_city: null, donor_pin_code: null,
         receipt_id: null, receipt_no: null, updated_at: new Date().toISOString(),
