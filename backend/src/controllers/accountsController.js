@@ -203,6 +203,15 @@ export const verifyLead = async (req, res) => {
       return res.status(400).json({ message: 'Associated assignment/donor not found' });
     }
 
+    // Credit rule for the receipt's agent_name (drives FRO collection totals):
+    // while impersonating (Acting FRO), credit goes to the real operator
+    // (imposter_name) — same as Audit Manual Verify; otherwise to the FRO who
+    // owns the lead's assignment. Without this the receipt is created with a
+    // NULL agent_name and never shows in anyone's collection.
+    const agentStamp = (req.user?.impersonation && req.user.imposter_name)
+      ? req.user.imposter_name
+      : (log.fro_assignments?.workers?.name || null);
+
     // The NGO a lead is assigned under is the per-lead truth for which project
     // (and therefore which receipt-number sequence) its money belongs to. The
     // donor profile's project_supported is only a fallback — it is frequently
@@ -322,6 +331,7 @@ export const verifyLead = async (req, res) => {
         email: donorProfile?.email || null,
         bank_name: donorProfile?.donors_bank_name || null,
         mode: payment_mode || null,
+        agent_name: agentStamp,
         purpose: 'General Donation',
         generated_by: req.user.id,
         donor_id: donorId,
@@ -356,7 +366,7 @@ export const verifyLead = async (req, res) => {
         bank_payer_name: existing.bank_payer_name || oldPayerName || null,
         bank_name: donorProfile?.donors_bank_name || null,
         address: [donor_address || donorProfile?.address_1, donorProfile?.address_2].filter(Boolean).join(', ') || null,
-        agent_name: existing.agent_name === 'Suspense' ? (log.fro_assignments?.workers?.name || existing.agent_name) : existing.agent_name,
+        agent_name: (!existing.agent_name || existing.agent_name === 'Suspense') ? (agentStamp || existing.agent_name) : existing.agent_name,
       };
       if (!existing.receipt_no) {
         existing.receipt_no = await getNextReceiptNo(existing.project_id || project);
