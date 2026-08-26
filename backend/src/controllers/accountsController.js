@@ -143,6 +143,7 @@ export const getLeadList = async (req, res) => {
       payment_from: (match && match.payer_name) ? match.payer_name : (r.payment_from || receiptMap[r.id]?.bank_payer_name || receiptMap[r.id]?.donor_name || null),
       audit_source: match?.bank_audit_sources?.name || entrySourceMap[receiptMap[r.id]?.id] || null,
       audit_entry_id: match?.id ?? null,
+      audit_mop: match?.mode || null,
       payment_mode: matchMode || r.payment_mode || receiptMap[r.id]?.mode || null,
       verified_at: r.verified_at || null,
       agent_id: r.fro_worker_id,
