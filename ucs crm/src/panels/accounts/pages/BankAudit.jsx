@@ -391,7 +391,7 @@ function EntrySection({loading,entries,sources,summary,error,statusTab,setStatus
         ) : visible.length===0 ? (
           <div className="entry-card-empty">No entries yet</div>
         ) : pageItems.map((e,idx)=>
-        <div key={e.id||idx} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':e.match_source==='static_fro'?' is-match-static':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
+        <div key={e.id||idx} data-entry-id={e.id} className={'entry-card'+(e.kind==='suspense'?' is-suspense':'')+((e.match_status==='matched'||e.match_status==='confirmed')?(e.match_source==='manual'?' is-match-manual':e.match_source==='static_fro'?' is-match-static':' is-match-auto'):' is-match-unmatched')+(selectedEntryId===e.id?' is-selected':'')}
           onClick={()=>{if(clickRef.current)clearTimeout(clickRef.current);clickRef.current=setTimeout(()=>{clickRef.current=null;onOpen(e)},300)}}
           onDoubleClick={()=>{if(clickRef.current){clearTimeout(clickRef.current);clickRef.current=null}if(!onSelectEntry||!selectionEnabled||e.match_source==='auto'||e.match_status==='confirmed')return;if(selectedEntryId===e.id)onSelectEntry(null);else onSelectEntry(e)}}>
           <div className="ec-main">

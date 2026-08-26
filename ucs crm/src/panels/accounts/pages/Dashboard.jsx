@@ -272,7 +272,8 @@ export default function Dashboard({ embedded, onStats, selectedLogId, onSelectLe
               </div>
             ) : (
               pageItems.map(l => (
-              <div key={l.log_id} className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '') + (l.bank_match ? (l.bank_match.match_source === 'manual' ? ' is-match-manual' : ' is-match-auto') : ' is-match-unmatched')}
+              <div key={l.log_id} data-lead-log={l.log_id} data-match-entry={l.bank_match?.entry_id || ''} data-match-st={l.bank_match?.match_status || ''} data-match-src={l.bank_match?.match_source || ''}
+                className={'entry-card' + (selectedLogId === l.log_id ? ' is-selected' : '') + (l.accounts_status !== 'pending' ? ' is-dim' : '') + (l.bank_match ? (l.bank_match.match_source === 'manual' ? ' is-match-manual' : ' is-match-auto') : ' is-match-unmatched')}
                 onClick={() => {
                   if (!onSelectLead) { setViewingId(l.log_id); onView?.(l.log_id); return; }
                   if (clickRef.current) clearTimeout(clickRef.current);
