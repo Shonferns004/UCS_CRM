@@ -248,7 +248,10 @@ export const listEntries = async (req, res) => {
         if (e.verify_fro_worker_id) e.verify_fro_name = mvNameById[e.verify_fro_worker_id] || null;
       }
     }
-    const entryLogIds = [...new Set((entries || []).map((e) => e.log_id).filter(Boolean))];
+    // Receipt-linked logs drive the primary "Claimed by" tag; after a receipt
+    // go-back the entry only keeps its match link, so fall back to the matched
+    // lead's FRO (same pending-log rule) to keep the claim visible.
+    const entryLogIds = [...new Set((entries || []).flatMap((e) => [e.log_id, e.matched_lead_log_id]).filter(Boolean))];
     if (entryLogIds.length > 0) {
       const { data: entryLogs, error: entryLogErr } = await db
         .from('fro_donor_logs')
@@ -271,7 +274,13 @@ export const listEntries = async (req, res) => {
       }
       for (const e of entries || []) {
         if (e.log_id && claimedByMap[e.log_id]) e.claimed_by = claimedByMap[e.log_id];
-        const cd = e.log_id ? claimedDonorMap[e.log_id] : null;
+        // Receipt gone (go-back) but the match survived — show the claimant
+        // from the matched pending lead so the tag doesn't vanish.
+        if (!e.claimed_by && !e.log_id && e.matched_lead_log_id && claimedByMap[e.matched_lead_log_id]) {
+          e.claimed_by = claimedByMap[e.matched_lead_log_id];
+        }
+        const cd = (e.log_id ? claimedDonorMap[e.log_id] : null)
+          || (!e.log_id && e.matched_lead_log_id ? claimedDonorMap[e.matched_lead_log_id] : null);
         if (cd) {
           e.claimed_donor_name = cd.name;
           e.claimed_donor_mobile = cd.mobile;
