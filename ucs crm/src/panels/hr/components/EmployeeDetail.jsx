@@ -29,7 +29,7 @@ function Badge({ status }) {
 }
 
 export default function EmployeeDetail({ worker, onBack, onOffboard }) {
-  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc } = useHR();
+  const { fetchWorkerById, fetchAttendance, fetchLeaves, fetchWorkerLetters, updateWorker, fetchWorkerSalaries, addWorkerSalary, updateWorkerSalary, fetchWorkerTargetForMonth, updateWorkerTarget, setAchievement, fetchWorkerAchievements, fetchIncentiveSummary, fetchWorkerAllocations, fetchWorkerSalaryAllocations, setWorkerAllocations, DEPTS, fetchNGOs, fetchHolidays, fetchWorkerLoans, fetchWorkerPeopleAllocations, saveWorkerPeopleAllocations, fetchWorkerSalaryAlloc, saveWorkerSalaryAlloc, generateWorkerSalaryAlloc } = useHR();
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
   const [ngos, setNgos] = useState([]);
@@ -55,6 +55,9 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
   const [extraSaving, setExtraSaving] = useState(false);
   const [viewingMonthKey, setViewingMonthKey] = useState(null);
   const [currentTarget, setCurrentTarget] = useState(null);
+  const [targetEditing, setTargetEditing] = useState(false);
+  const [targetEditVal, setTargetEditVal] = useState('');
+  const [targetSaving, setTargetSaving] = useState(false);
   const [workerAchs, setWorkerAchs] = useState([]);
   const [incSummary, setIncSummary] = useState(null);
   const [achForm, setAchForm] = useState({});
@@ -1862,11 +1865,43 @@ export default function EmployeeDetail({ worker, onBack, onOffboard }) {
                 <div className="card-head"><h3>FRO Target & Incentives</h3></div>
                 <div className="card-pad">
                   {currentTarget != null ? (
-                    <div style={{ fontSize:22, fontWeight:700, color:'var(--sage)', marginBottom:12 }}>
-                      Monthly Target: ₹{currentTarget.toLocaleString('en-IN')}
+                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                      <div style={{ fontSize:22, fontWeight:700, color:'var(--sage)' }}>
+                        Monthly Target: ₹{currentTarget.toLocaleString('en-IN')}
+                      </div>
+                      {!targetEditing && (
+                        <button className="btn btn-sm btn-outline" onClick={() => { setTargetEditing(true); setTargetEditVal(String(currentTarget)); }} style={{ fontSize:11, padding:'2px 8px' }}>Edit</button>
+                      )}
                     </div>
                   ) : (
-                    <div style={{ fontSize:14, color:'var(--ink-soft)', marginBottom:12 }}>Monthly target not set</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                      <div style={{ fontSize:14, color:'var(--ink-soft)' }}>Monthly target not set</div>
+                      {!targetEditing && (
+                        <button className="btn btn-sm btn-primary" onClick={() => { setTargetEditing(true); setTargetEditVal(''); }} style={{ fontSize:11, padding:'2px 8px' }}>Set Target</button>
+                      )}
+                    </div>
+                  )}
+
+                  {targetEditing && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'#f9fafb', borderRadius:8, border:'1px solid var(--line)' }}>
+                      <span style={{ fontSize:13, fontWeight:600 }}>₹</span>
+                      <input type="number" min="0" value={targetEditVal} onChange={e => setTargetEditVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && targetEditVal) document.getElementById('target-save-btn')?.click(); if (e.key === 'Escape') setTargetEditing(false); }}
+                        autoFocus style={{ flex:1, padding:'4px 8px', fontSize:14, border:'1px solid var(--line)', borderRadius:4, outline:'none' }} />
+                      <button id="target-save-btn" className="btn btn-sm btn-primary" disabled={!targetEditVal || targetSaving} onClick={async () => {
+                        setTargetSaving(true);
+                        try {
+                          const month = `${yr}-${String(mo).padStart(2, '0')}-01`;
+                          await updateWorkerTarget(data.id, month, parseFloat(targetEditVal));
+                          setCurrentTarget(parseFloat(targetEditVal));
+                          setTargetEditing(false);
+                          const s = await fetchIncentiveSummary(data.id, month);
+                          setIncSummary(s?.hasIncentive ? s : null);
+                        } catch (e) { alert(e.message); }
+                        finally { setTargetSaving(false); }
+                      }}>{targetSaving ? '...' : 'Save'}</button>
+                      <button className="btn btn-sm btn-outline" onClick={() => setTargetEditing(false)} style={{ fontSize:11 }}>Cancel</button>
+                    </div>
                   )}
 
                   {incSummary && (
