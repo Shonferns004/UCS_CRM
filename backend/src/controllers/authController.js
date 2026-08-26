@@ -377,9 +377,15 @@ export const impersonateFRO = async (req, res) => {
       } else {
         wantedPairs = [];
         for (const r of rawStations) {
-          const key = `${r?.ngo_id ?? ''}|${String(r?.station ?? '').trim()}`;
+          // Strict shape check: rejects PowerShell/JSON-mangled entries like
+          // "@{ngo_id=...;station=...}" that would otherwise poison the JWT
+          // claim and silently blind the whole session.
+          if (!r || typeof r !== 'object' || r.station == null) {
+            return res.status(400).json({ message: 'Invalid stations payload: each entry must be {ngo_id, station}' });
+          }
+          const key = `${r.ngo_id ?? ''}|${String(r.station).trim()}`;
           if (!ownedKeys.has(key)) {
-            return res.status(400).json({ message: `Station ${r?.station ?? '?'} is not assigned to ${target.name}` });
+            return res.status(400).json({ message: `Station ${r.station} is not assigned to ${target.name}` });
           }
           wantedPairs.push(ownedKeys.get(key));
         }
