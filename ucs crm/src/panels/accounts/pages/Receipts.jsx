@@ -272,20 +272,29 @@ function DateRangePicker({ from, to, onFromChange, onToChange }) {
 
 const currency = n => n != null ? '\u20B9' + Number(n).toLocaleString('en-IN') : '\u2014';
 
-function StatRow({ label, value, color }) {
+function StatRow({ label, value, color, loading }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '10px 0', borderTop: '1px solid var(--line)' }}>
-      <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color, lineHeight: 1.2, whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>{value}</div>
+      {loading ? (
+        <span style={{ display: 'inline-block', height: 22, width: 72, borderRadius: 6, background: 'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} />
+      ) : (
+        <div style={{ fontSize: 'clamp(18px,1.7vw,22px)', fontWeight: 700, color, lineHeight: 1.2, whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>{value}</div>
+      )}
       <div style={{ fontSize: 10, color: 'var(--ink-soft)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 600 }}>{label}</div>
     </div>
   );
 }
+
+const SkeletonCardTitle = () => (
+  <span style={{ display: 'inline-block', height: 15, width: 110, borderRadius: 6, background: 'linear-gradient(90deg,var(--bg) 25%,var(--line) 50%,var(--bg) 75%)', backgroundSize: '200% 100%', animation: 'sk-shimmer 1.4s infinite' }} />
+);
 
 export default function Receipts() {
   const [donors, setDonors] = useState(null)
   const [statsByProject, setStatsByProject] = useState([])
   const [monthStatsByProject, setMonthStatsByProject] = useState([])
   const [todayStats, setTodayStats] = useState([])
+  const [statsLoading, setStatsLoading] = useState(true)
   const [filterDate, setFilterDate] = useState(() => {
     const now = new Date();
     const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);
@@ -471,11 +480,12 @@ export default function Receipts() {
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
       url += `&from_date=${y}-${mStr}-01&to_date=${y}-${mStr}-${lastDay}`
     }
+    setStatsLoading(true)
     apiGet(url).then(res => {
       setStatsByProject(Array.isArray(res?.statsByProject) ? res.statsByProject : [])
       setMonthStatsByProject(Array.isArray(res?.monthStatsByProject) ? res.monthStatsByProject : ((filterDate || filterMonth || filterFrom || filterTo) ? [] : Array.isArray(res?.statsByProject) ? res.statsByProject : []))
       setTodayStats(Array.isArray(res?.todayStats) ? res.todayStats : [])
-    }).catch(e => console.error('Stats fetch error:', e.message))
+    }).catch(e => console.error('Stats fetch error:', e.message)).finally(() => setStatsLoading(false))
   }, [filterDate, filterMonth, filterFrom, filterTo])
 
   const refreshHistory = () => {
@@ -930,22 +940,22 @@ export default function Receipts() {
           return (
             <div key={pid} className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-                {PROJECT_LABELS[pid] || pid}
+                {statsLoading ? <SkeletonCardTitle /> : (PROJECT_LABELS[pid] || pid)}
               </div>
               <div style={{ width: '100%' }}>
-                <StatRow label="Receipts" value={(s.count || 0).toLocaleString('en-IN')} color="#2563eb" />
-                <StatRow label="Amount" value={currency(s.total_amount)} color="#0ea5e9" />
+                <StatRow label="Receipts" value={(s.count || 0).toLocaleString('en-IN')} color="#2563eb" loading={statsLoading} />
+                <StatRow label="Amount" value={currency(s.total_amount)} color="#0ea5e9" loading={statsLoading} />
               </div>
             </div>
           );
         })}
         <div className="stat-card receipt-history-stat-col" style={{ justifyContent: 'flex-start', padding: '18px 16px', border: '2px solid #5B6B4E', background: 'linear-gradient(135deg, #5B6B4E08 0%, #5B6B4E18 100%)' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'center', paddingBottom: 10 }}>
-            Total
+            {statsLoading ? <SkeletonCardTitle /> : 'Total'}
           </div>
           <div style={{ width: '100%' }}>
-            <StatRow label="Receipts" value={totalStats.count.toLocaleString('en-IN')} color="#2563eb" />
-            <StatRow label="Amount" value={currency(totalStats.total_amount)} color="#0ea5e9" />
+            <StatRow label="Receipts" value={totalStats.count.toLocaleString('en-IN')} color="#2563eb" loading={statsLoading} />
+            <StatRow label="Amount" value={currency(totalStats.total_amount)} color="#0ea5e9" loading={statsLoading} />
           </div>
         </div>
       </div>
