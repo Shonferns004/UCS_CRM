@@ -1495,7 +1495,7 @@ export const generateReceipt = async (req, res) => {
     const { data: logs, error: logError } = await db
       .from('fro_donor_logs')
       .select(`
-        id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
+        id, fro_worker_id, amount_collected, pan_number, notes, transaction_datetime, verified_at,
         fro_assignments!inner(
           donor_id,
           fro_worker_id,
@@ -1512,6 +1512,20 @@ export const generateReceipt = async (req, res) => {
       return res.status(404).json({ message: 'Log entry not found' });
     }
     const log = logs[0];
+
+    // Stamp the receipt with whoever actually collected: the log's credited
+    // worker (the acting FRO during Work As). Falls back to the assignment
+    // owner only when they are the same person.
+    let agentName = null;
+    const creditId = log.fro_worker_id;
+    if (creditId) {
+      if (String(creditId) === String(log.fro_assignments?.fro_worker_id)) {
+        agentName = log.fro_assignments?.workers?.name || null;
+      } else {
+        const { data: cw } = await db.from('workers').select('name').eq('id', creditId).maybeSingle();
+        agentName = cw?.name || null;
+      }
+    }
 
     const donorProfile = log.fro_assignments?.donor_profiles;
     let project = donorProfile?.project_supported || 'bsct';
@@ -1536,6 +1550,7 @@ export const generateReceipt = async (req, res) => {
       bank_name: donorProfile?.donors_bank_name || null,
       mode: mode || null,
       purpose: purpose || 'General Donation',
+      agent_name: agentName,
       generated_by: req.user.id,
       donor_id: donorId,
       receipt_date: log.transaction_datetime || log.verified_at || new Date().toISOString(),
