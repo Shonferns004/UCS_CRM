@@ -4340,7 +4340,7 @@ export const getTLDashboard = async (req, res) => {
     
     const callCounts = {};
     for (const log of callCountLogs || []) {
-      if (!callCounts[log.fro_worker_id]) callCounts[log.fro_worker_id] = { month: 0, today: 0, week: 0, monthConnected: 0, todayConnected: 0, weekConnected: 0, monthInterested: 0, todayInterested: 0, weekInterested: 0 };
+      if (!callCounts[log.fro_worker_id]) callCounts[log.fro_worker_id] = { month: 0, today: 0, week: 0, monthConnected: 0, todayConnected: 0, weekConnected: 0, monthInterested: 0, todayInterested: 0, weekInterested: 0, connectedStatuses: {} };
       callCounts[log.fro_worker_id].month++;
       const isToday = new Date(log.created_at) >= todayStart && new Date(log.created_at) <= todayEnd;
       const isWeek = new Date(log.created_at) >= weekStart && new Date(log.created_at) <= todayEnd;
@@ -4350,6 +4350,9 @@ export const getTLDashboard = async (req, res) => {
         callCounts[log.fro_worker_id].monthConnected++;
         if (isToday) callCounts[log.fro_worker_id].todayConnected++;
         if (isWeek) callCounts[log.fro_worker_id].weekConnected++;
+        // Track individual connected statuses
+        const ds = log.disposition_detail;
+        callCounts[log.fro_worker_id].connectedStatuses[ds] = (callCounts[log.fro_worker_id].connectedStatuses[ds] || 0) + 1;
       }
       if (interestedStatuses.has(log.disposition_detail)) {
         callCounts[log.fro_worker_id].monthInterested++;
@@ -4401,6 +4404,7 @@ export const getTLDashboard = async (req, res) => {
         interested: callCounts[w.id]?.monthInterested || 0,
         interested_today: callCounts[w.id]?.todayConnected || 0,
         interested_week: callCounts[w.id]?.weekInterested || 0,
+        connectedStatuses: callCounts[w.id]?.connectedStatuses || {},
         stations: froStationMap[w.id] || [],
         receivedDonors: leads,
         receivedAmount: coll,
