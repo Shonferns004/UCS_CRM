@@ -1598,8 +1598,8 @@ export const getReceiptList = async (req, res) => {
     let monthStatsByProject = statsRes.rows;
     if (monthFrom || monthTo) {
       const mw = []; const mp = [];
-      if (monthFrom) { mp.push(monthFrom); mw.push(`receipt_date >= $${mp.length}::date`); }
-      if (monthTo)   { mp.push(monthTo);   mw.push(`receipt_date <= $${mp.length}::date`); }
+      if (monthFrom) { mp.push(monthFrom); mw.push(`receipt_date >= ($${mp.length}::date AT TIME ZONE 'Asia/Kolkata')`); }
+      if (monthTo)   { mp.push(monthTo);   mw.push(`receipt_date < (($${mp.length}::date + 1) AT TIME ZONE 'Asia/Kolkata')`); }
       const mRes = await db._pool.query(
         `SELECT project_id,
                 count(*)::int AS count,
@@ -1677,21 +1677,21 @@ export const getReceiptList = async (req, res) => {
     const fromDate = (req.query.from_date || '').trim();
     const toDate = (req.query.to_date || '').trim();
     if (period === 'today') {
-      where.push(`receipt_date = (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date = (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'yesterday') {
-      where.push(`receipt_date = ((now() - INTERVAL '1 day') AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date = ((now() - INTERVAL '1 day') AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'week') {
-      where.push(`receipt_date >= ((now() - INTERVAL '7 days') AT TIME ZONE 'Asia/Kolkata')::date`);
-      where.push(`receipt_date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date >= ((now() - INTERVAL '7 days') AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'month') {
-      where.push(`receipt_date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date`);
-      where.push(`receipt_date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     } else if (period === 'year') {
-      where.push(`receipt_date >= date_trunc('year', now() AT TIME ZONE 'Asia/Kolkata')::date`);
-      where.push(`receipt_date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date >= date_trunc('year', now() AT TIME ZONE 'Asia/Kolkata')::date`);
+      where.push(`(receipt_date AT TIME ZONE 'Asia/Kolkata')::date <= (now() AT TIME ZONE 'Asia/Kolkata')::date`);
     }
-    if (fromDate) { params.push(fromDate); where.push(`receipt_date >= $${params.length}::date`); }
-    if (toDate) { params.push(toDate); where.push(`receipt_date <= $${params.length}::date`); }
+    if (fromDate) { params.push(fromDate); where.push(`receipt_date >= ($${params.length}::date AT TIME ZONE 'Asia/Kolkata')`); }
+    if (toDate) { params.push(toDate); where.push(`receipt_date < (($${params.length}::date + 1) AT TIME ZONE 'Asia/Kolkata')`); }
     const minAmount = parseFloat(req.query.min_amount);
     if (Number.isFinite(minAmount)) { params.push(minAmount); where.push(`amount >= $${params.length}`); }
     const maxAmount = parseFloat(req.query.max_amount);
@@ -3812,7 +3812,7 @@ export const getDonorsList = async (req, res) => {
         if (name) donorAssignmentMap[a.donor_id].push(`${name} (${a.station || '?'})`);
 
         if (!donorAssignmentList[a.donor_id]) donorAssignmentList[a.donor_id] = [];
-        donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, name, station: a.station || '' });
+        donorAssignmentList[a.donor_id].push({ id: a.id, ngo_id: a.ngo_id, worker_id: a.fro_worker_id, name, station: a.station || '' });
       }
 
       for (const d of data || []) {
@@ -4200,6 +4200,116 @@ export const updateAssignmentStations = async (req, res) => {
     }
 
     return res.json({ updated: planned.length, assignments: planned, message: 'Station assigned' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Remove an agent assignment entirely: hard-deletes the fro_assignments row
+// and its fro_donor_logs (same cascade as restoreWrongAssignments). The donor
+// becomes fully unassigned for that NGO and re-enters the unclaimed pool.
+export const deleteAssignment = async (req, res) => {
+  try {
+    const { id: donorId, assignmentId } = req.params;
+
+    const { data: row, error: fErr } = await db
+      .from('fro_assignments')
+      .select('id, donor_id, fro_worker_id, ngo_id, station')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (fErr) throw fErr;
+    if (!row) return res.status(404).json({ message: 'Assignment not found' });
+    if (String(row.donor_id) !== String(donorId)) {
+      return res.status(400).json({ message: 'Assignment does not belong to this donor' });
+    }
+
+    const { data: logs } = await db
+      .from('fro_donor_logs')
+      .select('id')
+      .eq('assignment_id', row.id);
+    if (logs && logs.length > 0) {
+      await db.from('fro_donor_logs').delete().eq('assignment_id', row.id);
+    }
+    await db.from('fro_assignments').delete().eq('id', row.id);
+
+    return res.json({
+      deleted: true,
+      assignment_id: row.id,
+      donor_id: row.donor_id,
+      logs_deleted: logs?.length || 0,
+      message: 'Agent removed',
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Replace an assignment in one step: pick a new agent AND/OR station. The old
+// row is soft-deleted (status='reassigned') for audit trail and a fresh
+// pending assignment is inserted — mirrors reassignStationDonors semantics.
+// The donor goes straight to the new agent; never touches the pool.
+export const replaceAssignment = async (req, res) => {
+  try {
+    const { id: donorId, assignmentId } = req.params;
+    const workerId = req.body?.fro_worker_id;
+    const station = String(req.body?.station ?? '').trim();
+    if (!workerId) return res.status(400).json({ message: 'Agent is required' });
+    if (!station) return res.status(400).json({ message: 'Station is required' });
+
+    const { data: row, error: fErr } = await db
+      .from('fro_assignments')
+      .select('*')
+      .eq('id', assignmentId)
+      .maybeSingle();
+    if (fErr) throw fErr;
+    if (!row) return res.status(404).json({ message: 'Assignment not found' });
+    if (String(row.donor_id) !== String(donorId)) {
+      return res.status(400).json({ message: 'Assignment does not belong to this donor' });
+    }
+
+    const { data: worker, error: wErr } = await db
+      .from('workers')
+      .select('id, name')
+      .eq('id', workerId)
+      .eq('department', 'FRO')
+      .eq('employment_status', 'active')
+      .maybeSingle();
+    if (wErr) throw wErr;
+    if (!worker) return res.status(400).json({ message: 'Agent not found or not an active FRO' });
+
+    const now = new Date().toISOString();
+
+    // Soft-delete the old row so history stays queryable.
+    const { error: upErr } = await db
+      .from('fro_assignments')
+      .update({ status: 'reassigned', updated_at: now })
+      .eq('id', row.id);
+    if (upErr) throw upErr;
+
+    const { data: created, error: insErr } = await db
+      .from('fro_assignments')
+      .insert({
+        donor_id: row.donor_id,
+        fro_worker_id: worker.id,
+        ngo_id: row.ngo_id,
+        station,
+        batch_id: row.batch_id || null,
+        batch_type: row.batch_type || null,
+        assigned_by: req.user?.id || null,
+        status: 'pending',
+        assigned_at: now,
+      })
+      .select()
+      .single();
+    if (insErr) throw insErr;
+
+    return res.json({
+      replaced: true,
+      old_assignment_id: row.id,
+      assignment: created,
+      agent_name: worker.name,
+      message: `Reassigned to ${worker.name} · ${station}`,
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
